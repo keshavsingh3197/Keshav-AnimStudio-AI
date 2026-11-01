@@ -37,18 +37,18 @@
   </header>
 
   @if (auth.isAnonymous()) {
-    <div class="yt-empty-card" style="border: 1px solid rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.04); padding: 3.5rem 1.5rem; text-align: center; border-radius: 12px; margin-top: 1.5rem">
-      <div class="yt-empty-icon" style="font-size: 2.8rem; margin-bottom: 0.75rem">🔒</div>
-      <h3 style="color: #fca5a5; margin: 0 0 0.5rem; font-size: 1.35rem">YouTube Studio Hub Requires Authentication</h3>
-      <p style="color: var(--muted, #94a3b8); max-width: 620px; margin: 0 auto 1.5rem; font-size: 0.95rem; line-height: 1.55">
+    <div class="yt-empty-card yt-auth-card">
+      <div class="yt-empty-icon">🔒</div>
+      <h3>YouTube Studio Hub Requires Authentication</h3>
+      <p>
         Connecting YouTube channels, auditing video metadata, and publishing renders involves sensitive Google OAuth credentials and channel permissions.
         To protect channel security, anonymous visitors cannot access YouTube integrations.
       </p>
-      <div style="display: flex; gap: 0.85rem; justify-content: center; align-items: center">
+      <div class="yt-auth-actions">
         <button type="button" class="yt-btn-primary" (click)="auth.openAuthModal()">
           Sign In to Connect Channel
         </button>
-        <a routerLink="/projects" class="yt-btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center">
+        <a routerLink="/projects" class="yt-btn-secondary">
           Return to Projects
         </a>
       </div>
@@ -201,7 +201,7 @@
         </div>
 
         <button type="button" class="yt-kpi yt-kpi-button" [class.yt-kpi-alert]="totals().attention > 0"
-                (click)="filter.set('attention')" [disabled]="totals().attention === 0">
+                (click)="setFilter('attention')" [disabled]="totals().attention === 0">
           <span class="yt-kpi-label">Needs Attention</span>
           <span class="yt-kpi-value" [class.yt-val-alert]="totals().attention > 0">{{ totals().attention }}</span>
           <span class="yt-kpi-sub">{{ totals().attention > 0 ? '⚠️ Issues found — click to filter' : '✓ All uploads healthy' }}</span>
@@ -233,9 +233,15 @@
         <h3>Published Videos</h3>
         <span class="yt-count-pill">{{ rows().length }} of {{ videos().length }}</span>
       </div>
-      <a routerLink="/youtube/checkup" class="yt-section-link">
-        🩺 Open Video Checkup &amp; AI Optimizer →
-      </a>
+      <div class="yt-section-tools">
+        <button type="button" class="yt-btn-outline" (click)="exportCsv()" [disabled]="rows().length === 0"
+                [title]="selectedCount() > 0 ? 'Export the selected videos to CSV' : 'Export every video shown to CSV'">
+          ⬇ Export CSV{{ selectedCount() > 0 ? ' (' + selectedCount() + ')' : '' }}
+        </button>
+        <a routerLink="/youtube/checkup" class="yt-section-link">
+          🩺 Open Video Checkup &amp; AI Optimizer →
+        </a>
+      </div>
     </div>
 
     @if (videos().length === 0) {
@@ -251,7 +257,7 @@
         <div class="yt-tabs" role="tablist" aria-label="Filter videos">
           @for (f of filters(); track f.key) {
             <button type="button" role="tab" class="yt-tab" [class.is-active]="filter() === f.key"
-                    [attr.aria-selected]="filter() === f.key" (click)="filter.set(f.key)">
+                    [attr.aria-selected]="filter() === f.key" (click)="setFilter(f.key)">
               {{ f.label }} <span class="yt-tab-count">{{ f.n }}</span>
             </button>
           }
@@ -263,16 +269,16 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="yt-search-icon" aria-hidden="true">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
             </svg>
-            <input type="text" class="yt-search-input" placeholder="Search videos…" maxlength="100"
-                   [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
+            <input #searchBox type="text" class="yt-search-input" placeholder="Search title or ID…  ( / )" maxlength="100"
+                   [ngModel]="query()" (ngModelChange)="setQuery($event)" aria-label="Search videos" />
             @if (query()) {
-              <button type="button" class="yt-search-clear" (click)="query.set('')" aria-label="Clear search">✕</button>
+              <button type="button" class="yt-search-clear" (click)="setQuery('')" aria-label="Clear search">✕</button>
             }
           </div>
 
           @if (filterChannels().length > 1) {
             <div class="yt-select-box">
-              <select class="yt-select" [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Filter by channel">
+              <select class="yt-select" [ngModel]="channelFilter()" (ngModelChange)="setChannel($event)" aria-label="Filter by channel">
                 <option value="all">All Channels</option>
                 @for (c of filterChannels(); track c.id) {
                   <option [value]="c.id">{{ c.title }}</option>
@@ -283,40 +289,108 @@
           }
 
           <div class="yt-select-box">
-            <select class="yt-select" [ngModel]="sort()" (ngModelChange)="sort.set($event)" aria-label="Sort videos">
-              <option value="newest">🕒 Newest First</option>
-              <option value="views">👁 Most Viewed</option>
-              <option value="likes">👍 Most Liked</option>
+            <select class="yt-select" [ngModel]="format()" (ngModelChange)="setFormat($event)" aria-label="Filter by format">
+              <option value="all">All formats</option>
+              <option value="long">🎬 Videos</option>
+              <option value="short">⚡ Shorts</option>
+            </select>
+            <span class="yt-select-chevron">▾</span>
+          </div>
+
+          <div class="yt-select-box">
+            <select class="yt-select" [ngModel]="range()" (ngModelChange)="setRange($event)" aria-label="Filter by publish date">
+              <option value="all">Any time</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
+            </select>
+            <span class="yt-select-chevron">▾</span>
+          </div>
+
+          <div class="yt-select-box">
+            <select class="yt-select" [ngModel]="sort()" (ngModelChange)="setSort($event)" aria-label="Sort videos">
+              <option value="newest">🕒 Newest first</option>
+              <option value="oldest">🕘 Oldest first</option>
+              <option value="views">👁 Most viewed</option>
+              <option value="likes">👍 Most liked</option>
+              <option value="comments">💬 Most commented</option>
+              <option value="engagement">🔥 Best engagement</option>
+              <option value="title">🔤 Title A–Z</option>
             </select>
             <span class="yt-select-chevron">▾</span>
           </div>
 
           <!-- View Mode Switcher -->
           <div class="yt-view-switcher" role="group" aria-label="View format">
-            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'list'" (click)="setViewMode('list')" title="List view">
+            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'list'" (click)="setViewMode('list')" title="List view" aria-label="List view">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
             </button>
-            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'grid'" (click)="setViewMode('grid')" title="Cards / Grid view">
+            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'grid'" (click)="setViewMode('grid')" title="Cards / Grid view" aria-label="Grid view">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            </button>
+            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'table'" (click)="setViewMode('table')" title="Compact table" aria-label="Table view">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
             </button>
           </div>
         </div>
       </div>
 
+      <!-- Totals of whatever the filters show -->
+      @if (rows().length > 0) {
+        <div class="yt-summary" aria-label="Totals for the videos shown">
+          <span><strong>{{ summary().count }}</strong> video{{ summary().count === 1 ? '' : 's' }}</span>
+          <span title="{{ full(summary().views) }} views">👁 <strong>{{ compact(summary().views) }}</strong> views</span>
+          <span>👍 <strong>{{ compact(summary().likes) }}</strong></span>
+          <span>💬 <strong>{{ compact(summary().comments) }}</strong></span>
+          <span title="Average views per video">⌀ <strong>{{ compact(summary().avgViews) }}</strong> / video</span>
+          @if (summary().avgEngagement !== null) {
+            <span title="Average of (likes + comments) / views">🔥 <strong>{{ summary().avgEngagement!.toFixed(1) }}%</strong> engagement</span>
+          }
+          @if (hasActiveFilters()) {
+            <button type="button" class="yt-link-btn" (click)="resetFilters()">Clear filters</button>
+          }
+        </div>
+      }
+
+      <!-- Bulk selection bar -->
+      @if (rows().length > 0) {
+        <div class="yt-bulk" [class.is-active]="selectedCount() > 0">
+          <label class="yt-check" title="Select every video on this page">
+            <input type="checkbox" [checked]="pageAllSelected()" [indeterminate]="pageSomeSelected()" (change)="togglePage()" />
+            <span>{{ selectedCount() > 0 ? selectedCount() + ' selected' : 'Select page' }}</span>
+          </label>
+          @if (selectedCount() > 0) {
+            <button type="button" class="yt-action-btn" (click)="copySelectedLinks()">🔗 Copy links</button>
+            <button type="button" class="yt-action-btn" (click)="exportCsv()">⬇ Export CSV</button>
+            @if (selectedCount() < rows().length) {
+              <button type="button" class="yt-link-btn" (click)="selectAllFiltered()">Select all {{ rows().length }}</button>
+            }
+            <button type="button" class="yt-link-btn" (click)="clearSelection()">Clear</button>
+          }
+          @if (notice(); as n) {
+            <span class="yt-notice" role="status">{{ n }}</span>
+          }
+        </div>
+      }
+
       @if (rows().length === 0) {
         <div class="yt-empty-filter">
-          <p>No videos match your search or filter.</p>
-          <button type="button" class="yt-btn-outline" (click)="filter.set('all'); query.set('')">Reset Filters</button>
+          <p>No videos match your search or filters.</p>
+          <button type="button" class="yt-btn-outline" (click)="resetFilters()">Reset Filters</button>
         </div>
       }
 
       <!-- VIEW MODE 1: LIST VIEW -->
       @if (viewMode() === 'list') {
         <ul class="yt-list">
-          @for (r of rows(); track r.video.id) {
-            <li class="yt-video-card" [class.has-issue]="needsAttention(r.video)">
+          @for (r of pageRows(); track r.video.id) {
+            <li class="yt-video-card" [class.has-issue]="needsAttention(r.video)" [class.is-selected]="selected().has(r.video.id)">
+              <label class="yt-card-check" title="Select video">
+                <input type="checkbox" [checked]="selected().has(r.video.id)" (change)="toggle(r.video.id)" [attr.aria-label]="'Select ' + r.video.title" />
+              </label>
               <!-- Thumbnail with Play Trigger -->
-              <div class="yt-thumb" [class.is-short]="isShortVideo(r.video)" (click)="openPreview(r.video)" role="button" tabindex="0" title="Click to play video preview">
+              <div class="yt-thumb" [class.is-short]="r.isShort" (click)="openPreview(r.video)" (keydown.enter)="openPreview(r.video)" role="button" tabindex="0" title="Click to play video preview">
                 @if (r.video.thumbnailUrl) {
                   <img [src]="r.video.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
                 } @else {
@@ -340,7 +414,7 @@
                 </button>
 
                 <div class="yt-video-meta">
-                  <span class="yt-meta-date">{{ r.video.publishedAt | date: 'mediumDate' }}</span>
+                  <span class="yt-meta-date" [title]="r.video.publishedAt | date: 'medium'">{{ r.video.publishedAt | date: 'mediumDate' }}<span class="yt-ago"> · {{ ago(r.video.publishedAt) }}</span></span>
                   @if (filterChannels().length > 1) {
                     <span class="yt-channel-tag">{{ r.video.channelTitle }}</span>
                   }
@@ -366,7 +440,7 @@
                   <button type="button" class="yt-action-btn yt-action-play" (click)="openPreview(r.video)" title="Play preview in app">
                     ▶ Play
                   </button>
-                  <a routerLink="/youtube/checkup" class="yt-action-link yt-action-checkup" title="Open Details Checkup &amp; AI Optimizer">
+                  <a routerLink="/youtube/checkup" [queryParams]="{ channel: r.video.channelId, video: r.video.videoId }" class="yt-action-link yt-action-checkup" title="Open Details Checkup &amp; AI Optimizer for this video">
                     🩺 Fix Details
                   </a>
                   <a [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Open on YouTube">
@@ -409,7 +483,15 @@
                     <span class="yt-stat-tag">Comments</span>
                   </div>
                 </div>
+                <div class="yt-stat-item yt-stat-engage" title="Engagement: (likes + comments) / views">
+                  <span class="yt-stat-icon">🔥</span>
+                  <div class="yt-stat-data">
+                    <span class="yt-stat-val">{{ engagementText(r) }}</span>
+                    <span class="yt-stat-tag">Engage</span>
+                  </div>
+                </div>
               </div>
+              <div class="yt-share-bar" [title]="viewShare(r) + '% of the top video in this list'"><span [style.width.%]="viewShare(r)"></span></div>
             </li>
           }
         </ul>
@@ -418,10 +500,13 @@
       <!-- VIEW MODE 2: CARDS / GRID VIEW -->
       @if (viewMode() === 'grid') {
         <div class="yt-grid-container">
-          @for (r of rows(); track r.video.id) {
-            <div class="yt-grid-card" [class.has-issue]="needsAttention(r.video)">
+          @for (r of pageRows(); track r.video.id) {
+            <div class="yt-grid-card" [class.has-issue]="needsAttention(r.video)" [class.is-selected]="selected().has(r.video.id)">
               <!-- Thumbnail -->
-              <div class="yt-grid-thumb-stage" [class.is-short]="isShortVideo(r.video)">
+              <div class="yt-grid-thumb-stage" [class.is-short]="r.isShort">
+                <label class="yt-card-check yt-grid-check" title="Select video">
+                  <input type="checkbox" [checked]="selected().has(r.video.id)" (change)="toggle(r.video.id)" [attr.aria-label]="'Select ' + r.video.title" />
+                </label>
                 @if (r.video.thumbnailUrl) {
                   <img [src]="r.video.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
                 } @else {
@@ -443,10 +528,10 @@
                 </button>
 
                 <div class="yt-grid-meta">
-                  <span>{{ r.video.publishedAt | date: 'mediumDate' }}</span>
+                  <span [title]="r.video.publishedAt | date: 'medium'">{{ ago(r.video.publishedAt) || (r.video.publishedAt | date: 'mediumDate') }}</span>
                   <span class="yt-pill yt-privacy" [class.public]="r.privacy === 'public'">{{ r.privacy }}</span>
                   @if (healthLabel(r.video); as h) {
-                    <span class="yt-pill" [class.is-ok]="h.tone === 'ok'" [class.is-warn]="h.tone === 'warn'">{{ h.text }}</span>
+                    <span class="yt-pill" [class.is-ok]="h.tone === 'ok'" [class.is-warn]="h.tone === 'warn'" [class.is-err]="h.tone === 'err'">{{ h.text }}</span>
                   }
                 </div>
 
@@ -457,11 +542,14 @@
                   <span title="Likes">👍 {{ compact(r.stats?.likes) }}</span>
                   <span class="yt-sep">·</span>
                   <span title="Comments">💬 {{ compact(r.stats?.comments) }}</span>
+                  <span class="yt-sep">·</span>
+                  <span title="Engagement: (likes + comments) / views">🔥 {{ engagementText(r) }}</span>
                 </div>
+                <div class="yt-share-bar" [title]="viewShare(r) + '% of the top video in this list'"><span [style.width.%]="viewShare(r)"></span></div>
 
                 <!-- Footer buttons -->
                 <div class="yt-grid-card-foot">
-                  <a routerLink="/youtube/checkup" class="yt-action-link yt-action-checkup yt-flex-btn">
+                  <a routerLink="/youtube/checkup" [queryParams]="{ channel: r.video.channelId, video: r.video.videoId }" class="yt-action-link yt-action-checkup yt-flex-btn">
                     🩺 Fix Details
                   </a>
                   <button type="button" class="yt-action-btn" (click)="openPreview(r.video)">
@@ -477,6 +565,109 @@
         </div>
       }
 
+      <!-- VIEW MODE 3: COMPACT TABLE -->
+      @if (viewMode() === 'table' && rows().length > 0) {
+        <div class="yt-table-wrap">
+          <table class="yt-table">
+            <thead>
+              <tr>
+                <th class="col-check">
+                  <input type="checkbox" [checked]="pageAllSelected()" [indeterminate]="pageSomeSelected()" (change)="togglePage()" aria-label="Select page" />
+                </th>
+                <th [attr.aria-sort]="sort() === 'title' ? 'ascending' : 'none'">
+                  <button type="button" class="yt-th-btn" (click)="sortByColumn('title')">Video {{ sort() === 'title' ? '▲' : '' }}</button>
+                </th>
+                <th [attr.aria-sort]="sort() === 'newest' ? 'descending' : sort() === 'oldest' ? 'ascending' : 'none'">
+                  <button type="button" class="yt-th-btn" (click)="sortByColumn('date')">Published {{ sort() === 'newest' ? '▼' : sort() === 'oldest' ? '▲' : '' }}</button>
+                </th>
+                <th>Status</th>
+                <th class="num"><button type="button" class="yt-th-btn" (click)="sortByColumn('views')">Views {{ sort() === 'views' ? '▼' : '' }}</button></th>
+                <th class="num"><button type="button" class="yt-th-btn" (click)="sortByColumn('likes')">Likes {{ sort() === 'likes' ? '▼' : '' }}</button></th>
+                <th class="num"><button type="button" class="yt-th-btn" (click)="sortByColumn('comments')">Comments {{ sort() === 'comments' ? '▼' : '' }}</button></th>
+                <th class="num"><button type="button" class="yt-th-btn" (click)="sortByColumn('engagement')">Engage {{ sort() === 'engagement' ? '▼' : '' }}</button></th>
+                <th class="col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of pageRows(); track r.video.id) {
+                <tr [class.has-issue]="needsAttention(r.video)" [class.is-selected]="selected().has(r.video.id)">
+                  <td class="col-check">
+                    <input type="checkbox" [checked]="selected().has(r.video.id)" (change)="toggle(r.video.id)" [attr.aria-label]="'Select ' + r.video.title" />
+                  </td>
+                  <td class="col-video">
+                    <button type="button" class="yt-table-video" (click)="openPreview(r.video)" [title]="r.video.title">
+                      <span class="yt-table-thumb" [class.is-short]="r.isShort">
+                        @if (r.video.thumbnailUrl) {
+                          <img [src]="r.video.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                        } @else {
+                          <span aria-hidden="true">▶</span>
+                        }
+                      </span>
+                      <span class="yt-table-title">
+                        {{ r.video.title }}
+                        @if (r.isShort) { <span class="yt-pill yt-format-short">Short</span> }
+                      </span>
+                    </button>
+                    @if (filterChannels().length > 1) { <span class="yt-channel-tag">{{ r.video.channelTitle }}</span> }
+                  </td>
+                  <td class="col-date" [title]="r.video.publishedAt | date: 'medium'">
+                    {{ r.video.publishedAt | date: 'mediumDate' }}
+                    <span class="yt-ago">{{ ago(r.video.publishedAt) }}</span>
+                  </td>
+                  <td class="col-status">
+                    <span class="yt-pill yt-privacy" [class.public]="r.privacy === 'public'"><span class="yt-dot"></span> {{ r.privacy || 'unknown' }}</span>
+                    @if (healthLabel(r.video); as h) {
+                      <span class="yt-pill" [class.is-ok]="h.tone === 'ok'" [class.is-warn]="h.tone === 'warn'" [class.is-err]="h.tone === 'err'" [title]="r.video.issueMessage || ''">{{ h.text }}</span>
+                    }
+                  </td>
+                  <td class="num" [title]="full(r.stats?.views)">
+                    {{ compact(r.stats?.views) }}
+                    <div class="yt-share-bar"><span [style.width.%]="viewShare(r)"></span></div>
+                  </td>
+                  <td class="num" [title]="full(r.stats?.likes)">{{ compact(r.stats?.likes) }}</td>
+                  <td class="num" [title]="full(r.stats?.comments)">{{ compact(r.stats?.comments) }}</td>
+                  <td class="num">{{ engagementText(r) }}</td>
+                  <td class="col-actions">
+                    <button type="button" class="yt-icon-btn" (click)="openPreview(r.video)" title="Play preview" aria-label="Play preview">▶</button>
+                    <a class="yt-icon-btn" routerLink="/youtube/checkup" [queryParams]="{ channel: r.video.channelId, video: r.video.videoId }" title="Fix details" aria-label="Fix details">🩺</a>
+                    <a class="yt-icon-btn" [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer" title="Watch on YouTube" aria-label="Watch on YouTube">↗</a>
+                    <button type="button" class="yt-icon-btn" (click)="copy(r.video)" title="Copy link" aria-label="Copy link">{{ copiedId() === r.video.id ? '✓' : '🔗' }}</button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <!-- Pagination -->
+      @if (rows().length > 0) {
+        <nav class="yt-pager" aria-label="Pagination">
+          <span class="yt-pager-range">Showing {{ rangeLabel() }}</span>
+          <div class="yt-pager-pages">
+            <button type="button" class="yt-page-btn" (click)="page.set(pageIndex() - 1)" [disabled]="pageIndex() === 0" aria-label="Previous page">‹</button>
+            @for (p of pageButtons(); track $index) {
+              @if (p === null) {
+                <span class="yt-page-gap">…</span>
+              } @else {
+                <button type="button" class="yt-page-btn" [class.is-active]="p === pageIndex()" (click)="page.set(p)"
+                        [attr.aria-current]="p === pageIndex() ? 'page' : null">{{ p + 1 }}</button>
+              }
+            }
+            <button type="button" class="yt-page-btn" (click)="page.set(pageIndex() + 1)" [disabled]="pageIndex() >= pageCount() - 1" aria-label="Next page">›</button>
+          </div>
+          <label class="yt-pager-size">
+            <span>Per page</span>
+            <span class="yt-select-box">
+              <select class="yt-select" [ngModel]="pageSize()" (ngModelChange)="setPageSize($event)" aria-label="Videos per page">
+                @for (n of pageSizes; track n) { <option [ngValue]="n">{{ n }}</option> }
+              </select>
+              <span class="yt-select-chevron">▾</span>
+            </span>
+          </label>
+        </nav>
+      }
+
       <!-- VIDEO PREVIEW & PLAY MODAL -->
       @if (previewVideo(); as pv) {
         <div class="yt-preview-backdrop" (click)="closePreview()">
@@ -488,7 +679,12 @@
                 }
                 <h3>{{ pv.title || '(Untitled Video)' }}</h3>
               </div>
-              <button type="button" class="yt-preview-close-btn" (click)="closePreview()" aria-label="Close player">✕</button>
+              <div class="yt-preview-nav">
+                <button type="button" class="yt-preview-close-btn" (click)="stepPreview(-1)" [disabled]="previewPosition() <= 0" aria-label="Previous video" title="Previous (←)">‹</button>
+                @if (previewPosition() >= 0) { <span class="yt-preview-pos">{{ previewPosition() + 1 }} / {{ rows().length }}</span> }
+                <button type="button" class="yt-preview-close-btn" (click)="stepPreview(1)" [disabled]="previewPosition() < 0 || previewPosition() >= rows().length - 1" aria-label="Next video" title="Next (→)">›</button>
+                <button type="button" class="yt-preview-close-btn" (click)="closePreview()" aria-label="Close player" title="Close (Esc)">✕</button>
+              </div>
             </header>
 
             <div class="yt-preview-stage" [class.is-vertical]="isShortVideo(pv)">
@@ -508,10 +704,15 @@
                 <span>Published {{ pv.publishedAt | date: 'mediumDate' }}</span>
                 <span class="yt-pill">{{ pv.privacy }}</span>
                 <span>{{ pv.channelTitle }}</span>
+                @if (previewRow(); as pr) {
+                  <span title="Views">👁 {{ compact(pr.stats?.views) }}</span>
+                  <span title="Likes">👍 {{ compact(pr.stats?.likes) }}</span>
+                  <span title="Comments">💬 {{ compact(pr.stats?.comments) }}</span>
+                }
               </div>
 
               <div class="yt-preview-actions">
-                <a routerLink="/youtube/checkup" class="yt-btn-primary" (click)="closePreview()">
+                <a routerLink="/youtube/checkup" [queryParams]="{ channel: pv.channelId, video: pv.videoId }" class="yt-btn-primary" (click)="closePreview()">
                   🩺 Open in Details Optimizer
                 </a>
                 <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline">

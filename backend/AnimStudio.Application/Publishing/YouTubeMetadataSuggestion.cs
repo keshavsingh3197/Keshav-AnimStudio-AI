@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AnimStudio.Application.Ai;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 
 namespace AnimStudio.Application.Publishing;
@@ -46,8 +47,39 @@ public static class YouTubeMetadataSuggester
     /// <summary>Enough of a script to say what the video is about; the prompt fences anything longer anyway.</summary>
     public const int MaxSummaryChars = 6_000;
 
-    /// <summary>Languages the prompt is asked to write in; anything else falls back to English.</summary>
-    public static readonly IReadOnlySet<string> Languages = new HashSet<string>(StringComparer.Ordinal) { "en", "hi" };
+    /// <summary>Languages the prompt is asked to write in; anything else falls back to <see cref="DefaultLanguage"/>.</summary>
+    public static readonly IReadOnlySet<string> Languages = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "en", "hi", "hinglish", "mr", "gu", "bn", "ta", "te", "kn", "pa",
+    };
+
+    /// <summary>The language used when the request names none (or one that isn't offered): Hindi.</summary>
+    public const string DefaultLanguage = "hi";
+
+    /// <summary>The offered language code for <paramref name="code"/>, or Hindi when it is missing or unknown.</summary>
+    public static string NormalizeLanguage(string? code)
+    {
+        var trimmed = code?.Trim().ToLowerInvariant();
+        return trimmed is not null && Languages.Contains(trimmed) ? trimmed : DefaultLanguage;
+    }
+
+    /// <summary>
+    /// The language's name for the prompt. A name rather than a code, because "Write in hi" is
+    /// easy for a model to misread; it comes from this fixed list, so it is safe as a literal variable.
+    /// </summary>
+    public static string LanguageName(string? code) => NormalizeLanguage(code) switch
+    {
+        "en" => "English",
+        "hinglish" => "Hinglish",
+        "mr" => "Marathi",
+        "gu" => "Gujarati",
+        "bn" => "Bengali",
+        "ta" => "Tamil",
+        "te" => "Telugu",
+        "kn" => "Kannada",
+        "pa" => "Punjabi",
+        _ => "Hindi",
+    };
 
     /// <summary>The longest creator brief sent to the model.</summary>
     public const int MaxBriefChars = 1_000;
@@ -59,7 +91,7 @@ public static class YouTubeMetadataSuggester
     public static readonly IReadOnlyDictionary<string, string> Tones = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["auto"] = "whatever suits the material best",
-        ["devotional-omkr"] = "highly devotional, emotional, and high-CTR for the devotional YouTube channel 'OMKR' - mention 'AnimStudio (Built by Creator)' and 'OMKR 3D Devotional Animations', include channel link https://youtube.com/@omkr-shiv, include spoken lyrics/shloka, chapters and credits in description, and write a devotional pinned comment (encouraging Har Har Mahadev / Jai Mata Di / Jai Shree Shyam comments) and an interactive question comment",
+        ["devotional-omkr"] = "highly devotional, emotional and high-CTR, for a devotional 3D animation channel - open with a lyric quote, add two paragraphs of rich devotional context, a relevant Sanskrit shloka or chaupai with its Hindi meaning, and write a devotional pinned comment (encouraging viewers to write a sacred jaikara such as Har Har Mahadev / Jai Mata Di / Jai Shree Shyam) and an interactive question comment; the channel's credits, links and hashtags are added for you",
         ["devotional"] = "devotional and respectful - warm, reverent, never flippant",
         ["funny"] = "funny and playful - light jokes, witty wording, a smile in the title",
         ["emotional"] = "emotional and heartfelt",
@@ -69,6 +101,9 @@ public static class YouTubeMetadataSuggester
         ["kids"] = "simple, cheerful and suitable for children",
         ["motivational"] = "motivational and uplifting",
         ["clickbait-free"] = "honest and plain - no exaggeration, no all-caps, no clickbait",
+        ["seo"] = "search-first: the exact phrase a viewer would type is in the first words of the title and the first line of the description, the wording is specific and natural, and there is no hype",
+        ["curiosity"] = "curiosity-driven: a hook that opens a question the video answers, promising something true that the video really delivers - never misleading",
+        ["storytelling"] = "story-like and warm: describe the subject as a small story or journey, with feeling, while staying accurate",
     };
 
     /// <summary>The tone's wording for the prompt; an unknown id reads as "auto".</summary>
@@ -302,9 +337,10 @@ public static class YouTubeFreeSeoEngine
         string language,
         string? brief,
         string? transcriptText = null,
-        YouTubeSeoExtras? extras = null)
+        YouTubeSeoExtras? extras = null,
+        ChannelBranding? branding = null)
     {
-        var fallback = Generate(summary, style, toneId, language, brief, transcriptText, extras);
+        var fallback = Generate(summary, style, toneId, language, brief, transcriptText, extras, branding);
         return parsed with
         {
             TitleOptions = parsed.TitleOptions.Count > 0 ? parsed.TitleOptions : fallback.TitleOptions,
@@ -324,9 +360,11 @@ public static class YouTubeFreeSeoEngine
         string language,
         string? brief,
         string? transcriptText = null,
-        YouTubeSeoExtras? extras = null)
+        YouTubeSeoExtras? extras = null,
+        ChannelBranding? branding = null)
     {
         extras ??= YouTubeSeoExtras.None;
+        var brand = YouTubeBrandKit.Resolve(branding, toneId);
         var isHindi = string.Equals(language, "hi", StringComparison.OrdinalIgnoreCase);
         var isShort = style.Contains("Short", StringComparison.OrdinalIgnoreCase);
         var isOmkr = string.Equals(toneId, "devotional-omkr", StringComparison.OrdinalIgnoreCase)
@@ -347,7 +385,7 @@ public static class YouTubeFreeSeoEngine
 
         var deity = DetectDeity(summary + " " + brief + " " + transcriptText + " " + cleanSubject);
 
-        var titles = BuildTitles(cleanSubject, firstLyricLine, deity, isHindi, isDevotional, isOmkr, isShort);
+        var titles = BuildTitles(cleanSubject, firstLyricLine, deity, isHindi, isDevotional, isOmkr, isShort, brand);
         var primaryTitle = titles[0];
         var titleOptions = titles.Skip(1).Take(4).ToList();
 
@@ -355,7 +393,7 @@ public static class YouTubeFreeSeoEngine
         var shortDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 1, extras), extras);
         var detailedDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 2, extras), extras);
 
-        var (tags, tagIdeas) = BuildTags(cleanSubject, deity, isHindi, isDevotional, isOmkr, isShort);
+        var (tags, tagIdeas) = BuildTags(cleanSubject, deity, isHindi, isDevotional, isOmkr, isShort, brand);
         var (pinnedComment, engagementComment) = BuildComments(cleanSubject, deity, isHindi, isDevotional, isOmkr);
 
         return new YouTubeMetadataSuggestion(primaryTitle, mainDesc, tags)
@@ -559,10 +597,10 @@ public static class YouTubeFreeSeoEngine
 
     private static List<string> BuildTitles(
         string subject, string firstLyric, DeityProfile deity,
-        bool isHindi, bool isDevotional, bool isOmkr, bool isShort)
+        bool isHindi, bool isDevotional, bool isOmkr, bool isShort, ChannelBranding brand)
     {
         var shortTag = isShort ? " #Shorts" : "";
-        var omkrTag = isOmkr ? " #OMKR" : "";
+        var omkrTag = isOmkr && brand.Hashtags.FirstOrDefault() is { } brandTag ? " #" + brandTag : "";
         var lyricHook = !string.IsNullOrWhiteSpace(firstLyric) && !string.Equals(firstLyric, subject, StringComparison.OrdinalIgnoreCase)
             ? firstLyric
             : subject;
@@ -657,14 +695,9 @@ public static class YouTubeFreeSeoEngine
                 }
 
                 sb.AppendLine();
-                sb.AppendLine("🎬 Credits & Visuals Engine:");
-                sb.AppendLine("• Visuals & Animation Engine: AnimStudio (Built by Creator)");
-                sb.AppendLine("• Production: OMKR 3D Devotional Animations");
-                sb.AppendLine("• Official Channel: https://youtube.com/@omkr-shiv");
-                sb.AppendLine();
                 sb.AppendLine("🔔 अगर यह भक्ति वीडियो आपके दिल को छूए, तो वीडियो को Like करें, भक्तों के साथ Share करें और चैनल को Subscribe ज़रूर करें!");
                 sb.AppendLine();
-                sb.AppendLine(deity.HashtagsHi);
+                sb.AppendLine(WithoutBrandTag(deity.HashtagsHi));
             }
             else
             {
@@ -676,8 +709,7 @@ public static class YouTubeFreeSeoEngine
                     sb.AppendLine(lyricsBlock);
                 }
                 sb.AppendLine();
-                sb.AppendLine("🎬 Powered by: AnimStudio (Built by Creator)");
-                sb.AppendLine(isShort ? "#Shorts #HindiShorts #AnimStudio #Viral" : "#HindiVideo #AnimStudio #Trending");
+                sb.AppendLine(isShort ? "#Shorts #HindiShorts #Viral" : "#HindiVideo #Trending");
             }
         }
         else
@@ -699,16 +731,11 @@ public static class YouTubeFreeSeoEngine
                     sb.AppendLine(lyricsBlock);
                 }
                 sb.AppendLine();
-                sb.AppendLine("🎬 Production & Engine Credits:");
-                sb.AppendLine("• Visuals & Engine: AnimStudio (Built by Creator)");
-                sb.AppendLine("• Studio: OMKR 3D Devotional Animations");
-                sb.AppendLine("• Subscribe: https://youtube.com/@omkr-shiv");
-                sb.AppendLine();
-                sb.AppendLine(deity.HashtagsEn);
+                sb.AppendLine(WithoutBrandTag(deity.HashtagsEn));
             }
             else
             {
-                sb.AppendLine($"✨ {subject} — Watch this high-impact visual presentation crafted in AnimStudio.");
+                sb.AppendLine($"✨ {subject} — Watch this high-impact visual presentation.");
                 if (!string.IsNullOrWhiteSpace(lyricsBlock) && variant != 1)
                 {
                     sb.AppendLine();
@@ -716,15 +743,14 @@ public static class YouTubeFreeSeoEngine
                     sb.AppendLine(lyricsBlock);
                 }
                 sb.AppendLine();
-                sb.AppendLine("🎬 Created with AnimStudio (Built by Creator)");
-                sb.AppendLine(isShort ? "#Shorts #AnimStudio #ViralShorts #3DAnimation" : "#AnimStudio #VideoProduction #3DAnimation");
+                sb.AppendLine(isShort ? "#Shorts #ViralShorts #3DAnimation" : "#VideoProduction #3DAnimation");
             }
         }
         return sb.ToString().Trim();
     }
 
     private static (List<string> Tags, List<string> TagIdeas) BuildTags(
-        string subject, DeityProfile deity, bool isHindi, bool isDevotional, bool isOmkr, bool isShort)
+        string subject, DeityProfile deity, bool isHindi, bool isDevotional, bool isOmkr, bool isShort, ChannelBranding brand)
     {
         var tags = new List<string>();
         var ideas = new List<string>();
@@ -744,28 +770,28 @@ public static class YouTubeFreeSeoEngine
         if (subject.Length <= 38) AddMain(subject);
         if (isOmkr || isDevotional)
         {
-            AddMain("omkr");
-            AddMain("AnimStudio");
-            AddMain("omkr shiv");
+            foreach (var brandTag in brand.Tags) AddMain(brandTag);
             AddMain("3d devotional animation");
+            if (isHindi) AddMain(deity.NameHi);
             foreach (var dt in deity.ExtraTags) AddMain(dt);
             AddMain("hindi bhajan");
             AddMain("bhakti shorts");
             if (isShort) AddMain("youtube shorts");
 
-            AddIdea("omkr 3d devotional animations");
+            if (!string.IsNullOrWhiteSpace(brand.VisualsCredit)) AddIdea(brand.VisualsCredit.ToLowerInvariant());
             AddIdea("devotional status");
             AddIdea("morning bhajan");
             AddIdea("sanatan dharma");
             AddIdea("spiritual shorts");
             AddIdea("bhakti song hindi");
             AddIdea("divine animation");
-            AddIdea("lord shiva status");
-            AddIdea("jai mata di status");
+            AddIdea("भजन");
+            AddIdea("भक्ति गीत");
+            AddIdea("सनातन धर्म");
         }
         else
         {
-            AddMain("AnimStudio");
+            foreach (var brandTag in brand.Tags) AddMain(brandTag);
             if (isShort) AddMain("shorts");
             AddMain(isHindi ? "hindi shorts" : "viral shorts");
             AddMain("3d animation");
@@ -783,7 +809,7 @@ public static class YouTubeFreeSeoEngine
         {
             if (isDevotional || isOmkr)
             {
-                var pinned = $"{deity.Emoji} सच्चे मन से कमेंट में \"{deity.GreetingHi}\" ज़रूर लिखें! {deity.NameHi} आपकी सभी मनोकामनाएं पूर्ण करें। 🙏✨ ऐसे और दिव्य 3D भक्ति एनिमेशन के लिए हमारे चैनल https://youtube.com/@omkr-shiv को Subscribe ज़रूर करें! 🔔";
+                var pinned = $"{deity.Emoji} सच्चे मन से कमेंट में \"{deity.GreetingHi}\" ज़रूर लिखें! {deity.NameHi} आपकी सभी मनोकामनाएं पूर्ण करें। 🙏✨ ऐसे और दिव्य 3D भक्ति एनिमेशन के लिए हमारे चैनल को Subscribe ज़रूर करें! 🔔";
                 var engage = $"🙏 इस भजन की कौन सी लाइन आपके दिल को सबसे ज़्यादा छू गई? कमेंट में ज़रूर बताएं 👇✨";
                 return (pinned, engage);
             }
@@ -795,7 +821,7 @@ public static class YouTubeFreeSeoEngine
 
         if (isDevotional || isOmkr)
         {
-            var pinned = $"{deity.Emoji} Type \"{deity.GreetingEn}\" in the comments to receive divine blessings! 🙏✨ Subscribe to https://youtube.com/@omkr-shiv for more 3D devotional animations crafted in AnimStudio! 🔔";
+            var pinned = $"{deity.Emoji} Type \"{deity.GreetingEn}\" in the comments to receive divine blessings! 🙏✨ Subscribe for more 3D devotional animations! 🔔";
             var engage = $"🙏 Which line or moment from this devotional video touched your heart the most? Share in the comments below 👇✨";
             return (pinned, engage);
         }
@@ -810,6 +836,10 @@ public static class YouTubeFreeSeoEngine
         if (value.Length <= maxLength) return value;
         return value[..maxLength].TrimEnd();
     }
+
+    /// <summary>The built-in deity hashtags end with the studio's own tag; the channel's brand hashtags are added when the description is finished.</summary>
+    private static string WithoutBrandTag(string hashtags) =>
+        Regex.Replace(hashtags, @"\s*#OMKR\b", string.Empty, RegexOptions.CultureInvariant).Trim();
 }
 
 /// <summary>

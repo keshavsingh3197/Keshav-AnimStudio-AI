@@ -64,25 +64,25 @@ import { WatermarkBody } from '../core/models/api.models';
       border-radius: 12px;
       border: 1px solid rgba(148, 163, 184, 0.25);
       container-type: size;
-      background: #0b1020 center / cover no-repeat;
+      background: var(--surface) center / cover no-repeat;
       box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
     .wp-scene { position: absolute; inset: 0;
-      background: linear-gradient(180deg, #1e3a5f 0%, #3b5a7a 55%, #22324a 100%); }
+      background: linear-gradient(180deg, var(--surface-elevated) 0%, #3b5a7a 55%, var(--surface-elevated) 100%); }
     .wp-sun { position: absolute; width: 18cqh; height: 18cqh; border-radius: 50%;
       left: 62%; top: 22%; background: radial-gradient(circle, #ffd27a, #f59e0b 70%, transparent 72%); }
     .wp-hill { position: absolute; bottom: -20cqh; border-radius: 50%; }
-    .wp-hill.a { left: -10%; width: 80%; height: 55cqh; background: #1f3b2d; }
-    .wp-hill.b { right: -15%; width: 75%; height: 45cqh; background: #2c4a36; }
+    .wp-hill.a { left: -10%; width: 80%; height: 55cqh; background: color-mix(in srgb, var(--surface-2) 87%, rgb(70 255 163) 13%); }
+    .wp-hill.b { right: -15%; width: 75%; height: 45cqh; background: color-mix(in srgb, var(--surface-2) 77%, rgb(88 255 144) 23%); }
     .wp-mark { position: absolute; display: flex; }
     .wp-mark img { height: 100%; max-width: 35cqw; object-fit: contain; display: block; }
     .wp-text { font-weight: 700; line-height: 1; padding: 0 0.25em; white-space: nowrap;
       font-family: 'Segoe UI', system-ui, sans-serif; border-radius: 3px; }
-    .wp-missing, .wp-none { font-size: 0.7rem; color: #cbd5e1; background: rgba(6, 9, 17, 0.72);
+    .wp-missing, .wp-none { font-size: 0.7rem; color: var(--text-dim); background: color-mix(in srgb, var(--bg) 72%, transparent);
       backdrop-filter: blur(6px); padding: 3px 8px; border-radius: 6px; border: 1px dashed rgba(148, 163, 184, 0.35); white-space: nowrap; }
     .wp-none { position: absolute; left: 50%; top: 50%; translate: -50% -50%; }
-    .wp-label { position: absolute; left: 8px; bottom: 8px; font-size: 0.65rem; font-weight: 600; color: #e2e8f0;
-      background: rgba(6, 9, 17, 0.72); backdrop-filter: blur(6px); border: 1px solid rgba(148, 163, 184, 0.18); padding: 2px 7px; border-radius: 6px; }
+    .wp-label { position: absolute; left: 8px; bottom: 8px; font-size: 0.65rem; font-weight: 600; color: var(--text);
+      background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(6px); border: 1px solid rgba(148, 163, 184, 0.18); padding: 2px 7px; border-radius: 6px; }
   `],
 })
 export class WatermarkPreviewComponent {

@@ -1,9 +1,11 @@
-import { Component, ElementRef, HostListener, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, DestroyRef, ElementRef, HostListener, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs';
 
 import { AdminAccess } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
+import { SignupService } from '../../core/services/signup.service';
 import { StatusService } from '../../core/services/status.service';
 import { SETTINGS_GROUPS, SETTINGS_PAGES, searchSettings } from './settings-registry';
 
@@ -32,12 +34,22 @@ export class AdminShellComponent {
   readonly status = inject(StatusService);
   readonly access = signal<AdminAccess | null>(null);
 
+  /** Access requests waiting for a decision, for the badge on "Sign-ups & members". */
+  readonly pendingSignups = signal(0);
+  private readonly signups = inject(SignupService);
+
   readonly query = signal('');
   readonly results = computed(() => searchSettings(this.query()));
   readonly groups = SETTINGS_GROUPS.map((name) => ({
     name,
     pages: SETTINGS_PAGES.filter((p) => p.group === name),
   }));
+
+  /** On a narrow screen the page list folds into one row showing where you are. */
+  readonly navOpen = signal(false);
+  private readonly url = signal(this.router.url);
+  readonly current = computed(() =>
+    SETTINGS_PAGES.find((p) => this.url().split(/[?#]/)[0].startsWith(`/admin/${p.route}`)) ?? SETTINGS_PAGES[0]);
 
   @ViewChild('search') searchRef?: ElementRef<HTMLInputElement>;
 
@@ -49,11 +61,21 @@ export class AdminShellComponent {
         this.recheckAccess();
       }
     });
+
+    const sub = this.router.events.pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd)).subscribe((e) => {
+      this.url.set(e.urlAfterRedirects);
+      this.navOpen.set(false);
+    });
+    inject(DestroyRef).onDestroy(() => sub.unsubscribe());
   }
 
   recheckAccess(): void {
     this.status.run(this.api.adminAccess(), (access) => {
       this.access.set(access);
+      if (access.canAdminister) {
+        // Best effort: a badge isn't worth an error banner if the identity service is slow.
+        this.signups.summary().subscribe({ next: (s) => this.pendingSignups.set(s.pending), error: () => this.pendingSignups.set(0) });
+      }
       if (!access.canAdminister && this.auth.isAdmin()) {
         // Attempt silent refresh in case the token just expired
         this.auth.refreshSession().subscribe({

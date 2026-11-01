@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, input, model, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
@@ -7,13 +7,16 @@ import { Subscription } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  MAX_THUMBNAIL_UPLOAD_BYTES, YouTubeCategory, YouTubeCheckupPlaylist, YouTubeCheckupVideo, YouTubePrivacy, YouTubeThumbnailChoice,
+  MAX_THUMBNAIL_UPLOAD_BYTES, YouTubeCategory, YouTubeCheckupPlaylist, YouTubeCheckupVideo, YouTubePrivacy, YouTubeSuggestEngine, YouTubeThumbnailChoice,
   YouTubeVideoEditContext,
 } from '../../core/models/youtube.models';
+import { ApiService } from '../../core/services/api.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
+import { seoChecks, seoScore } from './checkup-seo';
 import {
-  Draft, RowState, draftChecklist, draftDiffers, earliestScheduleLocal, fitTags, hasFooter, insertAboveFooter, scheduleDiffers, scheduleProblem,
-  splitTags, trimUtf8Bytes, viewerZone, withFooter,
+  Draft, HASHTAGS, RowState, YOUTUBE_LANGUAGES, draftChecklist, draftDiffers, earliestScheduleLocal, fitTags, hasFooter, insertAboveFooter, scheduleDiffers, scheduleProblem,
+  splitTags, toneLabel, trimUtf8Bytes, viewerZone, withFooter,
 } from './checkup-draft';
 
 /** Where the frame picker samples the render, as fractions of its length; "Other moments" shifts them. */
@@ -22,9 +25,17 @@ const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
 /** YouTube video ids are 11 URL-safe characters; nothing else is ever put in the player's URL. */
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
-type ThumbMode = 'current' | 'frame' | 'upload';
+type ThumbMode = 'current' | 'youtube' | 'frame' | 'library' | 'upload';
 
 interface FrameOption { at: number; url: string | null; failed: boolean }
+
+/** The pictures YouTube itself makes for every video; each is a JPG on its public image host. */
+const YOUTUBE_STILLS: readonly { key: string; label: string; file: string }[] = [
+  { key: 'max', label: 'HD', file: 'maxresdefault.jpg' },
+  { key: '1', label: 'Start', file: 'hq1.jpg' },
+  { key: '2', label: 'Middle', file: 'hq2.jpg' },
+  { key: '3', label: 'End', file: 'hq3.jpg' },
+];
 
 /**
  * The checkup's edit dialog for one video: the video and its thumbnail on one side, its
@@ -35,15 +46,20 @@ interface FrameOption { at: number; url: string | null; failed: boolean }
  */
 @Component({
   selector: 'app-checkup-video-editor',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, AssetThumbnailPickerComponent],
   templateUrl: './checkup-video-editor.component.html',
   styleUrl: './checkup-video-editor.component.css',
-  host: { '(document:keydown)': 'onKey($event)' },
+  host: { '(document:keydown)': 'onKey($event)', '(document:paste)': 'onPaste($event)' },
 })
 export class CheckupVideoEditorComponent {
   private readonly api = inject(YouTubePublishService);
+  private readonly assets = inject(ApiService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
+  readonly Math = Math;
+  readonly languages = YOUTUBE_LANGUAGES;
+  readonly stills = YOUTUBE_STILLS;
   readonly channelId = input.required<string>();
   readonly video = input.required<YouTubeCheckupVideo>();
   readonly state = input.required<RowState>();
@@ -58,8 +74,19 @@ export class CheckupVideoEditorComponent {
   /** Short line describing the page's AI settings, e.g. "tone auto, English". */
   readonly aiSummary = input('');
 
+  // The AI settings belong to the page (every draft uses them); the dialog edits them in place.
+  readonly tones = input<string[]>([]);
+  readonly engines = input<YouTubeSuggestEngine[]>([]);
+  readonly tone = model('auto');
+  readonly language = model('hi');
+  readonly engine = model('');
+  readonly brief = model('');
+  readonly aiOpen = signal(false);
+
   readonly draftChange = output<Partial<Draft>>();
   readonly suggest = output<void>();
+  /** A new take instead of the cached answer. */
+  readonly suggestFresh = output<void>();
   readonly save = output<{ next: boolean }>();
   readonly reset = output<void>();
   readonly copyPrompt = output<void>();
@@ -148,6 +175,55 @@ export class CheckupVideoEditorComponent {
     return !!d && draftDiffers(this.video(), d);
   });
 
+  // Per-field "back to what YouTube has".
+  readonly titleChanged = computed(() => !!this.draft() && this.draft()!.title !== this.video().title);
+  readonly descriptionChanged = computed(() => !!this.draft() && this.draft()!.description.trim() !== this.video().description.trim());
+  readonly tagsChanged = computed(() => {
+    const d = this.draft();
+    return !!d && splitTags(d.tagsText).join('\n') !== this.video().tags.join('\n');
+  });
+
+  /** YouTube ignores every hashtag in a video when it has more than 15. */
+  readonly hashtagCount = computed(() => new Set((this.draft()?.description ?? '').match(HASHTAGS)?.map((h) => h.toLowerCase()) ?? []).size);
+  /** What shows before "...more": roughly the first three lines, cut at about 140 characters. */
+  readonly aboveFold = computed(() => {
+    const text = (this.draft()?.description ?? '').trim().split('\n').slice(0, 3).join('\n');
+    return text.length > 140 ? `${text.slice(0, 140).trimEnd()}…` : text;
+  });
+  readonly tagsToHashtag = computed(() => {
+    const d = this.draft();
+    if (!d) return [] as string[];
+    const have = new Set((d.description.match(HASHTAGS) ?? []).map((h) => h.toLowerCase()));
+    return splitTags(d.tagsText)
+      .filter((t) => /^[\p{L}\p{M}\p{N}_]+$/u.test(t))
+      .map((t) => `#${t}`)
+      .filter((h) => !have.has(h.toLowerCase()))
+      .slice(0, 3);
+  });
+
+  revertTitle(): void {
+    this.set({ title: this.video().title });
+  }
+
+  revertDescription(): void {
+    this.set({ description: this.video().description });
+  }
+
+  revertTags(): void {
+    this.set({ tagsText: this.video().tags.join(', ') });
+  }
+
+  clearTags(): void {
+    this.set({ tagsText: '' });
+  }
+
+  /** Puts up to three of the video's tags at the end of the description as hashtags - the ones YouTube shows above the title. */
+  addHashtagsFromTags(): void {
+    const d = this.draft();
+    const add = this.tagsToHashtag();
+    if (d && add.length > 0) this.set({ description: `${d.description.trimEnd()}\n\n${add.join(' ')}`.trim() });
+  }
+
   readonly embedUrl = computed<SafeResourceUrl | null>(() => {
     const id = this.video().videoId;
     // Only a validated id goes into a fixed youtube-nocookie URL, so the trusted URL can't point anywhere else.
@@ -163,8 +239,11 @@ export class CheckupVideoEditorComponent {
   });
 
   readonly thumbPreview = computed(() => {
-    switch (this.thumbMode()) {
-      case 'upload': return this.thumbImage();
+    const mode = this.thumbMode();
+    switch (mode) {
+      case 'upload':
+      case 'youtube':
+      case 'library': return this.thumbSource() === mode ? this.thumbImage() : null;
       case 'frame': {
         const at = this.frameAt();
         return at === null ? null : this.frames().find((f) => f.at === at)?.url ?? this.frameUrls.get(at) ?? null;
@@ -174,10 +253,40 @@ export class CheckupVideoEditorComponent {
   });
 
   readonly thumbChoice = computed<YouTubeThumbnailChoice | null>(() => {
-    if (this.thumbMode() === 'upload' && this.thumbImage()) return { imageBase64: this.thumbImage() };
-    if (this.thumbMode() === 'frame' && this.frameAt() !== null) return { frameAtSeconds: this.frameAt() };
+    const mode = this.thumbMode();
+    if ((mode === 'upload' || mode === 'youtube' || mode === 'library') && this.thumbSource() === mode && this.thumbImage()) return { imageBase64: this.thumbImage() };
+    if (mode === 'frame' && this.frameAt() !== null) return { frameAtSeconds: this.frameAt() };
     return null;
   });
+
+  /** Which tab the held picture came from, so switching tabs never shows one tab's picture under another. */
+  readonly thumbSource = signal<ThumbMode | null>(null);
+
+  // More ways to pick a thumbnail: YouTube's own stills, the project's assets, a pasted picture.
+  readonly ytStillPick = signal<string | null>(null);
+  readonly libraryOpen = signal(false);
+  readonly thumbSize = signal<{ w: number; h: number } | null>(null);
+  readonly thumbSizeNote = computed(() => {
+    const s = this.thumbSize();
+    if (!s) return null;
+    const vertical = s.h > s.w;
+    const ratio = vertical ? '9:16' : Math.abs(s.w / s.h - 16 / 9) < 0.05 ? '16:9' : `${(s.w / s.h).toFixed(2)}:1`;
+    const small = vertical ? s.h < 1280 : s.w < 1280;
+    return { text: `${s.w}×${s.h} · ${ratio}`, warn: small ? 'Smaller than the 1280×720 YouTube recommends - it may look soft.' : null };
+  });
+
+  // How well the draft follows common YouTube search practice (guidance only).
+  readonly seo = computed(() => {
+    const d = this.draft();
+    if (!d) return { score: 0, checks: [] as ReturnType<typeof seoChecks> };
+    const checks = seoChecks({
+      title: d.title, description: d.description, tagsText: d.tagsText, pinnedComment: d.pinnedComment,
+      isShort: this.isShort(), durationSeconds: this.video().durationSeconds,
+    });
+    return { score: seoScore(checks), checks };
+  });
+  readonly seoOpen = signal(false);
+  readonly seoTips = computed(() => this.seo().checks.filter((c) => c.status !== 'ok'));
 
   private contextLoad: Subscription | null = null;
 
@@ -207,11 +316,19 @@ export class CheckupVideoEditorComponent {
     this.thumbMode.set('current');
     this.frameAt.set(null);
     this.thumbImage.set(null);
+    this.thumbSource.set(null);
     this.thumbBusy.set(false);
     this.thumbError.set(null);
     this.thumbDone.set(false);
     this.thumbVersion.set(0);
+    this.ytStillPick.set(null);
+    this.libraryOpen.set(false);
+    this.thumbSize.set(null);
     this.clearFrames();
+    // The side panel and the form keep their scroll position across Previous/Next; start both at the top.
+    setTimeout(() => {
+      for (const el of this.host.nativeElement.querySelectorAll<HTMLElement>('.ve-side, .ve-main, .ve-body')) el.scrollTop = 0;
+    });
 
     this.context.set(null);
     this.contextError.set(null);
@@ -230,9 +347,15 @@ export class CheckupVideoEditorComponent {
   }
 
   onKey(event: KeyboardEvent): void {
+    if (this.libraryOpen()) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       this.closed.emit();
+    } else if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      const step = event.key === 'ArrowLeft' ? -1 : 1;
+      if (this.state().busy || (step < 0 ? !this.hasPrev() : !this.hasNext())) return;
+      event.preventDefault();
+      this.move.emit(step);
     } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       if (this.canSave()) this.save.emit({ next: event.shiftKey && this.hasNext() });
@@ -380,6 +503,8 @@ export class CheckupVideoEditorComponent {
 
   clearUploadedThumb(): void {
     this.thumbImage.set(null);
+    this.thumbSource.set(null);
+    this.ytStillPick.set(null);
     this.thumbMode.set('current');
     this.thumbError.set(null);
   }
@@ -463,7 +588,7 @@ export class CheckupVideoEditorComponent {
   }
 
   /** The server checks the bytes and re-encodes anyway; this only catches the obvious early. */
-  private readThumb(file: File): void {
+  private readThumb(file: File, mode: ThumbMode = 'upload'): void {
     this.thumbError.set(null);
     this.thumbDone.set(false);
     if (!/^image\/(jpeg|png)$/.test(file.type)) {
@@ -478,11 +603,77 @@ export class CheckupVideoEditorComponent {
     const generation = this.generation;
     reader.onload = () => {
       if (generation !== this.generation) return;
+      this.thumbSize.set(null);
       this.thumbImage.set(typeof reader.result === 'string' ? reader.result : null);
-      this.thumbMode.set('upload');
+      this.thumbSource.set(mode);
+      this.thumbMode.set(mode);
     };
     reader.onerror = () => this.thumbError.set("That picture couldn't be read. Choose another.");
     reader.readAsDataURL(file);
+  }
+
+  /** A picture pasted with Ctrl+V becomes the custom thumbnail, wherever in the dialog the cursor is. */
+  onPaste(event: ClipboardEvent): void {
+    if (this.thumbBusy()) return;
+    const file = Array.from(event.clipboardData?.files ?? []).find((f) => f.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault();
+    this.readThumb(file.type === 'image/jpeg' || file.type === 'image/png' ? file : new File([file], 'pasted.png', { type: 'image/png' }));
+  }
+
+  /** Uses one of the stills YouTube made for the video (fetched as a picture, so it can be re-sent as the thumbnail). */
+  async pickYouTubeStill(still: { key: string; file: string }): Promise<void> {
+    if (this.thumbBusy()) return;
+    const id = this.video().videoId;
+    if (!VIDEO_ID.test(id)) return;
+    this.ytStillPick.set(still.key);
+    this.thumbError.set(null);
+    this.thumbDone.set(false);
+    try {
+      const res = await fetch(`https://i.ytimg.com/vi/${id}/${still.file}`);
+      if (!res.ok) throw new Error('missing');
+      const blob = await res.blob();
+      this.readThumb(new File([blob], still.file, { type: 'image/jpeg' }), 'youtube');
+    } catch {
+      this.ytStillPick.set(null);
+      this.thumbError.set(still.key === 'max'
+        ? "YouTube has no HD picture for this video. Try one of the other stills."
+        : "That YouTube picture couldn't be loaded. Try another.");
+    }
+  }
+
+  /** A picture from the project's assets: its bytes are read and sent like an upload. */
+  pickLibraryAsset(assetId: string): void {
+    this.libraryOpen.set(false);
+    this.thumbError.set(null);
+    this.thumbBusy.set(true);
+    const generation = this.generation;
+    this.assets.assetContent(assetId).subscribe({
+      next: (blob) => {
+        if (generation !== this.generation) return;
+        this.thumbBusy.set(false);
+        const type = blob.type === 'image/jpeg' || blob.type === 'image/png' ? blob.type : '';
+        if (!type) {
+          this.thumbError.set('That asset is not a JPG or PNG picture. Pick another, or upload one.');
+          return;
+        }
+        this.readThumb(new File([blob], 'asset', { type }), 'library');
+      },
+      error: () => {
+        if (generation !== this.generation) return;
+        this.thumbBusy.set(false);
+        this.thumbError.set("That picture couldn't be loaded. Pick another.");
+      },
+    });
+  }
+
+  onThumbLoad(event: Event): void {
+    const img = event.target as HTMLImageElement;
+    this.thumbSize.set(img.naturalWidth > 0 ? { w: img.naturalWidth, h: img.naturalHeight } : null);
+  }
+
+  toneLabel(t: string): string {
+    return toneLabel(t);
   }
 }
 

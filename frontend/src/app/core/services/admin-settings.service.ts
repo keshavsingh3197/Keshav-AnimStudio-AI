@@ -34,6 +34,32 @@ export interface WebSettingsOverview {
   pendingRestartCount: number;
 }
 
+/** The names and links AI-written video details carry: credits, subscribe lines, hashtags. */
+export interface ChannelBranding {
+  channelName: string | null;
+  tagline: string | null;
+  channelUrl: string | null;
+  studioUrl: string | null;
+  creatorUrl: string | null;
+  engineName: string | null;
+  visualsCredit: string | null;
+  hashtags: string[];
+  tags: string[];
+}
+
+/** The studio's own branding, offered as a starting point. */
+export const OMKR_BRANDING: ChannelBranding = {
+  channelName: 'OMKR',
+  tagline: 'Devotional 3D Animations',
+  channelUrl: 'https://youtube.com/@omkr-shiv',
+  studioUrl: 'https://studio.keshavsingh.in/',
+  creatorUrl: 'https://keshavsingh.in/',
+  engineName: 'AnimStudio',
+  visualsCredit: 'OMKR 3D Devotional Animations',
+  hashtags: ['OMKR', 'AnimStudio', 'KeshavSingh'],
+  tags: ['AnimStudio', 'omkr', 'omkr shiv', 'keshav singh'],
+};
+
 /** A brand channel's YouTube publishing setup. */
 export interface ChannelPublishSettings {
   youTubeChannelId: string | null;
@@ -49,6 +75,8 @@ export interface ChannelPublishSettings {
   descriptionFooter: string | null;
   /** Posted as a comment on every upload; the publish dialog can change it per video. */
   firstComment?: string | null;
+  /** Credits, links and hashtags the AI-written details carry; null leaves them out (the OMKR tone uses the studio's own). */
+  branding?: ChannelBranding | null;
 }
 
 @Injectable({ providedIn: 'root' })

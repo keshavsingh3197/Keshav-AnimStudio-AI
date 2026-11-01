@@ -201,7 +201,7 @@
       <div class="rp-output">
         <!-- Player -->
         <div class="rp-player-col">
-          <div class="rp-player" [ngStyle]="playerContainerStyle(current)">
+          <div class="rp-player" data-theme="dark" [ngStyle]="playerContainerStyle(current)">
             <video [src]="previewUrl(current.jobId)" controls preload="metadata"
                    [style.object-fit]="previewFit()"
                    [style.transform]="previewZoom() > 100 ? 'scale(' + (previewZoom() / 100) + ')' : 'none'"></video>

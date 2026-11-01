@@ -1,0 +1,610 @@
+<div class="ch">
+  <div class="ch-cq">
+
+    <header class="page-head ch-head">
+      <div class="ch-head-main">
+        <div class="studio-icon-badge ch-head-ico"><app-ico name="film" [size]="18" /></div>
+        <div class="ch-head-text">
+          <div class="row ch-title-row">
+            <h2>Channels</h2>
+            <span class="pill brand" [title]="'A studio can have up to ' + max + ' channels'">{{ channels().length }} / {{ max }}</span>
+            @if (yt(); as st) {
+              <span class="pill" [class.ok]="st.configured" [class.warn]="!st.configured">
+                <app-ico [name]="st.configured ? 'check' : 'alert'" [size]="12" />
+                YouTube sign-in {{ st.configured ? 'ready' : 'not set up' }}
+              </span>
+            }
+          </div>
+          <p class="muted">
+            Each brand has its own watermark, end card and YouTube publishing. Names and pictures come from YouTube: connect a
+            channel and it appears here; rename it on YouTube, then press <em>Sync</em>.
+          </p>
+        </div>
+      </div>
+      <div class="ch-head-actions">
+        <button type="button" class="secondary" (click)="toggleAdd()" [attr.aria-expanded]="addOpen()" aria-controls="ch-add">
+          <app-ico name="plus" /> Add brand
+        </button>
+        <button type="button" class="secondary" (click)="syncFromYouTube()" [disabled]="syncing() || !canSync()" [title]="syncHint()">
+          <app-ico name="refresh" [class.is-spinning]="syncing()" /> {{ syncing() ? 'Syncing…' : 'Sync with YouTube' }}
+        </button>
+        <button type="button" (click)="connectYouTube()" [disabled]="connecting() || yt()?.configured === false"
+                [title]="yt()?.configured === false ? 'YouTube sign-in isn’t set up on this server' : 'Sign in with Google and pick a YouTube channel'">
+          <app-ico name="youtube" /> Connect a YouTube channel
+        </button>
+      </div>
+    </header>
+
+    @if (addOpen()) {
+      <form class="card ch-add" id="ch-add" (submit)="$event.preventDefault(); create()" aria-label="Add a brand">
+        <div class="ch-add-grid">
+          <div class="ch-field">
+            <label for="ch-add-name">Brand name</label>
+            <input adminAutofocus id="ch-add-name" type="text" autocomplete="off" placeholder="e.g. Bhakti Kids"
+                   [value]="newName()" (input)="newName.set(val($event))"
+                   [attr.aria-invalid]="newCheck().error ? 'true' : null" aria-describedby="ch-add-msg" />
+          </div>
+          <div class="ch-field">
+            <label for="ch-add-from">Start from</label>
+            <select id="ch-add-from" [value]="copyFrom()" (change)="copyFrom.set(val($event))">
+              @for (c of byName(); track c.id) { <option [value]="c.id" [selected]="c.id === copyFrom()">{{ c.name }}</option> }
+            </select>
+          </div>
+          <button type="submit" class="ch-add-go" [disabled]="!canCreate()"><app-ico name="plus" /> Add brand</button>
+        </div>
+        <div class="ch-msg-row" id="ch-add-msg" aria-live="polite">
+          @if (newCheck().error; as e) {
+            <span class="ch-err"><app-ico name="alert" [size]="13" /> {{ e }}</span>
+          } @else {
+            <span class="muted">For a brand that isn’t a YouTube channel (a series, a side project). It starts as a copy of the look you pick; link a YouTube channel later.</span>
+          }
+          <span class="ch-count" [class.is-over]="newCheck().length > maxName">{{ newCheck().length }} / {{ maxName }}</span>
+        </div>
+        @if (addError(); as e) { <div class="ch-inline-error" role="alert"><app-ico name="alert" [size]="14" /> {{ e }}</div> }
+        @if (channels().length >= max) { <div class="ch-inline-error" role="alert">This studio already has the most channels it can hold ({{ max }}).</div> }
+      </form>
+    }
+
+    @if (actionError(); as msg) {
+      <div class="ch-alert is-err" role="alert">
+        <app-ico name="alert" />
+        <div class="ch-alert-body">{{ msg }}</div>
+        <button type="button" class="ch-x" (click)="actionError.set(null)" aria-label="Dismiss"><app-ico name="x" [size]="14" /></button>
+      </div>
+    }
+
+    @if (stage() === 'ready') {
+    @if (ytState() === 'error') {
+      <div class="ch-alert is-warn" role="status">
+        <app-ico name="alert" />
+        <div class="ch-alert-body">
+          <strong>Couldn’t read the YouTube connection status.</strong>
+          Connection badges are hidden until it loads; nothing was changed.
+        </div>
+        <button type="button" class="secondary small" (click)="loadYouTube()">Retry</button>
+      </div>
+    } @else if (yt()?.configured === false) {
+      <div class="ch-alert is-info" role="status">
+        <app-ico name="info" />
+        <div class="ch-alert-body">
+          <strong>YouTube sign-in isn’t set up on this server yet.</strong>
+          Set the OAuth client in Application settings → YouTube, and the client secret in user-secrets. Brands you add by hand still work.
+        </div>
+      </div>
+    }
+
+    @if (reconnectRows().length > 0) {
+      <div class="ch-alert is-warn" role="alert">
+        <app-ico name="alert" />
+        <div class="ch-alert-body">
+          <strong>{{ plural(reconnectRows().length, 'channel') }} need{{ reconnectRows().length === 1 ? 's' : '' }} to be reconnected.</strong>
+          Google no longer accepts the saved access, so publishing, refreshing and Go Live fail for
+          @for (r of reconnectRows(); track r.channel.id; let last = $last; let i = $index) {
+            @if (i < 3) { <b>{{ r.channel.name }}</b>@if (!last && i < 2) {, } }
+          }
+          @if (reconnectRows().length > 3) { and {{ reconnectRows().length - 3 }} more }
+          until you sign in with Google again.
+        </div>
+        <div class="ch-alert-actions">
+          <button type="button" class="small" (click)="connectYouTube()" [disabled]="connecting()">Reconnect</button>
+          <button type="button" class="secondary small" (click)="setView('attention')">Show them</button>
+        </div>
+      </div>
+    }
+
+    @if (refusedRows().length > 0) {
+      <div class="ch-alert is-warn" role="alert">
+        <app-ico name="key" />
+        <div class="ch-alert-body">
+          <strong>YouTube refused the saved stream key of {{ plural(refusedRows().length, 'channel') }}</strong>
+          - usually because it was reset in YouTube Studio. Go Live won’t use it until a new one is saved.
+        </div>
+        <button type="button" class="secondary small" (click)="showRefusedKeys()">Show them</button>
+      </div>
+    }
+
+    @if (usageState() === 'error') {
+      <div class="ch-alert is-warn" role="status">
+        <app-ico name="alert" />
+        <div class="ch-alert-body">
+          <strong>Couldn’t load the project counts.</strong>
+          “Unused” and the usage figures are hidden so a channel isn’t mistaken for unused.
+        </div>
+        <button type="button" class="secondary small" (click)="loadUsage()">Retry</button>
+      </div>
+    }
+
+    @if (syncReport(); as rep) {
+      <section class="card ch-report" aria-labelledby="ch-report-title">
+        <div class="ch-report-head">
+          <h3 id="ch-report-title"><app-ico name="refresh" [size]="15" /> Synced with YouTube</h3>
+          <span class="muted">{{ plural(rep.youTubeChannels, 'connected channel') }} checked</span>
+          <button type="button" class="ch-x" (click)="syncReport.set(null)" aria-label="Dismiss sync report"><app-ico name="x" [size]="14" /></button>
+        </div>
+        <ul class="ch-report-list">
+          @for (n of rep.created; track n) { <li class="is-ok"><app-ico name="plus" [size]="13" /> Added “{{ n }}” from YouTube</li> }
+          @for (x of rep.renamed; track x.brandChannelId) { <li><app-ico name="edit" [size]="13" /> “{{ x.before }}” is now “{{ x.after }}” (renamed on YouTube)</li> }
+          @for (f of rep.failed; track f.channelId) { <li class="is-warn"><app-ico name="alert" [size]="13" /> <strong>{{ f.channelTitle }}</strong> - {{ f.reason }}</li> }
+          @if (rep.created.length + rep.renamed.length + rep.failed.length === 0) { <li class="is-ok"><app-ico name="check" [size]="13" /> Everything already matches YouTube.</li> }
+        </ul>
+        @if (rep.failed.length > 0) {
+          <button type="button" class="small" (click)="connectYouTube()" [disabled]="connecting()">Reconnect</button>
+        }
+      </section>
+    }
+    }
+
+    <div class="ch-kpis" role="group" aria-label="Summary">
+      @if (stage() === 'loading') {
+        @for (i of [0, 1, 2, 3]; track i) { <div class="ch-kpi is-skeleton" aria-hidden="true"><span class="ch-skel" style="width: 5rem"></span><span class="ch-skel ch-skel-lg"></span><span class="ch-skel" style="width: 7rem"></span></div> }
+      } @else {
+        <button type="button" class="ch-kpi" [class.is-active]="view() === 'all'" (click)="setView('all')">
+          <span class="ch-kpi-label">Channels</span>
+          <strong class="ch-kpi-val">{{ kpis().total }}</strong>
+          <span class="ch-kpi-sub">of {{ max }} allowed</span>
+        </button>
+        <button type="button" class="ch-kpi" [class.is-active]="view() === 'youtube'" (click)="setView('youtube')">
+          <span class="ch-kpi-label">On YouTube</span>
+          <strong class="ch-kpi-val">{{ kpis().onYouTube }}</strong>
+          <span class="ch-kpi-sub">
+            @if (ytState() === 'loading') { checking… } @else if (ytState() === 'error') { status unavailable } @else { {{ kpis().connected }} connected by you }
+          </span>
+        </button>
+        <button type="button" class="ch-kpi" [class.is-alert]="kpis().attention > 0" [class.is-good]="ytState() === 'ok' && kpis().attention === 0"
+                [class.is-active]="view() === 'attention'" (click)="setView('attention')">
+          <span class="ch-kpi-label">Need attention</span>
+          <strong class="ch-kpi-val">{{ kpis().attention }}</strong>
+          <span class="ch-kpi-sub">{{ kpis().attention === 0 ? 'nothing to fix' : 'reconnect or refused key' }}</span>
+        </button>
+        <button type="button" class="ch-kpi" [class.is-active]="view() === 'unused'" (click)="setView('unused')" [disabled]="kpis().unused === null">
+          <span class="ch-kpi-label">Unused</span>
+          <strong class="ch-kpi-val">{{ kpis().unused ?? '–' }}</strong>
+          <span class="ch-kpi-sub">{{ kpis().unused === null ? (usageState() === 'loading' ? 'counting…' : 'counts unavailable') : 'no project uses them' }}</span>
+        </button>
+      }
+    </div>
+
+    <div class="card ch-toolbar">
+      <div class="ch-toolbar-row">
+        <div class="ch-search">
+          <app-ico name="search" [size]="15" />
+          <input #search type="search" autocomplete="off" spellcheck="false" placeholder="Search name, @handle or ID…"
+                 aria-label="Search channels" aria-keyshortcuts="/" [value]="query()" (input)="onQuery($event)" (keydown.escape)="onQueryKey($event)" />
+          @if (query()) {
+            <button type="button" class="ch-search-clear" (click)="clearQuery(); focusSearch()" aria-label="Clear search"><app-ico name="x" [size]="14" /></button>
+          } @else {
+            <kbd class="ch-kbd" aria-hidden="true">/</kbd>
+          }
+        </div>
+        <div class="ch-field is-inline">
+          <label for="ch-sort">Sort</label>
+          <select id="ch-sort" [value]="sort()" (change)="setSort($event)">
+            @for (o of sortOptions; track o.id) { <option [value]="o.id" [selected]="o.id === sort()">{{ o.label }}</option> }
+          </select>
+        </div>
+        <button type="button" class="secondary ch-filter-btn" [class.is-active]="filtersOpen() || facetCount() > 0" (click)="filtersOpen.set(!filtersOpen())"
+                [attr.aria-expanded]="filtersOpen()" aria-controls="ch-facets">
+          <app-ico name="sliders" /> Filters
+          @if (facetCount() > 0) { <span class="ch-badge-n">{{ facetCount() }}</span> }
+        </button>
+      </div>
+
+      <div class="ch-chips" role="group" aria-label="Show channels">
+        @for (f of viewChips; track f.id) {
+          <button type="button" class="ch-chip" [class.is-active]="view() === f.id" [attr.aria-pressed]="view() === f.id"
+                  [disabled]="f.id === 'unused' && kpis().unused === null" (click)="setView(f.id)">
+            {{ f.label }} <span class="ch-chip-n">{{ stage() !== 'ready' || (f.id === 'unused' && kpis().unused === null) ? '–' : chipCount(f.id) }}</span>
+          </button>
+        }
+        <span class="ch-result muted" aria-live="polite">
+          @if (stage() === 'ready') {
+            {{ filtered().length }} of {{ rows().length }} shown
+            @if (narrowed()) { <button type="button" class="ch-link" (click)="clearFilters()">Clear</button> }
+          }
+        </span>
+      </div>
+
+      @if (filtersOpen()) {
+        <div class="ch-facets" id="ch-facets">
+          <div class="ch-field">
+            <label for="ch-f-wm">Watermark</label>
+            <select id="ch-f-wm" [value]="facets().watermark" (change)="setFacet('watermark', $event)">
+              <option value="any" [selected]="facets().watermark === 'any'">Any</option>
+              <option value="logo" [selected]="facets().watermark === 'logo'">Logo</option>
+              <option value="text" [selected]="facets().watermark === 'text'">Text mark</option>
+              <option value="none" [selected]="facets().watermark === 'none'">No watermark</option>
+            </select>
+          </div>
+          <div class="ch-field">
+            <label for="ch-f-end">End card</label>
+            <select id="ch-f-end" [value]="facets().endCard" (change)="setFacet('endCard', $event)">
+              <option value="any" [selected]="facets().endCard === 'any'">Any</option>
+              <option value="set" [selected]="facets().endCard === 'set'">Has an end card</option>
+              <option value="none" [selected]="facets().endCard === 'none'">No end card</option>
+            </select>
+          </div>
+          @if (liveOn()) {
+            <div class="ch-field">
+              <label for="ch-f-key">Stream key</label>
+              <select id="ch-f-key" [value]="facets().key" (change)="setFacet('key', $event)">
+                <option value="any" [selected]="facets().key === 'any'">Any</option>
+                <option value="saved" [selected]="facets().key === 'saved'">Saved</option>
+                <option value="missing" [selected]="facets().key === 'missing'">None saved</option>
+                <option value="refused" [selected]="facets().key === 'refused'">Refused by YouTube</option>
+              </select>
+            </div>
+          }
+          <button type="button" class="secondary small ch-facets-reset" (click)="clearFilters()" [disabled]="!narrowed()">Clear all</button>
+        </div>
+      }
+    </div>
+
+    @switch (stage()) {
+      @case ('loading') {
+        <ul class="ch-list" aria-busy="true" aria-label="Loading channels">
+          @for (i of skeletons; track i) {
+            <li class="ch-row is-skeleton" aria-hidden="true">
+              <span class="ch-skel ch-skel-thumb"></span>
+              <div class="ch-main"><span class="ch-skel" style="width: 11rem; height: 1rem"></span><span class="ch-skel" style="width: 16rem"></span><span class="ch-skel" style="width: 12rem"></span></div>
+              <span class="ch-skel ch-skel-usage"></span>
+              <div class="ch-actions"><span class="ch-skel ch-skel-btn"></span><span class="ch-skel ch-skel-btn"></span><span class="ch-skel ch-skel-btn"></span></div>
+            </li>
+          }
+        </ul>
+      }
+      @case ('error') {
+        <div class="card ch-fail" role="alert">
+          <app-ico name="alert" [size]="26" />
+          <strong>Couldn’t load the channels.</strong>
+          <p class="muted">{{ loadError() }}</p>
+          <button type="button" (click)="reload()"><app-ico name="refresh" /> Try again</button>
+        </div>
+      }
+      @default {
+        @if (pageItems().length > 0) {
+          <ul class="ch-list">
+            @for (r of pageItems(); track r.channel.id) {
+              @let c = r.channel;
+              @let p = panel();
+              <li class="ch-row" [class.is-pending]="isPending(c.id)" [class.is-open]="p?.id === c.id" [class.is-flash]="flashId() === c.id"
+                  [class.has-alert]="r.attention.length > 0" [attr.data-row]="c.id">
+
+                <div class="ch-thumb" [class.is-avatar]="!!pictureOf(c)" [title]="pictureOf(c) ? 'YouTube channel picture' : watermarkLabel(r)">
+                  @if (pictureOf(c); as pic) {
+                    <img [src]="pic" alt="" loading="lazy" referrerpolicy="no-referrer" (error)="markBroken('yt:' + c.id)" />
+                  } @else if (hasLogo(c)) {
+                    <img [src]="logoUrl(c)" alt="" loading="lazy" (error)="markBroken('logo:' + c.id)" />
+                  } @else if (c.watermark?.kind === 'Text') {
+                    <span class="ch-thumb-text" [style.color]="c.watermark.colorHex || '#fff'">{{ c.watermark.text || 'Aa' }}</span>
+                  } @else {
+                    <span class="ch-thumb-none">{{ initial(c.name) }}</span>
+                  }
+                </div>
+
+                <div class="ch-main">
+                  <div class="ch-title">
+                    <span class="ch-name" [title]="c.name">{{ c.name }}</span>
+                    @if (c.isDefault) { <span class="pill brand ch-tag" title="New projects start with this channel; projects without one use it">Default</span> }
+                    @if (isPending(c.id)) { <span class="ch-saving" role="status"><span class="spinner"></span> Saving…</span> }
+                  </div>
+                  <div class="ch-link-line">
+                    @switch (r.connection) {
+                      @case ('connected') { <span class="ch-state is-ok"><app-ico name="check" [size]="12" /> Connected</span> }
+                      @case ('reconnect') {
+                        <span class="ch-state is-warn"><app-ico name="alert" [size]="12" /> Reconnect needed</span>
+                        <button type="button" class="ch-inline-btn" (click)="connectYouTube()" [disabled]="connecting()">Reconnect</button>
+                      }
+                      @case ('elsewhere') { <span class="ch-state is-muted" title="Linked to a YouTube channel that isn’t connected under your account">Linked · connected by someone else</span> }
+                      @case ('unknown') {
+                        @if (ytState() === 'error') { <span class="ch-state is-muted" title="The YouTube connection status couldn’t be read">Linked · status unavailable</span> }
+                        @else { <span class="ch-skel ch-skel-chip" aria-hidden="true"></span> }
+                      }
+                      @default { <span class="ch-state is-muted">Not on YouTube</span> }
+                    }
+                    @if (youTubeUrl(c); as url) {
+                      <a class="ch-yt-link" [href]="url" target="_blank" rel="noopener noreferrer" [attr.aria-label]="handleOf(c) + ' on YouTube (opens in a new tab)'">
+                        {{ handleOf(c) }} <app-ico name="external" [size]="11" />
+                      </a>
+                    }
+                  </div>
+                  <div class="ch-chips-mini">
+                    <span class="ch-mini" [class.is-off]="r.watermark === 'none'"><app-ico name="shield" [size]="12" /> {{ watermarkLabel(r) }}</span>
+                    <span class="ch-mini" [class.is-off]="r.endCard === 'none'"><app-ico name="film" [size]="12" /> {{ endCardLabel(r) }}</span>
+                    @if (r.key !== 'off') {
+                      <span class="ch-mini" [class.is-off]="r.key === 'missing'" [class.is-warn]="r.key === 'refused'"><app-ico name="key" [size]="12" /> {{ r.keyLabel }}</span>
+                      @if (r.key === 'refused') {
+                        <button type="button" class="ch-inline-btn" (click)="toggleKeys(c)" [attr.aria-expanded]="p?.kind === 'keys' && p?.id === c.id">Fix key</button>
+                      }
+                    }
+                  </div>
+                </div>
+
+                <div class="ch-usage" [class.is-zero]="r.projects === 0"
+                     [title]="r.projects === null ? 'Project counts unavailable' : r.projects + ' projects publish under this channel'">
+                  @if (r.projects === null) {
+                    @if (usageState() === 'loading') { <span class="ch-skel" style="width: 4rem" aria-hidden="true"></span> } @else { <span class="muted">–</span> }
+                  } @else {
+                    <span class="ch-usage-line"><app-ico name="folder" [size]="13" /> <strong>{{ r.projects }}</strong> {{ r.projects === 1 ? 'project' : 'projects' }}</span>
+                    <span class="ch-bar" aria-hidden="true"><i [style.width.%]="usageShare(r)"></i></span>
+                    @if (r.projects === 0) { <span class="ch-unused">Unused</span> }
+                  }
+                </div>
+
+                <div class="ch-actions">
+                  <a class="ch-btn" routerLink="/admin/branding/watermark" [queryParams]="linkParams(c)"><app-ico name="shield" [size]="14" /> Watermark</a>
+                  <a class="ch-btn" routerLink="/admin/branding/end-card" [queryParams]="linkParams(c)"><app-ico name="film" [size]="14" /> End card</a>
+                  <a class="ch-btn" routerLink="/admin/branding/publishing" [queryParams]="linkParams(c)"><app-ico name="youtube" [size]="14" /> Publishing</a>
+                  <div class="ch-menu-wrap">
+                    <button type="button" class="ch-btn ch-icon-btn ch-menu-btn" [id]="'menu-btn-' + c.id" aria-haspopup="menu"
+                            [attr.aria-expanded]="menuId() === c.id" [attr.aria-controls]="menuId() === c.id ? 'menu-' + c.id : null"
+                            [attr.aria-label]="'More actions for ' + c.name" title="More actions" (click)="toggleMenu(c.id, $event)" [disabled]="isPending(c.id)">
+                      <app-ico name="more" [size]="16" />
+                    </button>
+                    @if (menuId() === c.id) {
+                      <div class="ch-menu" role="menu" [id]="'menu-' + c.id" [attr.aria-labelledby]="'menu-btn-' + c.id" (keydown)="onMenuKey($event)">
+                        @if (!c.youTubeChannelId) {
+                          <button type="button" role="menuitem" (click)="startRename(c)"><app-ico name="edit" /> Rename</button>
+                        } @else {
+                          <button type="button" role="menuitem" disabled title="The name follows the YouTube channel: rename it on YouTube, then press Sync"><app-ico name="lock" /> Name comes from YouTube</button>
+                        }
+                        <button type="button" role="menuitem" (click)="duplicate(c)" [disabled]="channels().length >= max || mutating()"><app-ico name="copy" /> Duplicate</button>
+                        @if (!c.isDefault) {
+                          <button type="button" role="menuitem" (click)="askDefault(c)"><app-ico name="star" /> Make default</button>
+                        }
+                        @if (pictureOf(c)) {
+                          <button type="button" role="menuitem" (click)="askLogo(c)"><app-ico name="image" /> Use YouTube picture as logo</button>
+                        }
+                        @if (liveOn()) {
+                          <button type="button" role="menuitem" (click)="openKeys(c)"><app-ico name="key" /> Stream keys…</button>
+                        }
+                        <div class="ch-menu-sep" role="separator"></div>
+                        <button type="button" role="menuitem" (click)="copyId(c)"><app-ico name="copy" /> Copy channel ID</button>
+                        @if (c.youTubeChannelId) {
+                          <button type="button" role="menuitem" (click)="copyId(c, true)"><app-ico name="youtube" /> Copy YouTube channel ID</button>
+                        }
+                        @if (sort() === 'custom') {
+                          <div class="ch-menu-sep" role="separator"></div>
+                          <button type="button" role="menuitem" (click)="moveRow(c, 'top')" [disabled]="!canMove(c, 'top')"><app-ico name="moveTop" /> Move to top</button>
+                          <button type="button" role="menuitem" (click)="moveRow(c, 'up')" [disabled]="!canMove(c, 'up')"><app-ico name="arrowUp" /> Move up</button>
+                          <button type="button" role="menuitem" (click)="moveRow(c, 'down')" [disabled]="!canMove(c, 'down')"><app-ico name="arrowDown" /> Move down</button>
+                        }
+                        @if (!c.isDefault || channels().length > 1) {
+                          <div class="ch-menu-sep" role="separator"></div>
+                          <button type="button" role="menuitem" class="is-danger" (click)="askDelete(c)"><app-ico name="trash" /> Delete…</button>
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                @if (p && p.id === c.id) {
+                  <div class="ch-panel" [attr.data-kind]="p.kind">
+                    @switch (p.kind) {
+                      @case ('rename') {
+                        <form class="ch-rename" (submit)="$event.preventDefault(); saveRename(c)">
+                          <label [attr.for]="'rn-' + c.id">Rename “{{ c.name }}”</label>
+                          <div class="ch-input-row">
+                            <input adminAutofocus [id]="'rn-' + c.id" type="text" autocomplete="off" [value]="renameValue()" (input)="renameValue.set(val($event))"
+                                   [attr.aria-invalid]="renameCheck().error ? 'true' : null" [attr.aria-describedby]="'rn-msg-' + c.id" />
+                            <button type="submit" [disabled]="!canRename()"><app-ico name="check" /> Save</button>
+                            <button type="button" class="secondary" (click)="cancelPanel()">Cancel</button>
+                          </div>
+                          <div class="ch-msg-row" [id]="'rn-msg-' + c.id" aria-live="polite">
+                            @if (renameCheck().error; as e) {
+                              <span class="ch-err"><app-ico name="alert" [size]="13" /> {{ e }}</span>
+                            } @else {
+                              <span class="muted">Enter saves, Esc cancels. Names are unique, ignoring capitals.</span>
+                            }
+                            <span class="ch-count" [class.is-over]="renameCheck().length > maxName">{{ renameCheck().length }} / {{ maxName }}</span>
+                          </div>
+                          @if (p.error) { <div class="ch-inline-error" role="alert"><app-ico name="alert" [size]="14" /> {{ p.error }} <span class="muted">The name was put back.</span></div> }
+                        </form>
+                      }
+
+                      @case ('default') {
+                        <div class="ch-confirm">
+                          <div class="ch-confirm-text">
+                            <strong>Make “{{ c.name }}” the default channel?</strong>
+                            <ul>
+                              <li>New projects start with it, and projects with no channel use it.</li>
+                              <li>“{{ defaultChannel()?.name }}” becomes a normal channel and keeps its projects, look and stream keys.</li>
+                              <li>No existing video changes - every project stays with the look it has now.</li>
+                            </ul>
+                          </div>
+                          @if (p.error) { <div class="ch-inline-error" role="alert"><app-ico name="alert" [size]="14" /> {{ p.error }} <span class="muted">Nothing was changed.</span></div> }
+                          <div class="ch-confirm-actions">
+                            <button type="button" (click)="confirmDefault(c)" [disabled]="mutating()"><app-ico name="star" /> Make default</button>
+                            <button type="button" class="secondary" (click)="cancelPanel()">Cancel</button>
+                          </div>
+                        </div>
+                      }
+
+                      @case ('logo') {
+                        <div class="ch-confirm">
+                          <div class="ch-confirm-text">
+                            <strong>Use the YouTube picture as the watermark?</strong>
+                            <ul>
+                              <li>It replaces the {{ r.watermark === 'none' ? 'empty watermark' : r.watermark === 'logo' ? 'current logo' : 'current text mark' }} of “{{ c.name }}”.</li>
+                              <li>Videos exported from now on carry the picture; exports already made don’t change.</li>
+                            </ul>
+                          </div>
+                          @if (p.error) { <div class="ch-inline-error" role="alert"><app-ico name="alert" [size]="14" /> {{ p.error }}</div> }
+                          <div class="ch-confirm-actions">
+                            <button type="button" (click)="confirmLogo(c)" [disabled]="mutating()"><app-ico name="image" /> Replace watermark</button>
+                            <button type="button" class="secondary" (click)="cancelPanel()">Cancel</button>
+                          </div>
+                        </div>
+                      }
+
+                      @case ('delete') {
+                        @if (deleteInfo(); as d) {
+                          <div class="ch-confirm is-danger">
+                            <div class="ch-confirm-text">
+                              <strong>Delete “{{ c.name }}”?</strong>
+                              <ul>
+                                @if (c.isDefault) {
+                                  <li>
+                                    There is always a default channel. Choose the one that takes its place:
+                                    <select class="ch-inline-select" [value]="moveTo()" (change)="moveTo.set(val($event))" aria-label="New default channel">
+                                      @for (o of d.options; track o.id) { <option [value]="o.id" [selected]="o.id === moveTo()">{{ o.name }}</option> }
+                                    </select>
+                                  </li>
+                                }
+                                @if (!d.projectsKnown) {
+                                  <li><b>Project counts couldn’t be read</b>, so any project using this channel will move to the channel below - check before you delete.</li>
+                                }
+                                @if (d.projects > 0) {
+                                  <li>
+                                    <b>{{ plural(d.projects, 'project') }} use{{ d.projects === 1 ? 's' : '' }} this channel.</b>
+                                    @if (c.isDefault) { {{ d.projects === 1 ? 'It moves' : 'They move' }} to the new default too. }
+                                    @else {
+                                      {{ d.projects === 1 ? 'It moves' : 'They move' }} to
+                                      <select class="ch-inline-select" [value]="moveTo()" (change)="moveTo.set(val($event))" aria-label="Move projects to">
+                                        @for (o of d.options; track o.id) { <option [value]="o.id" [selected]="o.id === moveTo()">{{ o.name }}</option> }
+                                      </select>
+                                    }
+                                    Their next export uses {{ d.destination?.name }}’s watermark and end card.
+                                  </li>
+                                } @else if (d.projectsKnown) {
+                                  <li>No project uses it.</li>
+                                }
+                                <li>Its watermark, end card and publishing defaults are deleted. This can’t be undone.</li>
+                                @if (d.linked) { <li>Publishing to its YouTube channel stops: uploads from the projects above ask which channel to use.</li> }
+                                @if (d.hasKeys) { <li>Its saved stream keys are removed too.</li> }
+                              </ul>
+                            </div>
+                            @if (p.error) { <div class="ch-inline-error" role="alert"><app-ico name="alert" [size]="14" /> {{ p.error }} <span class="muted">The channel is still here.</span></div> }
+                            <div class="ch-confirm-actions">
+                              <button type="button" class="ch-danger-btn" (click)="confirmDelete(c)" [disabled]="mutating() || !d.destination"><app-ico name="trash" /> Delete channel</button>
+                              <button type="button" class="secondary" (click)="cancelPanel()">Keep it</button>
+                            </div>
+                          </div>
+                        }
+                      }
+
+                      @case ('keys') {
+                        @if (!liveOn()) {
+                          <p class="muted ch-keys-off">
+                            @if (liveState() === 'loading') { Loading stream keys… }
+                            @else { Stream keys aren’t available: Go Live isn’t set up on this server. }
+                          </p>
+                          <div class="ch-confirm-actions"><button type="button" class="secondary" (click)="cancelPanel()">Close</button></div>
+                        } @else {
+                          <div class="ch-keys">
+                            <p class="muted">
+                              The key from YouTube Studio → <em>Go live</em> → <em>Stream settings</em>. It’s encrypted on the server, never shown again, and
+                              used by Go Live whenever this channel is picked. YouTube keys don’t expire; if you reset it in YouTube Studio, paste the new one here.
+                            </p>
+                            @for (d of liveDestinations(); track d.id) {
+                              @let k = keyFor(c.id, d.id);
+                              <div class="ch-key-row">
+                                <span class="ch-key-dest">{{ d.name }}</span>
+                                <span class="ch-key-state" [attr.data-state]="k?.state ?? 'Missing'">
+                                  @switch (k?.state) {
+                                    @case ('Saved') { <app-ico name="check" [size]="13" /> {{ k?.masked }} @if (k?.lastUsedAt) { <span class="muted">· last live {{ k?.lastUsedAt | date: 'mediumDate' }}</span> } }
+                                    @case ('Rejected') { <app-ico name="alert" [size]="13" /> Refused {{ k?.rejectedAt | date: 'mediumDate' }} - paste the current key }
+                                    @case ('Unreadable') { <app-ico name="alert" [size]="13" /> Can’t be read - paste the key again }
+                                    @default { No key saved }
+                                  }
+                                </span>
+                                <form class="ch-key-form" (submit)="$event.preventDefault(); saveKey(c, d.id, keyInput)">
+                                  <input #keyInput type="password" autocomplete="off" spellcheck="false" maxlength="128"
+                                         [placeholder]="k && k.state !== 'Missing' ? 'Paste a new key to replace it' : 'Paste the stream key'"
+                                         [attr.aria-label]="'Stream key for ' + c.name + ' on ' + d.name" />
+                                  <button type="submit" [disabled]="keyBusy() !== null">
+                                    @if (keyBusy() === d.id) { <span class="spinner"></span> }
+                                    {{ k && k.state !== 'Missing' ? 'Replace' : 'Save' }}
+                                  </button>
+                                  @if (k && k.state !== 'Missing') {
+                                    @if (removingKey() === d.id) {
+                                      <span class="ch-key-ask">Remove this key? Go Live will ask for one until a new one is saved.</span>
+                                      <button type="button" class="ch-danger-btn" (click)="removeKey(c, d.id)" [disabled]="keyBusy() !== null">Yes, remove</button>
+                                      <button type="button" class="secondary" (click)="removingKey.set(null)">Keep</button>
+                                    } @else {
+                                      <button type="button" class="secondary ch-danger-text" (click)="removingKey.set(d.id)">Remove</button>
+                                    }
+                                  }
+                                  @if (safeHref(d.keyHelpUrl); as help) {
+                                    <a class="ch-help" [href]="help" target="_blank" rel="noopener noreferrer">Open YouTube Studio <app-ico name="external" [size]="11" /></a>
+                                  }
+                                </form>
+                              </div>
+                            }
+                            @if (p.error) { <div class="ch-inline-error" role="alert"><app-ico name="alert" [size]="14" /> {{ p.error }}</div> }
+                            <div class="ch-confirm-actions"><button type="button" class="secondary" (click)="cancelPanel()">Done</button></div>
+                          </div>
+                        }
+                      }
+                    }
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+
+          @if (filtered().length > pageSizes[0]) {
+            <nav class="ch-pager" aria-label="Pages">
+              <span class="muted">Showing <strong>{{ pageFrom() }}–{{ pageTo() }}</strong> of {{ filtered().length }}</span>
+              <div class="ch-field is-inline">
+                <label for="ch-size">Per page</label>
+                <select id="ch-size" (change)="setPageSize($event)">
+                  @for (s of pageSizes; track s) { <option [value]="s" [selected]="s === pageSize()">{{ s }}</option> }
+                </select>
+              </div>
+              <div class="ch-pager-btns">
+                <button type="button" class="secondary small" [disabled]="currentPage() === 0" (click)="goTo(currentPage() - 1)"><app-ico name="chevronLeft" [size]="14" /> Prev</button>
+                <span class="muted">Page {{ currentPage() + 1 }} of {{ pageCount() }}</span>
+                <button type="button" class="secondary small" [disabled]="currentPage() >= pageCount() - 1" (click)="goTo(currentPage() + 1)">Next <app-ico name="chevronRight" [size]="14" /></button>
+              </div>
+            </nav>
+          }
+        } @else {
+          <div class="empty ch-empty">
+            @if (narrowed()) {
+              <app-ico name="search" [size]="24" />
+              <strong>No channel matches.</strong>
+              <p class="muted">
+                @if (query().trim()) { Nothing matches “{{ query().trim() }}” with the current filters. } @else { No channel fits the current filters. }
+              </p>
+              <button type="button" class="secondary" (click)="clearFilters()">Clear search and filters</button>
+            } @else {
+              <app-ico name="film" [size]="24" />
+              <strong>No channels yet.</strong>
+              <p class="muted">Connect a YouTube channel and it appears here, or add a brand by hand.</p>
+              <div class="row" style="justify-content: center">
+                <button type="button" (click)="connectYouTube()" [disabled]="yt()?.configured === false"><app-ico name="youtube" /> Connect a YouTube channel</button>
+                <button type="button" class="secondary" (click)="toggleAdd()"><app-ico name="plus" /> Add brand</button>
+              </div>
+            }
+          </div>
+        }
+      }
+    }
+
+  </div>
+
+  <div class="ch-sr" role="status" aria-live="polite">{{ liveMessage() }}</div>
+  @if (toast(); as t) {
+    <div class="ch-toast" role="status"><app-ico name="check" [size]="15" /> {{ t }}</div>
+  }
+</div>

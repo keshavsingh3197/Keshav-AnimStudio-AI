@@ -47,6 +47,8 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
     MediaInspectorDialogComponent,
   ],
   templateUrl: './clip-studio.component.html',
+  // The editor is colour-critical (preview, timeline), so it keeps the dark palette in either theme.
+  host: { 'data-theme': 'dark' },
   styleUrls: ['./clip-studio.component.css'],
 })
 export class ClipStudioComponent implements OnDestroy {

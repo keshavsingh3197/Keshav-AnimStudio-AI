@@ -1,0 +1,274 @@
+<div class="page-head" style="margin-top: 0">
+  <div class="ad-title">
+    <div class="studio-icon-badge" [class.emerald]="allLoaded() && concerns().length === 0" [class.amber]="concerns().length > 0">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row">
+        <h2>Admin overview</h2>
+        @if (allLoaded()) {
+          @if (concerns().length === 0) {
+            <span class="pill ok">All clear</span>
+          } @else {
+            <span class="pill" [class.err]="concerns()[0].tone === 'err'" [class.warn]="concerns()[0].tone === 'warn'">
+              {{ concerns().length }} {{ concerns().length === 1 ? 'thing needs' : 'things need' }} attention
+            </span>
+          }
+        }
+      </div>
+      <p class="muted">What needs a decision, what is broken and what is simply fine &mdash; every card opens the page that changes it.</p>
+    </div>
+  </div>
+  <div class="row ov-actions">
+    @if (refreshedLabel()) { <span class="muted ov-updated">Updated {{ refreshedLabel() }}</span> }
+    <button type="button" class="secondary" (click)="reloadAll()" [disabled]="anyLoading()">
+      @if (anyLoading()) { <span class="spinner" aria-hidden="true"></span> }
+      ↻ Refresh all
+    </button>
+  </div>
+</div>
+
+@if (concerns().length > 0) {
+  <section class="card ov-concerns" aria-label="Needs attention">
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <h3>Needs attention</h3>
+        <span class="pill warn">{{ concerns().length }}</span>
+      </div>
+    </div>
+    <ul>
+      @for (c of concerns(); track c.text) {
+        <li>
+          <span class="dot" [class]="'dot ' + c.tone"></span>
+          <span>{{ c.text }}</span>
+          <a class="ad-link" [routerLink]="c.link">Open &rarr;</a>
+        </li>
+      }
+    </ul>
+  </section>
+} @else if (allLoaded()) {
+  <div class="notice notice-info ov-clear" role="status">
+    <strong>Everything looks healthy.</strong>
+    Nothing is waiting for a decision, the machine has what a render needs, and storage has room.
+  </div>
+}
+
+<div class="ov-grid">
+  <section class="card ov-card">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge" aria-hidden="true">🧑‍🤝‍🧑</span>
+      <h3>Access requests</h3>
+      <a class="ad-link" routerLink="/admin/signups">Open &rarr;</a>
+    </div>
+    @if (signups().data; as s) {
+      <div class="ov-big" [class.is-hot]="s.pending > 0">{{ s.pending }}</div>
+      <div class="ov-label">{{ s.pending === 1 ? 'request waiting for a decision' : 'requests waiting for a decision' }}</div>
+      <div class="ov-sub">{{ s.approved }} approved &middot; {{ s.rejected }} rejected &middot; {{ s.total }} in all</div>
+      <a class="ad-btn ov-cta" routerLink="/admin/signups">{{ s.pending > 0 ? 'Review requests' : 'Sign-ups & members' }}</a>
+      @if (signups().state === 'error') { <p class="ov-stale">Could not refresh: {{ signups().error }} <button type="button" class="ad-link" (click)="reloadSignups()">Retry</button></p> }
+    } @else if (signups().state === 'error') {
+      <div class="ov-error"><span>{{ signups().error }}</span><button type="button" class="ad-link" (click)="reloadSignups()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 2.2rem; width: 3rem"></span><span class="ad-skel" style="height: 0.8rem; width: 70%"></span></div>
+    }
+  </section>
+
+  <section class="card ov-card">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge" aria-hidden="true">🖥️</span>
+      <h3>This machine</h3>
+      <a class="ad-link" routerLink="/admin/health">Open &rarr;</a>
+    </div>
+    @if (health().data; as h) {
+      <div class="ov-status">
+        <span class="pill" [class.ok]="h.healthy" [class.err]="!h.healthy">{{ h.healthy ? 'All required ready' : 'Attention needed' }}</span>
+      </div>
+      <div class="ov-sub">{{ healthCounts().requiredOk }} of {{ healthCounts().requiredTotal }} needed checks working &middot; {{ healthCounts().total }} checks run</div>
+      @if (healthProblems().length > 0) {
+        <ul class="ov-list">
+          @for (p of healthProblems().slice(0, 4); track p.key) {
+            <li>
+              <span class="dot" [class]="'dot ' + (p.state === 'Degraded' ? 'warn' : 'err')"></span>
+              <span class="ov-grow">{{ p.displayName }}</span>
+              <span class="pill" [class.err]="p.state !== 'Degraded'" [class.warn]="p.state === 'Degraded'">{{ p.state === 'Ok' ? 'ok' : p.state === 'Missing' ? 'missing' : p.state === 'Degraded' ? 'partly' : 'broken' }}</span>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="ov-sub">Nothing to fix.</p>
+      }
+      @if (health().state === 'error') { <p class="ov-stale">Could not refresh: {{ health().error }} <button type="button" class="ad-link" (click)="reloadHealth()">Retry</button></p> }
+    } @else if (health().state === 'error') {
+      <div class="ov-error"><span>{{ health().error }}</span><button type="button" class="ad-link" (click)="reloadHealth()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 1.4rem; width: 8rem"></span><span class="ad-skel" style="height: 0.8rem; width: 70%"></span></div>
+    }
+  </section>
+
+  <section class="card ov-card">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge amber" aria-hidden="true">🎞️</span>
+      <h3>Renders</h3>
+      <a class="ad-link" routerLink="/admin/jobs">Open &rarr;</a>
+    </div>
+    @if (jobs().data; as list) {
+      <div class="ov-trio">
+        <div><strong [class.is-hot]="jobCounts().active > 0">{{ jobCounts().active }}</strong><span>active</span></div>
+        <div><strong [class.is-bad]="jobCounts().failed > 0">{{ jobCounts().failed }}</strong><span>failed</span></div>
+        <div><strong>{{ jobCounts().done }}</strong><span>completed</span></div>
+      </div>
+      @if (jobHighlights().length > 0) {
+        <ul class="ov-list">
+          @for (j of jobHighlights(); track j.id) {
+            <li>
+              <span class="ov-grow ov-clip">{{ j.projectName ?? 'a deleted project' }}</span>
+              <span class="pill" [class]="'pill ' + jobTone(j)">{{ jobWord(j) }}</span>
+              <span class="muted ov-when">{{ startedAgo(j) }}</span>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="ov-sub">{{ list.length === 0 ? 'Nothing has been rendered yet.' : 'No render is running and none failed recently.' }}</p>
+      }
+      @if (jobs().state === 'error') { <p class="ov-stale">Could not refresh: {{ jobs().error }} <button type="button" class="ad-link" (click)="reloadJobs()">Retry</button></p> }
+    } @else if (jobs().state === 'error') {
+      <div class="ov-error"><span>{{ jobs().error }}</span><button type="button" class="ad-link" (click)="reloadJobs()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 2.2rem; width: 60%"></span><span class="ad-skel" style="height: 0.8rem; width: 70%"></span></div>
+    }
+  </section>
+
+  <section class="card ov-card">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge purple" aria-hidden="true">🤖</span>
+      <h3>AI providers</h3>
+      <a class="ad-link" routerLink="/admin/providers">Open &rarr;</a>
+    </div>
+    @if (providers().data) {
+      <ul class="ov-list">
+        @for (c of capabilities(); track c.capability) {
+          <li [title]="c.detail">
+            <span class="dot" [class]="'dot ' + c.tone"></span>
+            <span class="ov-cap">{{ capabilityLabel(c.capability) }}</span>
+            <span class="ov-grow ov-clip">{{ c.headline }}</span>
+          </li>
+        }
+      </ul>
+      @if (providers().state === 'error') { <p class="ov-stale">Could not refresh: {{ providers().error }} <button type="button" class="ad-link" (click)="reloadProviders()">Retry</button></p> }
+    } @else if (providers().state === 'error') {
+      <div class="ov-error"><span>{{ providers().error }}</span><button type="button" class="ad-link" (click)="reloadProviders()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 0.9rem; width: 80%"></span><span class="ad-skel" style="height: 0.9rem; width: 65%"></span><span class="ad-skel" style="height: 0.9rem; width: 72%"></span></div>
+    }
+  </section>
+
+  <section class="card ov-card">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge emerald" aria-hidden="true">💾</span>
+      <h3>Storage</h3>
+      <a class="ad-link" routerLink="/admin/storage">Open &rarr;</a>
+    </div>
+    @if (storage().data; as d) {
+      <div class="ov-storage-row">
+        <strong class="ov-mid">{{ bytes(d.summary.usedBytes) }}</strong>
+        @if (d.summary.capacityBytes) {
+          <span class="muted">of {{ bytes(d.summary.capacityBytes) }} &middot; {{ storagePct()! | number: '1.0-0' }}%</span>
+        }
+      </div>
+      @if (d.summary.capacityBytes) {
+        <div class="ov-meter" [attr.data-tone]="storageTone()" role="progressbar" [attr.aria-valuenow]="storagePct()" aria-valuemin="0" aria-valuemax="100">
+          <i [style.width.%]="storagePct()! > 100 ? 100 : storagePct()"></i>
+        </div>
+      }
+      <div class="ov-sub">
+        {{ d.fileCount }} files
+        @if (d.diskFreeBytes !== null) { &middot; {{ bytes(d.diskFreeBytes) }} free on the drive }
+        @if (d.quotaGb) { &middot; {{ d.quotaGb }} GB quota }
+      </div>
+      @if (storage().state === 'error') { <p class="ov-stale">Could not refresh: {{ storage().error }} <button type="button" class="ad-link" (click)="reloadStorage()">Retry</button></p> }
+    } @else if (storage().state === 'error') {
+      <div class="ov-error"><span>{{ storage().error }}</span><button type="button" class="ad-link" (click)="reloadStorage()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 1.6rem; width: 50%"></span><span class="ad-skel" style="height: 0.6rem; width: 100%"></span></div>
+    }
+  </section>
+
+  <section class="card ov-card">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge" aria-hidden="true">📊</span>
+      <h3>AI usage today</h3>
+      <a class="ad-link" routerLink="/admin/usage">Open &rarr;</a>
+    </div>
+    @if (usage().data) {
+      @if (todayUsage().requests === 0) {
+        <p class="ov-sub">No AI calls yet today (UTC). Working from bundles never calls a provider.</p>
+      } @else {
+        <div class="ov-trio">
+          <div><strong>{{ todayUsage().requests }}</strong><span>requests</span></div>
+          <div><strong [class.is-good]="todayUsage().hitRate >= 50">{{ todayUsage().hitRate }}%</strong><span>from cache</span></div>
+          <div><strong [class.is-bad]="todayUsage().failures > 0">{{ todayUsage().failures }}</strong><span>failed</span></div>
+        </div>
+        <div class="ov-sub">{{ todayUsage().providers }} {{ todayUsage().providers === 1 ? 'provider' : 'providers' }} used &middot; {{ todayUsage().fresh }} fresh calls</div>
+      }
+      @if (usage().state === 'error') { <p class="ov-stale">Could not refresh: {{ usage().error }} <button type="button" class="ad-link" (click)="reloadUsage()">Retry</button></p> }
+    } @else if (usage().state === 'error') {
+      <div class="ov-error"><span>{{ usage().error }}</span><button type="button" class="ad-link" (click)="reloadUsage()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 2.2rem; width: 60%"></span><span class="ad-skel" style="height: 0.8rem; width: 70%"></span></div>
+    }
+  </section>
+
+  <section class="card ov-card ov-wide">
+    <div class="ov-head">
+      <span class="studio-icon-badge ov-badge" aria-hidden="true">📜</span>
+      <h3>Recent activity</h3>
+      <a class="ad-link" routerLink="/admin/activity">Full log &rarr;</a>
+    </div>
+    @if (audit().data) {
+      @if (recent().length === 0) {
+        <p class="ov-sub">Nothing has been changed here yet.</p>
+      } @else {
+        <ul class="ov-feed">
+          @for (r of recent(); track r.id) {
+            <li>
+              <span class="ov-feed-ico" [attr.data-tone]="r.kind.tone" aria-hidden="true">{{ r.category.icon }}</span>
+              <span class="ov-grow">
+                <strong>{{ r.kind.label }}</strong>
+                @if (r.entry.target) { <span class="mono muted ov-target">{{ r.entry.target }}</span> }
+              </span>
+              @if (r.kind.sensitive) { <span class="pill warn">Security</span> }
+              <span class="muted ov-when">{{ ago(r.time) }}</span>
+            </li>
+          }
+        </ul>
+      }
+      @if (audit().state === 'error') { <p class="ov-stale">Could not refresh: {{ audit().error }} <button type="button" class="ad-link" (click)="reloadAudit()">Retry</button></p> }
+    } @else if (audit().state === 'error') {
+      <div class="ov-error"><span>{{ audit().error }}</span><button type="button" class="ad-link" (click)="reloadAudit()">Try again</button></div>
+    } @else {
+      <div class="ov-skel" aria-hidden="true"><span class="ad-skel" style="height: 0.9rem; width: 85%"></span><span class="ad-skel" style="height: 0.9rem; width: 70%"></span><span class="ad-skel" style="height: 0.9rem; width: 78%"></span></div>
+    }
+  </section>
+</div>
+
+<section class="ov-directory" aria-label="All settings pages">
+  <h3>Everything in this console</h3>
+  @for (g of directory; track g.group) {
+    <div class="ov-dir-group">
+      <span class="ov-dir-name">{{ g.group }}</span>
+      <div class="ov-dir-grid">
+        @for (p of g.pages; track p.id) {
+          <a class="ov-dir-card" [routerLink]="'/admin/' + p.route">
+            <span class="ov-dir-ico" aria-hidden="true">{{ p.icon }}</span>
+            <span class="ov-dir-text">
+              <strong>{{ p.label }}</strong>
+              <span>{{ p.description }}</span>
+            </span>
+          </a>
+        }
+      </div>
+    </div>
+  }
+</section>

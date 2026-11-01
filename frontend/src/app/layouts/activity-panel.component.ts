@@ -134,7 +134,7 @@ const KIND_ICON: Record<ActivityKind, string> = {
     .ap-title:hover:not(:disabled) {
       transform: none;
       box-shadow: none;
-      color: #fff;
+      color: var(--text);
     }
 
     .ap-icon {
@@ -156,7 +156,7 @@ const KIND_ICON: Record<ActivityKind, string> = {
     }
 
     .ap-icon:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--ov-2);
       border-color: var(--border);
       color: var(--text);
       transform: none;
@@ -209,7 +209,7 @@ const KIND_ICON: Record<ActivityKind, string> = {
     }
 
     .ap-row:hover {
-      background: rgba(255, 255, 255, 0.025);
+      background: var(--ov-1);
     }
 
     .ap-kind {
@@ -258,7 +258,7 @@ const KIND_ICON: Record<ActivityKind, string> = {
       font-weight: 700;
       padding: 0.1rem 0.42rem;
       border-radius: 99px;
-      background: rgba(255, 255, 255, 0.04);
+      background: var(--ov-1);
       border: 1px solid var(--border);
       font-variant-numeric: tabular-nums;
     }
@@ -324,7 +324,7 @@ const KIND_ICON: Record<ActivityKind, string> = {
       justify-content: flex-end;
       padding: .45rem .85rem;
       border-top: 1px solid var(--border);
-      background: rgba(14, 17, 24, 0.6);
+      background: color-mix(in srgb, var(--surface) 60%, transparent);
       font-size: .78rem;
     }
 

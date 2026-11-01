@@ -156,7 +156,7 @@ import { AuthService } from '../core/services/auth.service';
       left: 0;
       right: 0;
       z-index: 1045;
-      background: linear-gradient(90deg, #2a1b04 0%, #1e1505 50%, #2a1804 100%);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--surface-2) 67%, rgb(255 154 0) 33%) 0%, color-mix(in srgb, var(--surface) 70%, rgb(255 163 0) 30%) 50%, color-mix(in srgb, var(--surface) 66%, rgb(255 134 0) 34%) 100%);
       border-bottom: 1px solid rgba(245, 158, 11, 0.4);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(245, 158, 11, 0.2);
       animation: bannerSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -164,7 +164,7 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .session-top-banner.urgent {
-      background: linear-gradient(90deg, #3d0c0c 0%, #290808 50%, #3d0c0c 100%);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--surface-2) 54%, rgb(255 0 0) 46%) 0%, color-mix(in srgb, var(--surface) 61%, rgb(255 0 0) 39%) 50%, color-mix(in srgb, var(--surface-2) 54%, rgb(255 0 0) 46%) 100%);
       border-bottom-color: rgba(239, 68, 68, 0.6);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 20px rgba(239, 68, 68, 0.3);
     }
@@ -190,24 +190,24 @@ import { AuthService } from '../core/services/auth.service';
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: #fbbf24;
+      color: var(--c-yellow);
       animation: pulseAlert 2s infinite ease-in-out;
     }
 
     .session-top-banner.urgent .banner-icon {
-      color: #f87171;
+      color: var(--c-red);
     }
 
     .banner-text {
       font-size: 0.88rem;
-      color: #fef3c7;
+      color: var(--text);
       display: flex;
       align-items: center;
       gap: 0.4rem;
     }
 
     .session-top-banner.urgent .banner-text {
-      color: #fee2e2;
+      color: var(--text);
     }
 
     .banner-text strong {
@@ -241,26 +241,26 @@ import { AuthService } from '../core/services/auth.service';
 
     .btn-signout {
       background: transparent;
-      color: #cbd5e1;
+      color: var(--text-dim);
       font-size: 0.82rem;
       font-weight: 600;
       padding: 0.38rem 0.75rem;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      border: 1px solid var(--ov-4);
       border-radius: 6px;
       cursor: pointer;
       transition: all 0.15s ease;
     }
 
     .btn-signout:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.3);
+      background: var(--ov-3);
+      color: var(--text);
+      border-color: var(--ov-5);
     }
 
     .banner-progress-track {
       height: 3px;
       width: 100%;
-      background: rgba(0, 0, 0, 0.4);
+      background: var(--sunk-2);
       overflow: hidden;
     }
 
@@ -280,7 +280,7 @@ import { AuthService } from '../core/services/auth.service';
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(4, 7, 15, 0.82);
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
       backdrop-filter: blur(8px);
       z-index: 1090;
       display: flex;
@@ -291,7 +291,7 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .timeout-modal {
-      background: #0d1322;
+      background: var(--surface);
       border: 1px solid rgba(245, 158, 11, 0.35);
       border-radius: 14px;
       width: 100%;
@@ -306,8 +306,8 @@ import { AuthService } from '../core/services/auth.service';
       align-items: center;
       gap: 0.85rem;
       padding: 1.2rem 1.4rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--ov-3);
+      background: var(--ov-1);
       position: relative;
     }
 
@@ -317,7 +317,7 @@ import { AuthService } from '../core/services/auth.service';
       border-radius: 10px;
       background: rgba(245, 158, 11, 0.15);
       border: 1px solid rgba(245, 158, 11, 0.35);
-      color: #fbbf24;
+      color: var(--c-yellow);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -327,20 +327,20 @@ import { AuthService } from '../core/services/auth.service';
     .header-icon-box.urgent {
       background: rgba(239, 68, 68, 0.18);
       border-color: rgba(239, 68, 68, 0.4);
-      color: #f87171;
+      color: var(--c-red);
     }
 
     .modal-header h3 {
       margin: 0;
       font-size: 1.12rem;
       font-weight: 700;
-      color: #fff;
+      color: var(--text);
     }
 
     .modal-sub {
       margin: 0.15rem 0 0;
       font-size: 0.78rem;
-      color: #94a3b8;
+      color: var(--text-dim);
     }
 
     .close-btn {
@@ -350,7 +350,7 @@ import { AuthService } from '../core/services/auth.service';
       background: none;
       border: none;
       font-size: 1.4rem;
-      color: #94a3b8;
+      color: var(--text-dim);
       cursor: pointer;
       padding: 0.2rem 0.5rem;
       border-radius: 6px;
@@ -358,8 +358,8 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .close-btn:hover {
-      color: #fff;
-      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      background: var(--ov-3);
     }
 
     .modal-body {
@@ -369,15 +369,15 @@ import { AuthService } from '../core/services/auth.service';
     .countdown-hero {
       text-align: center;
       padding: 1rem;
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: var(--sunk-2);
+      border: 1px solid var(--ov-2);
       border-radius: 10px;
       margin-bottom: 1.15rem;
     }
 
     .countdown-label {
       font-size: 0.8rem;
-      color: #94a3b8;
+      color: var(--text-dim);
       display: block;
       margin-bottom: 0.35rem;
     }
@@ -387,14 +387,14 @@ import { AuthService } from '../core/services/auth.service';
       font-weight: 800;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       letter-spacing: 0.06em;
-      color: #fbbf24;
+      color: var(--c-yellow);
       line-height: 1;
       text-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
       transition: color 0.3s ease;
     }
 
     .countdown-digits.urgent {
-      color: #f87171;
+      color: var(--c-red);
       text-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
       animation: urgentPulse 1s infinite alternate;
     }
@@ -405,7 +405,7 @@ import { AuthService } from '../core/services/auth.service';
 
     .modal-progress-track {
       height: 8px;
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--ov-3);
       border-radius: 999px;
       overflow: hidden;
       margin-bottom: 0.35rem;
@@ -426,12 +426,12 @@ import { AuthService } from '../core/services/auth.service';
       display: flex;
       justify-content: space-between;
       font-size: 0.72rem;
-      color: #64748b;
+      color: var(--muted);
     }
 
     .modal-desc {
       font-size: 0.86rem;
-      color: #cbd5e1;
+      color: var(--text-dim);
       line-height: 1.45;
       margin: 0 0 1.25rem;
     }
@@ -441,15 +441,15 @@ import { AuthService } from '../core/services/auth.service';
       align-items: center;
       justify-content: space-between;
       padding: 0.75rem 0.9rem;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--ov-1);
+      border: 1px solid var(--ov-2);
       border-radius: 8px;
       gap: 0.75rem;
     }
 
     .config-label {
       font-size: 0.78rem;
-      color: #94a3b8;
+      color: var(--text-dim);
       font-weight: 500;
     }
 
@@ -459,9 +459,9 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .pill-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #cbd5e1;
+      background: var(--ov-2);
+      border: 1px solid var(--ov-4);
+      color: var(--text-dim);
       font-size: 0.75rem;
       font-weight: 600;
       padding: 0.22rem 0.55rem;
@@ -471,14 +471,14 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .pill-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+      background: var(--ov-3);
+      color: var(--text);
     }
 
     .pill-btn.active {
       background: rgba(245, 158, 11, 0.2);
       border-color: rgba(245, 158, 11, 0.6);
-      color: #fbbf24;
+      color: var(--c-yellow);
     }
 
     .modal-footer {
@@ -486,8 +486,8 @@ import { AuthService } from '../core/services/auth.service';
       align-items: center;
       justify-content: space-between;
       padding: 1rem 1.4rem;
-      background: rgba(0, 0, 0, 0.25);
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--sunk-2);
+      border-top: 1px solid var(--ov-2);
       gap: 0.75rem;
     }
 
@@ -522,9 +522,9 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #cbd5e1;
+      background: var(--ov-2);
+      border: 1px solid var(--ov-4);
+      color: var(--text-dim);
       padding: 0.55rem 1rem;
       border-radius: 8px;
       font-size: 0.88rem;
@@ -534,15 +534,15 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.3);
+      background: var(--ov-3);
+      color: var(--text);
+      border-color: var(--ov-5);
     }
 
     .btn-ghost {
       background: none;
       border: none;
-      color: #94a3b8;
+      color: var(--text-dim);
       font-size: 0.82rem;
       font-weight: 500;
       cursor: pointer;
@@ -552,7 +552,7 @@ import { AuthService } from '../core/services/auth.service';
     }
 
     .btn-ghost:hover {
-      color: #f87171;
+      color: var(--c-red);
     }
 
     /* ------------------------------------------------------------- */

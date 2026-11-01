@@ -2,7 +2,7 @@
 .pill { font-size: 0.75rem; padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--surface-3); color: var(--text-dim); }
 .st-todo { background: var(--warn-dim); color: #fcd38d; }
 .st-ready { background: var(--ok-dim); color: var(--ok); }
-.st-published { background: rgba(34, 211, 107, 0.28); color: #bbf7d0; }
+.st-published { background: rgba(34, 211, 107, 0.28); color: var(--text); }
 
 .gap-note {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem;
@@ -26,8 +26,8 @@
 .dp-sub { margin: 0; }
 
 .status { font-size: 0.72rem; padding: 0.12rem 0.5rem; border-radius: 999px; white-space: nowrap; background: var(--surface-3); color: var(--text-dim); }
-.status.st-inprogress { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
-.status.st-scheduled { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; }
+.status.st-inprogress { background: rgba(6, 182, 212, 0.15); color: var(--c-sky); }
+.status.st-scheduled { background: rgba(168, 85, 247, 0.18); color: var(--text-dim); }
 .status.st-skipped { opacity: 0.6; text-decoration: line-through; }
 
 .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; }

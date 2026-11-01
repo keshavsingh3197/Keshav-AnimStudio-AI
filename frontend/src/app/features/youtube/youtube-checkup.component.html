@@ -152,13 +152,32 @@
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ck-search-icon" aria-hidden="true">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
           </svg>
-          <input type="search" class="ck-search-input" placeholder="Search by video title, description, or tags…" maxlength="100"
+          <input #searchBox type="search" class="ck-search-input" placeholder="Search title, description, tags or video ID…" maxlength="100"
                  [ngModel]="query()" (ngModelChange)="setQuery($event)" aria-label="Search videos" />
           @if (query()) {
             <button type="button" class="ck-search-clear-btn" (click)="setQuery('')" aria-label="Clear search">✕</button>
           } @else {
-            <span class="ck-search-shortcut">Ctrl+F</span>
+            <span class="ck-search-shortcut">/</span>
           }
+        </div>
+
+        <div class="ck-select-box">
+          <select class="ck-select" [ngModel]="format()" (ngModelChange)="setFormat($event)" aria-label="Filter by format">
+            <option value="all">All formats</option>
+            <option value="long">🎬 Videos</option>
+            <option value="short">⚡ Shorts</option>
+          </select>
+          <span class="ck-select-chevron">▾</span>
+        </div>
+
+        <div class="ck-select-box">
+          <select class="ck-select" [ngModel]="privacy()" (ngModelChange)="setPrivacy($event)" aria-label="Filter by visibility">
+            <option value="all">Any visibility</option>
+            <option value="public">Public</option>
+            <option value="unlisted">Unlisted</option>
+            <option value="private">Private / scheduled</option>
+          </select>
+          <span class="ck-select-chevron">▾</span>
         </div>
 
         <!-- Sort Dropdown -->
@@ -211,6 +230,22 @@
         </div>
       </div>
 
+      <!-- What the list holds, plus unsaved-draft guard -->
+      <div class="ck-list-summary" aria-live="polite">
+        <span><strong>{{ rows().length }}</strong> video{{ rows().length === 1 ? '' : 's' }}</span>
+        <span>🎬 {{ listStats().videos }} · ⚡ {{ listStats().shorts }} Shorts</span>
+        <span>⚠️ {{ listStats().missing }} missing detail{{ listStats().missing === 1 ? '' : 's' }}</span>
+        @if (unsavedCount() > 0) {
+          <button type="button" class="ck-chip ck-chip-unsaved" [class.is-active]="onlyUnsaved()" (click)="setOnlyUnsaved(!onlyUnsaved())"
+                  title="Drafts with changes not yet saved to YouTube. Closing the page loses them.">
+            ✎ {{ unsavedCount() }} unsaved draft{{ unsavedCount() === 1 ? '' : 's' }}
+          </button>
+        }
+        @if (filter() !== 'all' || hasExtraFilters()) {
+          <button type="button" class="ck-link-btn" (click)="resetFilters()">Clear filters</button>
+        }
+      </div>
+
       @if (c.playlistError) {
         <p class="ck-playlist-notice">⚠️ Note: {{ c.playlistError }}</p>
       }
@@ -221,7 +256,7 @@
           <div class="ck-ai-summary-left">
             <span class="ck-ai-icon">✨</span>
             <span class="ck-ai-summary-title">AI Writing Engine &amp; Persona Settings</span>
-            <span class="ck-ai-summary-pill">Tone: {{ toneLabel(tone()) }} · {{ language() === 'hi' ? 'Hindi' : 'English' }}{{ brief() ? ' · custom notes' : '' }}</span>
+            <span class="ck-ai-summary-pill">Tone: {{ toneLabel(tone()) }} · {{ languageLabel(language()) }}{{ brief() ? ' · custom notes' : '' }}</span>
           </div>
           <span class="ck-ai-chevron">▾</span>
         </summary>
@@ -243,8 +278,9 @@
               <span class="ck-form-label">Language</span>
               <div class="ck-select-box">
                 <select class="ck-select" [ngModel]="language()" (ngModelChange)="language.set($event)">
-                  <option value="en">English</option>
-                  <option value="hi">Hindi (Devanagari)</option>
+                  @for (l of languages; track l.id) {
+                    <option [value]="l.id">{{ l.label }}</option>
+                  }
                 </select>
                 <span class="ck-select-chevron">▾</span>
               </div>
@@ -274,13 +310,19 @@
       </details>
 
       <!-- Bulk Actions Toolbar -->
-      <div class="ck-bulk-toolbar" role="toolbar" aria-label="Selected videos bulk actions">
+      <div class="ck-bulk-toolbar" [class.is-selecting]="selected().size > 0" role="toolbar" aria-label="Selected videos bulk actions">
         @if (selected().size === 0) {
           <div class="ck-bulk-idle">
             <button type="button" class="ck-btn-select-all" (click)="selectShown()" [disabled]="rows().length === 0">
               Select all {{ rows().length }} matching videos
             </button>
-            <span class="ck-bulk-hint">to write AI drafts, declare audience, or assign playlists in batch.</span>
+            <button type="button" class="ck-btn-select-all" (click)="togglePage()" [disabled]="pageRows().length === 0">
+              Select this page ({{ pageRows().length }})
+            </button>
+            <button type="button" class="ck-btn-secondary" (click)="reviewFirst()" [disabled]="rows().length === 0"
+                    title="Open the first video, then use Save &amp; next to work down the list">
+              ▶ Review one by one
+            </button>
           </div>
         } @else {
           <div class="ck-bulk-active">
@@ -290,6 +332,11 @@
 
             <button type="button" class="ck-btn-bulk-ai" (click)="draftAllSelected()" [disabled]="!!bulkRunning()">
               ✨ Generate {{ selected().size }} AI Drafts
+            </button>
+
+            <button type="button" class="ck-btn-secondary" [class.is-active]="bulkOpen()" (click)="bulkOpen.set(!bulkOpen())" [attr.aria-expanded]="bulkOpen()"
+                    title="Add the same tags or text to every selected draft">
+              ✎ Bulk edit
             </button>
 
             <button type="button" class="ck-btn-secondary" (click)="copyPrompt()" [disabled]="!!bulkRunning()"
@@ -326,14 +373,41 @@
         }
 
         <div class="ck-toolbar-right-btns">
-          <button type="button" class="ck-url-seo-toggle-btn" [class.is-active]="urlSeoOpen()" (click)="urlSeoOpen.set(!urlSeoOpen())" [attr.aria-expanded]="urlSeoOpen()">
-            {{ urlSeoOpen() ? 'Hide URL SEO Tool' : '🔗 Paste YouTube URL → Auto SEO & Transcript (Free)' }}
+          <button type="button" class="ck-paste-toggle-btn" (click)="exportAudit()" [disabled]="rows().length === 0" title="Download every video shown, with what each is missing, as a CSV spreadsheet">
+            ⬇ Export CSV
+          </button>
+          <button type="button" class="ck-url-seo-toggle-btn" [class.is-active]="urlSeoOpen()" (click)="urlSeoOpen.set(!urlSeoOpen())" [attr.aria-expanded]="urlSeoOpen()"
+                  title="Paste any YouTube URL or ID: reads the captions and writes a full SEO package. Free, no API key needed.">
+            {{ urlSeoOpen() ? 'Hide URL SEO tool' : '🔗 URL → SEO &amp; transcript' }}
           </button>
           <button type="button" class="ck-paste-toggle-btn" (click)="pasteOpen.set(!pasteOpen())" [attr.aria-expanded]="pasteOpen()">
             {{ pasteOpen() ? 'Hide Paste Tool' : '📥 Paste AI Output' }}
           </button>
         </div>
       </div>
+
+      <!-- Bulk edit: the same tags / text added to every selected draft -->
+      @if (bulkOpen() && selected().size > 0) {
+        <div class="ck-bulk-edit">
+          <label class="ck-form-field">
+            <span class="ck-form-label">Add tags to {{ selected().size }} selected <em class="ck-form-sub">(comma separated; kept within YouTube's tag limit)</em></span>
+            <div class="ck-bulk-row">
+              <input type="text" class="ck-search-input ck-bulk-input" maxlength="300" placeholder="e.g. bhakti, shiv bhajan, devotional"
+                     [ngModel]="bulkTags()" (ngModelChange)="bulkTags.set($event)" (keydown.enter)="addTagsToSelected()" />
+              <button type="button" class="ck-btn-secondary" (click)="addTagsToSelected()" [disabled]="!bulkTags().trim()">Add tags</button>
+            </div>
+          </label>
+          <label class="ck-form-field">
+            <span class="ck-form-label">Add text to the end of every description <em class="ck-form-sub">(links, credits, hashtags; skipped where already present)</em></span>
+            <div class="ck-bulk-row">
+              <textarea class="ck-textarea ck-bulk-input" rows="3" maxlength="1500" placeholder="Subscribe: https://youtube.com/@yourchannel&#10;#bhakti #shorts"
+                        [ngModel]="bulkDescription()" (ngModelChange)="bulkDescription.set($event)"></textarea>
+              <button type="button" class="ck-btn-secondary" (click)="addDescriptionToSelected()" [disabled]="!bulkDescription().trim()">Add text</button>
+            </div>
+          </label>
+          <p class="ck-help-text">Only drafts change. Nothing reaches YouTube until you press “Save to YouTube”.</p>
+        </div>
+      }
 
       <!-- Automated YouTube URL -> Transcript + Full SEO Package Generator (100% Free) -->
       @if (urlSeoOpen()) {
@@ -504,7 +578,7 @@
           } @else {
             <div class="ck-empty-icon">🔍</div>
             <h3>No videos match your search or filter</h3>
-            <button type="button" class="ck-btn-outline" (click)="setFilter('all'); setQuery('')">Reset Filters</button>
+            <button type="button" class="ck-btn-outline" (click)="resetFilters()">Reset Filters</button>
           }
         </div>
       }
@@ -565,6 +639,9 @@
                   @for (p of v.playlistIds; track p) {
                     <span class="ck-pill ck-playlist-badge">▤ {{ playlistTitle(p) }}</span>
                   }
+                </div>
+                <div class="ck-row-meter" [title]="rowScore(v) + '% of the checks pass'" [class.is-full]="v.issues.length === 0">
+                  <span [style.width.%]="rowScore(v)"></span>
                 </div>
                 @if (st.error) {
                   <p class="ck-error-text">⚠️ {{ st.error }}</p>
@@ -662,6 +739,14 @@
                     <span class="ck-pill ck-scheduled" [title]="'Goes public by itself on ' + (v.scheduledAt | date: 'full')">⏰ {{ v.scheduledAt | date: 'MMM d, h:mm a' }}</span>
                   }
                   @if (v.isShort) { <span class="ck-pill ck-format-short">Short</span> }
+                  @if (state(v.videoId).saved) {
+                    <span class="ck-status-pill ck-status-saved">✓ Saved</span>
+                  } @else if (hasChanges(v)) {
+                    <span class="ck-status-pill ck-status-draft">● Draft</span>
+                  }
+                </div>
+                <div class="ck-row-meter" [title]="rowScore(v) + '% of the checks pass'" [class.is-full]="v.issues.length === 0">
+                  <span [style.width.%]="rowScore(v)"></span>
                 </div>
 
                 <!-- Issues -->
@@ -774,8 +859,15 @@
           [hasNext]="hasNext()"
           [promptCopied]="promptCopied() === ov.videoId"
           [aiSummary]="aiSummary()"
+          [tones]="tones()"
+          [engines]="engines()"
+          [(tone)]="tone"
+          [(language)]="language"
+          [(engine)]="engine"
+          [(brief)]="brief"
           (draftChange)="setDraft(ov.videoId, $event)"
           (suggest)="suggest(ov)"
+          (suggestFresh)="suggest(ov, true)"
           (save)="saveFromEditor(ov, $event.next)"
           (reset)="reset(ov)"
           (copyPrompt)="copyPrompt(ov)"
@@ -839,17 +931,30 @@
       }
 
       <!-- Pagination -->
-      @if (pageCount() > 1) {
+      @if (rows().length > 0) {
         <nav class="ck-pager" aria-label="Checkup Pagination">
-          <button type="button" class="ck-btn-page" (click)="goToPage(pageIndex() - 1)" [disabled]="pageIndex() === 0">
-            ‹ Previous
-          </button>
-          <span class="ck-page-info">
-            Showing {{ pageFrom() }}–{{ pageTo() }} of {{ rows().length }} videos · Page {{ pageIndex() + 1 }} of {{ pageCount() }}
-          </span>
-          <button type="button" class="ck-btn-page" (click)="goToPage(pageIndex() + 1)" [disabled]="pageIndex() >= pageCount() - 1">
-            Next ›
-          </button>
+          <span class="ck-page-info">Showing {{ pageFrom() }}–{{ pageTo() }} of {{ rows().length }} videos</span>
+          <div class="ck-pager-pages">
+            <button type="button" class="ck-btn-page" (click)="goToPage(pageIndex() - 1)" [disabled]="pageIndex() === 0" aria-label="Previous page">‹</button>
+            @for (p of pageButtons(); track $index) {
+              @if (p === null) {
+                <span class="ck-page-gap">…</span>
+              } @else {
+                <button type="button" class="ck-btn-page" [class.is-active]="p === pageIndex()" (click)="goToPage(p)"
+                        [attr.aria-current]="p === pageIndex() ? 'page' : null">{{ p + 1 }}</button>
+              }
+            }
+            <button type="button" class="ck-btn-page" (click)="goToPage(pageIndex() + 1)" [disabled]="pageIndex() >= pageCount() - 1" aria-label="Next page">›</button>
+          </div>
+          <label class="ck-pager-size">
+            <span>Per page</span>
+            <span class="ck-select-box">
+              <select class="ck-select" [ngModel]="pageSize()" (ngModelChange)="setPageSize($event)" aria-label="Videos per page">
+                @for (n of pageSizes; track n) { <option [ngValue]="n">{{ n }}</option> }
+              </select>
+              <span class="ck-select-chevron">▾</span>
+            </span>
+          </label>
         </nav>
       }
     }

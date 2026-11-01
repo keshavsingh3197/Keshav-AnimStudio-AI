@@ -140,7 +140,8 @@ export const SCENES: { id: SceneId; label: string; icon: string; key: string }[]
   imports: [FormsModule, DecimalPipe, RouterLink, YouTubeLiveSetupComponent],
   templateUrl: './live-camera.component.html',
   styleUrls: ['./live-camera.component.css'],
-  host: { '(document:keydown)': 'onKey($event)' },
+  // Camera preview is colour-critical, so the studio keeps the dark palette in either theme.
+  host: { 'data-theme': 'dark', '(document:keydown)': 'onKey($event)' },
 })
 export class LiveCameraComponent {
   private readonly live = inject(LiveStreamService);

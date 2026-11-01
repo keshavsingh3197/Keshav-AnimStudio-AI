@@ -1,7 +1,8 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { firstValueFrom } from 'rxjs';
+import { catchError, firstValueFrom, of } from 'rxjs';
 import { AuthService } from '../core/services/auth.service';
+import { SignupService } from '../core/services/signup.service';
 import { StatusService } from '../core/services/status.service';
 import { environment } from '../../environments/environment';
 import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, ServerCredentialOptions } from '../core/services/webauthn';
@@ -17,7 +18,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
           <header class="modal-header">
             <div class="modal-title-group">
               <span class="modal-badge">SSO</span>
-              <h3>Sign in to AnimStudio AI</h3>
+              <h3>{{ mode() === 'signin' ? 'Sign in to AnimStudio AI' : 'Request AnimStudio access' }}</h3>
             </div>
             <button type="button" class="close-btn" (click)="auth.closeAuthModal()" aria-label="Close">
               &times;
@@ -32,7 +33,77 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
               </div>
             }
 
-            @if (twoFactorRequired()) {
+            @if (mode() === 'sent') {
+              <div class="request-sent" role="status">
+                <div class="request-sent-icon" aria-hidden="true">✓</div>
+                <h4>Request sent</h4>
+                <p>{{ sentMessage() }}</p>
+                <p class="field-hint">Nothing else is needed from you. Come back and sign in with the email and password you chose once an administrator has approved it.</p>
+                <div class="modal-actions">
+                  <button type="button" class="btn btn-primary" (click)="backToSignIn()">Back to sign in</button>
+                </div>
+              </div>
+            } @else if (mode() === 'request') {
+              <form (ngSubmit)="submitRequest()" autocomplete="on">
+                <p class="form-hint">
+                  Ask for an AnimStudio account. An administrator reviews every request; once approved you can sign in
+                  here. The account works for AnimStudio only - it cannot be used to sign in anywhere else.
+                </p>
+
+                <div class="form-field">
+                  <label for="rq-name">Your name</label>
+                  <input id="rq-name" name="rq-name" type="text" autocomplete="name" maxlength="120" [(ngModel)]="reqName" required />
+                </div>
+
+                <div class="form-field">
+                  <label for="rq-email">Email</label>
+                  <input id="rq-email" name="rq-email" type="email" autocomplete="email" maxlength="256" placeholder="you@example.com" [(ngModel)]="reqEmail" required />
+                </div>
+
+                <div class="form-field">
+                  <div class="form-label-row">
+                    <label for="rq-password">Choose a password</label>
+                    <button type="button" class="btn-text-link" (click)="showReqPassword.set(!showReqPassword())">{{ showReqPassword() ? 'Hide' : 'Show' }}</button>
+                  </div>
+                  <input id="rq-password" name="rq-password" [type]="showReqPassword() ? 'text' : 'password'" autocomplete="new-password"
+                         maxlength="256" [(ngModel)]="reqPassword" required />
+                  <div class="strength" aria-hidden="true"><span [style.width.%]="passwordStrength().percent" [class]="passwordStrength().tone"></span></div>
+                  <span class="field-hint" [class.hint-ok]="passwordStrength().ok">{{ passwordStrength().text }}</span>
+                </div>
+
+                <div class="form-field">
+                  <label for="rq-confirm">Repeat the password</label>
+                  <input id="rq-confirm" name="rq-confirm" [type]="showReqPassword() ? 'text' : 'password'" autocomplete="new-password"
+                         maxlength="256" [(ngModel)]="reqConfirm" required />
+                  @if (reqConfirm && reqConfirm !== reqPassword) {
+                    <span class="field-hint hint-bad">The two passwords don't match.</span>
+                  }
+                </div>
+
+                <div class="form-field">
+                  <label for="rq-reason">What will you make? <span class="optional">(optional)</span></label>
+                  <textarea id="rq-reason" name="rq-reason" rows="2" maxlength="900" [(ngModel)]="reqReason"
+                            placeholder="A line for the administrator reviewing your request"></textarea>
+                </div>
+
+                <!-- Hidden from people; only a script fills it in. -->
+                <div class="hp" aria-hidden="true">
+                  <label for="rq-website">Website</label>
+                  <input id="rq-website" name="rq-website" type="text" tabindex="-1" autocomplete="off" [(ngModel)]="reqWebsite" />
+                </div>
+
+                <div class="modal-actions">
+                  <button type="button" class="btn btn-secondary" (click)="backToSignIn()">Back</button>
+                  <button type="submit" class="btn btn-primary" [disabled]="!canSubmitRequest() || loading()">
+                    @if (loading()) {
+                      <span class="spinner"></span> Sending...
+                    } @else {
+                      Send request
+                    }
+                  </button>
+                </div>
+              </form>
+            } @else if (twoFactorRequired()) {
               <form (ngSubmit)="submitTwoFactor()">
                 <p class="form-hint">
                   @if (isBackupMode()) {
@@ -133,12 +204,16 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
             }
           </div>
 
-          <footer class="modal-footer">
-            <span class="footer-note">Need an account?</span>
-            <a [href]="registerUrl" target="_blank" rel="noopener noreferrer" class="link-register">
-              Create Keshav Identity Account &rarr;
-            </a>
-          </footer>
+          @if (mode() === 'signin' && !twoFactorRequired()) {
+            <footer class="modal-footer">
+              @if (signupOpen()) {
+                <span class="footer-note">New to AnimStudio?</span>
+                <button type="button" class="link-register" (click)="startRequest()">Request access &rarr;</button>
+              } @else {
+                <span class="footer-note">Access requests are closed right now.</span>
+              }
+            </footer>
+          }
         </div>
       </div>
     }
@@ -147,7 +222,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(4, 8, 16, 0.78);
+      background: color-mix(in srgb, var(--bg) 78%, transparent);
       backdrop-filter: blur(8px);
       z-index: 1050;
       display: flex;
@@ -158,7 +233,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     }
 
     .modal-dialog {
-      background: #0f1524;
+      background: var(--surface);
       border: 1px solid rgba(108, 140, 255, 0.25);
       border-radius: 14px;
       width: 100%;
@@ -173,8 +248,8 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       align-items: center;
       justify-content: space-between;
       padding: 1.15rem 1.4rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--ov-3);
+      background: var(--ov-1);
     }
 
     .modal-title-group {
@@ -187,7 +262,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       margin: 0;
       font-size: 1.05rem;
       font-weight: 700;
-      color: #fff;
+      color: var(--text);
     }
 
     .modal-badge {
@@ -198,7 +273,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       padding: 0.15rem 0.45rem;
       background: rgba(108, 140, 255, 0.2);
       border: 1px solid rgba(108, 140, 255, 0.4);
-      color: #8bb0ff;
+      color: var(--c-blue);
       border-radius: 4px;
     }
 
@@ -214,7 +289,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     }
 
     .close-btn:hover {
-      color: #fff;
+      color: var(--text);
     }
 
     .modal-body {
@@ -234,12 +309,12 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     .alert-error {
       background: rgba(239, 68, 68, 0.15);
       border: 1px solid rgba(239, 68, 68, 0.35);
-      color: #fca5a5;
+      color: var(--c-red);
     }
 
     .form-hint {
       font-size: 0.84rem;
-      color: #94a3b8;
+      color: var(--text-dim);
       margin: 0 0 1.1rem;
       line-height: 1.45;
     }
@@ -262,7 +337,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     .btn-text-link {
       background: none;
       border: none;
-      color: #8bb0ff;
+      color: var(--c-blue);
       font-size: 0.78rem;
       cursor: pointer;
       padding: 0;
@@ -271,13 +346,13 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     }
 
     .btn-text-link:hover {
-      color: #b4cbff;
+      color: var(--text-dim);
     }
 
     .field-hint {
       display: block;
       font-size: 0.74rem;
-      color: #94a3b8;
+      color: var(--text-dim);
       margin-top: 0.35rem;
       line-height: 1.35;
     }
@@ -286,7 +361,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       display: block;
       font-size: 0.8rem;
       font-weight: 600;
-      color: #cbd5e1;
+      color: var(--text-dim);
       margin-bottom: 0.4rem;
     }
 
@@ -295,9 +370,9 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       box-sizing: border-box;
       padding: 0.65rem 0.85rem;
       border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      background: rgba(0, 0, 0, 0.35);
-      color: #fff;
+      border: 1px solid var(--ov-4);
+      background: var(--sunk-2);
+      color: var(--text);
       font-size: 0.92rem;
       outline: none;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -313,7 +388,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       align-items: flex-start;
       gap: 0.55rem;
       font-size: 0.76rem;
-      color: #94a3b8;
+      color: var(--text-dim);
       background: rgba(108, 140, 255, 0.06);
       border: 1px solid rgba(108, 140, 255, 0.15);
       border-radius: 8px;
@@ -323,8 +398,8 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     }
 
     .info-callout code {
-      color: #8bb0ff;
-      background: rgba(0, 0, 0, 0.25);
+      color: var(--c-blue);
+      background: var(--sunk-2);
       padding: 0.1rem 0.3rem;
       border-radius: 4px;
     }
@@ -355,14 +430,14 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     }
 
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.12);
-      color: #e2e8f0;
+      background: var(--ov-2);
+      border-color: var(--ov-4);
+      color: var(--text);
     }
 
     .btn-secondary:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+      background: var(--ov-3);
+      color: var(--text);
     }
 
     .btn-primary {
@@ -380,7 +455,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     .spinner {
       width: 14px;
       height: 14px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
+      border: 2px solid var(--ov-5);
       border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
@@ -391,33 +466,109 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       align-items: center;
       justify-content: space-between;
       padding: 0.85rem 1.4rem;
-      background: rgba(0, 0, 0, 0.25);
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--sunk-2);
+      border-top: 1px solid var(--ov-2);
       font-size: 0.78rem;
     }
 
     .footer-note {
-      color: #64748b;
+      color: var(--muted);
     }
 
     .link-register {
-      color: #8bb0ff;
+      color: var(--c-blue);
       text-decoration: none;
       font-weight: 600;
       transition: color 0.15s ease;
+      background: none;
+      border: 0;
+      padding: 0;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: none;
     }
 
     .link-register:hover {
-      color: #c7d2fe;
+      color: var(--text-dim);
       text-decoration: underline;
+      background: none;
+      box-shadow: none;
+      transform: none;
     }
+
+    .form-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.65rem 0.85rem;
+      border-radius: 8px;
+      border: 1px solid var(--ov-4);
+      background: var(--sunk-2);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
+      min-height: 0;
+      resize: vertical;
+      outline: none;
+    }
+
+    .form-field textarea:focus {
+      border-color: #6c8cff;
+      box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.25);
+    }
+
+    .optional { font-weight: 400; color: var(--muted); }
+
+    .strength {
+      height: 4px;
+      margin-top: 0.45rem;
+      border-radius: 99px;
+      background: var(--ov-3);
+      overflow: hidden;
+    }
+
+    .strength > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      transition: width 0.2s ease;
+    }
+
+    .strength > span.weak { background: var(--err, #ef4444); }
+    .strength > span.fair { background: var(--warn, #f59e0b); }
+    .strength > span.strong { background: var(--ok, #22d36b); }
+    .hint-ok { color: var(--ok, #22d36b); }
+    .hint-bad { color: var(--err, #ef4444); }
+
+    .request-sent { text-align: center; padding: 0.5rem 0.25rem 0.25rem; }
+    .request-sent h4 { margin: 0.6rem 0 0.4rem; font-size: 1.05rem; color: var(--text); }
+    .request-sent p { margin: 0 0 0.6rem; font-size: 0.88rem; color: var(--text-dim); line-height: 1.5; }
+    .request-sent .modal-actions { justify-content: center; }
+    .request-sent-icon {
+      width: 3rem;
+      height: 3rem;
+      margin: 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--ok, #22d36b);
+      background: rgba(34, 211, 107, 0.12);
+      border: 1px solid rgba(34, 211, 107, 0.35);
+    }
+
+    /* The trap field: out of sight and out of reach for people. */
+    .hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+
+    .modal-body { max-height: calc(100vh - 11rem); overflow-y: auto; }
 
     .or-divider {
       display: flex;
       align-items: center;
       gap: 0.75rem;
       margin: 1.15rem 0;
-      color: #64748b;
+      color: var(--muted);
       font-size: 0.76rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -426,7 +577,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     .or-divider::before, .or-divider::after {
       content: '';
       flex: 1;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid var(--ov-3);
     }
 
     .btn-passkey {
@@ -440,8 +591,8 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       border-radius: 8px;
       font-size: 0.88rem;
       font-weight: 600;
-      color: #f1f5f9;
-      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      background: var(--ov-1);
       border: 1px solid rgba(148, 163, 184, 0.2);
       cursor: pointer;
       transition: all 0.16s ease;
@@ -450,7 +601,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
     .btn-passkey:hover:not(:disabled) {
       background: rgba(108, 140, 255, 0.12);
       border-color: rgba(108, 140, 255, 0.45);
-      color: #b4cbff;
+      color: var(--text-dim);
     }
 
     .btn-passkey:disabled {
@@ -476,6 +627,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
 export class LoginModalComponent {
   readonly auth = inject(AuthService);
   private readonly status = inject(StatusService);
+  private readonly signup = inject(SignupService);
 
   email = '';
   password = '';
@@ -486,10 +638,87 @@ export class LoginModalComponent {
   twoFactorToken = signal<string | null>(null);
   readonly isBackupMode = signal(false);
 
-  get registerUrl(): string {
-    const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
-    return `${environment.adminUrl}/register?app=studio&returnUrl=${encodeURIComponent(returnUrl)}&redirect=${encodeURIComponent(returnUrl)}&redirect_uri=${encodeURIComponent(returnUrl)}`;
+  // Asking for access (no account yet): an administrator approves it, and the account made
+  // works for AnimStudio only.
+  readonly mode = signal<'signin' | 'request' | 'sent'>('signin');
+  readonly signupOpen = signal(false);
+  readonly showReqPassword = signal(false);
+  readonly sentMessage = signal('');
+  reqName = '';
+  reqEmail = '';
+  reqPassword = '';
+  reqConfirm = '';
+  reqReason = '';
+  reqWebsite = '';
+
+  constructor() {
+    // Ask whether requests are open each time the dialog opens, so closing them takes effect at once.
+    effect(() => {
+      if (!this.auth.isAuthModalOpen()) return;
+      this.mode.set('signin');
+      this.signup.status().pipe(catchError(() => of(false))).subscribe((open) => this.signupOpen.set(open));
+    });
   }
+
+  startRequest(): void {
+    this.errorMessage.set(null);
+    this.mode.set('request');
+  }
+
+  backToSignIn(): void {
+    this.errorMessage.set(null);
+    this.mode.set('signin');
+  }
+
+  /** What the password still needs, as the server will judge it (twelve characters or more, not guessable). */
+  passwordStrength(): { percent: number; tone: string; text: string; ok: boolean } {
+    const p = this.reqPassword;
+    if (!p) return { percent: 0, tone: 'weak', text: 'Use at least 12 characters - a few words together work well.', ok: false };
+    const local = this.reqEmail.split('@')[0]?.toLowerCase() ?? '';
+    const name = this.reqName.trim().toLowerCase();
+    const lower = p.toLowerCase();
+    if (p.length < 12) return { percent: Math.max(8, (p.length / 12) * 45), tone: 'weak', text: `${12 - p.length} more character${12 - p.length === 1 ? '' : 's'} needed.`, ok: false };
+    if (new Set(p).size < 5) return { percent: 30, tone: 'weak', text: 'Too repetitive. Mix it up.', ok: false };
+    if ((local.length >= 4 && lower.includes(local)) || (name.length >= 4 && lower.includes(name))) {
+      return { percent: 40, tone: 'weak', text: "Don't include your name or email in the password.", ok: false };
+    }
+    const kinds = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(p)).length;
+    const percent = Math.min(100, 55 + kinds * 10 + Math.min(15, p.length - 12));
+    return { percent, tone: kinds >= 3 || p.length >= 16 ? 'strong' : 'fair', text: kinds >= 3 || p.length >= 16 ? 'Good password.' : 'Fine - longer or more varied is stronger.', ok: true };
+  }
+
+  canSubmitRequest(): boolean {
+    return this.reqName.trim().length >= 2
+      && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.reqEmail.trim())
+      && this.passwordStrength().ok
+      && this.reqPassword === this.reqConfirm;
+  }
+
+  submitRequest(): void {
+    if (!this.canSubmitRequest() || this.loading()) return;
+    this.loading.set(true);
+    this.errorMessage.set(null);
+    this.signup.request({
+      email: this.reqEmail.trim(),
+      displayName: this.reqName.trim(),
+      password: this.reqPassword,
+      reason: this.reqReason.trim() || undefined,
+      website: this.reqWebsite,
+    }).subscribe({
+      next: (receipt) => {
+        this.loading.set(false);
+        this.sentMessage.set(receipt.message);
+        this.reqPassword = '';
+        this.reqConfirm = '';
+        this.mode.set('sent');
+      },
+      error: (err) => {
+        this.loading.set(false);
+        this.errorMessage.set(err?.message || 'The request could not be sent.');
+      },
+    });
+  }
+
   readonly isLocalhost = typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   readonly passkeySupported = isPasskeySupported();

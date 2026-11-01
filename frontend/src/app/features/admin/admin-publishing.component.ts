@@ -1,276 +1,565 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { DatePipe } from '@angular/common';
+import {
+  Component, DestroyRef, ElementRef, HostListener, Injector, OnDestroy, OnInit, afterNextRender, computed, effect, inject, signal, untracked, viewChild,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subject, Subscription, catchError, concatMap, from, map, mergeMap, of, tap, toArray } from 'rxjs';
 
+import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { BrandChannel } from '../../core/models/api.models';
-import { YouTubePublishStatus, parseYouTubeTags, youTubeTagsLength } from '../../core/models/youtube.models';
-import { AdminSettingsService, ChannelPublishSettings } from '../../core/services/admin-settings.service';
+import { YouTubeChannel, YouTubePublishStatus } from '../../core/models/youtube.models';
+import { AdminSettingsService, ChannelBranding, ChannelPublishSettings, OMKR_BRANDING } from '../../core/services/admin-settings.service';
 import { ApiService } from '../../core/services/api.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { AdminIconComponent } from './admin-channel-kit';
+import { copyText, fold, isTypingTarget, messageOf, plural, readStored, safePicture, writeStored } from './admin-channel-utils';
+import {
+  BRAND_TAG_RULES, BRAND_TEXT_MAX, BulkChoice, BulkPlan, BulkTagMode, CHANNEL_TAG_RULES, HASHTAG_RULES, Health, HealthAction,
+  HealthLevel, MAX_COMMENT_LENGTH, MAX_FOOTER_BYTES, NO_BULK, PRIVACY_OPTIONS, Privacy, brandKey, brandTextProblem, brandUrlProblem,
+  bulkFieldCount, bulkStamp, channelHealth, commentProblem, describeChoice, emptyBranding, footerProblem, footerReport, footerSegments,
+  isPrivacy, planBulk, tagListProblem,
+} from './admin-publishing.logic';
+import { AdminTagEditorComponent } from './admin-tag-editor.component';
+
+type Phase = 'loading' | 'ready' | 'error';
+type Settled = 'loading' | 'ok' | 'error';
+type ListFilter = 'all' | 'attention' | 'linked' | 'unlinked';
+type BulkPhase = 'pick' | 'reading' | 'preview' | 'applying' | 'done';
+
+interface Entry {
+  c: BrandChannel;
+  key: string;
+  settings: ChannelPublishSettings | undefined;
+  health: Health;
+}
+
+interface Problem {
+  /** The id of the field to take the user to. */
+  id: string;
+  message: string;
+}
+
+interface BulkRow {
+  key: string;
+  name: string;
+  before: ChannelPublishSettings | null;
+  plan: BulkPlan | null;
+  error: string | null;
+}
+
+interface BulkResult {
+  ok: boolean;
+  message: string;
+}
+
+interface BrandIssues {
+  channelName: string | null;
+  tagline: string | null;
+  channelUrl: string | null;
+  studioUrl: string | null;
+  creatorUrl: string | null;
+  engineName: string | null;
+  visualsCredit: string | null;
+  hashtags: string | null;
+  tags: string | null;
+}
+
+const PREFS_KEY = 'animstudio.admin.publishing.view';
+const LIST_STEP = 40;
 
 /**
- * Per brand channel: the YouTube channel its videos publish to and what every upload
- * starts with. The Publish dialog pre-fills from this for any project on the channel, so
- * once it is set up publishing is a single click.
+ * Per brand channel: the YouTube channel its videos publish to and what every upload starts
+ * with. The Publish dialog pre-fills from this for any project on the channel, so once it is
+ * set up publishing is a single click.
+ * <p>
+ * Pick a channel on the left (each shows whether it is ready to publish), edit it on the right,
+ * and - for a studio with many channels - copy chosen defaults to others with a preview first.
+ * </p>
  */
 @Component({
   selector: 'app-admin-publishing',
-  template: `
-    <section class="pb">
-      <header class="page-head" style="margin-top: 0">
-        <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-          <div class="studio-icon-badge red" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-            </svg>
-          </div>
-          <div>
-            <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-              <h2 style="margin: 0">YouTube publishing</h2>
-              <span class="pill brand">{{ brandChannels().length }} channels</span>
-            </div>
-            <p class="muted">Which YouTube channel each brand channel uploads to, and the details every upload starts with.</p>
-          </div>
-        </div>
-      </header>
-
-      <div class="pb-brands" role="radiogroup" aria-label="Brand channel">
-        @for (c of brandChannels(); track c.id) {
-          <button type="button" class="pb-brand" role="radio" [attr.aria-checked]="isCurrent(c)" [class.active]="isCurrent(c)"
-                  (click)="switchChannel(c.isDefault ? 'default' : c.id)">
-            <span class="pb-avatar">
-              @if (safePicture(c.youTubeThumbnailUrl); as pic) { <img [src]="pic" alt="" referrerpolicy="no-referrer" /> }
-              @else { {{ initial(c.name) }} }
-            </span>
-            <span class="pb-brand-text">
-              <strong>{{ c.name }} @if (c.isDefault) { <span class="badge">Default</span> }</strong>
-              @if (c.youTubeChannelId) {
-                <span class="muted small">▶ {{ c.youTubeChannelHandle || c.youTubeChannelTitle || c.youTubeChannelId }}</span>
-              } @else {
-                <span class="muted small">Not linked to YouTube</span>
-              }
-            </span>
-          </button>
-        }
-      </div>
-
-      @if (error()) { <div class="notice error">{{ error() }}</div> }
-      @if (saved()) { <div class="notice" style="border-left-color: var(--ok); color: var(--ok)">✓ Saved. New publishes for this channel start with these details.</div> }
-
-      @if (form(); as f) {
-        <div class="card pb-card">
-          <div class="studio-card-head">
-            <div class="studio-card-title-group">
-              <h3>Upload to</h3>
-              <span class="pill brand">{{ currentBrand()?.name }}</span>
-            </div>
-          </div>
-          <p class="muted small">The YouTube channel videos from <strong>{{ currentBrand()?.name }}</strong> are uploaded to.</p>
-          @if (yt(); as st) {
-            @if (!st.configured) {
-              <p class="notice">Publishing to YouTube isn't set up on this server yet: set the OAuth client in Application settings → YouTube, and the client secret in user-secrets.</p>
-            }
-
-            @if (f.youTubeChannelId) {
-              <div class="pb-linked">
-                <span class="pb-avatar lg">
-                  @if (pickedPicture(); as picture) { <img [src]="picture" alt="" referrerpolicy="no-referrer" /> }
-                  @else { {{ initial(f.youTubeChannelTitle || '?') }} }
-                </span>
-                <span class="pb-brand-text">
-                  <strong>{{ f.youTubeChannelTitle || f.youTubeChannelId }}</strong>
-                  <span class="muted small">{{ f.youTubeChannelHandle || f.youTubeChannelId }}</span>
-                  @if (connectedHere()) { <span class="ok small">✓ Connected by you</span> }
-                  @else { <span class="warn small">Not connected by you: whoever publishes must connect it</span> }
-                </span>
-                <button type="button" class="secondary small" (click)="pickYouTube('')">Unlink</button>
-              </div>
-              @if (linkedElsewhere().get(f.youTubeChannelId); as owner) {
-                <p class="err small">This YouTube channel is also linked to "{{ owner }}". Each YouTube channel can only feed one brand channel: unlink it here or there.</p>
-              }
-            } @else {
-              <p class="notice small">Not linked: the Publish dialog asks which YouTube channel to use each time.</p>
-            }
-
-            <div class="pb-row">
-              <label class="grow">{{ f.youTubeChannelId ? 'Change to' : 'Link a YouTube channel' }}
-                <select (change)="pickYouTube($any($event.target).value)">
-                  <option value="" [selected]="!f.youTubeChannelId">— Ask each time —</option>
-                  @for (c of st.channels; track c.channelId) {
-                    <option [value]="c.channelId" [selected]="c.channelId === f.youTubeChannelId"
-                            [disabled]="linkedElsewhere().has(c.channelId) && c.channelId !== f.youTubeChannelId">
-                      {{ c.channelTitle }}{{ c.channelHandle ? ' (' + c.channelHandle + ')' : '' }}{{ linkedElsewhere().has(c.channelId) ? ' — used by ' + linkedElsewhere().get(c.channelId) : '' }}
-                    </option>
-                  }
-                  @if (f.youTubeChannelId && !connectedHere()) {
-                    <option [value]="f.youTubeChannelId" selected>{{ f.youTubeChannelTitle || f.youTubeChannelId }} (not connected by you)</option>
-                  }
-                </select>
-              </label>
-              @if (st.configured) {
-                <button type="button" class="secondary" (click)="connect()" [disabled]="busy()">＋ Connect another YouTube channel</button>
-              }
-            </div>
-            @if (!st.channels.length) {
-              <p class="muted small">You haven't connected any YouTube channel yet.</p>
-            }
-            <p class="muted small">
-              Channels are connected per user with Google sign-in. A YouTube channel can feed only one brand channel,
-              and the brand channel takes its name and picture when you save.
-            </p>
-          }
-        </div>
-
-        <div class="card pb-card">
-          <div class="studio-card-head">
-            <div class="studio-card-title-group">
-              <h3>Every upload starts with</h3>
-              <span class="pill">Defaults</span>
-            </div>
-          </div>
-          <div class="pb-grid">
-            <label>Visibility
-              <select (change)="patch({ privacy: $any($event.target).value })">
-                <option value="public" [selected]="f.privacy === 'public'">Public</option>
-                <option value="unlisted" [selected]="f.privacy === 'unlisted'">Unlisted</option>
-                <option value="private" [selected]="f.privacy === 'private'">Private</option>
-              </select>
-            </label>
-            <label>Category
-              <select (change)="patch({ categoryId: $any($event.target).value })">
-                @for (c of yt()?.categories ?? []; track c.id) { <option [value]="c.id" [selected]="c.id === f.categoryId">{{ c.name }}</option> }
-              </select>
-            </label>
-          </div>
-          <div class="pb-row">
-            <label class="inline"><input type="radio" name="kids" [checked]="!f.madeForKids" (change)="patch({ madeForKids: false })" /> Not made for kids</label>
-            <label class="inline"><input type="radio" name="kids" [checked]="f.madeForKids" (change)="patch({ madeForKids: true })" /> Made for kids</label>
-            <label class="inline"><input type="checkbox" [checked]="f.notifySubscribers" (change)="patch({ notifySubscribers: $any($event.target).checked })" /> Notify subscribers</label>
-          </div>
-          <label>Channel tags <span class="muted small">(added to every video; comma-separated)</span>
-            <input type="text" [value]="tagsText()" (input)="tagsText.set($any($event.target).value)" placeholder="AnimStudio, Animation" />
-          </label>
-          <div class="count" [class.over]="tagsLength() > 500">{{ tagsLength() }} / 500</div>
-          <label>Description footer <span class="muted small">(added below every description: links, credits, support message)</span>
-            <textarea rows="5" [value]="f.descriptionFooter ?? ''" (input)="patch({ descriptionFooter: $any($event.target).value })"></textarea>
-          </label>
-          <div class="count" [class.over]="footerBytes() > 2500">{{ footerBytes() }} / 2500 bytes</div>
-          <label>First comment <span class="muted small">(posted on every video once it's uploaded; leave empty for none)</span>
-            <textarea rows="3" [value]="f.firstComment ?? ''" (input)="patch({ firstComment: $any($event.target).value })"
-                      placeholder="Thanks for watching! New videos every week 🔔"></textarea>
-          </label>
-          <div class="count" [class.over]="(f.firstComment ?? '').trim().length > 10000">{{ (f.firstComment ?? '').trim().length }} / 10000</div>
-        </div>
-
-        <div class="pb-actions">
-          <button type="button" (click)="save()" [disabled]="busy() || tagsLength() > 500 || footerBytes() > 2500">💾 Save</button>
-        </div>
-      }
-    </section>
-  `,
-  styles: [`
-    .pb-brands { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .6rem; margin: .75rem 0 1.15rem; }
-    .pb-brand {
-      display: flex; align-items: center; gap: .65rem; padding: .6rem .8rem; text-align: left; cursor: pointer;
-      background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
-      box-shadow: none; font-weight: 500;
-    }
-    .pb-brand:hover:not(:disabled) { border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
-    .pb-brand.active { border-color: var(--brand); background: rgba(108, 140, 255, .14); box-shadow: 0 0 0 1px var(--brand) inset; }
-    .pb-brand-text { display: grid; gap: .1rem; min-width: 0; }
-    .pb-brand-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .badge { font-size: .65rem; font-weight: 700; padding: .05rem .45rem; border-radius: 999px; background: rgba(108, 140, 255, .2); color: var(--brand-bright); margin-left: .25rem; }
-    .pb-linked { display: flex; align-items: center; gap: .75rem; padding: .7rem .85rem; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
-    .pb-linked .pb-brand-text { flex: 1; }
-    .grow { flex: 1; min-width: 260px; }
-    .warn { color: var(--warn); }
-    .err { color: var(--err); }
-    .pb-card { display: grid; gap: .55rem; }
-    .pb-card h3 { margin: 0; font-size: 1.02rem; }
-    .pb-card label { display: grid; gap: .28rem; }
-    .pb-card label.inline { display: inline-flex; align-items: center; gap: .4rem; }
-    .pb-row { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: flex-end; }
-    .pb-row select { min-width: 260px; }
-    .pb-avatar { flex: none; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
-      background: rgba(108, 140, 255, .22); border: 1px solid rgba(108, 140, 255, .35); font-weight: 700; font-size: .85rem; }
-    .pb-avatar.lg { width: 44px; height: 44px; font-size: 1.05rem; }
-    .pb-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .pb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .85rem; }
-    .count { font-size: .75rem; text-align: right; color: var(--muted); font-family: ui-monospace, monospace; }
-    .count.over { color: var(--err); font-weight: 700; }
-    .pb-actions { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
-    .small { font-size: .78rem; }
-    .ok { color: var(--ok); }
-  `],
+  imports: [DatePipe, RouterLink, AdminIconComponent, AdminTagEditorComponent],
+  templateUrl: './admin-publishing.component.html',
+  styleUrl: './admin-publishing.component.css',
 })
-export class AdminPublishingComponent implements OnInit {
+export class AdminPublishingComponent implements OnInit, OnDestroy {
   private readonly admin = inject(AdminSettingsService);
   private readonly api = inject(ApiService);
   private readonly youtube = inject(YouTubePublishService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
+  readonly privacyOptions = PRIVACY_OPTIONS;
+  readonly channelTagRules = CHANNEL_TAG_RULES;
+  readonly hashtagRules = HASHTAG_RULES;
+  readonly brandTagRules = BRAND_TAG_RULES;
+  readonly brandMax = BRAND_TEXT_MAX;
+  readonly maxFooter = MAX_FOOTER_BYTES;
+  readonly maxComment = MAX_COMMENT_LENGTH;
+  readonly plural = plural;
+  readonly skeletons = [0, 1, 2, 3, 4];
+
+  // ---- what the server told us
   readonly brandChannels = signal<BrandChannel[]>([]);
+  readonly phase = signal<Phase>('loading');
+  readonly loadError = signal<string | null>(null);
   readonly yt = signal<YouTubePublishStatus | null>(null);
+  readonly ytState = signal<Settled>('loading');
+  /** The settings of every channel read so far, by brand key - what the list's health and visibility come from. */
+  readonly details = signal<Record<string, ChannelPublishSettings>>({});
+
+  // ---- the channel being edited
   readonly channelId = signal<string | null>(null);
   readonly form = signal<ChannelPublishSettings | null>(null);
-  readonly tagsText = signal('');
-  readonly busy = signal(false);
-  readonly error = signal<string | null>(null);
-  readonly saved = signal(false);
+  private readonly original = signal('');
+  readonly editor = signal<'idle' | 'loading' | 'error'>('loading');
+  readonly editorError = signal<string | null>(null);
+  readonly saving = signal(false);
+  readonly saveError = signal<{ message: string; code: string } | null>(null);
+  readonly savedAt = signal<Date | null>(null);
+  readonly pendingSwitch = signal<string | null>(null);
+  readonly staleNotice = signal<string | null>(null);
 
-  readonly tagsLength = computed(() => youTubeTagsLength(parseYouTubeTags(this.tagsText())));
-  readonly footerBytes = computed(() => new TextEncoder().encode((this.form()?.descriptionFooter ?? '').trim()).length);
-  readonly pickedPicture = computed(() => {
-    const id = this.form()?.youTubeChannelId;
-    const url = this.yt()?.channels.find((c) => c.channelId === id)?.thumbnailUrl;
-    return this.safePicture(url ?? this.form()?.youTubeThumbnailUrl);
+  // ---- the list
+  private readonly saved = this.readPrefs();
+  readonly query = signal('');
+  readonly listFilter = signal<ListFilter>(this.saved.filter);
+  readonly brandingOpen = signal(this.saved.brandingOpen);
+  readonly pickerOpen = signal(false);
+  readonly shown = signal(LIST_STEP);
+
+  // ---- YouTube actions
+  readonly connecting = signal(false);
+  readonly checking = signal(false);
+  readonly checkReport = signal<{ count: number; failed: { channelId: string; channelTitle: string; reason: string }[] } | null>(null);
+  readonly actionError = signal<string | null>(null);
+  readonly liveMessage = signal('');
+
+  // ---- bulk apply
+  readonly bulkOpen = signal(false);
+  readonly bulkPhase = signal<BulkPhase>('pick');
+  readonly bulkChoice = signal<BulkChoice>(NO_BULK);
+  readonly bulkTargets = signal<ReadonlySet<string>>(new Set());
+  readonly bulkQuery = signal('');
+  readonly bulkRows = signal<BulkRow[]>([]);
+  readonly bulkProgress = signal({ done: 0, total: 0, name: '' });
+  readonly bulkResults = signal<Record<string, BulkResult>>({});
+  readonly bulkUndo = signal<{ key: string; name: string; before: ChannelPublishSettings }[]>([]);
+  readonly bulkUndone = signal(false);
+  private readonly bulkStampAtPreview = signal('');
+
+  private readonly searchBox = viewChild<ElementRef<HTMLInputElement>>('search');
+  private loadSub?: Subscription;
+  private bulkSub?: Subscription;
+  private patienceTimer?: ReturnType<typeof setTimeout>;
+  private copiedTimer?: ReturnType<typeof setTimeout>;
+  private readonly prefetch$ = new Subject<string>();
+  private readonly requested = new Set<string>();
+  /** After a moment the page stops waiting for the connection status and shows what it has. */
+  private readonly patience = signal(false);
+  readonly copied = signal(false);
+
+  /**
+   * The list waits (as a skeleton) until the connections have answered, so the banners they
+   * decide on don't push everything down a moment after the page appeared.
+   */
+  readonly stage = computed<'loading' | 'ready' | 'error'>(() => {
+    if (this.phase() === 'error') return 'error';
+    return this.phase() === 'ready' && (this.ytState() !== 'loading' || this.patience()) ? 'ready' : 'loading';
   });
-  readonly currentBrand = computed(() => this.brandChannels().find((c) => this.isCurrent(c)) ?? null);
+
+  // ---- derived
+  readonly currentKey = computed(() => this.channelId() ?? 'default');
+  readonly currentBrand = computed(() => this.brandChannels().find((c) => brandKey(c) === this.currentKey()) ?? null);
+  readonly dirty = computed(() => {
+    const f = this.form();
+    return !!f && JSON.stringify(f) !== this.original();
+  });
+
+  readonly entries = computed<Entry[]>(() => {
+    const yt = this.yt();
+    const det = this.details();
+    return this.brandChannels().map((c) => {
+      const key = brandKey(c);
+      const settings = det[key];
+      return { c, key, settings, health: channelHealth(c, yt, settings) };
+    });
+  });
+  private readonly searched = computed(() => {
+    const tokens = fold(this.query()).split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return this.entries();
+    return this.entries().filter((e) => {
+      const text = fold([e.c.name, e.c.youTubeChannelHandle, e.c.youTubeChannelTitle, e.key].filter(Boolean).join(' '));
+      return tokens.every((t) => text.includes(t));
+    });
+  });
+  readonly visible = computed(() => this.searched().filter((e) => this.matches(e, this.listFilter())));
+  readonly listed = computed(() => this.visible().slice(0, this.shown()));
+  readonly counts = computed(() => {
+    const s = this.searched();
+    return {
+      all: s.length,
+      attention: s.filter((e) => this.matches(e, 'attention')).length,
+      linked: s.filter((e) => this.matches(e, 'linked')).length,
+      unlinked: s.filter((e) => this.matches(e, 'unlinked')).length,
+    };
+  });
+  readonly kpis = computed(() => {
+    const all = this.entries();
+    return {
+      total: all.length,
+      linked: all.filter((e) => !!e.c.youTubeChannelId).length,
+      ready: all.filter((e) => e.health.level === 'ok').length,
+      attention: all.filter((e) => e.health.level === 'warn' || e.health.level === 'err').length,
+      unlinked: all.filter((e) => !e.c.youTubeChannelId).length,
+      unread: all.filter((e) => !e.settings).length,
+    };
+  });
+  readonly reconnectCount = computed(() => this.entries().filter((e) => e.health.issues.some((i) => i.id === 'token')).length);
+
+  /** The channel's health as it would be if the form were saved now. */
+  readonly health = computed(() => {
+    const b = this.currentBrand();
+    const f = this.form();
+    if (!b) return null;
+    return channelHealth({ ...b, youTubeChannelId: f ? f.youTubeChannelId : b.youTubeChannelId }, this.yt(), f);
+  });
+  readonly connection = computed<YouTubeChannel | undefined>(() => {
+    const id = this.form()?.youTubeChannelId;
+    return id ? this.yt()?.channels.find((c) => c.channelId === id) : undefined;
+  });
+  readonly connectedHere = computed(() => !!this.connection());
+  readonly pickedPicture = computed(() => {
+    const url = this.connection()?.thumbnailUrl ?? this.form()?.youTubeThumbnailUrl;
+    return safePicture(url);
+  });
   /** YouTube channel id → name of the other brand channel already publishing to it. */
   readonly linkedElsewhere = computed(() => {
     const map = new Map<string, string>();
     for (const c of this.brandChannels()) {
-      if (c.youTubeChannelId && !this.isCurrent(c)) map.set(c.youTubeChannelId, c.name);
+      if (c.youTubeChannelId && brandKey(c) !== this.currentKey()) map.set(c.youTubeChannelId, c.name);
     }
     return map;
   });
-  readonly connectedHere = computed(() =>
-    this.yt()?.channels.some((c) => c.channelId === this.form()?.youTubeChannelId) ?? false);
+  readonly categories = computed(() => this.yt()?.categories ?? []);
+
+  readonly brand = computed<ChannelBranding>(() => this.form()?.branding ?? emptyBranding());
+  readonly brandIssues = computed<BrandIssues>(() => {
+    const b = this.brand();
+    return {
+      channelName: brandTextProblem(b.channelName, BRAND_TEXT_MAX.channelName),
+      tagline: brandTextProblem(b.tagline, BRAND_TEXT_MAX.tagline),
+      channelUrl: brandUrlProblem(b.channelUrl),
+      studioUrl: brandUrlProblem(b.studioUrl),
+      creatorUrl: brandUrlProblem(b.creatorUrl),
+      engineName: brandTextProblem(b.engineName, BRAND_TEXT_MAX.engineName),
+      visualsCredit: brandTextProblem(b.visualsCredit, BRAND_TEXT_MAX.visualsCredit),
+      hashtags: tagListProblem(b.hashtags, HASHTAG_RULES),
+      tags: tagListProblem(b.tags, BRAND_TAG_RULES),
+    };
+  });
+
+  readonly footer = computed(() => footerReport(this.form()?.descriptionFooter));
+  readonly footerPercent = computed(() => Math.min(100, Math.round((this.footer().bytes / MAX_FOOTER_BYTES) * 100)));
+  readonly footerLines = computed(() => this.footer().text.split('\n'));
+  readonly commentLength = computed(() => (this.form()?.firstComment ?? '').replace(/\r\n/g, '\n').trim().length);
+  readonly commentNote = computed(() => {
+    const f = this.form();
+    if (!f || !(f.firstComment ?? '').trim()) return null;
+    if (f.madeForKids) return 'YouTube turns comments off on videos made for kids, so this won’t be posted while uploads are marked that way.';
+    if ((f.privacy ?? '').toLowerCase() === 'private') return 'A private video has no one to read a comment, so it isn’t posted while uploads start private.';
+    return null;
+  });
+
+  readonly problems = computed<Problem[]>(() => {
+    const f = this.form();
+    if (!f) return [];
+    const out: Problem[] = [];
+    if (!isPrivacy((f.privacy ?? '').toLowerCase())) out.push({ id: 'pb-privacy', message: 'Choose a default visibility.' });
+    const tags = tagListProblem(f.tags ?? [], CHANNEL_TAG_RULES);
+    if (tags) out.push({ id: 'pb-tags', message: tags });
+    const foot = footerProblem(f.descriptionFooter);
+    if (foot) out.push({ id: 'pb-footer', message: foot });
+    const comment = commentProblem(f.firstComment);
+    if (comment) out.push({ id: 'pb-comment', message: comment });
+    const owner = f.youTubeChannelId ? this.linkedElsewhere().get(f.youTubeChannelId) : undefined;
+    if (owner) out.push({ id: 'pb-link', message: `That YouTube channel already publishes for “${owner}”. Unlink it there first.` });
+    const bi = this.brandIssues();
+    const labels: [keyof BrandIssues, string][] = [
+      ['channelName', 'Channel name'], ['tagline', 'Tagline'], ['channelUrl', 'YouTube channel link'], ['studioUrl', 'Studio link'],
+      ['creatorUrl', 'Creator link'], ['engineName', 'Animation tool'], ['visualsCredit', 'Visuals credit'], ['hashtags', 'Brand hashtags'], ['tags', 'Brand search tags'],
+    ];
+    for (const [k, label] of labels) if (bi[k]) out.push({ id: `pb-b-${k}`, message: `${label}: ${bi[k]}` });
+    return out;
+  });
+  readonly canSave = computed(() => this.dirty() && !this.saving() && this.editor() === 'idle' && this.problems().length === 0);
+
+  // ---- bulk, derived
+  readonly bulkCount = computed(() => bulkFieldCount(this.bulkChoice()));
+  readonly bulkCandidates = computed(() => {
+    const tokens = fold(this.bulkQuery()).split(/\s+/).filter(Boolean);
+    return this.entries().filter((e) => e.key !== this.currentKey()
+      && tokens.every((t) => fold(`${e.c.name} ${e.c.youTubeChannelHandle ?? ''} ${e.key}`).includes(t)));
+  });
+  readonly bulkSourceProblem = computed(() => {
+    const f = this.form();
+    const c = this.bulkChoice();
+    if (!f) return null;
+    if (c.privacy && !isPrivacy((f.privacy ?? '').toLowerCase())) return 'The form has no visibility to copy yet.';
+    if (c.tags !== 'off') { const p = tagListProblem(f.tags ?? [], CHANNEL_TAG_RULES); if (p) return p; }
+    if (c.descriptionFooter) { const p = footerProblem(f.descriptionFooter); if (p) return p; }
+    if (c.firstComment) { const p = commentProblem(f.firstComment); if (p) return p; }
+    return null;
+  });
+  readonly canPreview = computed(() =>
+    this.bulkCount() > 0 && [...this.bulkTargets()].some((k) => k !== this.currentKey()) && !this.bulkSourceProblem() && this.editor() === 'idle');
+  readonly bulkStale = computed(() => this.bulkPhase() === 'preview' && this.bulkStampAtPreview() !== bulkStamp(this.form(), this.bulkChoice()));
+  readonly bulkSummary = computed(() => {
+    const rows = this.bulkRows();
+    const changing = rows.filter((r) => r.plan && !r.plan.blocked && r.plan.changes.length > 0).length;
+    const blocked = rows.filter((r) => r.error || r.plan?.blocked).length;
+    return { changing, blocked, same: rows.length - changing - blocked };
+  });
+  readonly bulkOutcome = computed(() => {
+    const r = Object.values(this.bulkResults());
+    return { ok: r.filter((x) => x.ok).length, failed: r.filter((x) => !x.ok).length };
+  });
+
+  constructor() {
+    effect(() => writeStored(PREFS_KEY, { filter: this.listFilter(), brandingOpen: this.brandingOpen() }));
+
+    // The list shows each channel's health and visibility, which live in its own settings: read them
+    // for the rows on screen, a few at a time, so a long list never fires a burst of requests.
+    effect(() => {
+      const keys = this.listed().map((e) => e.key);
+      untracked(() => keys.forEach((k) => this.prefetch(k)));
+    });
+    this.prefetch$.pipe(
+      mergeMap((key) => this.admin.publishing(key === 'default' ? null : key).pipe(
+        map((s) => ({ key, s })),
+        catchError(() => of(null))), 3),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((r) => { if (r) this.cache(r.key, r.s); });
+  }
 
   ngOnInit(): void {
     const channel = this.route.snapshot.queryParamMap.get('channel');
     this.channelId.set(channel && channel !== 'default' ? channel : null);
+    this.patienceTimer = setTimeout(() => this.patience.set(true), 2500);
+    this.loadBrands();
+    this.loadYouTube();
+  }
 
-    forkJoin({ channels: this.api.listBrandChannels(), yt: this.youtube.status() }).subscribe({
-      next: ({ channels, yt }) => {
-        this.brandChannels.set(channels);
-        this.yt.set(yt);
-        this.load();
+  ngOnDestroy(): void {
+    this.loadSub?.unsubscribe();
+    this.bulkSub?.unsubscribe();
+    clearTimeout(this.patienceTimer);
+    clearTimeout(this.copiedTimer);
+  }
+
+  private readPrefs(): { filter: ListFilter; brandingOpen: boolean } {
+    const raw = readStored(PREFS_KEY) as { filter?: unknown; brandingOpen?: unknown } | null;
+    const filters: ListFilter[] = ['all', 'attention', 'linked', 'unlinked'];
+    return {
+      filter: filters.find((f) => f === raw?.filter) ?? 'all',
+      brandingOpen: raw?.brandingOpen === true,
+    };
+  }
+
+  // ---------------------------------------------------------------------------------- loading
+
+  loadBrands(): void {
+    this.phase.set('loading');
+    this.loadError.set(null);
+    this.api.listBrandChannels().subscribe({
+      next: (list) => {
+        this.brandChannels.set(list);
+        this.phase.set('ready');
+        this.ensureKnownChannel(list);
+        this.loadSettings();
       },
-      error: (e: Error) => this.error.set(e.message),
+      error: (e: unknown) => { this.phase.set('error'); this.loadError.set(messageOf(e)); },
     });
   }
 
-  isCurrent(c: BrandChannel): boolean {
+  loadYouTube(): void {
+    this.ytState.set('loading');
+    this.youtube.status().subscribe({
+      next: (st) => { this.yt.set(st); this.ytState.set('ok'); },
+      error: () => { this.yt.set(null); this.ytState.set('error'); },
+    });
+  }
+
+  /** A link to a channel that was deleted falls back to the default, and says so. */
+  private ensureKnownChannel(list: BrandChannel[]): void {
     const id = this.channelId();
-    return id ? c.id === id : c.isDefault;
+    if (id && !list.some((c) => c.id === id)) {
+      this.channelId.set(null);
+      this.staleNotice.set('That brand channel no longer exists (it may have been deleted), so the default channel is shown.');
+      void this.router.navigate([], { relativeTo: this.route, queryParams: { channel: null }, replaceUrl: true });
+    }
   }
 
-  safePicture(url: string | null | undefined): string | null {
-    return url?.startsWith('https://') ? url : null;
+  loadSettings(): void {
+    this.loadSub?.unsubscribe();
+    this.editor.set('loading');
+    this.editorError.set(null);
+    const key = this.currentKey();
+    // The list needn't read this channel again for its own row.
+    this.requested.add(key);
+    this.loadSub = this.admin.publishing(this.channelId()).subscribe({
+      next: (s) => {
+        this.apply(s);
+        this.cache(key, s);
+        this.editor.set('idle');
+      },
+      error: (e: unknown) => {
+        // Never leave the previous channel's values on screen as if they were this one's.
+        this.form.set(null);
+        this.original.set('');
+        this.editor.set('error');
+        this.editorError.set(messageOf(e));
+      },
+    });
   }
 
-  initial(name: string): string {
-    return (name.trim()[0] ?? '?').toUpperCase();
+  private apply(s: ChannelPublishSettings): void {
+    const f: ChannelPublishSettings = { ...s, tags: s.tags ?? [] };
+    this.form.set(f);
+    this.original.set(JSON.stringify(f));
   }
 
-  switchChannel(id: string): void {
-    if ((id === 'default' ? null : id) === this.channelId() && this.form()) return;
-    this.error.set(null);
-    this.channelId.set(id === 'default' ? null : id);
+  private cache(key: string, s: ChannelPublishSettings): void {
+    this.details.update((d) => ({ ...d, [key]: { ...s, tags: s.tags ?? [] } }));
+  }
+
+  private prefetch(key: string): void {
+    if (this.requested.has(key)) return;
+    this.requested.add(key);
+    this.prefetch$.next(key);
+  }
+
+  private refreshBrandChannels(): void {
+    // Linking a YouTube channel renames the brand after it, so the names are read again.
+    this.api.listBrandChannels().subscribe({ next: (list) => this.brandChannels.set(list), error: () => undefined });
+  }
+
+  // ------------------------------------------------------------------------------- list controls
+
+  val(e: Event): string {
+    return (e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
+  }
+
+  checked(e: Event): boolean {
+    return (e.target as HTMLInputElement).checked;
+  }
+
+  private matches(e: Entry, f: ListFilter): boolean {
+    switch (f) {
+      case 'attention': return e.health.level === 'warn' || e.health.level === 'err';
+      case 'linked': return !!e.c.youTubeChannelId;
+      case 'unlinked': return !e.c.youTubeChannelId;
+      default: return true;
+    }
+  }
+
+  setFilter(f: ListFilter): void {
+    this.listFilter.set(f);
+    this.shown.set(LIST_STEP);
+  }
+
+  onQuery(e: Event): void {
+    this.query.set(this.val(e));
+    this.shown.set(LIST_STEP);
+  }
+
+  onQueryKey(e: Event): void {
+    if (this.query()) {
+      this.query.set('');
+      e.stopPropagation();
+    } else {
+      (e.target as HTMLElement).blur();
+    }
+  }
+
+  focusSearch(): void {
+    this.pickerOpen.set(true);
+    afterNextRender(() => {
+      const el = this.searchBox()?.nativeElement;
+      el?.focus();
+      el?.select();
+    }, { injector: this.injector });
+  }
+
+  isCurrent(c: BrandChannel): boolean {
+    return brandKey(c) === this.currentKey();
+  }
+
+  // ---------------------------------------------------------------------------- switching channel
+
+  selectBrand(c: BrandChannel): void {
+    const key = brandKey(c);
+    if (key === this.currentKey()) { this.pickerOpen.set(false); return; }
+    if (this.dirty()) { this.pendingSwitch.set(key); return; }
+    this.switchTo(key);
+  }
+
+  confirmSwitch(save: boolean): void {
+    const target = this.pendingSwitch();
+    if (!target) return;
+    if (!save) { this.switchTo(target); return; }
+    if (!this.canSave()) return;
+    this.save(() => this.switchTo(target));
+  }
+
+  private switchTo(key: string): void {
+    this.pendingSwitch.set(null);
+    this.pickerOpen.set(false);
+    this.saveError.set(null);
+    this.savedAt.set(null);
+    this.staleNotice.set(null);
+    this.resetBulk();
+    // Switching on purpose gives up the edits: the old values stay on screen, dimmed, until the new ones arrive.
+    const old = this.form();
+    if (old) this.original.set(JSON.stringify(old));
+    this.channelId.set(key === 'default' ? null : key);
     void this.router.navigate([], { relativeTo: this.route, queryParams: { channel: this.channelId() }, replaceUrl: true });
-    this.load();
+    this.loadSettings();
+  }
+
+  nameOf(key: string): string {
+    return this.brandChannels().find((c) => brandKey(c) === key)?.name ?? 'another channel';
+  }
+
+  discard(): void {
+    const original = this.original();
+    if (original) this.form.set(JSON.parse(original) as ChannelPublishSettings);
+    this.saveError.set(null);
+  }
+
+  // ---------------------------------------------------------------------------------- the form
+
+  patch(change: Partial<ChannelPublishSettings>): void {
+    this.savedAt.set(null);
+    this.saveError.set(null);
+    this.form.update((f) => f && { ...f, ...change });
+  }
+
+  privacyOf(f: ChannelPublishSettings): Privacy | null {
+    const p = (f.privacy ?? '').toLowerCase();
+    return isPrivacy(p) ? p : null;
+  }
+
+  privacyLabel(value: string | null | undefined): string {
+    return PRIVACY_OPTIONS.find((o) => o.id === (value ?? '').toLowerCase())?.label ?? '';
+  }
+
+  categoryName(id: string): string {
+    return this.categories().find((c) => c.id === id)?.name ?? id;
   }
 
   pickYouTube(id: string): void {
@@ -284,51 +573,340 @@ export class AdminPublishingComponent implements OnInit {
     });
   }
 
-  patch(change: Partial<ChannelPublishSettings>): void {
-    this.saved.set(false);
-    this.form.update((f) => f && { ...f, ...change });
+  patchBrand(change: Partial<ChannelBranding>): void {
+    this.patch({ branding: { ...this.brand(), ...change } });
   }
 
+  useOmkrBranding(): void {
+    this.patch({ branding: { ...OMKR_BRANDING, hashtags: [...OMKR_BRANDING.hashtags], tags: [...OMKR_BRANDING.tags] } });
+  }
+
+  clearBranding(): void {
+    this.patch({ branding: null });
+  }
+
+  lineParts(line: string): { text: string; link: boolean }[] {
+    return footerSegments(line);
+  }
+
+  initial(name: string): string {
+    return (Array.from(name.trim())[0] ?? '?').toUpperCase();
+  }
+
+  safePicture(url: string | null | undefined): string | null {
+    return safePicture(url);
+  }
+
+  handleOf(c: BrandChannel): string {
+    return c.youTubeChannelHandle || c.youTubeChannelTitle || c.youTubeChannelId || '';
+  }
+
+  levelIcon(level: HealthLevel): string {
+    return level === 'ok' ? 'check' : level === 'info' ? 'info' : 'alert';
+  }
+
+  /** Takes the user to a field, whichever card it is in. */
+  goTo(id: string): void {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'pb-b-channelName' || id.startsWith('pb-b-')) this.brandingOpen.set(true);
+    afterNextRender(() => {
+      const target = document.getElementById(id);
+      target?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      (target?.matches('input,select,textarea,button') ? target : target?.querySelector<HTMLElement>('input,select,textarea,button'))?.focus({ preventScroll: true });
+    }, { injector: this.injector });
+  }
+
+  runAction(action: HealthAction): void {
+    switch (action) {
+      case 'reconnect': this.connect(); break;
+      case 'link': this.goTo('pb-link'); break;
+      case 'visibility': this.goTo('pb-privacy'); break;
+      case 'tags': this.goTo('pb-tags'); break;
+      case 'footer': this.goTo('pb-footer'); break;
+      case 'comment': this.goTo('pb-comment'); break;
+      default: break;
+    }
+  }
+
+  actionLabel(action: HealthAction): string {
+    switch (action) {
+      case 'reconnect': return 'Reconnect';
+      case 'link': return 'Link a channel';
+      case 'visibility': return 'Choose';
+      case 'tags': case 'footer': case 'comment': return 'Show';
+      default: return '';
+    }
+  }
+
+  // ---------------------------------------------------------------------------- keyboard shortcuts
+
+  @HostListener('document:keydown', ['$event'])
+  onKey(e: KeyboardEvent): void {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (this.canSave()) this.save();
+      return;
+    }
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget(e.target)) {
+      // The settings sidebar also answers "/"; on this page the channel list's own search wins.
+      e.preventDefault();
+      this.focusSearch();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (this.pendingSwitch()) this.pendingSwitch.set(null);
+      else if (this.pickerOpen()) this.pickerOpen.set(false);
+    }
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(e: BeforeUnloadEvent): void {
+    if (this.dirty()) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  }
+
+  onListKey(e: KeyboardEvent): void {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const items = Array.from((e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('.pb-item'));
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (at < 0) return;
+    e.preventDefault();
+    items[Math.max(0, Math.min(items.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+  }
+
+  // ------------------------------------------------------------------------------------- YouTube
+
   connect(): void {
+    if (this.connecting()) return;
     const channel = this.channelId();
     const returnPath = `/admin/branding/publishing${channel ? `?channel=${encodeURIComponent(channel)}` : ''}`;
-    this.busy.set(true);
+    this.connecting.set(true);
+    this.actionError.set(null);
     this.youtube.startConnect(returnPath).subscribe({
       next: (url) => {
         if (url.startsWith('https://accounts.google.com/')) window.location.assign(url);
-        else { this.error.set('The server returned an unexpected sign-in address.'); this.busy.set(false); }
+        else { this.actionError.set('The server returned an unexpected sign-in address.'); this.connecting.set(false); }
       },
-      error: (e: Error) => { this.error.set(e.message); this.busy.set(false); },
+      error: (e: unknown) => { this.actionError.set(messageOf(e)); this.connecting.set(false); },
     });
   }
 
-  save(): void {
+  async copyYouTubeId(): Promise<void> {
+    const id = this.form()?.youTubeChannelId;
+    if (!id || !(await copyText(id))) return;
+    this.copied.set(true);
+    this.liveMessage.set('YouTube channel ID copied.');
+    clearTimeout(this.copiedTimer);
+    this.copiedTimer = setTimeout(() => this.copied.set(false), 2000);
+  }
+
+  /** Asks YouTube about every connection of this account, which is what turns up an expired one. */
+  checkConnections(): void {
+    if (this.checking()) return;
+    this.checking.set(true);
+    this.actionError.set(null);
+    this.youtube.refreshChannels().subscribe({
+      next: (r) => {
+        this.checking.set(false);
+        this.checkReport.set({ count: r.channels.length, failed: r.failed });
+        this.liveMessage.set(r.failed.length ? `${r.failed.length} connection(s) need attention.` : 'All connections work.');
+        this.loadYouTube();
+        this.refreshBrandChannels();
+      },
+      error: (e: unknown) => { this.checking.set(false); this.actionError.set(messageOf(e)); },
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------- save
+
+  save(then?: () => void): void {
     const f = this.form();
-    if (!f) return;
-    this.busy.set(true);
-    this.error.set(null);
-    this.admin.savePublishing(this.channelId(), { ...f, tags: parseYouTubeTags(this.tagsText()) }).subscribe({
+    if (!f || this.saving() || (!then && !this.canSave())) return;
+    const key = this.currentKey();
+    this.saving.set(true);
+    this.saveError.set(null);
+    this.admin.savePublishing(this.channelId(), { ...f }).subscribe({
       next: (s) => {
-        this.apply(s);
-        this.saved.set(true);
-        this.busy.set(false);
-        // Linking a YouTube channel renames the brand after it.
-        this.api.listBrandChannels().subscribe({ next: (list) => this.brandChannels.set(list), error: () => {} });
+        this.saving.set(false);
+        this.cache(key, s);
+        if (this.currentKey() === key) {
+          this.apply(s);
+          this.savedAt.set(new Date());
+          this.liveMessage.set('Saved. New publishes for this channel start with these details.');
+        }
+        this.refreshBrandChannels();
+        then?.();
       },
-      error: (e: Error) => { this.error.set(e.message); this.busy.set(false); },
+      error: (e: unknown) => {
+        this.saving.set(false);
+        this.saveError.set({ message: messageOf(e), code: e instanceof ApiFailure ? e.code : '' });
+      },
     });
   }
 
-  private load(): void {
-    this.saved.set(false);
-    this.admin.publishing(this.channelId()).subscribe({
-      next: (s) => this.apply(s),
-      error: (e: Error) => this.error.set(e.message),
+  /** Where a refusal belongs on the page, from the server's error code. */
+  fieldForError(code: string): string | null {
+    if (code.startsWith('tag')) return 'pb-tags';
+    if (code.startsWith('footer') || code === 'description-invalid-character') return 'pb-footer';
+    if (code.startsWith('comment')) return 'pb-comment';
+    if (code === 'privacy-invalid') return 'pb-privacy';
+    if (code === 'category-invalid') return 'pb-category';
+    if (code === 'channel-invalid' || code === 'youtube-channel-in-use') return 'pb-link';
+    if (code.startsWith('branding')) return 'pb-b-channelName';
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------------- bulk apply
+
+  toggleBulk(): void {
+    if (this.bulkPhase() === 'reading' || this.bulkPhase() === 'applying') return;
+    if (this.bulkOpen()) this.resetBulk(); else this.bulkOpen.set(true);
+  }
+
+  resetBulk(): void {
+    this.bulkSub?.unsubscribe();
+    this.bulkOpen.set(false);
+    this.bulkPhase.set('pick');
+    this.bulkRows.set([]);
+    this.bulkResults.set({});
+    this.bulkUndo.set([]);
+    this.bulkUndone.set(false);
+    this.bulkTargets.set(new Set());
+    this.bulkQuery.set('');
+    this.bulkChoice.set(NO_BULK);
+  }
+
+  setBulk(field: Exclude<keyof BulkChoice, 'tags'>, on: boolean): void {
+    this.bulkChoice.update((c) => ({ ...c, [field]: on }));
+  }
+
+  setBulkTags(mode: BulkTagMode): void {
+    this.bulkChoice.update((c) => ({ ...c, tags: mode }));
+  }
+
+  toggleTarget(key: string, on: boolean): void {
+    this.bulkTargets.update((s) => { const n = new Set(s); if (on) n.add(key); else n.delete(key); return n; });
+  }
+
+  selectShown(): void {
+    this.bulkTargets.update((s) => { const n = new Set(s); this.bulkCandidates().forEach((e) => n.add(e.key)); return n; });
+  }
+
+  clearTargets(): void {
+    this.bulkTargets.set(new Set());
+  }
+
+  backToPick(): void {
+    this.bulkPhase.set('pick');
+    this.bulkRows.set([]);
+  }
+
+  previewBulk(): void {
+    const source = this.form();
+    if (!source || !this.canPreview()) return;
+    const keys = [...this.bulkTargets()].filter((k) => k !== this.currentKey() && this.brandChannels().some((c) => brandKey(c) === k));
+    const choice = this.bulkChoice();
+    this.bulkPhase.set('reading');
+    this.bulkProgress.set({ done: 0, total: keys.length, name: '' });
+    this.bulkSub?.unsubscribe();
+    // Always read fresh: the preview must be about what is stored now, not what was cached earlier.
+    this.bulkSub = from(keys).pipe(
+      mergeMap((key) => this.admin.publishing(key === 'default' ? null : key).pipe(
+        map((s) => ({ key, s, error: null as string | null })),
+        catchError((e: unknown) => of({ key, s: null as ChannelPublishSettings | null, error: messageOf(e) }))), 3),
+      tap(() => this.bulkProgress.update((p) => ({ ...p, done: p.done + 1 }))),
+      toArray(),
+    ).subscribe((results) => {
+      const byKey = new Map(results.map((r) => [r.key, r]));
+      const rows: BulkRow[] = keys.map((key) => {
+        const r = byKey.get(key);
+        const name = this.nameOf(key);
+        if (!r?.s) return { key, name, before: null, plan: null, error: r?.error ?? 'Couldn’t read its settings.' };
+        this.cache(key, r.s);
+        return { key, name, before: r.s, plan: planBulk(source, { ...r.s, tags: r.s.tags ?? [] }, choice, this.categories()), error: null };
+      });
+      this.bulkRows.set(rows);
+      this.bulkStampAtPreview.set(bulkStamp(source, choice));
+      this.bulkPhase.set('preview');
     });
   }
 
-  private apply(s: ChannelPublishSettings): void {
-    this.form.set({ ...s, tags: s.tags ?? [] });
-    this.tagsText.set((s.tags ?? []).join(', '));
+  applyBulk(): void {
+    const todo = this.bulkRows().filter((r) => r.plan && !r.plan.blocked && r.plan.changes.length > 0);
+    if (todo.length === 0 || this.bulkStale()) return;
+    this.runBulk(todo.map((r) => ({ key: r.key, name: r.name, body: r.plan!.after, before: r.before })), false);
+  }
+
+  retryFailed(): void {
+    const failed = this.bulkRows().filter((r) => r.plan && this.bulkResults()[r.key]?.ok === false);
+    if (failed.length === 0) return;
+    this.runBulk(failed.map((r) => ({ key: r.key, name: r.name, body: r.plan!.after, before: r.before })), true);
+  }
+
+  undoBulk(): void {
+    const undo = this.bulkUndo();
+    if (undo.length === 0) return;
+    this.runBulk(undo.map((u) => ({ key: u.key, name: u.name, body: u.before, before: null })), false, true);
+  }
+
+  /**
+   * One channel at a time, never in parallel: every channel lives in one settings document on the
+   * server, so two saves at once could overwrite each other.
+   */
+  private runBulk(
+    items: { key: string; name: string; body: ChannelPublishSettings; before: ChannelPublishSettings | null }[],
+    keepResults: boolean, undoing = false,
+  ): void {
+    this.bulkPhase.set('applying');
+    this.bulkUndone.set(undoing);
+    this.bulkProgress.set({ done: 0, total: items.length, name: '' });
+    if (!keepResults) this.bulkResults.set({});
+    const undone: { key: string; name: string; before: ChannelPublishSettings }[] = keepResults ? [...this.bulkUndo()] : [];
+    this.bulkSub?.unsubscribe();
+    this.bulkSub = from(items).pipe(
+      concatMap((item) => {
+        this.bulkProgress.update((p) => ({ ...p, name: item.name }));
+        return this.admin.savePublishing(item.key === 'default' ? null : item.key, item.body).pipe(
+          map((saved) => ({ item, saved, error: null as string | null })),
+          catchError((e: unknown) => of({ item, saved: null as ChannelPublishSettings | null, error: messageOf(e) })));
+      }),
+      tap(({ item, saved, error }) => {
+        this.bulkProgress.update((p) => ({ ...p, done: p.done + 1 }));
+        if (saved) {
+          this.cache(item.key, saved);
+          this.bulkResults.update((r) => ({ ...r, [item.key]: { ok: true, message: undoing ? 'Restored' : 'Saved' } }));
+          if (!undoing && item.before && !undone.some((u) => u.key === item.key)) undone.push({ key: item.key, name: item.name, before: item.before });
+        } else {
+          this.bulkResults.update((r) => ({ ...r, [item.key]: { ok: false, message: error ?? 'Failed' } }));
+        }
+      }),
+    ).subscribe({
+      complete: () => {
+        this.bulkUndo.set(undoing ? [] : undone);
+        this.bulkUndone.set(undoing);
+        this.bulkPhase.set('done');
+        this.refreshBrandChannels();
+        const out = this.bulkOutcome();
+        this.liveMessage.set(undoing
+          ? `Restored ${plural(out.ok, 'channel')}.`
+          : `Applied to ${plural(out.ok, 'channel')}${out.failed ? `, ${out.failed} failed` : ''}.`);
+      },
+    });
+  }
+
+  choiceSummary(): string {
+    return describeChoice(this.bulkChoice());
+  }
+
+  resultOf(key: string): BulkResult | undefined {
+    return this.bulkResults()[key];
+  }
+
+  bulkLabel(): string {
+    const n = this.bulkSummary().changing;
+    return `Apply to ${plural(n, 'channel')}`;
   }
 }

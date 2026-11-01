@@ -1,0 +1,1199 @@
+<div class="ac-page" [class.is-saving]="saving()" [attr.aria-busy]="loading() || saving() ? 'true' : null">
+
+  <!-- ===================================================================== -->
+  <!-- Heading                                                                -->
+  <!-- ===================================================================== -->
+  <header class="page-head ac-head">
+    <div class="ac-head-main">
+      <div class="studio-icon-badge ac-head-badge" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <div class="ac-head-text">
+        <div class="ac-title-row">
+          <h2>Access &amp; UI Navigation</h2>
+          @if (accessInfo(); as info) {
+            <span class="pill ac-brand" title="How this server decides who may administer it">{{ info.mode }}</span>
+          }
+          <span class="pill ok" title="Every project, asset and credential belongs to exactly one user or guest session">Per-user scoped</span>
+        </div>
+        <p class="muted">Choose which tabs each audience sees, how much a signed-out guest may do, and keep an eye on guest sessions and connected channels.</p>
+        @if (!loading() && !loadError()) {
+          <ul class="ac-posture" aria-label="Guest settings currently in force">
+            <li class="pill" [class.ok]="posture().browsing" [class.warn]="!posture().browsing">Guest browsing {{ posture().browsing ? 'on' : 'off' }}</li>
+            <li class="pill" [class.ok]="!posture().publishing" [class.err]="posture().publishing">Guest publishing {{ posture().publishing ? 'allowed' : 'blocked' }}</li>
+            <li class="pill">{{ posture().render }}</li>
+          </ul>
+        }
+      </div>
+    </div>
+    <div class="ac-head-actions">
+      <span class="ac-kbd-hint" aria-hidden="true"><kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Esc</kbd> cancel</span>
+      <a class="ac-head-link" routerLink="/admin/activity" title="Every save on this page is recorded in the Activity log">Change history</a>
+      <button type="button" class="secondary" (click)="refreshAll()" [disabled]="refreshing() || saving()">
+        <span [class.ac-spin]="refreshing()" aria-hidden="true">↻</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- Sticky save bar (and the list of changes it can open)                  -->
+  <!-- ===================================================================== -->
+  <div class="ac-sticky">
+  <div class="ac-bar" role="region" aria-label="Unsaved changes" [class.is-dirty]="dirty()" [class.is-error]="saveError() !== null">
+    <div class="ac-bar-state" aria-live="polite">
+      @if (barPrompt() === 'discard') {
+        <span class="ac-dot" aria-hidden="true"></span>
+        <strong>Discard {{ plural(changeCount(), 'unsaved change') }}?</strong>
+        <span class="muted ac-hide-sm">You can undo this for a few seconds. <kbd>Esc</kbd> keeps editing.</span>
+      } @else if (barPrompt() === 'reload') {
+        <span class="ac-dot" aria-hidden="true"></span>
+        <strong>Reload from the server and drop {{ plural(changeCount(), 'unsaved change') }}?</strong>
+      } @else if (saving()) {
+        <span class="spinner" aria-hidden="true"></span>
+        <strong>Saving…</strong>
+      } @else if (saveError(); as failure) {
+        <svg class="ac-bar-ico is-err" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span class="ac-bar-error"><strong>Couldn't save.</strong> {{ failure }}</span>
+      } @else if (dirty()) {
+        <span class="ac-dot" aria-hidden="true"></span>
+        <strong>{{ plural(changeCount(), 'unsaved change') }}</strong>
+        <span class="muted ac-hide-sm">{{ changeBreakdown() }}</span>
+        @if (saveBlocked()) {
+          <span class="ac-bar-warn">Fix the guest limits to save.</span>
+        }
+        <button type="button" class="ac-link" (click)="reviewOpen.set(!reviewOpen())" [attr.aria-expanded]="reviewOpen()" aria-controls="ac-review">
+          {{ reviewOpen() ? 'Hide list' : 'Review' }}
+        </button>
+      } @else {
+        <svg class="ac-bar-ico is-ok" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        <span>All changes saved</span>
+        @if (lastSavedAt(); as at) {
+          <span class="muted ac-hide-sm">· {{ at | date: 'shortTime' }}</span>
+        }
+      }
+    </div>
+
+    <div class="ac-bar-actions">
+      @if (barPrompt(); as prompt) {
+        <button type="button" class="secondary small" autofocus (click)="closeBarPrompt()">Keep editing</button>
+        <button type="button" class="danger small" (click)="confirmBarPrompt()">{{ prompt === 'discard' ? 'Discard changes' : 'Reload' }}</button>
+      } @else {
+        <button type="button" class="secondary small" (click)="askDiscard()" [disabled]="!dirty() || saving()">Discard</button>
+        <button type="button" class="small ac-save" (click)="requestSave('all')" [disabled]="!canSave()">
+          Save changes <kbd class="ac-kbd-inline" aria-hidden="true">Ctrl S</kbd>
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (reviewOpen() && dirty()) {
+    <section class="card ac-review" id="ac-review" aria-label="Unsaved changes">
+      <ul class="ac-review-list">
+        @for (change of changes(); track change.id) {
+          <li>
+            <span class="ac-tag" [attr.data-section]="change.section">{{ sectionLabel[change.section] }}</span>
+            <span class="ac-review-title">{{ change.title }}</span>
+            <span class="ac-review-diff"><s>{{ change.from }}</s><span class="sr-only"> changed to </span><span aria-hidden="true"> → </span><b>{{ change.to }}</b></span>
+            @if (change.caution) {
+              <span class="ac-caution" [title]="change.caution">⚠ Needs a second look</span>
+            }
+            <button type="button" class="ac-link" (click)="revertChange(change)" [attr.aria-label]="'Revert ' + change.title">Revert</button>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- Jump bar                                                               -->
+  <!-- ===================================================================== -->
+  <nav class="ac-jump" aria-label="Jump to a section">
+    @for (item of sectionNav; track item.id) {
+      <button type="button" class="ac-jump-btn" (click)="goTo(item.id)" [disabled]="loading() || loadError() !== null">
+        {{ item.label }}
+        @if (sectionCounts()[item.id] > 0) {
+          <span class="ac-badge" [attr.aria-label]="sectionCounts()[item.id] + ' unsaved'">{{ sectionCounts()[item.id] }}</span>
+        }
+      </button>
+    }
+    <span class="ac-spacer"></span>
+    <button type="button" class="ac-link" (click)="setAllCollapsed(true)" [disabled]="loading()">Collapse all</button>
+    <button type="button" class="ac-link" (click)="setAllCollapsed(false)" [disabled]="loading()">Expand all</button>
+  </nav>
+
+  @if (loading()) {
+    <div class="ac-skeleton" aria-hidden="true">
+      <div class="ac-skel ac-skel-tall"></div>
+      <div class="ac-skel"></div>
+      <div class="ac-skel"></div>
+    </div>
+    <p class="sr-only" role="status">Loading access settings…</p>
+  } @else if (loadError(); as message) {
+    <div class="card ac-error-card" role="alert">
+      <span class="ac-error-ico" aria-hidden="true">⚠️</span>
+      <div>
+        <h3>Couldn't load the access settings</h3>
+        <p class="muted">{{ message }}</p>
+        <p class="hint">Nothing can be edited until they load, so a failed request can never overwrite your real settings with blanks.</p>
+        <button type="button" (click)="loadConfig()">↻ Try again</button>
+      </div>
+    </div>
+  } @else {
+
+    <div class="ac-workbench">
+      <div class="ac-main">
+
+        <!-- =============================================================== -->
+        <!-- Navigation tabs                                                  -->
+        <!-- =============================================================== -->
+        <section class="card ac-section" id="ac-sec-nav" aria-labelledby="ac-h-nav">
+          <header class="ac-sec-head">
+            <div class="ac-sec-id">
+              <h3 class="ac-sec-title" id="ac-h-nav">
+                <button type="button" class="ac-collapse" (click)="toggleSection('nav')" [attr.aria-expanded]="!isCollapsed('nav')" aria-controls="ac-body-nav">
+                  <span class="ac-chev" [class.is-open]="!isCollapsed('nav')" aria-hidden="true"></span>
+                  <span>Navigation tabs</span>
+                </button>
+              </h3>
+              <p class="ac-sec-sub">
+                @if (isCollapsed('nav')) { {{ summaries().nav }} } @else { Which links appear in the top bar, for each audience. }
+              </p>
+            </div>
+            <div class="ac-sec-actions">
+              @if (sectionCounts().nav > 0) {
+                <span class="pill warn">{{ plural(sectionCounts().nav, 'change') }}</span>
+                <button type="button" class="small" (click)="requestSave('nav')" [disabled]="!canSave('nav')">Save navigation</button>
+              }
+            </div>
+          </header>
+
+          @if (!isCollapsed('nav')) {
+            <div class="ac-sec-body" id="ac-body-nav">
+              <p class="ac-note">
+                These switches only decide which links appear in the top bar; they do not change what the server allows.
+                <strong>Enabled</strong> switches a tab off for everyone, administrators included.
+              </p>
+
+              <div class="ac-toolbar">
+                <div class="studio-search-wrap ac-search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input type="search" placeholder="Search tabs, paths…" aria-label="Search navigation tabs" maxlength="80"
+                         [value]="navQuery()" (input)="navQuery.set(valueOf($event))" />
+                </div>
+                <div class="ac-chips" role="group" aria-label="Filter tabs">
+                  @for (f of navFilterOptions; track f.id) {
+                    <button type="button" class="ac-chip" [class.is-active]="navFilter() === f.id" [attr.aria-pressed]="navFilter() === f.id"
+                            [disabled]="f.id === 'changed' && navFilterCounts().changed === 0 && navFilter() !== 'changed'"
+                            (click)="setNavFilter(f.id)">
+                      {{ f.label }} <span>{{ navFilterCounts()[f.id] }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+
+              <div class="ac-bulk" role="group" [attr.aria-label]="'Bulk actions for the ' + shownTabs().length + ' tabs shown'">
+                <span class="ac-bulk-label">Bulk <small>· {{ shownTabs().length }} shown</small></span>
+                <span class="ac-seg" role="group" aria-label="Guests">
+                  <span class="ac-seg-label">Guests</span>
+                  <button type="button" class="ac-seg-btn" (click)="bulkFlag('visibleToAnonymous', true)" [disabled]="shownTabs().length === 0"
+                          title="Show the tabs listed here to guests. Sensitive and sign-in-only tabs are left for an individual choice.">Show</button>
+                  <button type="button" class="ac-seg-btn" (click)="bulkFlag('visibleToAnonymous', false)" [disabled]="shownTabs().length === 0"
+                          title="Hide the tabs listed here from guests">Hide</button>
+                </span>
+                <span class="ac-seg" role="group" aria-label="Members">
+                  <span class="ac-seg-label">Members</span>
+                  <button type="button" class="ac-seg-btn" (click)="bulkFlag('visibleToMembers', true)" [disabled]="shownTabs().length === 0"
+                          title="Show the tabs listed here to signed-in members">Show</button>
+                  <button type="button" class="ac-seg-btn" (click)="bulkFlag('visibleToMembers', false)" [disabled]="shownTabs().length === 0"
+                          title="Hide the tabs listed here from members">Hide</button>
+                </span>
+                <span class="ac-seg" role="group" aria-label="Enabled">
+                  <span class="ac-seg-label">Enabled</span>
+                  <button type="button" class="ac-seg-btn" (click)="bulkFlag('enabled', true)" [disabled]="shownTabs().length === 0"
+                          title="Switch on the tabs listed here">On</button>
+                  <button type="button" class="ac-seg-btn" (click)="bulkFlag('enabled', false)" [disabled]="shownTabs().length === 0"
+                          title="Switch off the tabs listed here (the Settings tab is always left on)">Off</button>
+                </span>
+                <span class="ac-spacer"></span>
+                <button type="button" class="secondary small" (click)="strictPrivacy()"
+                        title="Hide every sensitive or sign-in-only tab from guests (all tabs, not just those shown)">🔒 Strict privacy</button>
+                <button type="button" class="secondary small" (click)="resetNavDefaults()"
+                        title="Put the Guests / Members / Enabled switches of every tab back to their defaults">↺ Reset to defaults</button>
+              </div>
+
+              @if (matrixRows().length === 0) {
+                <div class="empty ac-empty">
+                  <strong>No tabs match.</strong>
+                  <div class="muted">Try a different search or filter.</div>
+                  <button type="button" class="secondary small" (click)="navQuery.set(''); setNavFilter('all')">Clear search and filters</button>
+                </div>
+              } @else {
+                <div class="studio-table-wrap ac-table-wrap">
+                  <table class="ac-table ac-matrix">
+                    <caption class="sr-only">Navigation tabs and which audiences see them</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Tab</th>
+                        <th scope="col" class="ac-c">Guests <span class="ac-th-count">{{ visibleCounts().guest }}/{{ draftTabs().length }}</span></th>
+                        <th scope="col" class="ac-c">Members <span class="ac-th-count">{{ visibleCounts().member }}/{{ draftTabs().length }}</span></th>
+                        <th scope="col" class="ac-c">Enabled</th>
+                        <th scope="col" class="ac-c ac-revert-col"><span class="sr-only">Revert</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of matrixRows(); track row.tab.id) {
+                        <tr [class.is-changed]="row.changed.size > 0" [class.is-locked]="row.locked" [class.is-off]="!row.tab.enabled">
+                          <td class="ac-tabcell">
+                            <div class="ac-tab">
+                              <span class="ac-tab-ico" aria-hidden="true">{{ tabIcon(row.tab.id) }}</span>
+                              <div class="ac-tab-text">
+                                <div class="ac-tab-name">
+                                  <strong>{{ row.tab.label }}</strong>
+                                  @if (row.tab.isSensitive) {
+                                    <span class="pill warn" title="Holds external cloud credentials or publishing powers">Sensitive</span>
+                                  } @else if (row.tab.requiresAuth) {
+                                    <span class="pill ac-brand" title="Needs a signed-in account">Sign-in</span>
+                                  } @else {
+                                    <span class="pill" title="Safe to show to anyone">Public</span>
+                                  }
+                                  <code class="ac-path">{{ row.tab.path }}</code>
+                                  @if (row.changed.size > 0) {
+                                    <span class="ac-changed-tag">Changed</span>
+                                  }
+                                </div>
+                                <div class="ac-tab-desc">{{ row.tab.description || 'Workspace section' }}</div>
+                              </div>
+                            </div>
+                          </td>
+
+                          @if (row.locked) {
+                            <td class="ac-c ac-cell" colspan="2" data-label="Guests &amp; members">
+                              <span class="ac-locked" title="These tabs are always shown to administrators only, whatever the switches say">🔒 Administrators only</span>
+                            </td>
+                          } @else {
+                            <td class="ac-c ac-cell" data-label="Guests">
+                              <label class="switch ac-sw" [class.is-changed]="row.changed.has('visibleToAnonymous')"
+                                     [title]="'Show ' + row.tab.label + ' to guests'">
+                                <input type="checkbox" [checked]="row.tab.visibleToAnonymous"
+                                       (change)="setFlag(row.tab.id, 'visibleToAnonymous', checked($event))"
+                                       [attr.aria-label]="'Show ' + row.tab.label + ' to guests'" />
+                                <span class="track"></span>
+                              </label>
+                              @if (row.guestNote; as note) {
+                                <span class="ac-cell-note" [title]="note.hint">{{ note.text }}</span>
+                              }
+                            </td>
+
+                            <td class="ac-c ac-cell" data-label="Members">
+                              <label class="switch ac-sw" [class.is-changed]="row.changed.has('visibleToMembers')"
+                                     [title]="'Show ' + row.tab.label + ' to signed-in members'">
+                                <input type="checkbox" [checked]="row.tab.visibleToMembers"
+                                       (change)="setFlag(row.tab.id, 'visibleToMembers', checked($event))"
+                                       [attr.aria-label]="'Show ' + row.tab.label + ' to members'" />
+                                <span class="track"></span>
+                              </label>
+                              @if (row.memberNote; as note) {
+                                <span class="ac-cell-note" [title]="note.hint">{{ note.text }}</span>
+                              }
+                            </td>
+                          }
+
+                          <td class="ac-c ac-cell" data-label="Enabled">
+                            <label class="switch ac-sw" [class.is-changed]="row.changed.has('enabled')"
+                                   [title]="'Enable ' + row.tab.label + ' across the studio'">
+                              <input type="checkbox" [checked]="row.tab.enabled"
+                                     (change)="setFlag(row.tab.id, 'enabled', checked($event))"
+                                     [attr.aria-label]="'Enable ' + row.tab.label + ' for everyone'" />
+                              <span class="track"></span>
+                            </label>
+                            @if (row.enabledNote; as note) {
+                              <span class="ac-cell-note is-warn" [title]="note.hint">{{ note.text }}</span>
+                            }
+                          </td>
+
+                          <td class="ac-c ac-revert-col">
+                            @if (row.changed.size > 0) {
+                              <button type="button" class="ac-icon-btn" (click)="revertTab(row.tab.id)"
+                                      [attr.aria-label]="'Revert ' + row.tab.label + ' to saved'" title="Revert this tab to what is saved">↺</button>
+                            }
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>
+          }
+        </section>
+
+        <!-- =============================================================== -->
+        <!-- Guest policy                                                     -->
+        <!-- =============================================================== -->
+        <section class="card ac-section" id="ac-sec-policy" aria-labelledby="ac-h-policy">
+          <header class="ac-sec-head">
+            <div class="ac-sec-id">
+              <h3 class="ac-sec-title" id="ac-h-policy">
+                <button type="button" class="ac-collapse" (click)="toggleSection('policy')" [attr.aria-expanded]="!isCollapsed('policy')" aria-controls="ac-body-policy">
+                  <span class="ac-chev" [class.is-open]="!isCollapsed('policy')" aria-hidden="true"></span>
+                  <span>Guest quotas &amp; publishing boundaries</span>
+                </button>
+              </h3>
+              <p class="ac-sec-sub">
+                @if (isCollapsed('policy')) { {{ summaries().policy }} } @else { What visitors who are not signed in may do. }
+              </p>
+            </div>
+            <div class="ac-sec-actions">
+              @if (sectionCounts().policy > 0) {
+                <span class="pill warn">{{ plural(sectionCounts().policy, 'change') }}</span>
+                <button type="button" class="small" (click)="requestSave('policy')" [disabled]="!canSave('policy')">Save guest policy</button>
+              }
+            </div>
+          </header>
+
+          @if (!isCollapsed('policy')) {
+            <div class="ac-sec-body" id="ac-body-policy">
+              <p class="ac-note">
+                Keep heavy work and anything that touches a YouTube channel or Google Drive tightly limited: it protects server resources and the channel credentials behind them.
+              </p>
+
+              <div class="ac-groups">
+                <div class="ac-group" role="group" aria-labelledby="ac-g-browse">
+                  <h4 id="ac-g-browse">Browsing &amp; projects</h4>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('enabled')">
+                    <label class="ac-field-label" for="ac-p-enabled">
+                      <strong>Allow anonymous browsing</strong>
+                      <span class="ac-hint">Visitors who are not signed in can explore the studio and its templates.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <label class="switch ac-sw"><input id="ac-p-enabled" type="checkbox" [checked]="boolValue('enabled')" (change)="setPolicyBool('enabled', checked($event))" /><span class="track"></span></label>
+                      @if (changedPolicyKeys().has('enabled')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('enabled')" aria-label="Revert anonymous browsing to saved" [title]="'Was ' + wasValue('enabled')">↺</button>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('allowGuestProjectCreation')">
+                    <label class="ac-field-label" for="ac-p-create">
+                      <strong>Allow guest project creation</strong>
+                      <span class="ac-hint">Guests can start their own temporary projects within their session.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <label class="switch ac-sw"><input id="ac-p-create" type="checkbox" [checked]="boolValue('allowGuestProjectCreation')" (change)="setPolicyBool('allowGuestProjectCreation', checked($event))" /><span class="track"></span></label>
+                      @if (changedPolicyKeys().has('allowGuestProjectCreation')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('allowGuestProjectCreation')" aria-label="Revert guest project creation to saved" [title]="'Was ' + wasValue('allowGuestProjectCreation')">↺</button>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('maxGuestProjects')" [class.is-dim]="!boolValue('allowGuestProjectCreation')">
+                    <label class="ac-field-label" for="ac-p-max-projects">
+                      <strong>Max projects per guest</strong>
+                      <span class="ac-hint">The most active projects one visitor may keep.
+                        @if (!boolValue('allowGuestProjectCreation')) { <em>Ignored while creation is off.</em> }
+                      </span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <input id="ac-p-max-projects" class="ac-num" type="number" inputmode="numeric" step="1"
+                             [min]="limits.maxGuestProjects.min" [max]="limits.maxGuestProjects.max"
+                             [value]="numValue('maxGuestProjects')" (input)="setPolicyNumber('maxGuestProjects', valueOf($event))"
+                             [attr.aria-invalid]="errors().maxGuestProjects ? 'true' : null" aria-describedby="ac-e-max-projects" />
+                      @if (changedPolicyKeys().has('maxGuestProjects')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('maxGuestProjects')" aria-label="Revert max projects to saved" [title]="'Was ' + wasValue('maxGuestProjects')">↺</button>
+                      }
+                    </div>
+                    @if (errors().maxGuestProjects; as problem) { <span class="ac-error" id="ac-e-max-projects" role="alert">{{ problem }}</span> }
+                  </div>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('allowCloudSave')">
+                    <label class="ac-field-label" for="ac-p-cloud">
+                      <strong>Save guest projects in the central database</strong>
+                      <span class="ac-hint">Off keeps them for the session only; on stores them with everyone else's.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <label class="switch ac-sw"><input id="ac-p-cloud" type="checkbox" [checked]="boolValue('allowCloudSave')" (change)="setPolicyBool('allowCloudSave', checked($event))" /><span class="track"></span></label>
+                      @if (changedPolicyKeys().has('allowCloudSave')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('allowCloudSave')" aria-label="Revert guest cloud save to saved" [title]="'Was ' + wasValue('allowCloudSave')">↺</button>
+                      }
+                    </div>
+                  </div>
+                </div>
+
+                <div class="ac-group" role="group" aria-labelledby="ac-g-limits">
+                  <h4 id="ac-g-limits">Render &amp; AI limits</h4>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('allowRender')">
+                    <label class="ac-field-label" for="ac-p-render">
+                      <strong>Allow guest video renders</strong>
+                      <span class="ac-hint">Guests can render preview clips.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <label class="switch ac-sw"><input id="ac-p-render" type="checkbox" [checked]="boolValue('allowRender')" (change)="setPolicyBool('allowRender', checked($event))" /><span class="track"></span></label>
+                      @if (changedPolicyKeys().has('allowRender')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('allowRender')" aria-label="Revert guest renders to saved" [title]="'Was ' + wasValue('allowRender')">↺</button>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('maxRenderDurationSeconds')" [class.is-dim]="!boolValue('allowRender')">
+                    <label class="ac-field-label" for="ac-p-max-duration">
+                      <strong>Max render length (seconds)</strong>
+                      <span class="ac-hint">Longest preview a visitor may export.
+                        @if (!boolValue('allowRender')) { <em>Ignored while renders are off.</em> }
+                      </span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <input id="ac-p-max-duration" class="ac-num" type="number" inputmode="numeric" step="1"
+                             [min]="limits.maxRenderDurationSeconds.min" [max]="limits.maxRenderDurationSeconds.max"
+                             [value]="numValue('maxRenderDurationSeconds')" (input)="setPolicyNumber('maxRenderDurationSeconds', valueOf($event))"
+                             [attr.aria-invalid]="errors().maxRenderDurationSeconds ? 'true' : null" aria-describedby="ac-e-max-duration" />
+                      @if (changedPolicyKeys().has('maxRenderDurationSeconds')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('maxRenderDurationSeconds')" aria-label="Revert max render length to saved" [title]="'Was ' + wasValue('maxRenderDurationSeconds')">↺</button>
+                      }
+                    </div>
+                    @if (errors().maxRenderDurationSeconds; as problem) { <span class="ac-error" id="ac-e-max-duration" role="alert">{{ problem }}</span> }
+                  </div>
+
+                  <div class="ac-field" [class.is-changed]="changedPolicyKeys().has('maxAiCallsPerDay')">
+                    <label class="ac-field-label" for="ac-p-ai">
+                      <strong>Max AI calls per guest, per day</strong>
+                      <span class="ac-hint">Daily cap on free-tier language-model and voice-over requests. 0 turns AI off for guests.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <input id="ac-p-ai" class="ac-num" type="number" inputmode="numeric" step="1"
+                             [min]="limits.maxAiCallsPerDay.min" [max]="limits.maxAiCallsPerDay.max"
+                             [value]="numValue('maxAiCallsPerDay')" (input)="setPolicyNumber('maxAiCallsPerDay', valueOf($event))"
+                             [attr.aria-invalid]="errors().maxAiCallsPerDay ? 'true' : null" aria-describedby="ac-e-ai" />
+                      @if (changedPolicyKeys().has('maxAiCallsPerDay')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('maxAiCallsPerDay')" aria-label="Revert AI calls to saved" [title]="'Was ' + wasValue('maxAiCallsPerDay')">↺</button>
+                      }
+                    </div>
+                    @if (errors().maxAiCallsPerDay; as problem) { <span class="ac-error" id="ac-e-ai" role="alert">{{ problem }}</span> }
+                  </div>
+                </div>
+
+                <div class="ac-group ac-group-danger" role="group" aria-labelledby="ac-g-publish">
+                  <div class="ac-group-head">
+                    <h4 id="ac-g-publish">Publishing boundaries</h4>
+                    <button type="button" class="secondary small" (click)="lockDownPublishing()"
+                            title="Switch off guest YouTube publishing, Google Drive publishing and cloud save in one go">🔒 Block all guest publishing</button>
+                  </div>
+
+                  <div class="ac-field is-danger" [class.is-changed]="changedPolicyKeys().has('allowYouTubePublish')">
+                    <label class="ac-field-label" for="ac-p-youtube">
+                      <strong>Allow guest YouTube publishing</strong>
+                      <span class="ac-hint">Guests could connect a channel and upload. Strongly recommended: off.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <label class="switch ac-sw is-danger"><input id="ac-p-youtube" type="checkbox" [checked]="boolValue('allowYouTubePublish')" (change)="setPolicyBool('allowYouTubePublish', checked($event))" /><span class="track"></span></label>
+                      @if (changedPolicyKeys().has('allowYouTubePublish')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('allowYouTubePublish')" aria-label="Revert guest YouTube publishing to saved" [title]="'Was ' + wasValue('allowYouTubePublish')">↺</button>
+                      }
+                    </div>
+                    @if (boolValue('allowYouTubePublish')) {
+                      <span class="ac-warn">⚠ Sensitive tabs that are switched on for guests in the matrix will also appear for them.</span>
+                    }
+                  </div>
+
+                  <div class="ac-field is-danger" [class.is-changed]="changedPolicyKeys().has('allowGoogleDrivePublish')">
+                    <label class="ac-field-label" for="ac-p-drive">
+                      <strong>Allow guest Google Drive publishing</strong>
+                      <span class="ac-hint">Guests could connect Google Drive and export renders. Strongly recommended: off.</span>
+                    </label>
+                    <div class="ac-field-ctl">
+                      <label class="switch ac-sw is-danger"><input id="ac-p-drive" type="checkbox" [checked]="boolValue('allowGoogleDrivePublish')" (change)="setPolicyBool('allowGoogleDrivePublish', checked($event))" /><span class="track"></span></label>
+                      @if (changedPolicyKeys().has('allowGoogleDrivePublish')) {
+                        <button type="button" class="ac-icon-btn" (click)="revertPolicy('allowGoogleDrivePublish')" aria-label="Revert guest Google Drive publishing to saved" [title]="'Was ' + wasValue('allowGoogleDrivePublish')">↺</button>
+                      }
+                    </div>
+                    @if (boolValue('allowGoogleDrivePublish')) {
+                      <span class="ac-warn">⚠ Guests can link their own Google account to this server.</span>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              <div class="ac-policy-tools">
+                <button type="button" class="secondary small" (click)="resetPolicyDefaults()" title="Set every guest limit to the server's built-in defaults">↺ Reset to built-in defaults</button>
+              </div>
+            </div>
+          }
+        </section>
+
+        <!-- =============================================================== -->
+        <!-- Session timeout (this browser)                                   -->
+        <!-- =============================================================== -->
+        <section class="card ac-section" id="ac-sec-session" aria-labelledby="ac-h-session">
+          <header class="ac-sec-head">
+            <div class="ac-sec-id">
+              <h3 class="ac-sec-title" id="ac-h-session">
+                <button type="button" class="ac-collapse" (click)="toggleSection('session')" [attr.aria-expanded]="!isCollapsed('session')" aria-controls="ac-body-session">
+                  <span class="ac-chev" [class.is-open]="!isCollapsed('session')" aria-hidden="true"></span>
+                  <span>Session timeout</span>
+                </button>
+              </h3>
+              <p class="ac-sec-sub">
+                @if (isCollapsed('session')) { {{ summaries().session }} } @else { Automatic sign-out after a period of inactivity. }
+              </p>
+            </div>
+            <div class="ac-sec-actions">
+              @if (sectionCounts().session > 0) {
+                <span class="pill warn">{{ plural(sectionCounts().session, 'change') }}</span>
+                <button type="button" class="small" (click)="requestSave('session')" [disabled]="!canSave('session')">Apply to this browser</button>
+              }
+            </div>
+          </header>
+
+          @if (!isCollapsed('session')) {
+            <div class="ac-sec-body" id="ac-body-session">
+              <p class="ac-note">
+                Typing, editing, scrubbing the timeline and renders all count as activity and restart the countdown.
+                <strong>This is stored in this browser only</strong>: it does not change other devices or the server.
+              </p>
+              <div class="ac-session-grid">
+                <div class="ac-field ac-field-stack" [class.is-changed]="draftSession().timeoutMinutes !== savedSession().timeoutMinutes">
+                  <label class="ac-field-label" for="ac-s-timeout">
+                    <strong>Inactivity timeout</strong>
+                    <span class="ac-hint">People are signed out after this long without activity.</span>
+                  </label>
+                  <select id="ac-s-timeout" (change)="setSessionValue('timeoutMinutes', valueOf($event))">
+                    @for (minutes of timeoutOptions(); track minutes) {
+                      <option [value]="minutes" [selected]="minutes === draftSession().timeoutMinutes">{{ timeoutLabel(minutes) }}</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="ac-field ac-field-stack" [class.is-changed]="draftSession().warningMinutes !== savedSession().warningMinutes">
+                  <label class="ac-field-label" for="ac-s-warning">
+                    <strong>Warning before sign-out</strong>
+                    <span class="ac-hint">A banner and a pop-up with a countdown appear this long before.</span>
+                  </label>
+                  <select id="ac-s-warning" (change)="setSessionValue('warningMinutes', valueOf($event))">
+                    @for (minutes of warningOptions(); track minutes) {
+                      <option [value]="minutes" [selected]="minutes === draftSession().warningMinutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }} before expiry</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="ac-live" role="group" aria-label="Your current session">
+                  <span class="ac-live-label">Your session right now</span>
+                  <strong class="ac-live-time" [class.is-warn]="sessionTimeout.isWarning()">{{ sessionTimeout.formattedRemaining() }}</strong>
+                  <span class="muted">{{ sessionTimeout.isWarning() ? 'Warning window is active' : 'Active, counting down while idle' }}</span>
+                </div>
+              </div>
+            </div>
+          }
+        </section>
+      </div>
+
+      <!-- ================================================================= -->
+      <!-- Effective access preview                                           -->
+      <!-- ================================================================= -->
+      <aside class="ac-side" aria-label="Effective access preview">
+        <section class="card ac-section ac-preview" id="ac-sec-preview" aria-labelledby="ac-h-preview">
+          <header class="ac-sec-head">
+            <div class="ac-sec-id">
+              <h3 class="ac-sec-title" id="ac-h-preview">
+                <button type="button" class="ac-collapse" (click)="toggleSection('preview')" [attr.aria-expanded]="!isCollapsed('preview')" aria-controls="ac-body-preview">
+                  <span class="ac-chev" [class.is-open]="!isCollapsed('preview')" aria-hidden="true"></span>
+                  <span>Effective access preview</span>
+                </button>
+              </h3>
+              <p class="ac-sec-sub">
+                @if (isCollapsed('preview')) { {{ summaries().preview }} } @else { Read-only. What each audience will see, including your unsaved edits. }
+              </p>
+            </div>
+            <div class="ac-sec-actions">
+              @if (sectionCounts().preview > 0) {
+                <span class="pill warn">Unsaved edits included</span>
+              }
+            </div>
+          </header>
+
+          @if (!isCollapsed('preview')) {
+            <div class="ac-sec-body" id="ac-body-preview">
+              <div class="ac-persona-switch" role="group" aria-label="Audience to preview">
+                @for (view of personaViews(); track view.persona) {
+                  <button type="button" class="ac-seg-btn" [class.is-active]="persona() === view.persona" [attr.aria-pressed]="persona() === view.persona"
+                          (click)="setPersona(view.persona)">
+                    {{ personaMeta[view.persona].short }} <span>{{ view.visible }}</span>
+                  </button>
+                }
+              </div>
+
+              <div class="ac-personas">
+                @for (view of personaViews(); track view.persona) {
+                  @let meta = personaMeta[view.persona];
+                  <article class="ac-persona" [class.is-active]="persona() === view.persona" [attr.data-persona]="view.persona" [attr.aria-label]="meta.label">
+                    <header class="ac-persona-head">
+                      <span class="ac-persona-ico" aria-hidden="true">{{ meta.icon }}</span>
+                      <div class="ac-persona-title">
+                        <h4>{{ meta.label }}</h4>
+                        <span class="muted">{{ meta.blurb }}</span>
+                      </div>
+                      <div class="ac-persona-count" [attr.aria-label]="view.visible + ' of ' + view.total + ' tabs visible'">
+                        <strong>{{ view.visible }}</strong><span>/ {{ view.total }} tabs</span>
+                      </div>
+                    </header>
+
+                    @if (view.added > 0 || view.removed > 0) {
+                      <div class="ac-delta">
+                        @if (view.added > 0) { <span class="pill ok">+{{ view.added }} newly visible</span> }
+                        @if (view.removed > 0) { <span class="pill err">−{{ view.removed }} no longer visible</span> }
+                      </div>
+                    }
+
+                    @if (view.persona === 'guest' && !draftPolicy().enabled) {
+                      <div class="ac-mini-notice is-err" role="note">Anonymous browsing is off, so signed-out visitors cannot use the studio at all. The tabs below are what they would see if it were on.</div>
+                    }
+
+                    <ul class="ac-nav-chips" [attr.aria-label]="meta.short + ' navigation'">
+                      @for (item of view.shown; track item.tab.id) {
+                        <li class="ac-nav-chip" [class.is-added]="item.visible && !item.was" [class.is-removed]="!item.visible && item.was">
+                          <span aria-hidden="true">{{ tabIcon(item.tab.id) }}</span>
+                          {{ item.tab.label }}
+                          @if (item.visible && !item.was) { <span class="sr-only">(newly visible)</span> }
+                          @if (!item.visible && item.was) { <span class="sr-only">(no longer visible)</span> }
+                        </li>
+                      } @empty {
+                        <li class="ac-nav-empty">No tabs at all.</li>
+                      }
+                    </ul>
+
+                    @if (view.hidden.length > 0) {
+                      <details class="ac-hidden">
+                        <summary>Hidden from this audience ({{ view.hidden.length }})</summary>
+                        <ul>
+                          @for (item of view.hidden; track item.tab.id) {
+                            <li><span>{{ tabIcon(item.tab.id) }} {{ item.tab.label }}</span><span class="muted">{{ item.reason }}</span></li>
+                          }
+                        </ul>
+                      </details>
+                    }
+
+                    @if (view.persona === 'guest') {
+                      <dl class="ac-caps">
+                        @for (cap of guestCaps(); track cap.key) {
+                          <div class="ac-cap" [class.is-changed]="cap.changed">
+                            <dt>{{ cap.label }}</dt>
+                            <dd [attr.data-tone]="cap.tone"><span class="ac-cap-dot" aria-hidden="true"></span>{{ cap.value }}@if (cap.changed) { <span class="sr-only"> (unsaved)</span> }</dd>
+                          </div>
+                        }
+                      </dl>
+                    } @else if (view.persona === 'member') {
+                      <p class="ac-persona-note">No guest limits apply. Each member only ever sees their own projects, assets and connected channels.</p>
+                    } @else {
+                      <p class="ac-persona-note">Administrators also get Settings and Logs, which nobody else sees. A tab hidden from members is hidden from the administrator's navigation bar too (its URL still opens).</p>
+                    }
+                  </article>
+                }
+              </div>
+            </div>
+          }
+        </section>
+      </aside>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- Users & guest sessions                                               -->
+    <!-- =================================================================== -->
+    <section class="card ac-section" id="ac-sec-scopes" aria-labelledby="ac-h-scopes">
+      <header class="ac-sec-head">
+        <div class="ac-sec-id">
+          <h3 class="ac-sec-title" id="ac-h-scopes">
+            <button type="button" class="ac-collapse" (click)="toggleSection('scopes')" [attr.aria-expanded]="!isCollapsed('scopes')" aria-controls="ac-body-scopes">
+              <span class="ac-chev" [class.is-open]="!isCollapsed('scopes')" aria-hidden="true"></span>
+              <span>Users &amp; guest sessions</span>
+            </button>
+          </h3>
+          <p class="ac-sec-sub">
+            @if (isCollapsed('scopes')) { {{ summaries().scopes }} } @else { Who has projects on this server, and which guest sessions have gone quiet. }
+          </p>
+        </div>
+        <div class="ac-sec-actions">
+          <button type="button" class="secondary small" (click)="loadUserScopes()" [disabled]="loadingScopes()" title="Reload the list of users and guest sessions">
+            <span [class.ac-spin]="loadingScopes()" aria-hidden="true">↻</span> Refresh
+          </button>
+          <button type="button" class="danger small" (click)="openPurge()" [disabled]="!!pendingPurge() || purging() || userScopes() === null"
+                  title="Delete the projects of guest sessions that have been idle for a while">
+            🧹 Purge stale guests{{ scopeCounts().stale > 0 ? ' (' + scopeCounts().stale + ')' : '' }}
+          </button>
+        </div>
+      </header>
+
+      @if (!isCollapsed('scopes')) {
+        <div class="ac-sec-body" id="ac-body-scopes">
+          <p class="ac-note">
+            Every project, asset and credential belongs to exactly one signed-in user or one isolated guest session; nobody can see or change another person's projects.
+          </p>
+
+          @if (purgeError(); as problem) {
+            <div class="notice error ac-inline-notice" role="alert">
+              <span><strong>The purge did not finish.</strong> {{ problem }}</span>
+              <button type="button" class="secondary small" (click)="purgeError.set(null)">Dismiss</button>
+            </div>
+          }
+
+          @if (scopesError(); as problem) {
+            <div class="notice error ac-inline-notice" role="alert">
+              <span>{{ problem }}</span>
+              <button type="button" class="secondary small" (click)="loadUserScopes()">Retry</button>
+            </div>
+          }
+
+          @if (userScopes(); as overview) {
+            <div class="ac-stats">
+              <div class="ac-stat"><span class="ac-stat-n">{{ fmt(overview.totalProjects) }}</span><span class="ac-stat-l">Total projects</span></div>
+              <div class="ac-stat"><span class="ac-stat-n is-brand">{{ fmt(overview.registeredMembers) }}</span><span class="ac-stat-l">Registered members</span><span class="ac-stat-s">with at least one project</span></div>
+              <div class="ac-stat"><span class="ac-stat-n is-warn">{{ fmt(overview.guestSessions) }}</span><span class="ac-stat-l">Guest sessions</span></div>
+              <div class="ac-stat"><span class="ac-stat-n" [class.is-err]="scopeCounts().stale > 0">{{ fmt(scopeCounts().stale) }}</span><span class="ac-stat-l">Idle {{ staleDays() }}+ days</span><span class="ac-stat-s">guest sessions a purge would clear</span></div>
+            </div>
+
+            <div class="ac-toolbar">
+              <div class="studio-search-wrap ac-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input type="search" placeholder="Search name or ID…" aria-label="Search users and guest sessions" maxlength="80"
+                       [value]="scopeQuery()" (input)="setScopeQuery(valueOf($event))" />
+              </div>
+              <div class="ac-chips" role="group" aria-label="Filter scopes">
+                <button type="button" class="ac-chip" [class.is-active]="scopeFilter() === 'all'" [attr.aria-pressed]="scopeFilter() === 'all'" (click)="setScopeFilter('all')">All <span>{{ fmt(scopeCounts().all) }}</span></button>
+                <button type="button" class="ac-chip" [class.is-active]="scopeFilter() === 'registered'" [attr.aria-pressed]="scopeFilter() === 'registered'" (click)="setScopeFilter('registered')">Members <span>{{ fmt(scopeCounts().registered) }}</span></button>
+                <button type="button" class="ac-chip" [class.is-active]="scopeFilter() === 'guest'" [attr.aria-pressed]="scopeFilter() === 'guest'" (click)="setScopeFilter('guest')">Guests <span>{{ fmt(scopeCounts().guest) }}</span></button>
+                <button type="button" class="ac-chip" [class.is-active]="scopeFilter() === 'stale'" [attr.aria-pressed]="scopeFilter() === 'stale'" (click)="setScopeFilter('stale')">Idle guests <span>{{ fmt(scopeCounts().stale) }}</span></button>
+              </div>
+              <div class="ac-inline">
+                <label for="ac-stale-days">Idle after</label>
+                <input id="ac-stale-days" class="ac-num ac-num-sm" type="number" inputmode="numeric" min="1" max="90" step="1"
+                       [value]="purgeInput()" (input)="setPurgeInput(valueOf($event))" (change)="settlePurgeInput()"
+                       [attr.aria-invalid]="purgeDays() === null ? 'true' : null" />
+                <span class="muted">days</span>
+              </div>
+              <div class="ac-inline">
+                <label for="ac-scope-activity">Active</label>
+                <select id="ac-scope-activity" (change)="setScopeActivity(valueOf($event))">
+                  @for (option of activityOptions; track option.id) {
+                    <option [value]="option.id" [selected]="scopeActivity() === option.id">{{ option.label }}</option>
+                  }
+                </select>
+              </div>
+              <div class="ac-inline ac-sort-select">
+                <label for="ac-scope-sort">Sort</label>
+                <select id="ac-scope-sort" (change)="setScopeSortValue(valueOf($event))">
+                  @for (option of scopeSortOptions; track option.label) {
+                    <option [value]="option.key + ':' + option.dir" [selected]="scopeSortValue() === option.key + ':' + option.dir">{{ option.label }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+
+            @if (filteredScopes().length === 0) {
+              <div class="empty ac-empty">
+                @if (scopeCounts().all === 0) {
+                  <strong>No project scopes recorded yet.</strong>
+                  <div class="muted">A scope appears as soon as someone, signed in or not, creates a project.</div>
+                } @else {
+                  <strong>Nobody matches.</strong>
+                  <div class="muted">Try a different search or filter.</div>
+                  <button type="button" class="secondary small" (click)="clearScopeFilters()">Clear search and filters</button>
+                }
+              </div>
+            } @else {
+              <div class="studio-table-wrap ac-table-wrap">
+                <table class="ac-table ac-scopes">
+                  <caption class="sr-only">Users and guest sessions with their projects</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" [attr.aria-sort]="ariaSort('name')"><button type="button" class="ac-th" (click)="toggleScopeSort('name')">User / guest ID <span class="ac-sort" aria-hidden="true">{{ sortMark('name') }}</span></button></th>
+                      <th scope="col" [attr.aria-sort]="ariaSort('type')"><button type="button" class="ac-th" (click)="toggleScopeSort('type')">Type <span class="ac-sort" aria-hidden="true">{{ sortMark('type') }}</span></button></th>
+                      <th scope="col" class="ac-r" [attr.aria-sort]="ariaSort('projects')"><button type="button" class="ac-th" (click)="toggleScopeSort('projects')">Projects <span class="ac-sort" aria-hidden="true">{{ sortMark('projects') }}</span></button></th>
+                      <th scope="col" [attr.aria-sort]="ariaSort('storage')"><button type="button" class="ac-th" (click)="toggleScopeSort('storage')">Storage <span class="ac-sort" aria-hidden="true">{{ sortMark('storage') }}</span></button></th>
+                      <th scope="col" [attr.aria-sort]="ariaSort('lastActive')"><button type="button" class="ac-th" (click)="toggleScopeSort('lastActive')">Last active <span class="ac-sort" aria-hidden="true">{{ sortMark('lastActive') }}</span></button></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (row of pagedScopes(); track row.item.userId) {
+                      <tr [class.is-stale]="row.stale">
+                        <td class="ac-scopecell">
+                          <div class="ac-scope">
+                            <span class="ac-scope-ico" [class.is-guest]="row.item.isGuest" aria-hidden="true">{{ row.item.isGuest ? '👤' : '👑' }}</span>
+                            <div class="ac-scope-text">
+                              <strong>{{ row.item.displayName }}</strong>
+                              <span class="ac-id mono" [title]="row.item.userId">{{ row.item.userId }}</span>
+                            </div>
+                            <button type="button" class="ac-icon-btn ac-copy" (click)="copyId(row.item.userId)"
+                                    [attr.aria-label]="'Copy the ID of ' + row.item.displayName" title="Copy ID">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                          </div>
+                        </td>
+                        <td data-label="Type">
+                          @if (row.item.isGuest) { <span class="pill">Guest session</span> } @else { <span class="pill ac-brand">Registered member</span> }
+                        </td>
+                        <td class="ac-r" data-label="Projects"><strong>{{ fmt(row.item.projectCount) }}</strong></td>
+                        <td class="muted" data-label="Storage">{{ row.item.storageEstimate }}</td>
+                        <td data-label="Last active">
+                          @if (row.lastMs !== null) {
+                            <span class="ac-when" [title]="row.lastMs | date: 'medium'">{{ ago(row.lastMs) }}</span>
+                          } @else {
+                            <span class="muted">Not recorded</span>
+                          }
+                          @if (row.stale) {
+                            <span class="pill warn ac-stale-pill" [title]="'Idle for more than ' + staleDays() + ' days: a purge would delete these projects'">Idle {{ row.idleDays }}d</span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="ac-pager">
+                <span class="muted" aria-live="polite">Showing {{ fmt(pageRange().from) }}–{{ fmt(pageRange().to) }} of {{ fmt(filteredScopes().length) }}</span>
+                <span class="ac-spacer"></span>
+                <label class="ac-inline" for="ac-page-size"><span class="muted">Rows</span>
+                  <select id="ac-page-size" (change)="setPageSize(valueOf($event))">
+                    @for (size of pageSizes; track size) {
+                      <option [value]="size" [selected]="size === scopePageSize()">{{ size }}</option>
+                    }
+                  </select>
+                </label>
+                <button type="button" class="secondary small" (click)="gotoPage(currentPage() - 1)" [disabled]="currentPage() === 0" aria-label="Previous page">‹ Prev</button>
+                <span class="muted">Page {{ currentPage() + 1 }} of {{ scopePageCount() }}</span>
+                <button type="button" class="secondary small" (click)="gotoPage(currentPage() + 1)" [disabled]="currentPage() >= scopePageCount() - 1" aria-label="Next page">Next ›</button>
+              </div>
+            }
+          } @else if (loadingScopes()) {
+            <div class="ac-skeleton" aria-hidden="true"><div class="ac-skel"></div><div class="ac-skel"></div></div>
+            <p class="sr-only" role="status">Loading users and guest sessions…</p>
+          }
+        </div>
+      }
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- Identity & channels                                                  -->
+    <!-- =================================================================== -->
+    <section class="card ac-section" id="ac-sec-identity" aria-labelledby="ac-h-identity">
+      <header class="ac-sec-head">
+        <div class="ac-sec-id">
+          <h3 class="ac-sec-title" id="ac-h-identity">
+            <button type="button" class="ac-collapse" (click)="toggleSection('identity')" [attr.aria-expanded]="!isCollapsed('identity')" aria-controls="ac-body-identity">
+              <span class="ac-chev" [class.is-open]="!isCollapsed('identity')" aria-hidden="true"></span>
+              <span>Identity &amp; connected channels</span>
+            </button>
+          </h3>
+          <p class="ac-sec-sub">
+            @if (isCollapsed('identity')) { {{ summaries().identity }} } @else { The roles on this server and every YouTube channel connected to it. }
+          </p>
+        </div>
+        <div class="ac-sec-actions">
+          @if (channelCounts().reconnect > 0) {
+            <span class="pill warn">{{ channelCounts().reconnect }} need{{ channelCounts().reconnect === 1 ? 's' : '' }} reconnecting</span>
+          }
+        </div>
+      </header>
+
+      @if (!isCollapsed('identity')) {
+        <div class="ac-sec-body" id="ac-body-identity">
+          <div class="ac-identity">
+            <div class="ac-id-card">
+              <h4>Roles on this server</h4>
+              <div class="ac-roles">
+                @for (role of accessInfo()?.availableRoles ?? []; track role) {
+                  <span class="pill" [class.ac-brand]="role === 'Admin'">{{ role }}</span>
+                } @empty {
+                  <span class="muted">No roles reported.</span>
+                }
+              </div>
+              <p class="muted ac-id-mode">Access mode <strong>{{ accessInfo()?.mode }}</strong>, enforced by the central identity provider.</p>
+            </div>
+            <div class="ac-boundary" role="note">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>
+                <strong>App boundary rule.</strong> People who register on AnimStudio receive the <code>StudioUser</code> role, scoped to <code>app=studio</code>.
+                By the identity provider's design those accounts cannot sign in to other admin portals unless an administrator explicitly grants it.
+              </span>
+            </div>
+          </div>
+
+          <div class="ac-subhead">
+            <div>
+              <h4>Connected YouTube channels</h4>
+              <p class="muted">Every channel connected across all users. People only ever see their own; administrators have platform oversight.</p>
+            </div>
+            <button type="button" class="secondary small" (click)="loadChannels()" [disabled]="loadingChannels()" title="Reload the channel list">
+              <span [class.ac-spin]="loadingChannels()" aria-hidden="true">↻</span> Refresh
+            </button>
+          </div>
+
+          @if (channelsError(); as problem) {
+            <div class="notice error ac-inline-notice" role="alert">
+              <span>{{ problem }}</span>
+              <button type="button" class="secondary small" (click)="loadChannels()">Retry</button>
+            </div>
+          }
+
+          @if (!channelsLoaded()) {
+            @if (loadingChannels()) {
+              <div class="ac-skeleton" aria-hidden="true"><div class="ac-skel"></div></div>
+              <p class="sr-only" role="status">Loading channels…</p>
+            }
+          } @else if (channelRows().length === 0) {
+            <div class="empty ac-empty">
+              <strong>No YouTube channels are connected yet.</strong>
+              <div class="muted">Channels appear here once a user connects one from the YouTube page.</div>
+            </div>
+          } @else {
+            <div class="ac-toolbar">
+              <div class="studio-search-wrap ac-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input type="search" placeholder="Search channel, handle or ID…" aria-label="Search connected channels" maxlength="80"
+                       [value]="channelQuery()" (input)="channelQuery.set(valueOf($event))" />
+              </div>
+              <div class="ac-chips" role="group" aria-label="Filter channels">
+                @for (f of channelFilterOptions; track f.id) {
+                  <button type="button" class="ac-chip" [class.is-active]="channelFilter() === f.id" [attr.aria-pressed]="channelFilter() === f.id" (click)="setChannelFilter(f.id)">
+                    {{ f.label }} <span>{{ channelCounts()[f.id] }}</span>
+                  </button>
+                }
+              </div>
+              <div class="ac-inline ac-sort-select">
+                <label for="ac-channel-sort">Sort</label>
+                <select id="ac-channel-sort" (change)="setChannelSortValue(valueOf($event))">
+                  @for (option of channelSortOptions; track option.label) {
+                    <option [value]="option.key + ':' + option.dir" [selected]="channelSortValue() === option.key + ':' + option.dir">{{ option.label }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+
+            @if (filteredChannels().length === 0) {
+              <div class="empty ac-empty">
+                <strong>No channel matches.</strong>
+                <button type="button" class="secondary small" (click)="clearChannelFilters()">Clear search and filters</button>
+              </div>
+            } @else {
+              <div class="studio-table-wrap ac-table-wrap">
+                <table class="ac-table ac-channels">
+                  <caption class="sr-only">Connected YouTube channels</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Channel</th>
+                      <th scope="col">Channel ID</th>
+                      @if (channelsHaveOwner()) { <th scope="col">Owner</th> }
+                      <th scope="col">Status</th>
+                      <th scope="col">Connected</th>
+                      <th scope="col">Last used</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (c of shownChannels(); track c.key) {
+                      <tr [class.is-stale]="c.needsReconnect">
+                        <td>
+                          <div class="ac-chan">
+                            @if (c.thumbnail && !brokenThumbs().has(c.key)) {
+                              <img [src]="c.thumbnail" alt="" width="32" height="32" loading="lazy" referrerpolicy="no-referrer" (error)="markThumbBroken(c.key)" />
+                            } @else {
+                              <span class="ac-chan-ph" aria-hidden="true">▶</span>
+                            }
+                            <div class="ac-chan-text">
+                              <strong>{{ c.title }}</strong>
+                              @if (c.handle) { <span class="mono muted">{{ c.handle }}</span> }
+                            </div>
+                          </div>
+                        </td>
+                        <td data-label="Channel ID"><code>{{ c.channelId || '—' }}</code></td>
+                        @if (channelsHaveOwner()) {
+                          <td data-label="Owner"><span class="ac-owner mono">{{ c.owner || '—' }}</span></td>
+                        }
+                        <td data-label="Status">
+                          <span class="pill" [class.ok]="!c.needsReconnect" [class.warn]="c.needsReconnect">{{ c.status }}</span>
+                          @if (c.canComment === false) {
+                            <span class="pill" title="Connected before comment permission was requested. Reconnecting the channel fixes it.">No comment access</span>
+                          }
+                        </td>
+                        <td class="muted" data-label="Connected">
+                          @if (c.connectedMs !== null) { {{ c.connectedMs | date: 'mediumDate' }} } @else { — }
+                        </td>
+                        <td class="muted" data-label="Last used">
+                          @if (c.lastActiveMs !== null) { <span [title]="c.lastActiveMs | date: 'medium'">{{ ago(c.lastActiveMs) }}</span> } @else { Never }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              @if (filteredChannels().length > shownChannels().length || channelsExpanded()) {
+                <div class="ac-pager">
+                  <span class="muted">Showing {{ shownChannels().length }} of {{ filteredChannels().length }}</span>
+                  <span class="ac-spacer"></span>
+                  <button type="button" class="secondary small" (click)="channelsExpanded.set(!channelsExpanded())">
+                    {{ channelsExpanded() ? 'Show fewer' : 'Show all ' + filteredChannels().length }}
+                  </button>
+                </div>
+              }
+            }
+          }
+        </div>
+      }
+    </section>
+  }
+</div>
+
+<!-- ======================================================================= -->
+<!-- Toasts, and the guest purge that can still be taken back                 -->
+<!-- ======================================================================= -->
+<div class="ac-toasts" role="status" aria-live="polite">
+  @if (pendingPurge(); as p) {
+    <div class="ac-toast ac-toast-purge" data-tone="warn">
+      <div class="ac-toast-body">
+        <strong>Purging stale guests in <span aria-live="off">{{ p.secondsLeft }}</span>s</strong>
+        <span>About {{ plural(p.projects, 'project') }} from {{ plural(p.sessions, 'guest session') }} idle for more than {{ p.days }} days. <kbd class="ac-kbd-inline">Esc</kbd> cancels.</span>
+      </div>
+      <button type="button" class="ac-toast-btn" (click)="undoPurge()">Undo</button>
+      <div class="ac-toast-bar" aria-hidden="true"><i [style.width.%]="(p.secondsLeft / p.total) * 100"></i></div>
+    </div>
+  }
+  @if (toast(); as t) {
+    <div class="ac-toast" [attr.data-tone]="t.tone">
+      <span class="ac-toast-text">{{ t.text }}</span>
+      @if (t.action; as act) {
+        <button type="button" class="ac-toast-btn" (click)="runToastAction()">{{ act.label }}</button>
+      }
+      <button type="button" class="ac-toast-x" (click)="dismissToast()" aria-label="Dismiss">✕</button>
+    </div>
+  }
+</div>
+
+<!-- ======================================================================= -->
+<!-- One modal dialog for purge / confirm / leave                             -->
+<!-- ======================================================================= -->
+<dialog #dlg class="ac-dialog" [attr.aria-labelledby]="dialog() ? 'ac-dlg-' + dialog() : null"
+        (cancel)="onDialogCancel($event)" (close)="onDialogClosed()" (click)="onDialogClick($event)">
+  @switch (dialog()) {
+    @case ('purge') {
+      <div class="ac-dialog-card">
+        <header class="ac-dialog-head">
+          <h3 id="ac-dlg-purge">🧹 Purge stale guest sessions</h3>
+          <button type="button" class="ac-icon-btn" (click)="cancelDialog()" aria-label="Close">✕</button>
+        </header>
+        <p class="ac-dialog-lead">
+          Deletes the projects of signed-out visitors whose guest session has not been touched for the number of days below.
+          <strong>Registered members and their projects are never purged.</strong> Deleted projects cannot be restored.
+        </p>
+
+        <div class="ac-days">
+          <label for="ac-purge-days"><strong>Idle for more than</strong></label>
+          <input id="ac-purge-days" class="ac-num" type="number" inputmode="numeric" min="1" max="90" step="1"
+                 [value]="purgeInput()" (input)="setPurgeInput(valueOf($event))" (change)="settlePurgeInput()"
+                 [attr.aria-invalid]="purgeDays() === null ? 'true' : null" />
+          <span>days</span>
+        </div>
+        <div class="ac-quick" role="group" aria-label="Common thresholds">
+          @for (d of purgeQuickDays; track d) {
+            <button type="button" class="ac-chip" [class.is-active]="purgeDays() === d" (click)="setPurgeDays(d)">{{ d }}d</button>
+          }
+        </div>
+        @if (purgeDays() === null) {
+          <span class="ac-error" role="alert">Enter a whole number of days from 1 to 90.</span>
+        }
+
+        <div class="ac-estimate" [attr.data-tone]="userScopes() === null ? 'none' : purgeEstimate().certainProjects > 0 ? 'risk' : 'safe'">
+          @if (userScopes() === null) {
+            <strong>No preview available.</strong>
+            <span>The list of guest sessions did not load, so the number of projects affected is unknown.</span>
+          } @else if (purgeEstimate().certainProjects === 0 && purgeEstimate().possibleProjects === 0) {
+            <strong>Nothing to purge.</strong>
+            <span>No guest session has been idle for more than {{ purgeDays() ?? staleDays() }} days. Refresh the list if you expect more.</span>
+          } @else {
+            <strong>
+              @if (purgeEstimate().certainProjects > 0) {
+                About {{ plural(purgeEstimate().certainProjects, 'project') }} in {{ plural(purgeEstimate().certainSessions, 'guest session') }} will be deleted.
+              } @else {
+                No guest session is entirely idle.
+              }
+            </strong>
+            @if (purgeEstimate().possibleProjects > 0) {
+              <span>Up to {{ plural(purgeEstimate().possibleProjects, 'older project') }} more could go from {{ plural(purgeEstimate().possibleSessions, 'recently active guest session') }}, because projects are judged one by one.</span>
+            }
+            @if (purgeEstimate().sample.length > 0) {
+              <ul class="ac-sample">
+                @for (row of purgeEstimate().sample; track row.item.userId) {
+                  <li><span class="mono">{{ row.item.displayName }}</span><span class="muted">{{ plural(row.item.projectCount, 'project') }} · idle {{ row.idleDays }}d</span></li>
+                }
+                @if (purgeEstimate().certainSessions > purgeEstimate().sample.length) {
+                  <li class="muted">and {{ purgeEstimate().certainSessions - purgeEstimate().sample.length }} more</li>
+                }
+              </ul>
+            }
+          }
+        </div>
+
+        <p class="hint ac-dialog-foot">After you confirm there are {{ undoSeconds }} seconds to undo before anything is deleted.</p>
+        <footer class="ac-dialog-actions">
+          <button type="button" class="secondary" autofocus (click)="cancelDialog()">Cancel</button>
+          <button type="button" class="danger" (click)="startPurge()" [disabled]="!canStartPurge()">
+            Purge{{ purgeEstimate().certainProjects > 0 && userScopes() !== null ? ' ~' + purgeEstimate().certainProjects + ' projects' : '' }}…
+          </button>
+        </footer>
+      </div>
+    }
+
+    @case ('save-confirm') {
+      <div class="ac-dialog-card">
+        <header class="ac-dialog-head">
+          <h3 id="ac-dlg-save-confirm">Review before saving</h3>
+          <button type="button" class="ac-icon-btn" (click)="cancelDialog()" aria-label="Close">✕</button>
+        </header>
+        <p class="ac-dialog-lead">These changes widen what signed-out visitors can do, or could lock people out. Please confirm each one is intended.</p>
+        <ul class="ac-caution-list">
+          @for (c of cautionChanges(); track c.id) {
+            <li>
+              <div><strong>{{ c.title }}</strong><span class="ac-review-diff"><s>{{ c.from }}</s> → <b>{{ c.to }}</b></span></div>
+              <span class="muted">{{ c.caution }}</span>
+            </li>
+          }
+        </ul>
+        <footer class="ac-dialog-actions">
+          <button type="button" class="secondary" autofocus (click)="cancelDialog()">Go back</button>
+          <button type="button" (click)="confirmSave()">Save anyway</button>
+        </footer>
+      </div>
+    }
+
+    @case ('leave') {
+      <div class="ac-dialog-card">
+        <header class="ac-dialog-head">
+          <h3 id="ac-dlg-leave">Leave this page?</h3>
+        </header>
+        @if (dirty()) {
+          <p class="ac-dialog-lead">
+            You have <strong>{{ plural(changeCount(), 'unsaved change') }}</strong> ({{ changeBreakdown() }}). Leaving drops them unless you save first.
+          </p>
+          @if (allCautions().length > 0) {
+            <div class="ac-mini-notice" role="note">
+              <strong>Saving includes changes that need a second look:</strong>
+              <ul>
+                @for (c of allCautions(); track c.id) { <li>{{ c.title }}: {{ c.from }} → {{ c.to }}</li> }
+              </ul>
+            </div>
+          }
+        }
+        @if (pendingPurge(); as p) {
+          <p class="ac-dialog-lead">A guest purge is counting down ({{ p.secondsLeft }}s). Leaving cancels it and nothing is deleted.</p>
+        }
+        <footer class="ac-dialog-actions">
+          <button type="button" class="secondary" autofocus (click)="cancelDialog()">Stay on this page</button>
+          <button type="button" class="danger" (click)="leaveDiscard()">{{ dirty() ? 'Discard and leave' : 'Leave' }}</button>
+          @if (dirty()) {
+            <button type="button" (click)="leaveSave()" [disabled]="!canSave()">Save and leave</button>
+          }
+        </footer>
+      </div>
+    }
+  }
+</dialog>

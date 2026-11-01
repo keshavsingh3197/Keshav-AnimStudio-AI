@@ -33,6 +33,9 @@ public sealed class ChannelPublishSettings
     /// <summary>Posted as a comment on every upload once it is on YouTube; the dialog can change it per video.</summary>
     public string? FirstComment { get; set; }
 
+    /// <summary>Names and links the AI-written details carry (credits, subscribe lines, hashtags). Null uses the studio's own.</summary>
+    public ChannelBranding? Branding { get; set; }
+
     /// <summary>A copy for a duplicated channel - minus the YouTube link, which belongs to the original.</summary>
     public ChannelPublishSettings CopyDefaults() => new()
     {
@@ -42,6 +45,7 @@ public sealed class ChannelPublishSettings
         NotifySubscribers = NotifySubscribers,
         Tags = [.. Tags],
         DescriptionFooter = DescriptionFooter,
-        FirstComment = FirstComment
+        FirstComment = FirstComment,
+        Branding = Branding?.Copy()
     };
 }

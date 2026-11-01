@@ -1,53 +1,47 @@
+<div class="page-head" style="margin-top: 0">
+  <div class="ad-title">
+    <div class="studio-icon-badge purple">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row">
+        <h2>AI Providers &amp; Fallback Chains</h2>
+        @if (data()) {
+          <span class="pill" [class.ok]="anyReady()" [class.warn]="!anyReady()">{{ anyReady() ? 'Ready' : 'Offline Mode' }}</span>
+        }
+      </div>
+      <p class="muted">
+        @if (data() && !anyReady()) {
+          Nothing is switched on. That is a supported way to run AnimStudio.
+        } @else {
+          Local and cloud AI engines, rate ceilings, API keys, and the automatic fallback order.
+        }
+      </p>
+    </div>
+  </div>
+  <div class="row pv-actions">
+    <button type="button" class="secondary" (click)="testAll()" [disabled]="testingAll() || enabledCount() === 0"
+            title="Ask every switched-on provider to answer once">
+      @if (testingAll()) { <span class="spinner" aria-hidden="true"></span> }
+      ⚡ Test all switched on ({{ enabledCount() }})
+    </button>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="loading()">
+      @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
+      ↻ Refresh
+    </button>
+  </div>
+</div>
+
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="reload()">Try again</button>
+  </div>
+}
+
 @if (data(); as data) {
-  <div class="page-head" style="margin-top: 0">
-    <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-      <div class="studio-icon-badge purple" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-        </svg>
-      </div>
-      <div>
-        <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-          <h2 style="margin: 0">AI Providers &amp; Fallback Chains</h2>
-          <span class="pill" [class.ok]="anyReady()" [class.warn]="!anyReady()">
-            {{ anyReady() ? 'Ready' : 'Offline Mode' }}
-          </span>
-        </div>
-        <p class="muted">
-          @if (!anyReady()) {
-            Nothing is switched on. That is a supported way to run AnimStudio.
-          } @else {
-            Configure local and cloud AI engines, rate ceilings, API keys, and automatic fallback order.
-          }
-        </p>
-      </div>
-    </div>
-    <div class="row">
-      <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">↻ Refresh</button>
-    </div>
-  </div>
-
-  <div class="sb-kpi-strip">
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Registered Engines</span>
-      <strong class="sb-kpi-val mono">{{ data.providers.length }}</strong>
-    </div>
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Capabilities</span>
-      <strong class="sb-kpi-val mono">{{ capabilities.length }}</strong>
-    </div>
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Key Encryption</span>
-      <strong class="sb-kpi-val" [style.color]="data.encryptionConfigured ? 'var(--ok)' : 'var(--warn)'">
-        {{ data.encryptionConfigured ? 'Configured' : 'Local Only' }}
-      </strong>
-    </div>
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Allowed Hosts</span>
-      <strong class="sb-kpi-val mono">{{ data.hostAllowlist.length }}</strong>
-    </div>
-  </div>
-
   @if (!data.encryptionConfigured) {
     <div class="notice">
       This server has no encryption key, so API keys cannot be saved here yet. Set
@@ -57,273 +51,399 @@
     </div>
   }
 
-  @for (capability of capabilities; track capability) {
-    <div class="section-head" style="margin-top: 1.6rem; margin-bottom: 0.75rem">
-      <div class="studio-card-title-group">
-        <span class="studio-icon-badge" style="width: 2rem; height: 2rem; border-radius: 8px; font-size: 0.9rem">
-          {{ capability === 'Text' ? '✍️' : capability === 'Image' ? '🎨' : capability === 'Speech' ? '🗣️' : '🎧' }}
-        </span>
-        <div>
-          <h3 style="margin: 0">{{ label(capability) }}</h3>
-          <p class="muted" style="margin: 0; font-size: 0.84rem">{{ describe(capability) }}</p>
-        </div>
-      </div>
-      <span class="pill brand">{{ forCapability(capability).length }} providers</span>
+  <div class="ad-kpis">
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Registered engines</span>
+      <strong class="ad-kpi-val">{{ data.providers.length }}</strong>
+      <span class="ad-kpi-sub">across {{ capabilities.length }} capabilities</span>
     </div>
+    <div class="ad-kpi" [class.is-ok]="readyCount() > 0 && readyCount() === enabledCount()" [class.is-warn]="readyCount() < enabledCount()">
+      <span class="ad-kpi-label">Ready now</span>
+      <strong class="ad-kpi-val">{{ readyCount() }} / {{ enabledCount() }}</strong>
+      <span class="ad-kpi-sub">switched on and answering</span>
+    </div>
+    <div class="ad-kpi" [class.is-warn]="attention().length > 0">
+      <span class="ad-kpi-label">Needs attention</span>
+      <strong class="ad-kpi-val">{{ attention().length }}</strong>
+      <span class="ad-kpi-sub">{{ attention().length === 0 ? 'nothing to fix' : 'switched on but not ready' }}</span>
+    </div>
+    <div class="ad-kpi" [class.is-ok]="data.encryptionConfigured" [class.is-warn]="!data.encryptionConfigured">
+      <span class="ad-kpi-label">Key encryption</span>
+      <strong class="ad-kpi-val pv-small">{{ data.encryptionConfigured ? 'Configured' : 'Local only' }}</strong>
+      <span class="ad-kpi-sub">{{ data.hostAllowlist.length }} allowed {{ data.hostAllowlist.length === 1 ? 'host' : 'hosts' }}</span>
+    </div>
+  </div>
 
-    <!-- Fallback order, first, because it is what decides which of the cards below
-         actually gets used. -->
-    @if (chain(capability); as chain) {
-      <div class="card" style="border-color: color-mix(in srgb, var(--brand) 28%, var(--border))">
-        <div class="studio-card-head">
-          <div class="studio-card-title-group">
-            <strong>Tried in this order</strong>
-            <span class="pill brand">Fallback Chain</span>
-          </div>
-          @if (chain.managedHere) {
-            <button class="link" type="button" (click)="resetChain(capability)">
-              back to the configuration file
-            </button>
-          }
-        </div>
-
-        @if (chain.providerIds.length === 0) {
-          <p class="muted" style="margin: 0">
-            Nothing is listed, so this capability is off entirely.
-          </p>
-        } @else {
-          <div class="chips">
-            @for (id of chain.providerIds; track id; let i = $index) {
-              <span class="chip">
-                <span class="muted">{{ i + 1 }}</span>
-                {{ id }}
-                <button type="button" title="Earlier" [disabled]="i === 0"
-                        (click)="moveUp(capability, i)">&uarr;</button>
-                <button type="button" title="Later"
-                        [disabled]="i === chain.providerIds.length - 1"
-                        (click)="moveDown(capability, i)">&darr;</button>
-                <button type="button" title="Remove"
-                        (click)="removeFromChain(capability, id)">&times;</button>
-              </span>
-            }
-          </div>
-        }
-
-        @if (spare(capability).length > 0) {
-          <div class="row" style="margin-top: .7rem">
-            <select style="max-width: 18rem" #add
-                    (change)="addToChain(capability, add.value); add.value = ''">
-              <option value="">Add a provider&hellip;</option>
-              @for (id of spare(capability); track id) {
-                <option [value]="id">{{ id }}</option>
-              }
-            </select>
-          </div>
-        }
-
-        <p class="hint">
-          The first one that is switched on, configured and healthy wins. A free tier that
-          has just rate-limited costs one skipped provider rather than a failed render.
-        </p>
-      </div>
+  <div class="pv-tiles" role="list" aria-label="What the studio can do right now">
+    @for (s of summaries(); track s.capability) {
+      <button type="button" class="pv-tile" role="listitem" [attr.data-tone]="s.tone" (click)="jumpTo(s.capability)">
+        <span class="pv-tile-top">
+          <span class="pv-tile-ico" aria-hidden="true">{{ icon(s.capability) }}</span>
+          <strong>{{ label(s.capability) }}</strong>
+          <span class="dot" [class]="'dot ' + s.tone"></span>
+        </span>
+        <span class="pv-tile-head">{{ s.headline }}</span>
+        <span class="pv-tile-detail">{{ s.detail }}</span>
+      </button>
     }
+  </div>
 
-    @for (provider of forCapability(capability); track provider.id) {
-      <div class="card" [style.border-color]="open() === provider.id ? 'var(--brand)' : ''">
-        <div class="provider-head">
-          <span class="dot" [class]="'dot ' + state(provider)"></span>
-          <h3>{{ provider.displayName }}</h3>
-          <span class="mono muted">{{ provider.id }}</span>
+  @if (attention().length > 0) {
+    <div class="notice pv-attention" role="status">
+      <strong>{{ attention().length === 1 ? 'One provider needs' : attention().length + ' providers need' }} attention:</strong>
+      @for (p of attention(); track p.id; let last = $last) {
+        <button type="button" class="ad-link" (click)="query.set(p.id)">{{ p.displayName }}</button>
+        <span class="muted">({{ shortReason(p) }})</span>@if (!last) {<span>, </span>}
+      }
+    </div>
+  }
 
-          @if (provider.runsLocally) {
-            <span class="pill ok">on this machine</span>
-          }
-          @if (provider.chainPosition !== null) {
-            <span class="pill brand">#{{ provider.chainPosition + 1 }} in order</span>
-          }
-          @if (provider.managedHere) {
-            <span class="pill" title="Saved here, so these values beat appsettings.json">saved here</span>
-          }
+  <div class="ad-toolbar" role="search">
+    <div class="ad-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input #search type="search" placeholder="Search a provider, model or kind…" aria-label="Search providers"
+             [value]="query()" (input)="query.set(search.value)" (keydown.escape)="query.set('')" />
+    </div>
+    <span class="ad-grow"></span>
+    @if (hasFilters()) {
+      <button type="button" class="ad-link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
 
-          <span style="flex: 1 1 auto"></span>
+  <div class="ad-chips" role="group" aria-label="Filter providers">
+    @for (f of filters; track f.id) {
+      <button type="button" class="ad-chip" [class.is-active]="filter() === f.id" [attr.aria-pressed]="filter() === f.id"
+              [disabled]="counts()[f.id] === 0 && filter() !== f.id" (click)="filter.set(f.id)">
+        {{ f.label }} <span>{{ counts()[f.id] }}</span>
+      </button>
+    }
+  </div>
 
-          <label class="switch" [title]="provider.enabled ? 'Switch off' : 'Switch on'">
-            <input type="checkbox" [checked]="provider.enabled"
-                   [disabled]="status.busy()" (change)="toggleEnabled(provider)" />
-            <span class="track"></span>
-            <span class="muted">{{ provider.enabled ? 'on' : 'off' }}</span>
-          </label>
-        </div>
+  @for (capability of capabilities; track capability) {
+    @let summary = summaries()[$index];
+    @let shown = forCapability(capability);
+    <section class="pv-section" [id]="'cap-' + capability">
+      <div class="pv-section-head">
+        <button type="button" class="pv-collapse" (click)="toggleSection(capability)"
+                [attr.aria-expanded]="!isCollapsed(capability)" [attr.aria-label]="(isCollapsed(capability) ? 'Expand ' : 'Collapse ') + label(capability)">
+          <span class="pv-chevron" [class.is-open]="!isCollapsed(capability)" aria-hidden="true">▸</span>
+          <span class="studio-icon-badge pv-badge" aria-hidden="true">{{ icon(capability) }}</span>
+          <span class="pv-section-title">
+            <h3>{{ label(capability) }}</h3>
+            <span class="muted">{{ describe(capability) }}</span>
+          </span>
+        </button>
+        <span class="pill" [class.ok]="summary.tone === 'ok'" [class.warn]="summary.tone === 'warn'" [class.err]="summary.tone === 'err'"
+              [title]="summary.detail">{{ summary.headline }}</span>
+        <span class="pill brand">{{ shown.length }}{{ hasFilters() ? ' of ' + totalFor(capability) : '' }} providers</span>
+      </div>
 
-        <p class="muted" style="margin-bottom: .65rem">{{ explain(provider) }}</p>
-
-        <div class="row">
-          <button type="button" class="secondary small" [class.active]="open() === provider.id" (click)="toggleOpen(provider)">
-            {{ open() === provider.id ? '✕ Close' : '⚙ Settings' }}
-          </button>
-          <button type="button" class="secondary small" (click)="test(provider)"
-                  [disabled]="status.busy()">
-            ⚡ Test connection
-          </button>
-          @if (provider.key.configured) {
-            <span class="pill ok mono">key {{ provider.key.masked }}</span>
-          } @else if (provider.requiresApiKey) {
-            <span class="muted" style="font-size: 0.82rem">no key installed</span>
-          }
-          @if (tested()[provider.id]; as result) {
-            <span class="pill">{{ result }}</span>
-          }
-        </div>
-
-        @if (open() === provider.id && draft(); as draft) {
-          <div class="subform">
-            <p class="muted">{{ provider.freeTierNote }}</p>
-
-            <div class="grid">
-              <div>
-                <label [for]="provider.id + '-model'">Model</label>
-                <input [id]="provider.id + '-model'" type="text" [(ngModel)]="draft.model"
-                       [placeholder]="provider.defaultModel ?? 'whatever the server has loaded'" />
-                <p class="hint">Letters, digits and <code>. - _ / : @ +</code>.</p>
+      @if (!isCollapsed(capability)) {
+        <!-- Fallback order first, because it is what decides which of the cards below actually gets used. -->
+        @if (chain(capability); as chain) {
+          <div class="card pv-chain">
+            <div class="studio-card-head">
+              <div class="studio-card-title-group">
+                <strong>Tried in this order</strong>
+                <span class="pill brand">Fallback Chain</span>
+                @if (isBusy('chain:' + capability)) { <span class="spinner" aria-label="Saving"></span> }
               </div>
-
-              @if (!provider.needsExecutable) {
-                <div>
-                  <label [for]="provider.id + '-url'">Address</label>
-                  <input [id]="provider.id + '-url'" type="url" [(ngModel)]="draft.baseUrl"
-                         [placeholder]="provider.defaultBaseUrl ?? 'https://...'" />
-                  <p class="hint">
-                    @if (provider.runsLocally) {
-                      Somewhere on this machine, such as <code>http://localhost:11434/v1</code>.
-                    } @else {
-                      Must be https, and on the server's outbound allowlist.
-                    }
-                  </p>
-                </div>
-              }
-
-              <div>
-                <label [for]="provider.id + '-daily'">Calls per day</label>
-                <input [id]="provider.id + '-daily'" type="number" min="1"
-                       [(ngModel)]="draft.dailyRequestLimit" placeholder="no limit" />
-                <p class="hint">Empty means no ceiling. Refused before anything is spent.</p>
-              </div>
-
-              <div>
-                <label [for]="provider.id + '-monthly'">Calls per month</label>
-                <input [id]="provider.id + '-monthly'" type="number" min="1"
-                       [(ngModel)]="draft.monthlyRequestLimit" placeholder="no limit" />
-              </div>
-
-              <div>
-                <label [for]="provider.id + '-timeout'">Give up after</label>
-                <input [id]="provider.id + '-timeout'" type="number" min="5" max="1800"
-                       [(ngModel)]="draft.timeoutSeconds" placeholder="seconds" />
-              </div>
-            </div>
-
-            <div class="row" style="margin-top: .6rem">
-              <button type="button" (click)="saveDraft(provider)" [disabled]="status.busy()">
-                Save
-              </button>
-              @if (provider.managedHere) {
-                <button type="button" class="secondary" (click)="reset(provider)">
-                  Back to the configuration file
+              @if (chain.managedHere) {
+                <button class="ad-link" type="button" (click)="resetChain(capability)" [disabled]="isBusy('chain:' + capability)">
+                  back to the configuration file
                 </button>
               }
             </div>
 
-            @if (provider.needsExecutable) {
-              <div class="subform">
-                <h4>This one is a program on the server</h4>
-                <dl class="kv">
-                  <dt>Program</dt>
-                  <dd>
-                    @if (provider.executableConfigured) {
-                      <span class="pill ok">configured</span>
-                    } @else {
-                      <span class="pill warn">not set</span>
-                    }
-                  </dd>
-                  <dt>Model folder</dt>
-                  <dd>
-                    @if (provider.modelFolderConfigured) {
-                      <span class="pill ok">configured</span>
-                    } @else {
-                      <span class="pill warn">not set</span>
-                    }
-                  </dd>
-                </dl>
-                <p class="hint">
-                  These are set in the server's <code>appsettings.json</code> under
-                  <code>Ai:Providers:{{ provider.id }}</code>, and deliberately cannot be
-                  changed from a web page: a field that chooses which program the server runs
-                  is a field that can run any program. <strong>This machine</strong> shows
-                  whether they are working.
-                </p>
+            @if (chain.providerIds.length === 0) {
+              <p class="muted" style="margin: 0">Nothing is listed, so this capability is off entirely.</p>
+            } @else {
+              <div class="chips">
+                @for (id of chain.providerIds; track id; let i = $index) {
+                  @let member = providerById(id);
+                  <span class="chip">
+                    <span class="muted">{{ i + 1 }}</span>
+                    @if (member) { <span class="dot" [class]="'dot ' + state(member)" [title]="explain(member)"></span> }
+                    {{ member?.displayName ?? id }}
+                    <button type="button" title="Earlier" aria-label="Move earlier" [disabled]="i === 0 || isBusy('chain:' + capability)"
+                            (click)="moveUp(capability, i)">&uarr;</button>
+                    <button type="button" title="Later" aria-label="Move later"
+                            [disabled]="i === chain.providerIds.length - 1 || isBusy('chain:' + capability)"
+                            (click)="moveDown(capability, i)">&darr;</button>
+                    <button type="button" title="Remove from the order" aria-label="Remove from the order"
+                            [disabled]="isBusy('chain:' + capability)" (click)="removeFromChain(capability, id)">&times;</button>
+                  </span>
+                }
               </div>
             }
 
-            @if (provider.requiresApiKey) {
-              <div class="subform">
-                <h4>API key</h4>
+            @if (spare(capability).length > 0) {
+              <div class="row" style="margin-top: 0.7rem">
+                <select style="max-width: 18rem" #add aria-label="Add a provider to the order"
+                        (change)="addToChain(capability, add.value); add.value = ''">
+                  <option value="">Add a provider&hellip;</option>
+                  @for (id of spare(capability); track id) {
+                    <option [value]="id">{{ providerById(id)?.displayName ?? id }}</option>
+                  }
+                </select>
+              </div>
+            }
 
-                @if (provider.key.configured) {
-                  <dl class="kv">
-                    <dt>Installed</dt>
-                    <dd class="mono">{{ provider.key.masked }}</dd>
-                    <dt>Fingerprint</dt>
-                    <dd class="mono">{{ provider.key.fingerprint }}</dd>
-                    <dt>Comes from</dt>
-                    <dd>
-                      {{ provider.key.source === 'Configuration'
-                          ? 'an environment variable on the server'
-                          : 'this screen, encrypted in the database' }}
-                    </dd>
-                  </dl>
-                }
+            @if (errors()['chain:' + capability]; as message) {
+              <div class="notice error pv-inline" role="alert">{{ message }}</div>
+            }
+            @if (notes()['chain:' + capability]; as note) {
+              <span class="pv-note" role="status">✓ {{ note }}</span>
+            }
 
-                @if (provider.key.source === 'Configuration') {
-                  <p class="hint">
-                    Supplied by the server's environment, so it cannot be changed here.
-                    Anything saved below would take precedence over it.
-                  </p>
-                }
+            <p class="hint">
+              The first one that is switched on, configured and healthy wins. A free tier that
+              has just rate-limited costs one skipped provider rather than a failed render.
+            </p>
+          </div>
+        }
 
-                <div class="row" style="margin-top: .6rem">
-                  <input type="password" autocomplete="off" style="max-width: 24rem"
-                         [(ngModel)]="draft.key"
-                         [placeholder]="provider.key.configured ? 'paste a new key to rotate' : 'paste the key'" />
-                  <button type="button" (click)="saveKey(provider)"
-                          [disabled]="status.busy() || !draft.key.trim()">
-                    {{ provider.key.configured ? 'Rotate' : 'Save key' }}
-                  </button>
-                  @if (provider.key.configured && provider.key.source === 'Database') {
-                    <button type="button" class="danger" (click)="removeKey(provider)">
-                      Remove
+        @for (provider of shown; track provider.id) {
+          <article class="card pv-card" [class.is-open]="open() === provider.id" [attr.data-tone]="state(provider)">
+            <div class="provider-head">
+              <span class="dot" [class]="'dot ' + state(provider)"></span>
+              <h3>{{ provider.displayName }}</h3>
+              <span class="mono muted">{{ provider.id }}</span>
+
+              @if (provider.runsLocally) { <span class="pill ok">on this machine</span> }
+              @if (provider.chainPosition !== null) { <span class="pill brand">#{{ provider.chainPosition + 1 }} in order</span> }
+              @if (provider.managedHere) { <span class="pill" title="Saved here, so these values beat appsettings.json">saved here</span> }
+
+              <span style="flex: 1 1 auto"></span>
+
+              @if (isBusy(provider.id)) { <span class="spinner" aria-label="Working"></span> }
+              <label class="switch" [title]="provider.enabled ? 'Switch off' : 'Switch on'">
+                <input type="checkbox" [checked]="provider.enabled" [disabled]="isBusy(provider.id)" (change)="toggleEnabled(provider)"
+                       [attr.aria-label]="(provider.enabled ? 'Switch off ' : 'Switch on ') + provider.displayName" />
+                <span class="track"></span>
+                <span class="muted">{{ provider.enabled ? 'on' : 'off' }}</span>
+              </label>
+            </div>
+
+            <p class="muted pv-explain">{{ explain(provider) }}</p>
+
+            @if (quota(provider); as q) {
+              <div class="pv-quota" [attr.data-high]="q.pct >= 85">
+                <div class="bar" role="progressbar" [attr.aria-valuenow]="q.used" aria-valuemin="0" [attr.aria-valuemax]="q.limit"><i [style.width.%]="q.pct"></i></div>
+                <span class="muted">{{ q.used }} of {{ q.limit }} calls used today</span>
+              </div>
+            }
+
+            <div class="row pv-row">
+              <button type="button" class="secondary small" [class.active]="open() === provider.id" (click)="toggleOpen(provider)"
+                      [attr.aria-expanded]="open() === provider.id">
+                {{ open() === provider.id ? '✕ Close' : '⚙ Settings' }}
+              </button>
+              <button type="button" class="secondary small" (click)="test(provider)" [disabled]="isBusy(provider.id)">⚡ Test connection</button>
+              @if (provider.key.configured) {
+                <span class="pill ok mono">key {{ provider.key.masked }}</span>
+              } @else if (provider.requiresApiKey) {
+                <span class="muted" style="font-size: 0.82rem">no key installed</span>
+              }
+              @if (testResult(provider); as result) {
+                <span class="pill" [class.ok]="result.ok" [class.err]="!result.ok" [title]="result.text">
+                  {{ result.ok ? '✓' : '✕' }} {{ result.ok ? 'answered' : result.text }} &middot; {{ result.ms }} ms &middot; {{ ago(result.at) }}
+                </span>
+              }
+            </div>
+
+            @if (errors()[provider.id]; as message) {
+              <div class="notice error pv-inline" role="alert">{{ message }}</div>
+            }
+            @if (notes()[provider.id]; as note) {
+              <span class="pv-note" role="status">✓ {{ note }}</span>
+            }
+
+            @if (open() === provider.id && draft(); as draft) {
+              @let issues = problems(provider, draft);
+              @let changed = dirty(provider, draft);
+              <div class="subform" (keydown.escape)="closeCard()">
+                <p class="muted">{{ provider.freeTierNote }}</p>
+
+                <div class="grid">
+                  <div>
+                    <label [for]="provider.id + '-model'">Model</label>
+                    <input [id]="provider.id + '-model'" type="text" [(ngModel)]="draft.model" [class.pv-invalid]="issues.model"
+                           [placeholder]="provider.defaultModel ?? 'whatever the server has loaded'" autocomplete="off" />
+                    @if (issues.model) { <p class="pv-problem">{{ issues.model }}</p> } @else {
+                      <p class="hint">Letters, digits and <code>. - _ / : &#64; +</code>.</p>
+                    }
+                  </div>
+
+                  @if (!provider.needsExecutable) {
+                    <div>
+                      <label [for]="provider.id + '-url'">Address</label>
+                      <input [id]="provider.id + '-url'" type="url" [(ngModel)]="draft.baseUrl" [class.pv-invalid]="issues.baseUrl"
+                             [placeholder]="provider.defaultBaseUrl ?? 'https://...'" autocomplete="off" />
+                      @if (issues.baseUrl) { <p class="pv-problem">{{ issues.baseUrl }}</p> } @else {
+                        <p class="hint">
+                          @if (provider.runsLocally) {
+                            Somewhere on this machine, such as <code>http://localhost:11434/v1</code>.
+                          } @else {
+                            Must be https, and on the server's outbound allowlist.
+                          }
+                        </p>
+                      }
+                    </div>
+                  }
+
+                  <div>
+                    <label [for]="provider.id + '-daily'">Calls per day</label>
+                    <input [id]="provider.id + '-daily'" type="number" min="1" [(ngModel)]="draft.dailyRequestLimit"
+                           [class.pv-invalid]="issues.daily" placeholder="no limit" />
+                    @if (issues.daily) { <p class="pv-problem">{{ issues.daily }}</p> } @else {
+                      <p class="hint">Empty means no ceiling. Refused before anything is spent.</p>
+                    }
+                  </div>
+
+                  <div>
+                    <label [for]="provider.id + '-monthly'">Calls per month</label>
+                    <input [id]="provider.id + '-monthly'" type="number" min="1" [(ngModel)]="draft.monthlyRequestLimit"
+                           [class.pv-invalid]="issues.monthly" placeholder="no limit" />
+                    @if (issues.monthly) { <p class="pv-problem">{{ issues.monthly }}</p> }
+                  </div>
+
+                  <div>
+                    <label [for]="provider.id + '-timeout'">Give up after</label>
+                    <input [id]="provider.id + '-timeout'" type="number" min="5" max="1800" [(ngModel)]="draft.timeoutSeconds"
+                           [class.pv-invalid]="issues.timeout" placeholder="seconds" />
+                    @if (issues.timeout) { <p class="pv-problem">{{ issues.timeout }}</p> }
+                  </div>
+                </div>
+
+                <div class="row pv-form-actions">
+                  <button type="button" (click)="saveDraft(provider)" [disabled]="isBusy(provider.id) || !changed || hasProblems(provider, draft)">Save</button>
+                  @if (changed) {
+                    <button type="button" class="secondary" (click)="discardDraft(provider)">Discard changes</button>
+                    <span class="muted pv-unsaved">Unsaved changes</span>
+                  }
+                  @if (provider.managedHere) {
+                    <button type="button" class="secondary" (click)="askReset(provider)" [disabled]="isBusy(provider.id)">
+                      Back to the configuration file
                     </button>
                   }
                 </div>
 
-                <p class="hint">
-                  Stored encrypted, and never shown again &mdash; not here, not in a log, not
-                  in an error message. Only the last four characters and a fingerprint come
-                  back.
-                  @if (provider.keyUrl) {
-                    <a [href]="provider.keyUrl" target="_blank" rel="noopener noreferrer">
-                      Get a key
-                    </a>
+                @if (confirm(); as ask) {
+                  @if (ask.id === provider.id && ask.kind === 'reset') {
+                    <div class="notice pv-confirm" role="alertdialog" aria-label="Confirm reset">
+                      <span><strong>Go back to the configuration file?</strong> The model, address and limits saved here are dropped; the key is not touched.</span>
+                      <span class="pv-confirm-actions">
+                        <button type="button" class="ad-btn" (click)="reset(provider)">Yes, reset</button>
+                        <button type="button" class="ad-link" (click)="confirm.set(null)">Cancel</button>
+                      </span>
+                    </div>
                   }
-                </p>
+                }
+
+                @if (provider.needsExecutable) {
+                  <div class="subform">
+                    <h4>This one is a program on the server</h4>
+                    <dl class="kv">
+                      <dt>Program</dt>
+                      <dd>@if (provider.executableConfigured) { <span class="pill ok">configured</span> } @else { <span class="pill warn">not set</span> }</dd>
+                      <dt>Model folder</dt>
+                      <dd>@if (provider.modelFolderConfigured) { <span class="pill ok">configured</span> } @else { <span class="pill warn">not set</span> }</dd>
+                    </dl>
+                    <p class="hint">
+                      These are set in the server's <code>appsettings.json</code> under
+                      <code>Ai:Providers:{{ provider.id }}</code>, and deliberately cannot be
+                      changed from a web page: a field that chooses which program the server runs
+                      is a field that can run any program. <strong>This machine</strong> shows
+                      whether they are working.
+                    </p>
+                  </div>
+                }
+
+                @if (provider.requiresApiKey) {
+                  <div class="subform">
+                    <h4>API key</h4>
+
+                    @if (provider.key.configured) {
+                      <dl class="kv">
+                        <dt>Installed</dt>
+                        <dd class="mono">{{ provider.key.masked }}</dd>
+                        <dt>Fingerprint</dt>
+                        <dd class="mono">{{ provider.key.fingerprint }}</dd>
+                        <dt>Comes from</dt>
+                        <dd>
+                          {{ provider.key.source === 'Configuration'
+                              ? 'an environment variable on the server'
+                              : 'this screen, encrypted in the database' }}
+                        </dd>
+                        @if (keyAge(provider); as age) {
+                          <dt>Age</dt>
+                          <dd>
+                            {{ age.text }}
+                            @if (age.old) { <span class="pill warn" title="Rotating keys now and then limits the damage if one leaks">consider rotating</span> }
+                          </dd>
+                        }
+                      </dl>
+                    }
+
+                    @if (provider.key.source === 'Configuration') {
+                      <p class="hint">
+                        Supplied by the server's environment, so it cannot be changed here.
+                        Anything saved below would take precedence over it.
+                      </p>
+                    }
+
+                    <div class="row pv-form-actions">
+                      <input type="password" autocomplete="off" spellcheck="false" style="max-width: 24rem" [(ngModel)]="draft.key"
+                             [attr.aria-label]="'API key for ' + provider.displayName" (keydown.enter)="saveKey(provider)"
+                             [placeholder]="provider.key.configured ? 'paste a new key to rotate' : 'paste the key'" />
+                      <button type="button" (click)="saveKey(provider)" [disabled]="isBusy(provider.id) || !draft.key.trim()">
+                        {{ provider.key.configured ? 'Rotate' : 'Save key' }}
+                      </button>
+                      @if (provider.key.configured && provider.key.source === 'Database') {
+                        <button type="button" class="danger" (click)="askRemoveKey(provider)" [disabled]="isBusy(provider.id)">Remove</button>
+                      }
+                    </div>
+
+                    @if (confirm(); as ask) {
+                      @if (ask.id === provider.id && ask.kind === 'removeKey') {
+                        <div class="notice error pv-confirm" role="alertdialog" aria-label="Confirm key removal">
+                          <span><strong>Remove the key for {{ provider.displayName }}?</strong> It stops answering until a new key is installed. The key cannot be shown again.</span>
+                          <span class="pv-confirm-actions">
+                            <button type="button" class="ad-btn pv-danger" (click)="removeKey(provider)">Yes, remove it</button>
+                            <button type="button" class="ad-link" (click)="confirm.set(null)">Keep it</button>
+                          </span>
+                        </div>
+                      }
+                    }
+
+                    <p class="hint">
+                      Stored encrypted, and never shown again &mdash; not here, not in a log, not
+                      in an error message. Only the last four characters and a fingerprint come
+                      back.
+                      @if (provider.keyUrl) {
+                        <a [href]="provider.keyUrl" target="_blank" rel="noopener noreferrer">Get a key</a>
+                      }
+                    </p>
+                  </div>
+                }
               </div>
             }
+          </article>
+        } @empty {
+          <div class="card ad-empty">
+            <strong>No {{ label(capability).toLowerCase() }} provider matches</strong>
+            <p>{{ totalFor(capability) }} {{ totalFor(capability) === 1 ? 'is' : 'are' }} registered; the search or filter hides {{ totalFor(capability) === 1 ? 'it' : 'them' }}.</p>
+            <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
           </div>
         }
-      </div>
-    }
+      }
+    </section>
   }
 
-  <div class="card" style="margin-top: 1.5rem">
+  <div class="card pv-hosts">
     <div class="studio-card-head">
       <div class="studio-card-title-group">
         <span class="studio-icon-badge emerald" style="width: 2rem; height: 2rem; border-radius: 8px">🛡️</span>
@@ -337,15 +457,36 @@
       widened by the thing it constrains is not a control. Without it, an address typed into
       the field above could make this server fetch anything on someone's behalf.
     </p>
-    <div class="chips">
-      @for (host of data.hostAllowlist; track host) {
-        <span class="chip">{{ host }}</span>
-      }
-    </div>
+    <button type="button" class="ad-link" (click)="hostsOpen.set(!hostsOpen())" [attr.aria-expanded]="hostsOpen()">
+      {{ hostsOpen() ? 'Hide' : 'Show' }} the {{ data.hostAllowlist.length }} allowed {{ data.hostAllowlist.length === 1 ? 'host' : 'hosts' }}
+    </button>
+    @if (hostsOpen()) {
+      <div class="chips" style="margin-top: 0.6rem">
+        @for (host of data.hostAllowlist; track host) { <span class="chip mono">{{ host }}</span> }
+      </div>
+    }
+    <p class="hint">
+      Want to see what these providers have been doing?
+      <a routerLink="/admin/usage">Open AI usage</a>
+    </p>
   </div>
-} @else {
-  <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
-    <span class="spinner"></span> Loading&hellip;
+} @else if (!failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
   </div>
+  <div class="card" aria-hidden="true">
+    @for (n of [1, 2, 3]; track n) {
+      <div class="pv-skel-row">
+        <span class="ad-skel" style="width: 0.8rem; height: 0.8rem; border-radius: 50%"></span>
+        <span class="ad-skel" style="height: 0.9rem; width: 30%"></span>
+        <span class="ad-skel" style="height: 1.3rem; width: 3rem; border-radius: 99px; margin-left: auto"></span>
+      </div>
+    }
+  </div>
+  <span class="ad-sr" role="status">Loading providers…</span>
 }
-

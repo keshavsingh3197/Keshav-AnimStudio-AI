@@ -9,7 +9,7 @@ import {
   YouTubeChannel, YouTubePrivacy, YouTubeSuggestEngine, YouTubeVideoInspection,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
-import { splitTags, toneLabel } from './checkup-draft';
+import { YOUTUBE_LANGUAGES, splitTags, toneLabel } from './checkup-draft';
 
 /** The most videos one run reads; each one is a watch page, captions and an AI draft. */
 export const MAX_VIDEOS = 25;
@@ -23,6 +23,8 @@ const MAX_DESCRIPTION_BYTES = 5000;
 const MAX_TAGS = 500;
 
 type Status = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+
+export type ResultFilter = 'all' | 'done' | 'error' | 'pending';
 
 /** One video on the page: its progress, what was found, and the details being reviewed. */
 export interface DetailsItem {
@@ -60,6 +62,7 @@ export class VideoDetailsComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
 
   readonly maxVideos = MAX_VIDEOS;
+  readonly languages = YOUTUBE_LANGUAGES;
   readonly maxTags = MAX_TAGS;
   readonly maxDescriptionBytes = MAX_DESCRIPTION_BYTES;
 
@@ -70,7 +73,7 @@ export class VideoDetailsComponent implements OnInit {
   readonly input = signal('');
   readonly channelId = signal('');
   readonly tone = signal('auto');
-  readonly language = signal('en');
+  readonly language = signal('hi');
   readonly engine = signal('');
   readonly brief = signal('');
 
@@ -84,11 +87,101 @@ export class VideoDetailsComponent implements OnInit {
   /** What the box holds right now: the videos it names (deduplicated) and what isn't a video. */
   readonly parsed = computed(() => parseVideoList(this.input()));
   readonly doneCount = computed(() => this.items().filter((i) => i.status === 'done').length);
+  readonly failedCount = computed(() => this.items().filter((i) => i.status === 'error').length);
   readonly finishedCount = computed(() => this.items().filter((i) => i.status !== 'queued' && i.status !== 'running').length);
   readonly progress = computed(() => {
     const total = this.items().length;
     return total === 0 ? 0 : Math.round((this.finishedCount() / total) * 100);
   });
+
+  // Reviewing many results: narrow by state or words, fold the cards you are done with.
+  readonly statusFilter = signal<ResultFilter>('all');
+  readonly resultQuery = signal('');
+  readonly collapsed = signal<ReadonlySet<string>>(new Set());
+
+  readonly statusCounts = computed(() => {
+    const c = { all: this.items().length, done: 0, error: 0, pending: 0 };
+    for (const i of this.items()) {
+      if (i.status === 'done') c.done++;
+      else if (i.status === 'error') c.error++;
+      else c.pending++;
+    }
+    return c;
+  });
+
+  readonly visibleItems = computed(() => {
+    const f = this.statusFilter();
+    const words = this.resultQuery().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return this.items().filter((i) => {
+      if (f === 'done' && i.status !== 'done') return false;
+      if (f === 'error' && i.status !== 'error') return false;
+      if (f === 'pending' && (i.status === 'done' || i.status === 'error')) return false;
+      if (words.length === 0) return true;
+      const text = `${i.videoId} ${i.title} ${i.result?.title ?? ''} ${i.result?.channelTitle ?? ''}`.toLowerCase();
+      return words.every((w) => text.includes(w));
+    });
+  });
+
+  readonly allCollapsed = computed(() => {
+    const ready = this.items().filter((i) => i.result);
+    return ready.length > 0 && ready.every((i) => this.collapsed().has(i.videoId));
+  });
+
+  isCollapsed(videoId: string): boolean {
+    return this.collapsed().has(videoId);
+  }
+
+  toggleCollapsed(videoId: string): void {
+    this.collapsed.update((s) => {
+      const next = new Set(s);
+      if (!next.delete(videoId)) next.add(videoId);
+      return next;
+    });
+  }
+
+  toggleAllCollapsed(): void {
+    this.collapsed.set(this.allCollapsed() ? new Set() : new Set(this.items().filter((i) => i.result).map((i) => i.videoId)));
+  }
+
+  /** Puts every failed or stopped video back in the queue. */
+  retryFailed(): void {
+    const again = this.items().filter((i) => i.status === 'error' || i.status === 'cancelled');
+    if (again.length === 0) return;
+    this.items.update((all) => all.map((i) => (again.includes(i) ? { ...i, status: 'queued' as const, error: null } : i)));
+    this.running.set(true);
+    this.pump();
+  }
+
+  copyEverything(): void {
+    const text = this.items().filter((i) => i.status === 'done').map(packageText).join('\n\n' + '='.repeat(40) + '\n\n');
+    this.copy('everything', text);
+  }
+
+  /** Adds the video IDs or links from a .txt or .csv file to the box. */
+  async importFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      this.notice.set('That file is over 1 MB. Export just the video ID or link column and try again.');
+      return;
+    }
+    const text = await file.text();
+    const current = this.input().trimEnd();
+    this.input.set(current ? `${current}\n${text}` : text);
+    const n = this.parsed().videos.length;
+    this.notice.set(`Read ${file.name}: ${n} video${n === 1 ? '' : 's'} in the list now.`);
+  }
+
+  clearInput(): void {
+    this.input.set('');
+  }
+
+  /** The list with duplicates and non-videos dropped, back in the box. */
+  tidyInput(): void {
+    this.input.set(this.parsed().videos.map((v) => v.reference).join('\n'));
+  }
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.cancel());
@@ -125,6 +218,7 @@ export class VideoDetailsComponent implements OnInit {
     this.notice.set(skipped.length > 0 ? skipped.join(' ') : null);
 
     this.items.set(list.map((v) => emptyItem(v.videoId, v.reference)));
+    this.resetReview();
     this.running.set(true);
     this.pump();
   }
@@ -146,6 +240,13 @@ export class VideoDetailsComponent implements OnInit {
     this.cancel();
     this.items.set([]);
     this.notice.set(null);
+    this.resetReview();
+  }
+
+  private resetReview(): void {
+    this.statusFilter.set('all');
+    this.resultQuery.set('');
+    this.collapsed.set(new Set());
   }
 
   /** Starts queued videos until two are running; one failing never stops the others. */

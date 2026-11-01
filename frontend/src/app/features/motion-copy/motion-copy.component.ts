@@ -175,24 +175,24 @@ const NO_DESIGN = { outfit: '#2f6fd6', pants: '#26324a', skin: '#eebd96', gloves
     @media (max-width: 800px) { .mc-grid { grid-template-columns: minmax(0, 1fr); } }
     .mc-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
     .mc-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; }
-    .mc-field select, .mc-field input[type='file'] { padding: 6px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.05); color: inherit; }
+    .mc-field select, .mc-field input[type='file'] { padding: 6px; border-radius: 8px; border: 1px solid var(--ov-4); background: var(--ov-2); color: inherit; }
     .mc-check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
     .mc-actions { display: flex; flex-wrap: wrap; gap: 10px; }
     .mc-btn { display: inline-block; padding: 10px 16px; border-radius: 10px; border: 0; cursor: pointer; font-weight: 600; background: #6a5cff; color: #fff; text-decoration: none; }
     .mc-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-    .mc-btn-quiet { background: rgba(255, 255, 255, 0.12); }
+    .mc-btn-quiet { background: var(--ov-4); color: var(--text); }
     .mc-status { margin: 0; font-size: 0.9rem; opacity: 0.85; min-height: 1.2em; }
-    .mc-error { margin: 0; color: #ff8a8a; font-size: 0.9rem; }
+    .mc-error { margin: 0; color: var(--c-red); font-size: 0.9rem; }
     .mc-note { margin: 0; font-size: 0.8rem; opacity: 0.65; }
     .mc-stage { display: flex; flex-direction: column; gap: 16px; align-items: center; }
-    .mc-canvas { max-width: 100%; max-height: 70vh; aspect-ratio: 9 / 16; border-radius: 12px; background: #111; }
+    .mc-canvas { max-width: 100%; max-height: 70vh; aspect-ratio: 9 / 16; border-radius: 12px; background: var(--surface); }
     .mc-hidden { position: fixed; left: -9999px; width: 1px; height: 1px; }
     .mc-result { display: flex; flex-direction: column; gap: 10px; align-items: center; }
     .mc-result video { max-width: 100%; max-height: 50vh; border-radius: 12px; }
     .mc-back { margin-top: 24px; font-size: 0.85rem; opacity: 0.7; }
-    .mc-help { font-size: 0.85rem; padding: 8px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); }
+    .mc-help { font-size: 0.85rem; padding: 8px 10px; border-radius: 8px; background: var(--ov-2); }
     .mc-help summary { cursor: pointer; }
-    .mc-help textarea { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 6px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(0, 0, 0, 0.25); color: inherit; font: inherit; }
+    .mc-help textarea { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 6px; border-radius: 6px; border: 1px solid var(--ov-4); background: var(--sunk-2); color: inherit; font: inherit; }
   `,
 })
 export class MotionCopyComponent {

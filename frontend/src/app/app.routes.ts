@@ -247,7 +247,14 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/admin/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'providers' },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      {
+        path: 'overview',
+        title: 'Admin overview - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-overview.component')
+            .then((m) => m.AdminOverviewComponent),
+      },
       {
         path: 'providers',
         title: 'AI providers - AnimStudio AI',
@@ -292,6 +299,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/admin/admin-access-control.component')
             .then((m) => m.AdminAccessControlComponent),
+      },
+      {
+        path: 'signups',
+        title: 'Sign-ups & members - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-signups.component')
+            .then((m) => m.AdminSignupsComponent),
       },
       {
         path: 'settings',

@@ -50,10 +50,11 @@ export class ShortsService {
 
   /**
    * Asks Drive whether every copy is still there (deleted ones stop counting as on Drive);
-   * with organize, also files older copies into project / day / batch folders.
+   * with organize, also files older copies into project / day / batch folders; with removeMissing,
+   * copies deleted on Drive leave the library.
    */
-  checkDrive(organize: boolean): Observable<ShortsDriveCheck> {
-    return this.http.post<ApiResponse<ShortsDriveCheck>>(`${this.base}/drive/check`, { organize })
+  checkDrive(organize: boolean, removeMissing = false): Observable<ShortsDriveCheck> {
+    return this.http.post<ApiResponse<ShortsDriveCheck>>(`${this.base}/drive/check`, { organize, removeMissing })
       .pipe(map((r) => r.data as ShortsDriveCheck));
   }
 

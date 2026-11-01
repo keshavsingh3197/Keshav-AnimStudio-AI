@@ -10,7 +10,7 @@
             </a>
             @if (store.parentProject(); as parent) {
               <span class="pw-crumb-sep">/</span>
-              <a [routerLink]="['/projects', parent.id]" class="pw-back-link" style="color: #a5b4fc; font-weight: 500;">
+              <a [routerLink]="['/projects', parent.id]" class="pw-back-link" style="color: var(--text-dim); font-weight: 500;">
                 {{ parent.name }}
               </a>
             }

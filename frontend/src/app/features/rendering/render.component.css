@@ -76,7 +76,7 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 }
 .rp-bar-fill::after {
   content: ''; position: absolute; inset: 0 auto 0 -100%; width: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .25), transparent);
+  background: linear-gradient(90deg, transparent, var(--ov-5), transparent);
   animation: rp-shimmer 1.6s infinite;
 }
 .rp-bar-fill.failed { background: var(--err); }
@@ -226,7 +226,7 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 .rp-yt-chip {
   display: inline-flex; align-items: center; gap: .2rem; padding: .05rem .45rem; border-radius: 99px;
   font-size: .7rem; font-weight: 700; text-decoration: none;
-  color: #ff6b6b; border: 1px solid rgba(230, 33, 23, .45); background: rgba(230, 33, 23, .1);
+  color: var(--c-red); border: 1px solid rgba(230, 33, 23, .45); background: rgba(230, 33, 23, .1);
 }
 .rp-yt-chip.ok { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 40%, transparent); background: transparent; }
 .rp-yt-chip.processing, .rp-yt-chip.unknown { color: var(--text-dim); border-color: var(--border); background: transparent; }

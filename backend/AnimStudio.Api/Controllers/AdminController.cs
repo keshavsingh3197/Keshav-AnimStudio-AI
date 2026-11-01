@@ -102,6 +102,7 @@ public sealed class AdminController(
     private const int MaxUsageDays = 92;
 
     private const int DefaultJobLimit = 40;
+    private const int MaxJobLimit = 200;
     private const int DefaultAuditLimit = 50;
 
     // --- providers -----------------------------------------------------------------------
@@ -389,7 +390,7 @@ public sealed class AdminController(
     public async Task<ActionResult<ApiResponse<IReadOnlyList<AdminJobResponse>>>> Jobs(
         [FromQuery] int limit = DefaultJobLimit, CancellationToken ct = default)
     {
-        var recent = await jobs.ListRecentAsync(limit, ct);
+        var recent = await jobs.ListRecentAsync(Math.Clamp(limit, 1, MaxJobLimit), ct);
 
         // One lookup per distinct project rather than per job: a queue of forty renders is
         // usually a handful of projects.

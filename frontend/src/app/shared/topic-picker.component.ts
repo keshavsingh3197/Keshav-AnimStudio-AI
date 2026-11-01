@@ -52,10 +52,10 @@ export function newTopicRequest(name: string): ContentTopicRequest {
     .tp-row { display: flex; align-items: center; gap: 6px; }
     .tp-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid var(--border, #30363d); }
     .tp-select, .tp-input { flex: 1; min-width: 0; background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 0.85rem; }
-    .tp-select option { color: #000; }
+    .tp-select option { color: var(--text); background: var(--surface-2); }
     .tp-btn { background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 0.8rem; }
     .tp-btn:disabled { opacity: 0.5; cursor: default; }
-    .tp-error { margin: 0; color: #f85149; font-size: 0.78rem; }
+    .tp-error { margin: 0; color: var(--c-red); font-size: 0.78rem; }
   `],
 })
 export class TopicPickerComponent {

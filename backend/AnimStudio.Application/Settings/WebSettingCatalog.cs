@@ -109,6 +109,7 @@ public static class WebSettingCatalog
         new("YouTube:Publish:MaxConcurrentUploads", "YouTube", "Uploads at once", "How many uploads run in parallel on the server.", WebSettingType.Integer, false, 1, 8),
 
         // --- Access Control & Anonymous Policy
+        new("Admin:Signup:Enabled", "Access Control", "Accept Studio sign-up requests", "Whether the sign-in dialog offers \"Request access\". Requests already waiting stay in the queue to be approved or rejected.", WebSettingType.Boolean, true),
         new("Admin:AnonymousPolicy:Enabled", "Access Control", "Allow Anonymous Visitors", "Whether unauthenticated visitors can view and explore the studio.", WebSettingType.Boolean, true),
         new("Admin:AnonymousPolicy:AllowRender", "Access Control", "Allow Anonymous Renders", "Let anonymous visitors run test renders within duration limits.", WebSettingType.Boolean, true),
         new("Admin:AnonymousPolicy:MaxRenderDurationSeconds", "Access Control", "Max Guest Render Duration (s)", "Maximum video length allowed for unauthenticated renders.", WebSettingType.Integer, true, 5, 120),

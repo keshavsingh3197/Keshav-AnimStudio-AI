@@ -71,9 +71,14 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Reliable updates**: Refresh reloads both topics and posts. Topic-loading failures remain visible independently of successful post loads, and outdated requests cannot replace the current view. Ready actions prevent duplicate submissions.
 - **Post controls**: Open posts with native title buttons. Keyboard activation of the separate Ready button no longer opens the post editor. New posts preserve a topic's midnight publish time.
 
+### Themes
+- **Light and dark**: Dark is the default. The **Dark/Light** switch in the top bar changes the theme, remembers it in that browser, and keeps open tabs in step. The saved choice is applied before first paint, so there is no flash of the wrong theme.
+- **Token-based**: Colours live in `styles.css` as tokens keyed on `data-theme` (surfaces, text, borders, status colours, plus `--ov-*` translucent overlays and `--sunk-*` wells). New UI should use tokens instead of hard-coded colours; native controls follow the theme through `color-scheme`.
+- **Dark by design**: The video editor and Camera Studio, and media preview frames (outro, subtitle and render previews) always use the dark palette, because preview and timeline colour accuracy matters there. Mark any new colour-critical surface with `data-theme="dark"`.
+
 ### Sign-in troubleshooting
 
-The active page and its nested routed components are recreated when the data owner changes (guest to member, account switch, or session loss), so signing in from a page such as the Drive library loads that account's data without a manual browser refresh. The current URL, query parameters, and fragment are retained; local page state and selections reset rather than carrying another account's state forward. Renewing a token or updating the same account's profile does not reset the page. The shell also refreshes access links and the Shorts badge.
+- After signing in or switching accounts, the active page and its nested routed components are recreated, so a page such as the Drive library loads that account's data without a manual browser refresh. The URL, query parameters and fragment are kept; local page state and selections reset rather than carrying another account's state forward. Renewing a token or updating the same account's profile does not reset the page. The shell also refreshes access links and the Shorts badge.
 - An **Active** account can still have a temporary password/2FA lockout. AnimStudio forwards Central SSO's HTTP 423 response; it does not disable the account itself.
 - The password form requires the Central SSO password, not a device PIN or passkey. Choose **Sign in with Passkey** for the separate Central SSO flow. Existing sessions and passkey eligibility are governed by the identity service.
 - Avoid repeated password attempts during a lockout. Wait for it to expire or use the identity portal's supported recovery options; ask an identity administrator to inspect lockout expiry and failed-sign-in audit events if it persists.

@@ -19,10 +19,15 @@ export interface SettingsPage {
   keywords: readonly string[];
 }
 
-export const SETTINGS_GROUPS = ['Branding', 'Media', 'AI', 'Security', 'System'] as const;
+export const SETTINGS_GROUPS = ['Home', 'Branding', 'Media', 'AI', 'Security', 'System'] as const;
 export type SettingsGroup = (typeof SETTINGS_GROUPS)[number];
 
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
+  {
+    id: 'overview', group: 'Home', label: 'Overview', icon: '🏠', route: 'overview',
+    description: 'What needs a decision, what is broken and what is fine - sign-ups, renders, machine health, AI, storage and recent changes at a glance.',
+    keywords: ['dashboard', 'home', 'status', 'summary', 'attention', 'overview', 'health check', 'at a glance'],
+  },
   {
     id: 'channels', group: 'Branding', label: 'Channels', icon: '📺', route: 'channels',
     description: 'Every brand channel: add, rename, duplicate, remove, and how many projects use each.',
@@ -62,6 +67,11 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     id: 'usage', group: 'AI', label: 'AI usage', icon: '📊', route: 'usage',
     description: 'Requests and spend per provider over recent days.',
     keywords: ['cost', 'tokens', 'limit', 'quota', 'requests', 'daily'],
+  },
+  {
+    id: 'signups', group: 'Security', label: 'Sign-ups & members', icon: '🧑‍🤝‍🧑', route: 'signups',
+    description: 'Access requests from the sign-in dialog: approve or reject them, and switch AnimStudio-only members off or on.',
+    keywords: ['signup', 'sign up', 'register', 'registration', 'request', 'access request', 'approve', 'reject', 'pending', 'members', 'users', 'accounts', 'invite', 'sso', 'studiouser', 'deactivate', 'ban'],
   },
   {
     id: 'access', group: 'Security', label: 'Access & UI Navigation', icon: '🔐', route: 'access',

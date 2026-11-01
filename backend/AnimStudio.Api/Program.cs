@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using AnimStudio.Api.Common;
+using AnimStudio.Api.Controllers;
 using AnimStudio.Api.Security;
 using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure;
@@ -37,6 +38,23 @@ builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 builder.Services.AddSingleton<AnimStudio.Application.Security.IStudioAccessEvaluator, AnimStudio.Infrastructure.Security.StudioAccessEvaluator>();
 builder.Services.AddHttpClient();
 builder.Services.AddIdentityProxyHttpClient();
+builder.Services.AddSingleton<StudioIdentityClient>();
+
+// Anonymous access requests are the one public write that costs the identity service something,
+// so they are limited per address. The partition is the TCP peer, never a header a caller writes.
+builder.Services.AddRateLimiter(limiter =>
+{
+    limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    limiter.AddPolicy(StudioSignupLimits.PolicyName, context =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = StudioSignupLimits.PermitsPerWindow,
+                Window = StudioSignupLimits.Window,
+                QueueLimit = 0,
+            }));
+});
 
 // Enums cross the wire as names, not numbers. Responses already map them with ToString(),
 // so without this a client would have to READ "Fade" and WRITE 1 - and a reordered enum
@@ -138,6 +156,8 @@ app.Use(async (context, next) =>
 });
 
 app.UseAuthorization();
+
+app.UseRateLimiter();
 
 app.MapControllers();
 

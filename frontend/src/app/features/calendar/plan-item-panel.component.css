@@ -3,7 +3,7 @@
 .panel-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 5, 10, 0.55);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
   z-index: 90;
 }
 

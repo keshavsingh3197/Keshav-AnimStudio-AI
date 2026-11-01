@@ -18,7 +18,7 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(3, 6, 14, 0.82);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: blur(8px);
   animation: mi-fade 0.16s ease-out;
 }
@@ -28,7 +28,7 @@
   flex-direction: column;
   width: min(1180px, 100%);
   height: min(780px, calc(100vh - 32px));
-  background: linear-gradient(180deg, rgba(19, 24, 38, 0.98) 0%, rgba(11, 15, 25, 0.99) 100%);
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
   color: var(--mi-text);
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 16px;
@@ -60,34 +60,34 @@
   background: rgba(148, 163, 184, 0.18);
   border: 1px solid rgba(148, 163, 184, 0.24);
 }
-.mi-kind[data-kind="Video"] { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border-color: rgba(59, 130, 246, 0.35); }
-.mi-kind[data-kind="Audio"] { background: rgba(14, 165, 233, 0.2); color: #7dd3fc; border-color: rgba(14, 165, 233, 0.35); }
-.mi-kind[data-kind="Image"] { background: rgba(34, 197, 94, 0.18); color: #86efac; border-color: rgba(34, 197, 94, 0.35); }
-.mi-kind[data-kind="Subtitle"] { background: rgba(250, 204, 21, 0.18); color: #fde68a; border-color: rgba(250, 204, 21, 0.35); }
+.mi-kind[data-kind="Video"] { background: rgba(59, 130, 246, 0.2); color: var(--text-dim); border-color: rgba(59, 130, 246, 0.35); }
+.mi-kind[data-kind="Audio"] { background: rgba(14, 165, 233, 0.2); color: var(--c-sky); border-color: rgba(14, 165, 233, 0.35); }
+.mi-kind[data-kind="Image"] { background: rgba(34, 197, 94, 0.18); color: var(--c-green); border-color: rgba(34, 197, 94, 0.35); }
+.mi-kind[data-kind="Subtitle"] { background: rgba(250, 204, 21, 0.18); color: var(--c-yellow); border-color: rgba(250, 204, 21, 0.35); }
 .mi-chip {
   padding: 3px 9px;
   border-radius: 999px;
   font-size: 0.7rem;
   color: var(--mi-muted);
-  background: rgba(19, 24, 38, 0.75);
+  background: color-mix(in srgb, var(--surface-2) 75%, transparent);
   border: 1px solid var(--mi-border);
   white-space: nowrap;
 }
-.mi-chip-tl { color: #c4b5fd; border-color: rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.12); }
+.mi-chip-tl { color: var(--text-dim); border-color: rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.12); }
 .mi-x {
   flex-shrink: 0;
   width: 30px;
   height: 30px;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--ov-1);
   color: var(--mi-muted);
   font-size: 0.95rem;
   cursor: pointer;
   display: inline-grid;
   place-items: center;
 }
-.mi-x:hover { color: #fff; background: rgba(255, 255, 255, 0.1); border-color: rgba(148, 163, 184, 0.3); }
+.mi-x:hover { color: var(--text); background: var(--ov-3); border-color: rgba(148, 163, 184, 0.3); }
 
 /* ── Body ─────────────────────────────────────────────── */
 .mi-body {
@@ -125,7 +125,7 @@
 .mi-stage video { cursor: pointer; }
 .mi-stage-audio,
 .mi-stage-doc {
-  background: radial-gradient(circle at 50% 35%, rgba(108, 140, 255, 0.22), rgba(2, 6, 23, 0.95) 70%);
+  background: radial-gradient(circle at 50% 35%, rgba(108, 140, 255, 0.22), color-mix(in srgb, var(--bg) 95%, transparent) 70%);
 }
 
 .mi-now-line { padding: 24px; text-align: center; max-width: 92%; }
@@ -134,7 +134,7 @@
   font-size: clamp(1rem, 2.2vw, 1.45rem);
   line-height: 1.45;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text);
   text-wrap: balance;
   animation: mi-fade 0.25s ease-out;
 }
@@ -167,7 +167,7 @@
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 0.66rem;
-  background: #020617;
+  background: var(--bg);
   border: 1px solid var(--mi-border);
   pointer-events: none;
 }
@@ -193,7 +193,7 @@
 }
 .mi-btn:hover:not(:disabled) { border-color: var(--mi-brand); background: color-mix(in srgb, var(--mi-brand) 14%, var(--mi-surface-2)); }
 .mi-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.mi-btn-primary { background: var(--mi-brand); border-color: var(--mi-brand); color: #fff; padding: 8px 16px; font-size: 0.85rem; }
+.mi-btn-primary { background: var(--mi-brand); border-color: var(--mi-brand); color: var(--text); padding: 8px 16px; font-size: 0.85rem; }
 .mi-btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--mi-brand) 85%, #fff); }
 .mi-btn-quiet { background: transparent; }
 .mi-icon-btn { min-width: 40px; justify-content: center; font-size: 0.72rem; }
@@ -204,7 +204,7 @@
   border-radius: 50%;
   background: var(--mi-brand);
   border-color: var(--mi-brand);
-  color: #fff;
+  color: var(--text);
   font-size: 0.95rem;
 }
 .mi-select {
@@ -253,7 +253,7 @@
   overflow-y: auto;
   border-radius: 10px;
   border: 1px solid var(--mi-border);
-  background: rgba(2, 6, 23, 0.35);
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
   scroll-padding: 40px;
 }
 .mi-cues li {
@@ -317,8 +317,8 @@
 .mi-empty { padding: 18px; justify-content: center; color: var(--mi-muted); font-size: 0.8rem; }
 
 .mi-script-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.mi-ok { font-size: 0.74rem; color: #86efac; }
-.mi-note { margin: 0; font-size: 0.72rem; color: #fde68a; }
+.mi-ok { font-size: 0.74rem; color: var(--c-green); }
+.mi-note { margin: 0; font-size: 0.72rem; color: var(--c-yellow); }
 .mi-raw {
   flex: 1;
   min-height: 0;
@@ -327,7 +327,7 @@
   overflow: auto;
   border-radius: 10px;
   border: 1px solid var(--mi-border);
-  background: rgba(2, 6, 23, 0.35);
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
   font-size: 0.8rem;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -341,7 +341,7 @@
   padding: 18px;
   border-radius: 10px;
   border: 1px dashed var(--mi-border);
-  background: rgba(2, 6, 23, 0.3);
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
 }
 .mi-start p { margin: 0; font-size: 0.82rem; color: var(--mi-muted); line-height: 1.5; }
 .mi-lang { display: grid; gap: 4px; font-size: 0.74rem; color: var(--mi-muted); }
@@ -369,8 +369,8 @@
 .mi-skeleton i:nth-child(3) { width: 91%; }
 .mi-skeleton i:nth-child(4) { width: 64%; }
 
-.mi-err { margin: 0; font-size: 0.78rem; color: #fca5a5; }
-.mi-stage-err { position: absolute; bottom: 10px; left: 10px; right: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.9); }
+.mi-err { margin: 0; font-size: 0.78rem; color: var(--c-red); }
+.mi-stage-err { position: absolute; bottom: 10px; left: 10px; right: 10px; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--surface-2) 90%, transparent); }
 
 /* ── Narrow screens: stack the two halves ─────────────── */
 @media (max-width: 860px) {

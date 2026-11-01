@@ -329,7 +329,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       border-radius: 8px;
     }
     .close-btn:hover {
-      color: #fff;
+      color: var(--text);
       border-color: var(--border-bright);
       background: var(--surface-3);
     }
@@ -364,7 +364,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       background: var(--surface-2);
       border: 1px solid var(--border);
       border-radius: 8px;
-      color: #fff;
+      color: var(--text);
     }
     .filters, .sort-view-controls {
       display: flex;
@@ -390,7 +390,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .filters button.active {
       background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%);
       color: #fff;
-      border-color: rgba(255, 255, 255, 0.2);
+      border-color: var(--ov-5);
       box-shadow: 0 2px 8px rgba(61, 98, 230, 0.3);
     }
     .bulk-actions {
@@ -432,7 +432,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       gap: 12px;
       padding: 9px 11px;
       border-radius: 10px;
-      background: rgba(14, 17, 24, 0.7);
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
       border: 1px solid var(--border);
       cursor: pointer;
       transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
@@ -470,7 +470,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       z-index: 10;
       cursor: pointer;
       opacity: 0;
-      color: var(--muted);
+      color: rgba(255, 255, 255, 0.62);
       background: rgba(0,0,0,0.65);
       border: none;
       border-radius: 6px;
@@ -479,7 +479,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .project-card:hover .card-pin, .card-pin.active {
       opacity: 1;
     }
-    .card-pin.active { color: #f59e0b; }
+    .card-pin.active { color: var(--c-orange); }
 
     .projects-container.grid-view .project-card {
       flex-direction: column;
@@ -507,14 +507,14 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       width: 100%;
       height: 100%;
       position: relative;
-      background: linear-gradient(135deg, #2b3040, #161b27);
+      background: linear-gradient(135deg, var(--surface-elevated), var(--surface-2));
     }
     .dur-badge {
       position: absolute;
       bottom: 3px;
       right: 3px;
-      background: rgba(8, 10, 15, 0.85);
-      color: #fff;
+      background: color-mix(in srgb, var(--bg) 85%, transparent);
+      color: var(--text);
       font-size: 0.62rem;
       font-family: ui-monospace, monospace;
       font-weight: 700;
@@ -574,7 +574,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       border-radius: 6px;
       color: var(--muted);
     }
-    .project-card:hover .menu-btn { color: #fff; }
+    .project-card:hover .menu-btn { color: var(--text); }
 
     .context-menu {
       display: none;
@@ -645,7 +645,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     }
     .creation-tabs button.active {
       background: var(--surface-3);
-      color: #fff;
+      color: var(--text);
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
     }
 
@@ -680,7 +680,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       gap: 5px;
       box-shadow: none;
     }
-    .ai-btn:hover { border-color: var(--brand); color: #fff; }
+    .ai-btn:hover { border-color: var(--brand); color: var(--text); }
 
     .form-group label {
       display: block;
@@ -697,7 +697,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       background: var(--surface-2);
       border: 1px solid var(--border);
       border-radius: 7px;
-      color: #fff;
+      color: var(--text);
     }
     .preset-grid {
       display: grid;
@@ -737,7 +737,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       max-height: 100%;
       width: 100%;
       border-radius: 2px;
-      border: 1px solid rgba(255,255,255,0.3);
+      border: 1px solid var(--ov-5);
     }
     .preset-label { font-size: 0.68rem; font-weight: 600; text-align: center; line-height: 1.2; }
     .channel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -771,7 +771,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       font-weight: 700;
       background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%);
       color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.16);
+      border: 1px solid var(--ov-4);
       border-radius: 8px;
       cursor: pointer;
     }

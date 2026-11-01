@@ -231,7 +231,9 @@ public sealed class ShortsController(
     /// Asks Drive about every copy the page counts as "On Drive": one deleted or trashed there
     /// is marked missing (so it counts as not on Drive and can be saved again). With
     /// <see cref="ShortsDriveCheckRequest.Organize"/>, copies made before the project / day /
-    /// batch folders existed are moved into them and renamed with their number.
+    /// batch folders existed are moved into them and renamed with their number. With
+    /// <see cref="ShortsDriveCheckRequest.RemoveMissing"/>, a copy gone from Drive leaves the
+    /// library instead (its render stays in the studio, so it can be saved again).
     /// </summary>
     [HttpPost("drive/check")]
     public async Task<ActionResult<ApiResponse<ShortsDriveCheckResponse>>> CheckDrive(
@@ -244,6 +246,7 @@ public sealed class ShortsController(
         {
             var userId = currentUser.UserId;
             var organize = request?.Organize == true;
+            var removeMissing = request?.RemoveMissing == true;
             var copies = (await handoffs.ListByUserAsync(userId, null, MaxRecords, ct))
                 .Where(h => h.DriveFileId is not null
                             && h.State is PhoneHandoffState.Saved or PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Applied or PhoneHandoffState.Expired)
@@ -252,7 +255,7 @@ public sealed class ShortsController(
 
             // One token per Drive; null once that Drive has refused, so the rest of its copies are skipped.
             var tokens = new Dictionary<string, string?>(StringComparer.Ordinal);
-            int present = 0, missing = 0, moved = 0, failed = 0;
+            int present = 0, missing = 0, moved = 0, failed = 0, removed = 0;
             string? firstError = null;
 
             foreach (var h in copies)
@@ -279,7 +282,16 @@ public sealed class ShortsController(
                     var changed = gone != h.DriveMissing;
                     h.DriveMissing = gone;
 
-                    if (gone)
+                    if (gone && removeMissing)
+                    {
+                        // Same as a library delete, so the topic-tagged render isn't filed again on the next load.
+                        h.State = PhoneHandoffState.Cancelled;
+                        h.ErrorCode = ShortsLibraryController.DeletedCode;
+                        h.Error = "Deleted on Google Drive.";
+                        removed++;
+                        changed = true;
+                    }
+                    else if (gone)
                     {
                         missing++;
                     }
@@ -331,9 +343,9 @@ public sealed class ShortsController(
                 }
             }
 
-            logger.LogInformation("User {UserId} checked {Count} Drive copies: {Missing} missing, {Moved} moved, {Failed} failed",
-                userId, copies.Count, missing, moved, failed);
-            return Ok(ApiResponse<ShortsDriveCheckResponse>.Ok(new ShortsDriveCheckResponse(copies.Count, present, missing, moved, failed, firstError)));
+            logger.LogInformation("User {UserId} checked {Count} Drive copies: {Missing} missing, {Removed} removed, {Moved} moved, {Failed} failed",
+                userId, copies.Count, missing, removed, moved, failed);
+            return Ok(ApiResponse<ShortsDriveCheckResponse>.Ok(new ShortsDriveCheckResponse(copies.Count, present, missing, moved, failed, firstError, removed)));
         }
         finally
         {
@@ -471,9 +483,12 @@ public sealed record ShortsDriveCheckRequest
 {
     /// <summary>Also move copies made before project / day / batch folders into them.</summary>
     public bool Organize { get; init; }
+
+    /// <summary>Take copies deleted or trashed on Drive out of the library, rather than only flagging them missing.</summary>
+    public bool RemoveMissing { get; init; }
 }
 
-public sealed record ShortsDriveCheckResponse(int Checked, int Present, int Missing, int Moved, int Failed, string? Error);
+public sealed record ShortsDriveCheckResponse(int Checked, int Present, int Missing, int Moved, int Failed, string? Error, int Removed = 0);
 
 public sealed record ShortDriveResponse(
     string HandoffId, string State, string FolderName, string? DriveUrl, string? Error,

@@ -1,0 +1,309 @@
+<div class="page-head" style="margin-top: 0">
+  <div class="ad-title">
+    <div class="studio-icon-badge emerald">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row">
+        <h2>Storage</h2>
+        @if (detail(); as d) { <span class="pill brand">{{ d.summary.provider }}</span> }
+      </div>
+      <p class="muted">Uploaded clips, generated media and finished renders. The project hub's bar shows the same numbers.</p>
+    </div>
+  </div>
+  <div class="row st-actions">
+    <button type="button" class="secondary" (click)="exportCsv()" [disabled]="!detail() || detail()!.folders.length === 0"
+            title="Download the folder breakdown as a spreadsheet">⬇ Export folders</button>
+    <button type="button" class="secondary" (click)="load(true)" [disabled]="measuring() || loading()">
+      @if (measuring()) { <span class="spinner" aria-hidden="true"></span> }
+      ↻ Measure now
+    </button>
+  </div>
+</div>
+
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="load(false)">Try again</button>
+  </div>
+}
+
+@if (flash(); as f) {
+  <div class="notice ad-flash" [class.error]="f.tone === 'err'" [class.notice-info]="f.tone === 'ok'" [attr.role]="f.tone === 'err' ? 'alert' : 'status'">
+    <span>{{ f.text }}</span>
+    <button type="button" class="ad-link" (click)="flash.set(null)">Dismiss</button>
+  </div>
+}
+
+@if (detail(); as d) {
+  @if (!d.summary.isMeasurable) {
+    <div class="notice">{{ d.summary.provider }} storage is not measured from this server; set a quota anyway to keep the bar meaningful.</div>
+  }
+  @if (diskLow()) {
+    <div class="notice error" role="alert">
+      <strong>The drive is nearly full.</strong>
+      Only {{ bytes(d.diskFreeBytes) }} is free{{ diskFreePct() !== null ? ' (' + pct(diskFreePct()!) + ')' : '' }}. Renders need working space,
+      so free some up before the next one &mdash; a quota does not create room that the drive does not have.
+    </div>
+  }
+
+  <div class="ad-kpis">
+    <div class="ad-kpi" [class.is-warn]="state() === 'warn'" [class.is-err]="state() === 'full'">
+      <span class="ad-kpi-label">Used storage</span>
+      <strong class="ad-kpi-val">{{ bytes(d.summary.usedBytes) }}</strong>
+      <span class="ad-kpi-sub">{{ d.summary.capacityBytes ? pct(percent()) + ' of ' + bytes(d.summary.capacityBytes) : 'no capacity known' }}</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Stored files</span>
+      <strong class="ad-kpi-val">{{ d.fileCount }}</strong>
+      <span class="ad-kpi-sub">in {{ d.folders.length }} {{ d.folders.length === 1 ? 'folder' : 'folders' }}</span>
+    </div>
+    @if (d.diskFreeBytes !== null) {
+      <div class="ad-kpi" [class.is-ok]="!diskLow()" [class.is-err]="diskLow()">
+        <span class="ad-kpi-label">Drive free space</span>
+        <strong class="ad-kpi-val">{{ bytes(d.diskFreeBytes) }}</strong>
+        <span class="ad-kpi-sub">{{ diskFreePct() !== null ? pct(diskFreePct()!) + ' of the drive' : 'on the drive' }}</span>
+      </div>
+    }
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Quota limit</span>
+      <strong class="ad-kpi-val">{{ d.quotaGb ? d.quotaGb + ' GB' : 'Uncapped' }}</strong>
+      <span class="ad-kpi-sub">{{ d.quotaGb ? 'the bar fills against this' : 'the bar fills against the drive' }}</span>
+    </div>
+  </div>
+
+  <div class="card st-meter" [attr.data-state]="state()">
+    <div class="st-meter-row">
+      <strong>{{ bytes(d.summary.usedBytes) }}</strong>
+      @if (d.summary.capacityBytes) {
+        <span class="muted">
+          of {{ bytes(d.summary.capacityBytes) }}
+          ({{ d.summary.capacitySource === 'quota' ? 'quota' : 'whole drive - no quota set' }})
+          &middot; {{ pct(percent()) }}
+        </span>
+        <span class="pill st-state" [class.ok]="state() === 'ok'" [class.warn]="state() === 'warn'" [class.err]="state() === 'full'">
+          {{ state() === 'full' ? 'Full' : state() === 'warn' ? 'Getting full' : 'Healthy' }} &middot; {{ headline() }}
+        </span>
+      }
+    </div>
+    <div class="st-track" role="img" [attr.aria-label]="bytes(d.summary.usedBytes) + ' used' + (d.summary.capacityBytes ? ', ' + pct(percent()) : '')">
+      @for (s of segments(); track s.name) {
+        <i class="st-seg" [style.width.%]="s.width" [style.background]="s.colour" [title]="s.name + ': ' + bytes(s.bytes) + ', ' + s.files + ' files'"></i>
+      }
+      @if (d.summary.capacityBytes) { <b class="st-tick" style="left: 85%" title="Turns amber at 85%"></b> }
+    </div>
+    @if (segments().length > 0) {
+      <ul class="st-legend">
+        @for (s of segments(); track s.name) {
+          <li><i [style.background]="s.colour"></i><span class="mono">{{ s.name }}</span><span class="muted">{{ bytes(s.bytes) }}</span></li>
+        }
+      </ul>
+    }
+    <div class="st-sub muted">
+      {{ d.fileCount }} files
+      @if (d.diskFreeBytes !== null) { &middot; {{ bytes(d.diskFreeBytes) }} free on the drive }
+      @if (measuredAgo()) { &middot; measured {{ measuredAgo() }} }
+    </div>
+  </div>
+
+  <div class="st-grid">
+    <div class="card st-card">
+      <div class="studio-card-head">
+        <div class="studio-card-title-group"><h3>Quota</h3></div>
+        @if (d.quotaGb !== null) { <span class="pill">{{ d.quotaGb }} GB now</span> }
+      </div>
+      <p class="muted">
+        The space set aside for this studio. Leave empty to measure against the whole drive. A quota only changes what the
+        bar fills against &mdash; it never deletes or blocks anything.
+      </p>
+      <div class="st-quota">
+        <input type="number" min="1" max="1000000" step="1" placeholder="No quota" aria-label="Quota in gigabytes"
+               [value]="quotaInput() ?? d.quotaGb ?? ''" (input)="onQuotaInput($any($event.target).value)"
+               (keydown.enter)="saveQuota()" (keydown.escape)="resetQuotaInput()" />
+        <span class="muted">GB</span>
+      </div>
+      <div class="st-presets" role="group" aria-label="Quota presets">
+        @for (gb of presets; track gb) {
+          <button type="button" class="ad-chip" [class.is-active]="(quotaInput() ?? '' + (d.quotaGb ?? '')) === '' + gb" (click)="usePreset(gb)">
+            {{ gb >= 1000 ? (gb / 1000) + ' TB' : gb + ' GB' }}
+          </button>
+        }
+      </div>
+
+      @if (!quotaValid()) {
+        <p class="st-error" role="alert">Enter a whole number of GB from 1 up, or leave it empty.</p>
+      } @else if (preview(); as p) {
+        <div class="st-preview" [attr.data-state]="p.state">
+          <div class="st-mini"><i [style.width.%]="p.pct > 100 ? 100 : p.pct"></i></div>
+          <span>
+            At {{ quotaDraft() }} GB the bar would read <strong>{{ pct(p.pct) }}</strong>
+            @if (p.state === 'ok') { &mdash; healthy. } @else if (p.state === 'warn') { &mdash; getting full. } @else { &mdash; full. }
+          </span>
+        </div>
+      }
+
+      @if (confirmLow()) {
+        <div class="notice error st-confirm" role="alertdialog" aria-label="Confirm a quota below current usage">
+          <span>
+            <strong>That is below the {{ bytes(d.summary.usedBytes) }} already stored.</strong>
+            Nothing is deleted &mdash; the bar will simply read as full.
+          </span>
+          <span class="st-confirm-actions">
+            <button type="button" class="ad-btn" (click)="saveQuota()" [disabled]="savingQuota()">Yes, set it anyway</button>
+            <button type="button" class="ad-link" (click)="confirmLow.set(false)">Cancel</button>
+          </span>
+        </div>
+      }
+
+      <div class="st-quota-actions">
+        <button type="button" (click)="saveQuota()" [disabled]="savingQuota() || !quotaValid() || !quotaDirty()">
+          @if (savingQuota()) { <span class="spinner" aria-hidden="true"></span> }
+          Save quota
+        </button>
+        @if (quotaInput() !== null) {
+          <button type="button" class="secondary" (click)="resetQuotaInput()" [disabled]="savingQuota()">Discard</button>
+        }
+        @if (d.quotaGb !== null) {
+          <button type="button" class="secondary" (click)="clearQuota()" [disabled]="savingQuota()">Remove quota</button>
+        }
+      </div>
+    </div>
+
+    <div class="card st-card">
+      <div class="studio-card-head">
+        <div class="studio-card-title-group">
+          <h3>By folder</h3>
+          <span class="pill">{{ d.folders.length }}</span>
+        </div>
+        @if (d.folders.length > 4) {
+          <div class="ad-search st-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input #search type="search" placeholder="Filter folders…" aria-label="Filter folders"
+                   [value]="query()" (input)="query.set(search.value)" (keydown.escape)="query.set('')" />
+          </div>
+        }
+      </div>
+      @if (d.folders.length === 0) {
+        <div class="ad-empty">
+          <span class="ad-empty-ico" aria-hidden="true">📂</span>
+          <strong>Nothing stored yet</strong>
+          <p>Uploaded clips, generated media and renders will be listed here by folder.</p>
+        </div>
+      } @else if (folderRows().length === 0) {
+        <div class="ad-empty">
+          <strong>No folder matches</strong>
+          <button type="button" class="ad-btn" (click)="query.set('')">Clear filter</button>
+        </div>
+      } @else {
+        <div class="studio-table-wrap">
+          <table class="st-table">
+            <thead>
+              <tr>
+                <th [attr.aria-sort]="ariaSort('name')"><button type="button" class="st-th" (click)="sortBy('name')">Folder @if (sortKey() === 'name') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+                <th [attr.aria-sort]="ariaSort('bytes')"><button type="button" class="st-th" (click)="sortBy('bytes')">Size @if (sortKey() === 'bytes') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+                <th>Share</th>
+                <th [attr.aria-sort]="ariaSort('files')"><button type="button" class="st-th" (click)="sortBy('files')">Files @if (sortKey() === 'files') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (f of folderRows(); track f.name) {
+                <tr>
+                  <td><span class="st-dot" [style.background]="colourOf(f)"></span><span class="mono">{{ f.name }}</span></td>
+                  <td class="mono">{{ bytes(f.bytes) }}</td>
+                  <td class="st-share">
+                    <div class="spark"><i [style.width.%]="share(f)"></i></div>
+                    <span class="muted mono">{{ pct(share(f)) }}</span>
+                  </td>
+                  <td class="muted mono">{{ f.files }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+
+    @if (syncAvailable()) {
+      <div class="card st-card st-wide">
+        <div class="studio-card-head">
+          <div class="studio-card-title-group"><h3>Sync database</h3></div>
+          @if (syncFinishedAt(); as at) { <span class="muted st-small">last run {{ at | date: 'shortTime' }}</span> }
+        </div>
+        <p class="muted">
+          Keep drive folders, topics, calendar posts and Drive copies the same in MongoDB and SQL Server. Newer topic and post
+          edits win. It copies and updates records &mdash; it does not delete any.
+        </p>
+        <div class="st-sync-buttons">
+          @for (key of directionKeys; track key) {
+            <button type="button" [class.secondary]="key !== 'Both'" (click)="askSync(key)" [disabled]="syncRunning() !== null">
+              @if (syncRunning() === key) { <span class="spinner" aria-hidden="true"></span> }
+              {{ key === 'Both' ? '⇄ ' : '' }}{{ directions[key].label }}
+            </button>
+          }
+        </div>
+
+        @if (syncAsk(); as ask) {
+          <div class="notice st-confirm" role="alertdialog" aria-label="Confirm the sync">
+            <span>
+              <strong>{{ directions[ask].label }}?</strong>
+              {{ directions[ask].detail }}
+            </span>
+            <span class="st-confirm-actions">
+              <button type="button" class="ad-btn" (click)="runSync()">Run sync</button>
+              <button type="button" class="ad-link" (click)="syncAsk.set(null)">Cancel</button>
+            </span>
+          </div>
+        }
+
+        @if (syncFailure(); as message) {
+          <div class="notice error" role="alert">{{ message }}</div>
+        }
+
+        @if (syncReport(); as r) {
+          <div class="notice st-report" [class.error]="!r.success" [class.notice-info]="r.success" role="status">
+            <strong>{{ r.success ? 'Sync finished.' : 'Sync did not finish.' }}</strong> {{ r.message }}
+          </div>
+          @if (syncTotals(); as t) {
+            <div class="st-sync-totals">
+              <span><strong>{{ t.copied }}</strong> new</span>
+              <span><strong>{{ t.updated }}</strong> updated</span>
+              <span><strong>{{ t.skipped }}</strong> already the same</span>
+            </div>
+          }
+          @if (r.details.length > 0) {
+            <div class="studio-table-wrap">
+              <table>
+                <thead><tr><th>Collection</th><th>New</th><th>Updated</th><th>Same</th></tr></thead>
+                <tbody>
+                  @for (x of r.details; track x.name) {
+                    <tr>
+                      <td class="mono">{{ x.name }}</td>
+                      <td class="mono">{{ x.copied }}</td>
+                      <td class="mono">{{ x.updated }}</td>
+                      <td class="muted mono">{{ x.skipped }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        }
+      </div>
+    }
+  </div>
+} @else if (!failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
+  </div>
+  <div class="card" aria-hidden="true"><span class="ad-skel" style="height: 5rem; width: 100%"></span></div>
+  <span class="ad-sr" role="status">Measuring storage…</span>
+}

@@ -17,6 +17,17 @@
         <p class="muted">How this copy of AnimStudio runs. None of it is needed to make a video.</p>
       </div>
 
+      <button type="button" class="settings-nav-toggle" (click)="navOpen.set(!navOpen())"
+              [attr.aria-expanded]="navOpen()" aria-controls="settings-nav-body">
+        <span class="ico" aria-hidden="true">{{ current().icon }}</span>
+        <span class="lbl">{{ current().label }}</span>
+        @if (pendingSignups() > 0) {
+          <span class="settings-badge" [title]="pendingSignups() + ' access requests waiting'">{{ pendingSignups() }}</span>
+        }
+        <span class="settings-nav-caret" [class.is-open]="navOpen()" aria-hidden="true">▾</span>
+      </button>
+
+      <div id="settings-nav-body" class="settings-nav-body" [class.is-open]="navOpen()">
       <div class="settings-search">
         <svg class="settings-search-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
@@ -51,11 +62,15 @@
               <a class="settings-link" [routerLink]="p.route" routerLinkActive="active" [title]="p.description">
                 <span class="ico">{{ p.icon }}</span>
                 <span class="lbl">{{ p.label }}</span>
+                @if (p.id === 'signups' && pendingSignups() > 0) {
+                  <span class="settings-badge" [title]="pendingSignups() + ' waiting for a decision'">{{ pendingSignups() }}</span>
+                }
               </a>
             }
           </div>
         }
       }
+      </div>
     </aside>
 
     <main class="settings-main">
@@ -64,10 +79,10 @@
   </div>
 } @else {
   <div class="unauthorized-container" style="display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;">
-    <div class="empty" style="max-width: 480px; text-align: center; background: rgba(20,26,42,0.9); border: 1px solid rgba(148,163,184,0.16); border-radius: 14px; padding: 2.5rem 2rem; box-shadow: 0 16px 40px rgba(0,0,0,0.5);">
+    <div class="empty" style="max-width: 480px; text-align: center; background: color-mix(in srgb, var(--surface-2) 90%, transparent); border: 1px solid rgba(148,163,184,0.16); border-radius: 14px; padding: 2.5rem 2rem; box-shadow: 0 16px 40px rgba(0,0,0,0.5);">
       <div class="notice error" style="margin-bottom: 1.25rem;">{{ access.explanation }}</div>
-      <h2 style="font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin-bottom: 0.5rem;">Access Restricted</h2>
-      <p class="muted" style="color: #94a3b8; font-size: 0.9rem; line-height: 1.5; margin-bottom: 1.5rem;">
+      <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text); margin-bottom: 0.5rem;">Access Restricted</h2>
+      <p class="muted" style="color: var(--text-dim); font-size: 0.9rem; line-height: 1.5; margin-bottom: 1.5rem;">
         Sign in with an account that has the Administrator role to access server settings.
       </p>
       <div style="display: flex; gap: 0.75rem; justify-content: center;">

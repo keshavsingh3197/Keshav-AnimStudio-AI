@@ -45,7 +45,7 @@ public sealed class ShortsLibraryController(
     private const int MaxRecords = 2000;
     private const int MaxPageSize = 100;
     private const int MaxBulk = 200;
-    private const string DeletedCode = "library-deleted";
+    internal const string DeletedCode = "library-deleted";
 
     private static readonly PhoneHandoffState[] OnDriveStates =
         [PhoneHandoffState.Saved, PhoneHandoffState.WaitingForPhone, PhoneHandoffState.Applied, PhoneHandoffState.Expired];

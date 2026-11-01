@@ -146,8 +146,8 @@ span.topic-pill { padding: 0; }
 .post-main { display: grid; gap: 0.15rem; flex: 1; min-width: 0; }
 .post-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-meta { display: flex; flex-wrap: wrap; gap: 0.25rem 0.8rem; color: var(--muted); font-size: 0.78rem; }
-.post.lvl-problem .post-msg { color: #ffb4bb; }
-.post.lvl-warning .post-msg { color: #fcd38d; }
+.post.lvl-problem .post-msg { color: var(--c-red); }
+.post.lvl-warning .post-msg { color: var(--c-orange); }
 
 .status {
   font-size: 0.74rem;
@@ -157,10 +157,10 @@ span.topic-pill { padding: 0; }
   background: var(--surface-3);
   color: var(--text-dim);
 }
-.st-inprogress { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
+.st-inprogress { background: rgba(6, 182, 212, 0.15); color: var(--c-sky); }
 .st-ready { background: var(--ok-dim); color: var(--ok); }
-.st-scheduled { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; }
-.st-published { background: rgba(34, 211, 107, 0.28); color: #bbf7d0; }
+.st-scheduled { background: rgba(168, 85, 247, 0.18); color: var(--text-dim); }
+.st-published { background: rgba(34, 211, 107, 0.28); color: var(--text); }
 .st-skipped { opacity: 0.6; text-decoration: line-through; }
 
 .ready-btn { background: var(--ok); color: #04160b; padding: 0.3rem 0.65rem; white-space: nowrap; }

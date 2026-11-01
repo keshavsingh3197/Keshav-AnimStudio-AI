@@ -1,75 +1,181 @@
-@if (health(); as health) {
-  <div class="page-head" style="margin-top: 0">
-    <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-      <div class="studio-icon-badge" [class.emerald]="health.healthy" [class.red]="!health.healthy" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-        </svg>
-      </div>
-      <div>
-        <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-          <h2 style="margin: 0">This Machine &amp; System Health</h2>
-          <span class="pill" [class.ok]="health.healthy" [class.err]="!health.healthy">
-            {{ health.healthy ? 'All Required Ready' : 'Attention Needed' }}
-          </span>
-        </div>
-        <p class="muted">Last checked {{ health.checkedAtUtc | date: 'medium' }}</p>
-      </div>
+<div class="page-head" style="margin-top: 0">
+  <div class="ad-title">
+    <div class="studio-icon-badge" [class.emerald]="health()?.healthy" [class.red]="health() && !health()!.healthy">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+      </svg>
     </div>
-    <div class="row">
-      <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
-        ↻ Check again
-      </button>
+    <div>
+      <div class="row">
+        <h2>This Machine &amp; System Health</h2>
+        @if (health(); as h) {
+          <span class="pill" [class.ok]="h.healthy" [class.err]="!h.healthy">
+            {{ h.healthy ? 'All Required Ready' : 'Attention Needed' }}
+          </span>
+        }
+      </div>
+      <p class="muted">
+        @if (health()) {
+          Last checked <time [attr.datetime]="health()!.checkedAtUtc" [title]="checkedLong()">{{ checked() }}</time>.
+        } @else {
+          Checking what is installed on the server&hellip;
+        }
+      </p>
     </div>
   </div>
+  <div class="row hl-actions">
+    <button type="button" class="secondary" (click)="copyReport()" [disabled]="!health()"
+            title="Copy the whole check as plain text, ready to paste into a support request">
+      {{ copied() === 'report' ? '✓ Copied' : '⧉ Copy report' }}
+    </button>
+    <button type="button" class="secondary" (click)="downloadReport()" [disabled]="!health()">⬇ Save .txt</button>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="loading()">
+      @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
+      ↻ Check again
+    </button>
+  </div>
+</div>
 
-  @if (health.healthy) {
-    <div class="notice" style="border-left-color: var(--ok); border-color: color-mix(in oklab, var(--ok) 35%, var(--border)); background: linear-gradient(90deg, rgba(34, 211, 107, 0.1) 0%, color-mix(in srgb, var(--surface-2) 95%, transparent) 100%)">
-      Everything a video needs is present.
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="reload()">Try again</button>
+  </div>
+}
+
+@if (health(); as h) {
+  @if (h.healthy) {
+    <div class="notice notice-info hl-banner is-ok" role="status">
+      <strong>Everything a video needs is present.</strong>
+      @if (stats().broken > 0) {
+        {{ stats().broken }} optional {{ stats().broken === 1 ? 'tool is' : 'tools are' }} installed but not working properly.
+      }
     </div>
   } @else {
-    <div class="notice error">
-      Something a render depends on is missing. The rows marked <strong>needed</strong> below
-      have to work before a video can be produced.
+    <div class="notice error hl-banner" role="alert">
+      <strong>Something a render depends on is missing.</strong>
+      The checks marked <em>needed</em> have to work before a video can be produced.
+      <button type="button" class="ad-link" (click)="filter.set('attention')">Show only what needs attention</button>
     </div>
   }
 
-  <div class="card">
-    <div class="studio-card-head">
-      <div class="studio-card-title-group">
-        <h3>Runtime Probes &amp; Binaries</h3>
-        <span class="pill brand">{{ health.probes.length }} checks</span>
-      </div>
+  <div class="ad-kpis">
+    <div class="ad-kpi" [class.is-ok]="stats().requiredOk === stats().requiredTotal" [class.is-err]="stats().requiredOk < stats().requiredTotal">
+      <span class="ad-kpi-label">Needed</span>
+      <strong class="ad-kpi-val">{{ stats().requiredOk }} / {{ stats().requiredTotal }}</strong>
+      <span class="ad-kpi-sub">working</span>
     </div>
-    <div class="studio-table-wrap">
-      <table>
-        <thead>
-          <tr><th>What</th><th>State</th><th>Detail</th></tr>
-        </thead>
-        <tbody>
-          @for (probe of health.probes; track probe.key) {
-            <tr>
-              <td>
-                <strong>{{ probe.displayName }}</strong>
-                @if (probe.required) {
-                  <span class="pill brand" style="margin-left: .4rem">needed</span>
-                } @else {
-                  <span class="muted" style="margin-left: .4rem; font-size: 0.78rem">optional</span>
-                }
-              </td>
-              <td><span class="pill" [class]="'pill ' + tone(probe)">{{ word(probe) }}</span></td>
-              <td>
-                <div class="mono">{{ probe.detail ?? '—' }}</div>
-                @if (probe.advice) {
-                  <div class="muted" style="margin-top: 0.15rem">{{ probe.advice }}</div>
-                }
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Optional extras</span>
+      <strong class="ad-kpi-val">{{ stats().optionalOk }} / {{ stats().optionalTotal }}</strong>
+      <span class="ad-kpi-sub">installed</span>
+    </div>
+    <div class="ad-kpi" [class.is-warn]="stats().attention > 0" [class.is-ok]="stats().attention === 0">
+      <span class="ad-kpi-label">Needs attention</span>
+      <strong class="ad-kpi-val">{{ stats().attention }}</strong>
+      <span class="ad-kpi-sub">{{ stats().attention === 0 ? 'nothing to fix' : 'see below' }}</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Checks run</span>
+      <strong class="ad-kpi-val">{{ probes().length }}</strong>
+      <span class="ad-kpi-sub">on this machine</span>
     </div>
   </div>
+
+  <div class="ad-toolbar" role="search">
+    <div class="ad-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input #search type="search" placeholder="Search ffmpeg, piper, a path…" aria-label="Search the checks"
+             [value]="query()" (input)="query.set(search.value)" (keydown.escape)="query.set('')" />
+    </div>
+    <span class="ad-grow"></span>
+    @if (query() || filter() !== 'all') {
+      <button type="button" class="ad-link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
+
+  <div class="ad-chips" role="group" aria-label="Filter the checks">
+    @for (f of filters; track f.id) {
+      <button type="button" class="ad-chip" [class.is-active]="filter() === f.id" [attr.aria-pressed]="filter() === f.id"
+              [disabled]="counts()[f.id] === 0 && filter() !== f.id" (click)="filter.set(f.id)">
+        {{ f.label }} <span>{{ counts()[f.id] }}</span>
+      </button>
+    }
+  </div>
+
+  @if (required().length === 0 && optional().length === 0) {
+    <div class="card ad-empty">
+      <span class="ad-empty-ico" aria-hidden="true">🔎</span>
+      <strong>No checks match</strong>
+      <p>Try another filter or fewer search words.</p>
+      <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
+    </div>
+  }
+
+  @if (required().length > 0) {
+    <div class="card hl-card">
+      <div class="studio-card-head">
+        <div class="studio-card-title-group">
+          <h3>Needed to make a video</h3>
+          <span class="pill brand">{{ required().length }}</span>
+        </div>
+      </div>
+      <ul class="hl-list">
+        @for (p of required(); track p.key) {
+          <li class="hl-row" [attr.data-tone]="tone(p)">
+            <span class="hl-dot" [attr.data-tone]="tone(p)" aria-hidden="true">{{ glyph(p) }}</span>
+            <div class="hl-body">
+              <div class="hl-name">
+                <strong>{{ p.displayName }}</strong>
+                <span class="pill" [class]="'pill ' + tone(p)">{{ word(p) }}</span>
+              </div>
+              @if (p.detail) { <div class="mono hl-detail">{{ p.detail }}</div> }
+              @if (p.advice) {
+                <div class="hl-advice" [class.is-problem]="needsAttention(p)">
+                  <span>{{ p.advice }}</span>
+                  <button type="button" class="ad-link" (click)="copy(p.advice, p.key)">{{ copied() === p.key ? 'Copied' : 'Copy' }}</button>
+                </div>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    </div>
+  }
+
+  @if (optional().length > 0) {
+    <div class="card hl-card">
+      <div class="studio-card-head">
+        <div class="studio-card-title-group">
+          <h3>Optional extras</h3>
+          <span class="pill">{{ optional().length }}</span>
+        </div>
+      </div>
+      <ul class="hl-list">
+        @for (p of optional(); track p.key) {
+          <li class="hl-row" [attr.data-tone]="tone(p)">
+            <span class="hl-dot" [attr.data-tone]="tone(p)" aria-hidden="true">{{ glyph(p) }}</span>
+            <div class="hl-body">
+              <div class="hl-name">
+                <strong>{{ p.displayName }}</strong>
+                <span class="pill" [class]="'pill ' + tone(p)">{{ word(p) }}</span>
+                <span class="muted hl-opt">optional</span>
+              </div>
+              @if (p.detail) { <div class="mono hl-detail">{{ p.detail }}</div> }
+              @if (p.advice) {
+                <div class="hl-advice" [class.is-problem]="needsAttention(p)">
+                  <span>{{ p.advice }}</span>
+                  <button type="button" class="ad-link" (click)="copy(p.advice, p.key)">{{ copied() === p.key ? 'Copied' : 'Copy' }}</button>
+                </div>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    </div>
+  }
 
   <div class="card">
     <div class="studio-card-head">
@@ -85,9 +191,25 @@
       link, Piper reads dialogue aloud, whisper.cpp writes a transcript from audio.
     </p>
   </div>
-} @else {
-  <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
-    <span class="spinner"></span> Checking&hellip;
+} @else if (!failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
   </div>
+  <div class="card" aria-hidden="true">
+    @for (n of [1, 2, 3, 4, 5]; track n) {
+      <div class="hl-skel-row">
+        <span class="ad-skel" style="width: 1.9rem; height: 1.9rem; border-radius: 50%"></span>
+        <span class="hl-skel-lines">
+          <span class="ad-skel" style="height: 0.85rem; width: 30%"></span>
+          <span class="ad-skel" style="height: 0.7rem; width: 60%"></span>
+        </span>
+      </div>
+    }
+  </div>
+  <span class="ad-sr" role="status">Checking this machine…</span>
 }
-

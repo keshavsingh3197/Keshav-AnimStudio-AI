@@ -28,6 +28,16 @@
       {{ parsed().videos.length }} video{{ parsed().videos.length === 1 ? '' : 's' }} found
       @if (parsed().videos.length > maxVideos) { <span class="vd-warn-text"> - only the first {{ maxVideos }} will be read</span> }
       @if (parsed().rejected.length > 0) { <span class="vd-warn-text"> · {{ parsed().rejected.length }} not recognised</span> }
+      <span class="vd-parse-tools">
+        <label class="vd-link-btn" title="Add the IDs or links from a .txt or .csv file">
+          📄 Import file
+          <input type="file" accept=".txt,.csv,text/plain,text/csv" class="vd-file" (change)="importFile($event)" [disabled]="running()" />
+        </label>
+        @if (input().trim()) {
+          <button type="button" class="vd-link-btn" (click)="tidyInput()" [disabled]="running()" title="Keep one line per video: drops duplicates and anything that is not a video">Tidy list</button>
+          <button type="button" class="vd-link-btn" (click)="clearInput()" [disabled]="running()">Clear</button>
+        }
+      </span>
     </p>
 
     <div class="vd-options">
@@ -51,8 +61,9 @@
       <label class="vd-field">
         <span class="vd-label">Language</span>
         <select class="vd-select" [ngModel]="language()" (ngModelChange)="language.set($event)" [disabled]="running()">
-          <option value="en">English</option>
-          <option value="hi">Hindi</option>
+          @for (l of languages; track l.id) {
+            <option [value]="l.id">{{ l.label }}</option>
+          }
         </select>
       </label>
       <label class="vd-field">
@@ -102,11 +113,34 @@
       <div class="vd-progress-bar" [style.width.%]="progress()"></div>
       <span class="vd-progress-text">{{ finishedCount() }} of {{ items().length }} read · {{ doneCount() }} ready</span>
     </div>
+
+    <!-- Review toolbar: narrow and fold many results -->
+    <div class="vd-review" role="toolbar" aria-label="Review results">
+      <div class="vd-tabs" role="tablist">
+        <button type="button" role="tab" class="vd-tab" [class.is-active]="statusFilter() === 'all'" (click)="statusFilter.set('all')">All <span>{{ statusCounts().all }}</span></button>
+        <button type="button" role="tab" class="vd-tab" [class.is-active]="statusFilter() === 'done'" (click)="statusFilter.set('done')">Ready <span>{{ statusCounts().done }}</span></button>
+        <button type="button" role="tab" class="vd-tab" [class.is-active]="statusFilter() === 'error'" (click)="statusFilter.set('error')">Failed <span>{{ statusCounts().error }}</span></button>
+        <button type="button" role="tab" class="vd-tab" [class.is-active]="statusFilter() === 'pending'" (click)="statusFilter.set('pending')">In progress <span>{{ statusCounts().pending }}</span></button>
+      </div>
+      <input type="search" class="vd-input vd-review-search" placeholder="Search results by title, channel or ID…" maxlength="100"
+             aria-label="Search results" [ngModel]="resultQuery()" (ngModelChange)="resultQuery.set($event)" />
+      <span class="vd-actions-spacer"></span>
+      @if (failedCount() > 0 && !running()) {
+        <button type="button" class="vd-btn vd-btn-outline" (click)="retryFailed()">↻ Retry {{ failedCount() }} failed</button>
+      }
+      @if (doneCount() > 1) {
+        <button type="button" class="vd-btn vd-btn-outline" (click)="toggleAllCollapsed()">{{ allCollapsed() ? 'Expand all' : 'Collapse all' }}</button>
+        <button type="button" class="vd-btn vd-btn-outline" (click)="copyEverything()">{{ copied() === 'everything' ? '✓ Copied' : 'Copy all results' }}</button>
+      }
+    </div>
+    @if (visibleItems().length === 0) {
+      <p class="vd-muted vd-no-match">No videos match this filter.</p>
+    }
   }
 
   <!-- One card per video -->
   <div class="vd-list">
-    @for (item of items(); track item.videoId) {
+    @for (item of visibleItems(); track item.videoId) {
       <article class="vd-card vd-video" [class.is-error]="item.status === 'error'">
         @if (item.result; as r) {
           <header class="vd-video-head">
@@ -144,8 +178,12 @@
             <button type="button" class="vd-btn vd-btn-primary vd-copy-all" (click)="copyAll(item)">
               {{ copied() === 'all-' + item.videoId ? '✓ Copied' : 'Copy all' }}
             </button>
+            <button type="button" class="vd-btn vd-btn-outline vd-fold" (click)="toggleCollapsed(item.videoId)"
+                    [attr.aria-expanded]="!isCollapsed(item.videoId)" [attr.aria-label]="isCollapsed(item.videoId) ? 'Expand details' : 'Collapse details'"
+                    [title]="isCollapsed(item.videoId) ? 'Expand' : 'Collapse'">{{ isCollapsed(item.videoId) ? '▾' : '▴' }}</button>
           </header>
 
+          @if (!isCollapsed(item.videoId)) {
           @if (r.warnings.length > 0) {
             <ul class="vd-warnings">
               @for (w of r.warnings; track w) { <li>{{ w }}</li> }
@@ -338,6 +376,7 @@
               </details>
             </section>
           </div>
+          }
         } @else {
           <div class="vd-pending">
             <img class="vd-pending-thumb" [src]="'https://i.ytimg.com/vi/' + item.videoId + '/mqdefault.jpg'" alt="" loading="lazy" referrerpolicy="no-referrer" />

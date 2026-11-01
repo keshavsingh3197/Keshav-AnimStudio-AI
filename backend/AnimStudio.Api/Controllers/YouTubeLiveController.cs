@@ -109,7 +109,7 @@ public sealed class YouTubeLiveController(
                     "That AI engine isn't turned on or isn't ready. Pick another, or choose Auto.");
         }
 
-        var language = request?.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
+        var language = YouTubeMetadataSuggester.NormalizeLanguage(request?.Language);
         var style = request?.Kind is { } kind && LiveKinds.TryGetValue(kind, out var kindText) ? kindText : LiveKinds["camera"];
         var summary = brief.Length > 0 ? $"Topic: {topic}\nCreator's notes: {brief}" : $"Topic: {topic}";
 
@@ -121,7 +121,7 @@ public sealed class YouTubeLiveController(
                 ["summary"] = summary,
                 ["style"] = style,
                 ["tone"] = YouTubeMetadataSuggester.ToneText(request?.Tone),
-                ["language"] = language,
+                ["language"] = YouTubeMetadataSuggester.LanguageName(language),
             }, ct);
         }
         catch (PromptTemplateException ex)

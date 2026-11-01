@@ -73,7 +73,7 @@ const MIN_SIDE = 16;
     </div>
   `,
   styles: [`
-    .crop-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(4, 6, 14, 0.78);
+    .crop-backdrop { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, var(--bg) 78%, transparent);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       display: flex; align-items: center; justify-content: center; padding: 16px; }
     .crop-dialog { background: var(--surface); border: 1px solid var(--border-bright); border-radius: 15px;
@@ -82,9 +82,9 @@ const MIN_SIDE = 16;
     .crop-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 0.7rem; border-bottom: 1px solid var(--border); }
     .crop-head h4 { margin: 0; font-size: 1.02rem; font-weight: 800; }
     .crop-x { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; color: var(--muted); font-size: 0.95rem; cursor: pointer; box-shadow: none; }
-    .crop-x:hover { color: #fff; border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
+    .crop-x:hover { color: var(--text); border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
     .crop-hint { margin: 0.65rem 0 0.85rem; font-size: 0.8rem; color: var(--muted); }
-    .crop-stage { display: flex; justify-content: center; background: repeating-conic-gradient(#1a2030 0 25%, #0e121c 0 50%) 0 0 / 16px 16px;
+    .crop-stage { display: flex; justify-content: center; background: repeating-conic-gradient(var(--surface-3) 0 25%, var(--surface) 0 50%) 0 0 / 16px 16px;
       border: 1px solid var(--border); border-radius: 10px; padding: 14px; overflow: hidden; }
     .crop-frame { position: relative; display: inline-block; touch-action: none; user-select: none; cursor: crosshair; line-height: 0; }
     .crop-frame img { display: block; max-width: 100%; max-height: 58vh; pointer-events: none; border-radius: 4px; }
@@ -100,7 +100,7 @@ const MIN_SIDE = 16;
     .crop-size { font-size: 0.78rem; font-family: ui-monospace, monospace; color: var(--brand-bright); background: rgba(108, 140, 255, 0.12); border: 1px solid rgba(108, 140, 255, 0.28); padding: 2px 8px; border-radius: 99px; margin-left: auto; }
     .crop-actions { display: flex; justify-content: flex-end; gap: 0.65rem; margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--border); }
     .btn-outline { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); box-shadow: none; }
-    .btn-outline:hover:not(:disabled) { background: var(--surface-3); color: #fff; border-color: var(--border-bright); }
+    .btn-outline:hover:not(:disabled) { background: var(--surface-3); color: var(--text); border-color: var(--border-bright); }
   `],
 })
 export class ImageCropDialogComponent {

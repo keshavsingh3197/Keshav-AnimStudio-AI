@@ -1,0 +1,70 @@
+.ws-actions { gap: 0.6rem; flex-wrap: wrap; margin-left: auto; }
+
+.ws-badge {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.12rem 0.45rem; border-radius: 999px;
+  background: var(--ok-dim); color: var(--ok); vertical-align: middle; white-space: nowrap;
+}
+.ws-badge.restart { background: rgba(148, 163, 184, 0.14); color: var(--text-dim); }
+.ws-badge.warn { background: var(--warn-dim); color: var(--warn); }
+.ws-badge.edit { background: rgba(108, 140, 255, 0.18); color: var(--brand-bright); }
+
+.ws-savebar {
+  position: sticky; top: 4.4rem; z-index: 6; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 0.6rem 1rem; margin-bottom: 0.9rem; padding: 0.6rem 0.9rem; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid rgba(108, 140, 255, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+@media (max-width: 760px) { .ws-savebar { top: 7.4rem; } }
+.ws-savebar-text { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0.2rem 0.8rem; font-size: 0.88rem; }
+.ws-savebar-warn { color: var(--err); font-size: 0.8rem; }
+.ws-savebar-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+
+.ws-groups { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem 0.9rem; margin: -0.2rem 0 0.9rem; font-size: 0.82rem; }
+.ws-dot { display: inline-block; width: 0.45rem; height: 0.45rem; margin-left: 0.3rem; border-radius: 50%; background: var(--warn); vertical-align: middle; }
+
+.ws-card { scroll-margin-top: 8rem; }
+.ws-collapse {
+  display: inline-flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 0.5rem; padding: 0.2rem 0.4rem; margin-left: -0.4rem;
+  border: 0; border-radius: 10px; background: transparent; box-shadow: none; color: inherit; font: inherit; cursor: pointer; white-space: normal;
+}
+.ws-collapse:hover { background: var(--ov-1); box-shadow: none; transform: none; }
+.ws-collapse:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ws-collapse h3 { margin: 0; font-size: 1.02rem; }
+.ws-chevron { color: var(--muted); font-size: 0.8rem; transition: transform 0.15s ease; }
+.ws-chevron.is-open { transform: rotate(90deg); }
+
+.ws-row {
+  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 0.4rem 1rem; padding: 0.8rem 0.5rem 0.8rem 0.7rem;
+  border-top: 1px solid var(--border); border-left: 3px solid transparent; align-items: center;
+}
+.ws-row:first-of-type { border-top: 0; }
+.ws-row.changed .ws-title label { color: var(--brand-bright); }
+.ws-row.is-dirty { border-left-color: var(--brand); background: rgba(108, 140, 255, 0.06); }
+.ws-row.is-bad { border-left-color: var(--err); background: rgba(244, 67, 80, 0.06); }
+@media (max-width: 720px) { .ws-row { grid-template-columns: 1fr; } }
+.ws-info { min-width: 0; overflow-wrap: anywhere; }
+.ws-title { gap: 0.4rem; margin-bottom: 0.15rem; flex-wrap: wrap; }
+.ws-title label { margin: 0; font-weight: 700; color: var(--text); font-size: 0.9rem; }
+.ws-info p { margin: 0.2rem 0; }
+.ws-meta { margin-top: 0.15rem; }
+.ws-default { margin-top: 0.1rem; }
+.small { font-size: 0.78rem; }
+
+.ws-edit { display: flex; flex-wrap: wrap; gap: 0.45rem 0.6rem; align-items: center; align-content: flex-start; }
+.ws-edit input[type=number] { width: 9rem; }
+.ws-edit input[type=text], .ws-edit input[type=url] { flex: 1; min-width: 12rem; }
+.ws-btns { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+.ws-msg { grid-column: 1 / -1; margin: 0; font-size: 0.8rem; font-weight: 600; }
+.ws-msg.ok { color: var(--ok); }
+.ws-msg.warn { color: var(--warn); }
+.ws-msg.err { color: var(--err); }
+.ws-confirm { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem 1rem; margin: 0.2rem 0 0; }
+.ws-confirm-actions { display: inline-flex; align-items: center; gap: 0.5rem; }
+.ws-foot { margin-top: 1rem; }
+
+.ws-skel-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.9rem 0.3rem; border-bottom: 1px solid var(--ov-2); }
+.ws-skel-row:last-child { border-bottom: 0; }
+.ws-skel-lines { flex: 1; display: flex; flex-direction: column; gap: 0.45rem; }
+
+@media (prefers-reduced-motion: reduce) { .ws-chevron { transition: none; } }

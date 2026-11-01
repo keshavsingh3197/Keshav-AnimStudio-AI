@@ -9,7 +9,7 @@
 .ls-flow li {
   counter-increment: flow;
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(25, 31, 46, 0.72) 0%, rgba(17, 21, 32, 0.88) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 72%, transparent) 0%, color-mix(in srgb, var(--surface) 88%, transparent) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   padding: .65rem .85rem; font-size: .82rem; color: var(--text-dim, var(--text));
   transition: border-color 0.16s ease;
@@ -50,7 +50,7 @@
 .ls-tabs {
   display: inline-flex; gap: .3rem; flex-wrap: wrap; margin-bottom: 1rem;
   padding: 0.25rem;
-  background: rgba(11, 14, 22, 0.8);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
   border: 1px solid var(--border);
   border-radius: 11px;
 }
@@ -65,12 +65,12 @@
 }
 .ls-tabs button:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--ov-1);
   box-shadow: none;
 }
 .ls-tabs button.active {
   border-color: rgba(124, 156, 255, 0.45);
-  color: #fff;
+  color: var(--text);
   background: linear-gradient(135deg, rgba(124, 156, 255, 0.22), rgba(91, 124, 250, 0.14));
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
@@ -78,7 +78,7 @@
 .ls-drop {
   border: 1.5px dashed rgba(124, 156, 255, 0.35);
   border-radius: var(--radius);
-  background: radial-gradient(ellipse at 50% 0%, rgba(124, 156, 255, 0.07), rgba(11, 14, 22, 0.65) 75%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(124, 156, 255, 0.07), color-mix(in srgb, var(--surface) 65%, transparent) 75%);
   padding: 1.65rem 1.15rem;
   text-align: center;
   cursor: pointer;
@@ -86,7 +86,7 @@
 }
 .ls-drop:hover, .ls-drop.file-drop-active {
   border-color: var(--brand);
-  background: radial-gradient(ellipse at 50% 0%, rgba(124, 156, 255, 0.14), rgba(17, 21, 32, 0.8) 75%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(124, 156, 255, 0.14), color-mix(in srgb, var(--surface) 80%, transparent) 75%);
   transform: translateY(-1px);
 }
 .ls-drop-icon { font-size: 1.85rem; margin-bottom: .35rem; }
@@ -95,7 +95,7 @@
 .ls-pick-list {
   list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: rgba(11, 14, 22, 0.65);
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
 }
 .ls-pick-list li {
   display: flex; justify-content: space-between; align-items: center; gap: .75rem;
@@ -114,7 +114,7 @@
 .ls-entry {
   display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: .65rem; align-items: center;
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .55rem .7rem;
-  background: rgba(11, 14, 22, 0.65);
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
   transition: border-color 0.15s ease;
 }
 .ls-entry:hover { border-color: var(--border-bright); }
@@ -127,7 +127,7 @@
   border: 1px solid transparent; background: transparent; padding: .15rem .3rem; margin-left: -.3rem;
   font-weight: 600; min-width: 0; width: 100%;
 }
-.ls-entry-title:hover, .ls-entry-title:focus { border-color: var(--border); background: rgba(11, 14, 22, 0.8); }
+.ls-entry-title:hover, .ls-entry-title:focus { border-color: var(--border); background: color-mix(in srgb, var(--surface) 80%, transparent); }
 .ls-entry-detail { font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ls-entry-cover { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .78rem; }
 .ls-entry-actions { display: flex; gap: .25rem; }
@@ -191,7 +191,7 @@
 .ls-stream {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(11, 14, 22, 0.65);
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   padding: .9rem 1rem;
   margin-bottom: .8rem;
@@ -201,7 +201,7 @@
 .ls-stream:last-of-type { margin-bottom: 0; }
 .ls-stream-live {
   border-color: color-mix(in srgb, var(--err) 60%, var(--border));
-  background: radial-gradient(120% 140% at 0% 0%, rgba(239, 68, 68, 0.1) 0%, rgba(11, 14, 22, 0.8) 65%);
+  background: radial-gradient(120% 140% at 0% 0%, rgba(239, 68, 68, 0.1) 0%, color-mix(in srgb, var(--surface) 80%, transparent) 65%);
 }
 .ls-stream-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
 .ls-stream-toggle {
@@ -230,7 +230,7 @@
   display: flex; flex-direction: column; gap: .15rem; min-width: 0;
   padding: .5rem .65rem;
   border: 1px solid var(--border);
-  background: rgba(17, 21, 32, 0.85);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
   border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
 }
@@ -301,7 +301,7 @@
 .ls-entry-facts { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .4rem; min-width: 0; }
 .ls-chip {
   font-size: .72rem; padding: .08rem .5rem; border-radius: 999px; white-space: nowrap;
-  border: 1px solid var(--border); background: rgba(17, 21, 32, 0.8); color: var(--text-dim, var(--text));
+  border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--text-dim, var(--text));
 }
 .ls-chip-num { font-variant-numeric: tabular-nums; }
 .ls-hint { font-size: .75rem; color: var(--warn); }

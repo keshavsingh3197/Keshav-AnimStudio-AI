@@ -10,6 +10,7 @@ import {
   parseYouTubeTags, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
+import { toneLabel } from '../features/youtube/checkup-draft';
 
 /** The broadcast Go Live will stream to. */
 export interface SelectedYouTubeBroadcast {
@@ -125,13 +126,13 @@ const PREFS_KEY = 'animstudio.youtube.live';
             <div class="yl-row">
               <label>Tone
                 <select [(ngModel)]="tone">
-                  @for (t of tones(); track t) { <option [value]="t">{{ t }}</option> }
+                  @for (t of tones(); track t) { <option [value]="t">{{ toneLabel(t) }}</option> }
                 </select>
               </label>
               <label>Language
                 <select [(ngModel)]="language">
+                  <option value="hi">Hindi (हिन्दी)</option>
                   <option value="en">English</option>
-                  <option value="hi">Hindi</option>
                 </select>
               </label>
               @if (engines().length > 1) {
@@ -229,12 +230,12 @@ const PREFS_KEY = 'animstudio.youtube.live';
     .yl-grow { flex: 1 1 auto; }
     .yl-check { display: flex; gap: 7px; align-items: center; flex: 0 0 auto; cursor: pointer; }
     .yl-muted { color: var(--muted); font-size: .82rem; font-weight: normal; }
-    .yl-err { color: #fca5a5; margin: 0; font-size: 0.85rem; }
-    .yl-warn { color: #fde68a; margin: 0; font-size: 0.85rem; }
+    .yl-err { color: var(--c-red); margin: 0; font-size: 0.85rem; }
+    .yl-warn { color: var(--c-yellow); margin: 0; font-size: 0.85rem; }
     .yl-box {
       display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
       padding: 12px 14px; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 10px;
-      background: linear-gradient(180deg, rgba(25, 31, 48, 0.72), rgba(15, 19, 32, 0.85));
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 72%, transparent), color-mix(in srgb, var(--surface) 85%, transparent));
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
     .yl-box p { margin: 0; }
@@ -243,38 +244,38 @@ const PREFS_KEY = 'animstudio.youtube.live';
     .yl-links { display: flex; gap: 12px; margin-top: 6px !important; font-size: 0.82rem; }
     .yl-tabs {
       display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
-      background: rgba(11, 15, 25, 0.65); border: 1px solid rgba(148, 163, 184, 0.16); width: fit-content;
+      background: color-mix(in srgb, var(--surface) 65%, transparent); border: 1px solid rgba(148, 163, 184, 0.16); width: fit-content;
     }
     .yl-tabs button {
       background: transparent; color: var(--muted); border: 1px solid transparent;
       border-radius: 7px; padding: 6px 12px; font-size: 0.82rem; font-weight: 600; box-shadow: none;
     }
-    .yl-tabs button:hover:not(.active) { color: var(--text); background: rgba(255, 255, 255, 0.04); transform: none; }
+    .yl-tabs button:hover:not(.active) { color: var(--text); background: var(--ov-1); transform: none; }
     .yl-tabs button.active {
       background: linear-gradient(135deg, rgba(108, 140, 255, 0.24), rgba(168, 85, 247, 0.18));
-      color: #fff; border-color: rgba(108, 140, 255, 0.38);
+      color: var(--text); border-color: rgba(108, 140, 255, 0.38);
       box-shadow: 0 2px 8px rgba(108, 140, 255, 0.18);
     }
     .yl-item {
       display: flex; justify-content: space-between; align-items: center; gap: 10px;
       padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 10px;
-      background: rgba(19, 24, 38, 0.55); transition: border-color 0.15s ease, background 0.15s ease;
+      background: color-mix(in srgb, var(--surface-2) 55%, transparent); transition: border-color 0.15s ease, background 0.15s ease;
     }
-    .yl-item:hover { border-color: rgba(108, 140, 255, 0.35); background: rgba(25, 31, 48, 0.75); }
+    .yl-item:hover { border-color: rgba(108, 140, 255, 0.35); background: color-mix(in srgb, var(--surface-3) 75%, transparent); }
     .yl-item div { display: grid; gap: 2px; min-width: 0; }
     .yl-ai {
       display: grid; gap: 10px; border: 1px solid rgba(108, 140, 255, 0.28);
       background: linear-gradient(135deg, rgba(108, 140, 255, 0.09), rgba(168, 85, 247, 0.05));
       border-radius: 12px; padding: 12px 14px; margin: 0;
     }
-    .yl-ai legend { padding: 0 6px; font-size: .86rem; font-weight: 700; color: #a5b8ff; }
+    .yl-ai legend { padding: 0 6px; font-size: .86rem; font-weight: 700; color: var(--text-dim); }
     .yl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .yl-chip {
-      background: rgba(25, 31, 48, 0.78); color: var(--text); border: 1px solid rgba(148, 163, 184, 0.2);
+      background: color-mix(in srgb, var(--surface-3) 78%, transparent); color: var(--text); border: 1px solid rgba(148, 163, 184, 0.2);
       border-radius: 999px; padding: 4px 11px; font-size: .78rem; max-width: 100%;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: all 0.14s ease;
     }
-    .yl-chip:hover { border-color: var(--brand); background: rgba(108, 140, 255, 0.16); color: #fff; transform: translateY(-1px); }
+    .yl-chip:hover { border-color: var(--brand); background: rgba(108, 140, 255, 0.16); color: var(--text); transform: translateY(-1px); }
   `],
 })
 export class YouTubeLiveSetupComponent implements OnInit {
@@ -304,6 +305,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
   readonly suggesting = signal(false);
   readonly creating = signal(false);
   readonly engines = signal<YouTubeSuggestEngine[]>([]);
+  readonly toneLabel = toneLabel;
   readonly tones = signal<string[]>(['auto']);
   readonly titleOptions = signal<string[]>([]);
   readonly descriptionOptions = signal<string[]>([]);
@@ -316,7 +318,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
   topic = '';
   brief = '';
   tone = 'auto';
-  language = 'en';
+  language = 'hi';
   engine = '';
   title = '';
   description = '';

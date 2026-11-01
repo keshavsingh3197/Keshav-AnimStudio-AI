@@ -548,7 +548,7 @@
         <input #fileInput type="file" accept="video/*" style="display: none;" (change)="onFileChange($event)" />
         <div style="font-size: 2rem; margin-bottom: 0.5rem;">📹</div>
         @if (selectedFile(); as f) {
-          <strong style="color: #38bdf8;">{{ f.name }}</strong> ({{ f.size / (1024 * 1024) | number:'1.1-2' }} MB)
+          <strong style="color: var(--c-sky);">{{ f.name }}</strong> ({{ f.size / (1024 * 1024) | number:'1.1-2' }} MB)
         } @else {
           <strong>Drop a video file here, paste with Ctrl+V, or click to browse</strong>
           <div class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">Supports MP4, MOV, WebM, MKV up to 512 MB</div>
@@ -585,7 +585,7 @@
     }
 
     <!-- Chunk Duration Setting -->
-    <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid #334155; margin-top: 1rem;">
+    <div class="card" style="background: color-mix(in srgb, var(--surface-elevated) 40%, transparent); border: 1px solid var(--border-bright); margin-top: 1rem;">
       <div class="section-head">
         <label style="font-weight: 600;">Chunk Duration (Seconds):</label>
         <button type="button" class="secondary" [disabled]="savingGlobalDefault()" (click)="saveAsGlobalDefault()">
@@ -687,8 +687,8 @@
 
       <!-- Optional Style Customization (Progressive Disclosure) -->
       @if (chunkStyle() !== 'original' || convertTo916() || chunkHookText() || chunkShowPartBadge() || chunkSubtleZoom()) {
-        <div style="margin-top: 0.85rem; padding: 0.75rem; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
-          <div style="font-size: 0.8rem; font-weight: 600; color: #38bdf8; margin-bottom: 0.5rem;">
+        <div style="margin-top: 0.85rem; padding: 0.75rem; background: color-mix(in srgb, var(--surface-2) 55%, transparent); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
+          <div style="font-size: 0.8rem; font-weight: 600; color: var(--c-sky); margin-bottom: 0.5rem;">
             ✨ Short / Ad Overlay Customization (Optional)
           </div>
           <div class="row" style="gap: 0.75rem; align-items: center; flex-wrap: wrap;">

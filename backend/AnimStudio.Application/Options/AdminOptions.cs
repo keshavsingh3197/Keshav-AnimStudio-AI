@@ -56,6 +56,15 @@ public sealed class AdminJwtOptions
     public string SubjectClaim { get; set; } = "sub";
 }
 
+/// <summary>
+/// Whether the sign-in dialog offers "Request access". Closing it stops new requests; those
+/// already waiting stay in the queue to be decided.
+/// </summary>
+public sealed class SignupPolicy
+{
+    public bool Enabled { get; set; } = true;
+}
+
 public sealed class AnonymousAccessPolicy
 {
     public bool Enabled { get; set; } = true;
@@ -148,6 +157,8 @@ public sealed class AdminOptions
     public AdminJwtOptions Jwt { get; set; } = new();
 
     public AnonymousAccessPolicy AnonymousPolicy { get; set; } = new();
+
+    public SignupPolicy Signup { get; set; } = new();
 
     public UiNavigationSettings UiNavigation { get; set; } = UiNavigationSettings.CreateDefault();
 }

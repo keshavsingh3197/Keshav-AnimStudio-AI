@@ -175,10 +175,12 @@ public sealed partial class YouTubePublishController
             : "a YouTube video - include two or three topic hashtags in the description";
 
         var settings = await settingsRepo.GetAsync(ct);
-        var footer = BrandFor(settings, connection.ChannelId).Publishing?.DescriptionFooter;
+        var brandPublishing = BrandFor(settings, connection.ChannelId).Publishing;
+        var footer = brandPublishing?.DescriptionFooter;
 
         return await WriteSuggestionAsync(summary, style, request, projectId,
-            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText, extras);
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText, extras,
+            brandPublishing?.Branding, footer);
     }
 
     /// <summary>
@@ -251,19 +253,21 @@ public sealed partial class YouTubePublishController
             : "a YouTube video - include topic hashtags in the description";
 
         var settings = await settingsRepo.GetAsync(ct);
-        var footer = !string.IsNullOrWhiteSpace(request?.ChannelId)
-            ? BrandFor(settings, request.ChannelId!).Publishing?.DescriptionFooter
-            : settings?.DefaultPublishing?.DescriptionFooter;
+        var brandPublishing = !string.IsNullOrWhiteSpace(request?.ChannelId)
+            ? BrandFor(settings, request.ChannelId!).Publishing
+            : settings?.DefaultPublishing;
+        var footer = brandPublishing?.DescriptionFooter;
 
         var suggestReq = new YouTubeSuggestRequest(
-            request?.Language ?? "hi",
+            YouTubeMetadataSuggester.NormalizeLanguage(request?.Language),
             Fresh: true,
             Tone: request?.Tone ?? "devotional-omkr",
             Brief: request?.Brief,
             ProviderId: request?.ProviderId);
 
         var suggestion = await SuggestWithFallbackAsync(summary, style, suggestReq, projectId,
-            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "url-video " + videoId, transcriptSnippet, extras, ct);
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "url-video " + videoId, transcriptSnippet, extras, ct,
+            brandPublishing?.Branding, footer);
 
         return Ok(ApiResponse<YouTubeUrlSeoResponse>.Ok(new YouTubeUrlSeoResponse(
             videoId,
@@ -283,17 +287,20 @@ public sealed partial class YouTubePublishController
     /// </summary>
     private async Task<YouTubeSuggestResponse> SuggestWithFallbackAsync(
         string summary, string style, YouTubeSuggestRequest request, string? projectId,
-        Func<string, string> composeDescription, string subject, string? transcriptText, YouTubeSeoExtras extras, CancellationToken ct)
+        Func<string, string> composeDescription, string subject, string? transcriptText, YouTubeSeoExtras extras, CancellationToken ct,
+        ChannelBranding? branding = null, string? footer = null)
     {
-        var action = await WriteSuggestionAsync(summary, style, request, projectId, composeDescription, subject, ct, transcriptText, extras);
+        var action = await WriteSuggestionAsync(summary, style, request, projectId, composeDescription, subject, ct, transcriptText, extras,
+            branding, footer);
         if (action.Result is ObjectResult { Value: ApiResponse<YouTubeSuggestResponse> { Success: true, Data: { } suggestion } })
             return suggestion;
 
-        var language = request.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
+        var language = YouTubeMetadataSuggester.NormalizeLanguage(request.Language);
+        var brand = YouTubeBrandKit.Resolve(branding, request.Tone);
         var direct = YouTubeFreeSeoEngine.Generate(summary, style, request.Tone, language,
-            YouTubeMetadataSuggester.CleanBrief(request.Brief), transcriptText, extras);
+            YouTubeMetadataSuggester.CleanBrief(request.Brief), transcriptText, extras, brand);
         return ToSuggestResponse(direct, YouTubeFreeSeoEngine.FreeLocalProviderId,
-            d => composeDescription(YouTubeVideoInsights.AddChaptersAndCredits(d, extras)));
+            BrandComposer(brand, language, footer, extras, composeDescription, null));
     }
 
     /// <summary>

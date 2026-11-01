@@ -37,12 +37,13 @@ ended can go to `Connecting` again.
 YouTube stream keys are **reusable**: a key keeps working until someone presses *Reset* in YouTube Studio. Keys
 can therefore be saved once per brand channel and destination:
 
-- **Saving.** Admins save keys on *Settings → Channels → 🔑 Stream key*. They are encrypted with the same
+- **Saving.** Admins save keys on *Settings → Channels → ⋯ → Stream keys…* (a channel whose key was refused also has
+  a *Fix key* shortcut). They are encrypted with the same
   AES-256-GCM `DataProtector` as AI provider keys (`Encryption:DataKey`). The UI only ever shows `••••last4` and a
   fingerprint, and every change is audited. Deleting a channel deletes its keys.
 - **Refused keys.** If the ingest refuses a saved key before any media is accepted, the key is marked **Rejected**:
   - Go Live answers `409 stream-key-rejected` up front.
-  - The Channels page shows a banner and a *Key refused* filter.
+  - The Channels page shows a banner, counts the channel under *Need attention*, and offers a *Stream key → Refused by YouTube* filter.
   - Go Live links straight to the channel's key panel.
 
   A network failure never marks a key rejected. Missing keys give `409 stream-key-missing`, so the user is asked

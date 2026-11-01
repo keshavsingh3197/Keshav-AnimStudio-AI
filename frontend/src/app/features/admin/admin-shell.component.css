@@ -31,7 +31,7 @@
   font-size: 1.28rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #ffffff 35%, #a5b4fc 100%);
+  background: linear-gradient(135deg, var(--text) 35%, var(--text-dim) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -123,14 +123,14 @@
 }
 
 .settings-link:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--ov-1);
   color: var(--text);
 }
 
 .settings-link.active {
   background: linear-gradient(90deg, rgba(108, 140, 255, 0.18) 0%, rgba(108, 140, 255, 0.06) 100%);
   border-color: rgba(108, 140, 255, 0.32);
-  color: #fff;
+  color: var(--text);
   font-weight: 600;
   box-shadow: inset 3px 0 0 var(--brand);
 }
@@ -148,6 +148,21 @@
   min-width: 0;
 }
 
+.settings-badge {
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0 0.4rem;
+  border-radius: 99px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: var(--c-yellow, #f59e0b);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .settings-link .sub {
   font-size: 0.69rem;
   color: var(--muted);
@@ -163,13 +178,34 @@
   min-width: 0;
 }
 
+.settings-nav-toggle { display: none; }
+.settings-nav-caret { color: var(--muted); font-size: 0.85rem; transition: transform 0.15s ease; }
+.settings-nav-caret.is-open { transform: rotate(180deg); }
+
 @media (max-width: 860px) {
   .settings-layout {
     grid-template-columns: 1fr;
+    gap: 1rem;
   }
   .settings-nav {
     position: static;
     max-height: none;
+    padding: 0.7rem;
   }
+  .settings-nav-head { display: none; }
+  .settings-nav-toggle {
+    display: flex; align-items: center; justify-content: flex-start; gap: 0.6rem; width: 100%; padding: 0.55rem 0.7rem;
+    border-radius: 10px; border: 1px solid var(--border); background: var(--ov-1); box-shadow: none; color: var(--text);
+    font: inherit; font-size: 0.9rem; font-weight: 700; cursor: pointer;
+  }
+  .settings-nav-toggle:hover { background: var(--ov-2); box-shadow: none; transform: none; }
+  .settings-nav-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .settings-nav-toggle .ico { width: 1.35em; text-align: center; }
+  .settings-nav-toggle .lbl { flex: 1; text-align: left; }
+  .settings-nav-toggle .settings-badge { margin-left: 0; }
+  .settings-nav-body { display: none; margin-top: 0.8rem; }
+  .settings-nav-body.is-open { display: block; }
 }
+
+@media (prefers-reduced-motion: reduce) { .settings-nav-caret { transition: none; } }
 

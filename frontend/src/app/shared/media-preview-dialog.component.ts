@@ -94,7 +94,7 @@ export interface MediaPreview {
     </div>
   `,
   styles: [`
-    .mp-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(4, 6, 14, 0.8);
+    .mp-backdrop { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, var(--bg) 80%, transparent);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       display: flex; align-items: center; justify-content: center; padding: 16px; }
     .mp-dialog { background: var(--surface); border: 1px solid var(--border-bright);
@@ -105,10 +105,10 @@ export interface MediaPreview {
     .mp-title h4 { margin: .2rem 0 0; font-size: 1.08rem; font-weight: 800; overflow-wrap: anywhere; }
     .mp-type { display: inline-block; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--brand-bright); background: rgba(108, 140, 255, 0.14); border: 1px solid rgba(108, 140, 255, 0.3); padding: 1px 7px; border-radius: 99px; font-weight: 700; }
     .mp-x { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; color: var(--muted); font-size: 0.95rem; cursor: pointer; padding: 4px 8px; box-shadow: none; }
-    .mp-x:hover { color: #fff; border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
+    .mp-x:hover { color: var(--text); border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
     .mp-stage { background: #000; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
     .mp-stage video { display: block; width: 100%; max-height: 60vh; background: #000; }
-    .mp-audio { display: grid; justify-items: center; gap: .85rem; padding: 1.5rem; background: radial-gradient(circle at 50% 30%, rgba(108, 140, 255, 0.14), #07090e 70%); }
+    .mp-audio { display: grid; justify-items: center; gap: .85rem; padding: 1.5rem; background: radial-gradient(circle at 50% 30%, rgba(108, 140, 255, 0.14), var(--bg) 70%); }
     .mp-audio audio { width: min(520px, 100%); }
     .mp-cover { width: min(240px, 60vw); aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.45); }
     .mp-cover-none { display: grid; place-items: center; font-size: 3rem; background: var(--surface-2); }

@@ -95,6 +95,8 @@ export interface ShortsDriveCheck {
   moved: number;
   failed: number;
   error: string | null;
+  /** Gone from Drive and taken out of the library (only when asked to remove missing copies). */
+  removed: number;
 }
 
 export interface ShortRow {

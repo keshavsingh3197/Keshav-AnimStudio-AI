@@ -119,7 +119,7 @@ interface PublishPrefs {
         @if (auth.isAnonymous()) {
           <div style="padding: 2.5rem 1.5rem; text-align: center">
             <div style="font-size: 2.2rem; margin-bottom: 0.5rem">🔒</div>
-            <h4 style="color: #fca5a5; margin: 0 0 0.5rem">Authentication Required</h4>
+            <h4 style="color: var(--c-red); margin: 0 0 0.5rem">Authentication Required</h4>
             <p class="yt-muted" style="max-width: 480px; margin: 0 auto 1.5rem">
               Publishing renders to YouTube or Google Drive requires an authenticated member account.
               Anonymous visitors cannot connect or publish to external cloud services.
@@ -551,6 +551,10 @@ interface PublishPrefs {
                 <!-- AI suggestions read a project's script; a song's details come from its release sheet instead. -->
                 @if (!isRelease()) {
                 <section class="yt-ai">
+                  <div class="yt-ai-head">
+                    <strong>✨ AI writer</strong>
+                    <span class="yt-ai-lang">Writing in {{ language() === 'hi' ? 'हिन्दी (Hindi)' : 'English' }} — whatever language the audio is in</span>
+                  </div>
                   <div class="yt-suggest">
                     <button type="button" class="yt-ai-go" (click)="suggest()" [disabled]="suggesting() || uploading()"
                             title="Write titles, descriptions and tags from the project, its clips, captions and your notes">
@@ -559,9 +563,10 @@ interface PublishPrefs {
                     <select [ngModel]="tone()" (ngModelChange)="tone.set($event)" aria-label="Tone" title="Tone" [disabled]="suggesting() || uploading()">
                       @for (t of tones(); track t) { <option [value]="t">{{ toneLabel(t) }}</option> }
                     </select>
-                    <select [ngModel]="language()" (ngModelChange)="language.set($event)" aria-label="Suggestion language" [disabled]="suggesting() || uploading()">
+                    <select [ngModel]="language()" (ngModelChange)="language.set($event)" aria-label="Suggestion language"
+                            title="Language the title, description and tags are written in" [disabled]="suggesting() || uploading()">
+                      <option value="hi">हिन्दी (Hindi)</option>
                       <option value="en">English</option>
-                      <option value="hi">Hindi</option>
                     </select>
                     <select [ngModel]="engine()" (ngModelChange)="engine.set($event)" aria-label="AI engine"
                             title="Auto tries your providers in order. Local engines use the Claude Code / Copilot CLI signed in on this machine - no API key."
@@ -886,11 +891,11 @@ interface PublishPrefs {
   styles: [`
     .yt-backdrop {
       position: fixed; inset: 0; z-index: 1000;
-      background: rgba(3, 6, 14, 0.82); backdrop-filter: blur(8px);
+      background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(8px);
       display: flex; align-items: center; justify-content: center; padding: 16px;
     }
     .yt-dialog {
-      background: linear-gradient(180deg, rgba(19, 24, 38, 0.98) 0%, rgba(11, 15, 25, 0.99) 100%);
+      background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
       border: 1px solid rgba(148, 163, 184, 0.22);
       border-radius: 16px; width: min(1240px, 100%); height: calc(100vh - 32px); max-height: 980px;
       display: flex; flex-direction: column; overflow: hidden;
@@ -911,20 +916,20 @@ interface PublishPrefs {
     }
     .yt-logo.music { border-radius: 50%; width: 1.4rem; height: 1.4rem; font-size: .8rem; }
     .yt-x {
-      background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(148, 163, 184, 0.16);
+      background: var(--ov-1); border: 1px solid rgba(148, 163, 184, 0.16);
       border-radius: 8px; width: 30px; height: 30px; display: inline-grid; place-items: center;
       color: var(--muted); font-size: 0.95rem; cursor: pointer; transition: all 0.15s ease;
     }
-    .yt-x:hover { color: #fff; background: rgba(255, 255, 255, 0.1); border-color: rgba(148, 163, 184, 0.3); }
+    .yt-x:hover { color: var(--text); background: var(--ov-3); border-color: rgba(148, 163, 184, 0.3); }
 
     .yt-dest { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; margin-bottom: .85rem; }
     @media (max-width: 560px) { .yt-dest { grid-template-columns: 1fr; } }
     .yt-dest-opt {
       display: flex; align-items: center; gap: .75rem; text-align: left; padding: .7rem .9rem; border-radius: 12px;
-      border: 1px solid rgba(148, 163, 184, .18); background: rgba(19, 24, 38, .65); color: inherit; cursor: pointer;
+      border: 1px solid rgba(148, 163, 184, .18); background: color-mix(in srgb, var(--surface-2) 65%, transparent); color: inherit; cursor: pointer;
       transition: all 0.16s ease;
     }
-    .yt-dest-opt:hover:not(:disabled) { border-color: rgba(148, 163, 184, .4); background: rgba(25, 31, 48, .85); box-shadow: none; transform: translateY(-1px); }
+    .yt-dest-opt:hover:not(:disabled) { border-color: rgba(148, 163, 184, .4); background: color-mix(in srgb, var(--surface-3) 85%, transparent); box-shadow: none; transform: translateY(-1px); }
     .yt-dest-opt:disabled { cursor: default; opacity: .55; }
     .yt-dest-opt.active {
       border-color: rgba(255, 61, 61, 0.65);
@@ -961,7 +966,7 @@ interface PublishPrefs {
     .yt-card label.yt-check { display: flex; align-items: flex-start; gap: .5rem; color: inherit; font-size: .86rem; }
     .yt-check input { margin-top: .2rem; }
     .yt-check small { display: block; color: var(--muted, #94a3b8); font-size: .76rem; }
-    .yt-err-inline { color: #fca5a5; }
+    .yt-err-inline { color: var(--c-red); }
     .yt-steps { margin: .1rem 0 .2rem; padding-left: 1.3rem; display: grid; gap: .15rem; font-size: .85rem; }
     .yt-candidates { max-height: 180px; }
 
@@ -969,7 +974,7 @@ interface PublishPrefs {
     .yt-foot {
       flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
       padding: .85rem 1.35rem; border-top: 1px solid rgba(148, 163, 184, .16);
-      background: rgba(11, 15, 25, 0.85); backdrop-filter: blur(10px);
+      background: color-mix(in srgb, var(--surface) 85%, transparent); backdrop-filter: blur(10px);
     }
     .yt-foot-status { min-width: 0; flex: 1 1 auto; display: grid; gap: .25rem; }
     .yt-foot-status p { margin: 0; }
@@ -990,16 +995,16 @@ interface PublishPrefs {
     .yt-facts { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin: 0; font-size: .8rem; }
     .yt-facts div {
       display: inline-flex; gap: .35rem; padding: 3px 9px; border-radius: 999px;
-      background: rgba(19, 24, 38, 0.75); border: 1px solid rgba(148, 163, 184, 0.14);
+      background: color-mix(in srgb, var(--surface-2) 75%, transparent); border: 1px solid rgba(148, 163, 184, 0.14);
     }
     .yt-facts dt { color: var(--muted, #94a3b8); }
     .yt-facts dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
     .yt-checks { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; font-size: .85rem; }
-    .yt-checks .err { color: #fca5a5; }
-    .yt-checks .warn { color: #fcd34d; }
+    .yt-checks .err { color: var(--c-red); }
+    .yt-checks .warn { color: var(--c-yellow); }
     .yt-card {
       display: grid; gap: .55rem; padding: .85rem .95rem; border-radius: 12px;
-      background: linear-gradient(180deg, rgba(25, 31, 48, 0.55), rgba(15, 19, 32, 0.72));
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 55%, transparent), color-mix(in srgb, var(--surface) 72%, transparent));
       border: 1px solid rgba(148, 163, 184, .15);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
@@ -1020,6 +1025,8 @@ interface PublishPrefs {
       background: linear-gradient(135deg, rgba(108, 140, 255, .12), rgba(168, 85, 247, .08));
       border: 1px solid rgba(108, 140, 255, .25); }
     .yt-suggest { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+    .yt-ai-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+    .yt-ai-lang { font-size: .76rem; color: var(--muted, #94a3b8); }
     .yt-suggest select { width: auto; flex: 0 1 auto; }
     .yt-ai-go { font-weight: 700; }
     input.yt-brief { width: 100%; box-sizing: border-box; }
@@ -1030,15 +1037,15 @@ interface PublishPrefs {
     .yt-field textarea { resize: vertical; min-height: 180px; line-height: 1.45; }
     .invalid { outline: 1px solid #ef4444; }
     .yt-count { font-size: .75rem; color: var(--muted, #94a3b8); font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .yt-count.over { color: #f87171; font-weight: 600; }
+    .yt-count.over { color: var(--c-red); font-weight: 600; }
 
     .yt-ideas { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; max-height: 8.5rem; overflow: auto; padding: .1rem 0; }
     .yt-ideas-label { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
       color: var(--muted, #94a3b8); margin-right: .15rem; }
-    .yt-chip { font-size: .8rem; padding: .25rem .6rem; border-radius: 999px; border: 1px solid #334155;
-      background: #111827; color: inherit; cursor: pointer; text-align: left; font-weight: 500; line-height: 1.3; }
+    .yt-chip { font-size: .8rem; padding: .25rem .6rem; border-radius: 999px; border: 1px solid var(--border-bright);
+      background: var(--surface-2); color: inherit; cursor: pointer; text-align: left; font-weight: 500; line-height: 1.3; }
     .yt-chip:hover:not(:disabled) { border-color: #6366f1; box-shadow: none; }
-    .yt-chip.active { border-color: #6366f1; background: #1e1b4b; }
+    .yt-chip.active { border-color: #6366f1; background: var(--surface-3); }
     .yt-chip-add { color: var(--text-dim, #cbd5e1); }
 
     .yt-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; padding: .2rem; border-radius: 999px;
@@ -1068,7 +1075,7 @@ interface PublishPrefs {
     .yt-thumb-preview.vertical { aspect-ratio: 9 / 16; max-height: 300px; justify-self: center; width: auto; height: 300px; }
     .yt-frames.vertical { grid-template-columns: repeat(6, 1fr); }
     .yt-frames.vertical .yt-frame { aspect-ratio: 9 / 16; }
-    .yt-thumb-preview.empty { background: repeating-linear-gradient(45deg, rgba(148, 163, 184, .06) 0 10px, transparent 10px 20px), #0b1220; }
+    .yt-thumb-preview.empty { background: repeating-linear-gradient(45deg, rgba(148, 163, 184, .06) 0 10px, transparent 10px 20px), var(--surface); }
     .yt-thumb-preview.empty span { padding: 0 1rem; text-align: center; font-size: .8rem; color: var(--muted, #94a3b8); line-height: 1.45; }
     .yt-thumb-preview.over { border-color: #ff3d3d; box-shadow: 0 0 0 3px rgba(255, 61, 61, .25); }
     .yt-thumb-badge { position: absolute; left: 6px; bottom: 6px; padding: .1rem .45rem; border-radius: 4px; font-size: .7rem;
@@ -1077,13 +1084,13 @@ interface PublishPrefs {
        and the pictures end up stacked over each other. max-content rows keep each tile its full height. */
     .yt-frames { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; gap: .4rem; }
     .yt-frame { position: relative; padding: 0; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; cursor: pointer;
-      border: 2px solid transparent; background: #0b1220; }
+      border: 2px solid transparent; background: var(--surface); }
     .yt-frame:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; }
     .yt-frame.on { border-color: #ff3d3d; }
     .yt-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .yt-frame-wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted, #94a3b8);
-      background: linear-gradient(90deg, #0b1220 25%, #1e293b 50%, #0b1220 75%); background-size: 200% 100%; animation: yt-shimmer 1.2s infinite; }
-    .yt-frame-wait.failed { animation: none; background: #0b1220; }
+      background: linear-gradient(90deg, var(--surface) 25%, var(--surface-elevated) 50%, var(--surface) 75%); background-size: 200% 100%; animation: yt-shimmer 1.2s infinite; }
+    .yt-frame-wait.failed { animation: none; background: var(--surface); }
     .yt-frame-time { position: absolute; right: 3px; bottom: 3px; padding: 0 .3rem; border-radius: 3px; font-size: .64rem;
       background: rgba(0, 0, 0, .7); color: #fff; font-variant-numeric: tabular-nums; }
     @keyframes yt-shimmer { to { background-position: -200% 0; } }
@@ -1092,14 +1099,14 @@ interface PublishPrefs {
     .yt-lib-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
     .yt-seg-sm button { padding: .18rem .55rem; font-size: .74rem; }
     .yt-lib-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; padding: .3rem .55rem; border-radius: 7px; font: inherit; font-size: .8rem;
-      border: 1px solid rgba(148, 163, 184, .25); background: rgba(2, 6, 23, .55); color: inherit; }
+      border: 1px solid rgba(148, 163, 184, .25); background: color-mix(in srgb, var(--bg) 55%, transparent); color: inherit; }
     .yt-lib-search:focus { outline: none; border-color: #ff3d3d; box-shadow: 0 0 0 2px rgba(255, 61, 61, .2); }
     .yt-lib-count { flex: none; font-size: .72rem; color: var(--muted, #94a3b8); font-variant-numeric: tabular-nums; }
     .yt-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); grid-auto-rows: max-content;
       align-content: start; gap: .45rem; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 3px;
-      border-radius: 8px; background: rgba(2, 6, 23, .35); scrollbar-width: thin; overscroll-behavior: contain; }
+      border-radius: 8px; background: color-mix(in srgb, var(--bg) 35%, transparent); scrollbar-width: thin; overscroll-behavior: contain; }
     .yt-lib-item { position: relative; padding: 0; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; cursor: pointer;
-      border: 2px solid transparent; background: #0b1220; transition: border-color .12s, transform .12s; }
+      border: 2px solid transparent; background: var(--surface); transition: border-color .12s, transform .12s; }
     .yt-lib-item:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; transform: translateY(-1px); }
     .yt-lib-item:focus-visible { outline: 2px solid #ff3d3d; outline-offset: 1px; }
     .yt-lib-item.on { border-color: #ff3d3d; box-shadow: 0 0 0 2px rgba(255, 61, 61, .3); }
@@ -1124,7 +1131,7 @@ interface PublishPrefs {
     .yt-rel-picker { display: grid; gap: .4rem; border: 1px solid rgba(148, 163, 184, .15); border-radius: 10px; padding: .5rem; background: rgba(148, 163, 184, .04); }
     .yt-rel-tools { display: flex; gap: .6rem; align-items: center; }
     .yt-rel-tools input[type=search] { flex: 1; min-width: 0; box-sizing: border-box; padding: .45rem .7rem; border-radius: 8px;
-      border: 1px solid rgba(148, 163, 184, .25); background: rgba(2, 6, 23, .55); color: inherit; font: inherit; font-size: .85rem; }
+      border: 1px solid rgba(148, 163, 184, .25); background: color-mix(in srgb, var(--bg) 55%, transparent); color: inherit; font: inherit; font-size: .85rem; }
     .yt-rel-tools input[type=search]:focus { outline: none; border-color: #6c8cff; box-shadow: 0 0 0 2px rgba(108, 140, 255, .25); }
     .yt-rel-only { display: flex; align-items: center; gap: .3rem; font-size: .8rem; white-space: nowrap; color: var(--muted, #94a3b8); }
     .yt-rel-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .2rem; max-height: 300px; overflow: auto; }
@@ -1134,13 +1141,13 @@ interface PublishPrefs {
     button.yt-rel-row:disabled { cursor: default; opacity: .5; }
     .yt-rel-row.chosen { background: rgba(108, 140, 255, .12); border-color: rgba(108, 140, 255, .28); cursor: default; }
     .yt-rel-num { flex: none; width: 1.3rem; text-align: center; font-size: .75rem; font-weight: 700; color: var(--muted, #94a3b8); }
-    .yt-rel-thumb { flex: none; width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; background: #0b1220; }
+    .yt-rel-thumb { flex: none; width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; background: var(--surface); }
     .yt-rel-text { min-width: 0; flex: 1; display: grid; gap: .1rem; }
     .yt-rel-text strong { font-size: .84rem; font-weight: 600; line-height: 1.3; overflow: hidden;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .yt-rel-text small { font-size: .74rem; color: var(--muted, #94a3b8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .yt-rel-add { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 50%; display: grid; place-items: center;
-      background: rgba(108, 140, 255, .2); color: #c7d2fe; font-weight: 700; }
+      background: rgba(108, 140, 255, .2); color: var(--text-dim); font-weight: 700; }
     .yt-rel-actions { flex: none; display: flex; gap: .15rem; }
     .yt-icon { width: 1.75rem; height: 1.75rem; padding: 0; border-radius: 6px; border: 1px solid rgba(148, 163, 184, .2);
       background: transparent; color: inherit; cursor: pointer; font-size: .8rem; }
@@ -1153,14 +1160,14 @@ interface PublishPrefs {
 
     .link { background: transparent; border: 0; color: var(--brand, #6c8cff); cursor: pointer; padding: .2rem .3rem; font-size: .84rem; }
     .link:hover:not(:disabled) { box-shadow: none; text-decoration: underline; }
-    .ok { color: #86efac; }
-    .bar { height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+    .ok { color: var(--c-green); }
+    .bar { height: 8px; background: var(--surface-elevated); border-radius: 4px; overflow: hidden; }
     .bar div { height: 100%; background: #ef4444; transition: width .4s ease; }
     .yt-label { font-size: .82rem; color: var(--muted, #94a3b8); font-weight: 600; }
     .yt-related .yt-label { color: var(--text, #e2e8f0); font-weight: 700; font-size: .9rem; }
     .yt-muted { color: var(--muted, #94a3b8); font-size: .84rem; margin: 0; }
-    .yt-err { color: #fca5a5; font-size: .9rem; margin: 0; }
-    .yt-warn { color: #fcd34d; font-size: .85rem; margin: 0; }
+    .yt-err { color: var(--c-red); font-size: .9rem; margin: 0; }
+    .yt-warn { color: var(--c-yellow); font-size: .85rem; margin: 0; }
 
     /* Review: the video and its thumbnail on one side, where it goes and what viewers read on the
        other. One column on phones; the panes spread out as the screen widens. */
@@ -1176,7 +1183,7 @@ interface PublishPrefs {
     .yt-review .yt-facts { display: flex; gap: .3rem 1rem; }
     .yt-review .yt-facts div { display: flex; gap: .3rem; }
     .yt-review pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .88rem; line-height: 1.5;
-      max-height: 40vh; overflow: auto; background: rgba(2, 6, 23, .35); padding: .55rem .7rem; border-radius: 6px; }
+      max-height: 40vh; overflow: auto; background: color-mix(in srgb, var(--bg) 35%, transparent); padding: .55rem .7rem; border-radius: 6px; }
     .yt-review-thumb-box { display: grid; gap: .35rem; }
     .yt-review-thumb { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; display: block; }
     .yt-review-thumb.vertical { aspect-ratio: 9 / 16; width: auto; max-height: 280px; justify-self: start; }
@@ -1390,7 +1397,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly suggesting = signal(false);
   readonly suggestedOnce = signal(false);
   readonly suggestNote = signal<string | null>(null);
-  readonly language = signal<'en' | 'hi'>('en');
+  readonly language = signal<'en' | 'hi'>('hi');
   readonly tone = signal('auto');
   readonly tones = signal<string[]>(['auto']);
   /** '' is the provider chain; otherwise one engine, pinned for this request. */

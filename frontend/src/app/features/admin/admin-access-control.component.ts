@@ -1,1395 +1,1326 @@
-import { Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
+import {
+  Component, DestroyRef, ElementRef, HostListener, computed, effect, inject, signal, viewChild,
+} from '@angular/core';
+import { ActivatedRoute, CanDeactivateFn, RouterLink } from '@angular/router';
+import { Observable, catchError, concat, defer, tap, throwError } from 'rxjs';
 
-import { ApiService } from '../../core/services/api.service';
-import { AuthService } from '../../core/services/auth.service';
-import { StatusService } from '../../core/services/status.service';
-import { SessionTimeoutService } from '../../core/services/session-timeout.service';
-import { UiNavigationService, DEFAULT_UI_NAVIGATION_TABS } from '../../core/services/ui-navigation.service';
 import {
   AdminAccessControl,
-  AdminYouTubeChannelItem,
   AnonymousAccessPolicy,
   UiNavigationItemConfig,
   UiNavigationSettings,
-  UserScopeItem,
   UserScopesOverview,
 } from '../../core/models/auth.models';
+import { ApiService } from '../../core/services/api.service';
+import { AuthService } from '../../core/services/auth.service';
+import { DEFAULT_TIMEOUT_MINUTES, SessionTimeoutService } from '../../core/services/session-timeout.service';
+import { StatusService } from '../../core/services/status.service';
+import { DEFAULT_UI_NAVIGATION_TABS, UiNavigationService } from '../../core/services/ui-navigation.service';
+import {
+  AccessPrefs, COLLAPSED_BY_DEFAULT, ChangeItem, ChangeSection, ChannelFilter, ChannelSortKey, DEFAULT_POLICY_FORM,
+  NAV_FILTERS, NavFilter, NavFlag, PAGE_SIZES, POLICY_LIMITS, Persona, PolicyBoolKey, PolicyForm,
+  PolicyKey, PolicyNumberKey, SCOPE_ACTIVITIES, SECTION_IDS, SECTION_LABEL, ScopeActivity, ScopeFilter, ScopeSortKey,
+  SectionId, SessionForm, SortDir, TIMEOUT_OPTIONS, WARNING_OPTIONS, ago, buildPersonaViews, diffPolicy, diffSession,
+  diffTabs, formatPolicyValue, guestCapabilities, isAdminOnlyTab, loadPrefs, matchesActivity, matchesNavFilter,
+  matchesNavQuery, matchesScopeFilter, mergePolicy, parseNumberInput, policyErrors, purgePreview, savePrefs,
+  sortChannels, sortScopes, tabIcon, toChannelRows, toPolicyForm, toScopeRows, withCurrent,
+} from './admin-access-control.helpers';
 
-type AdminViewTab = 'matrix' | 'policy' | 'scopes' | 'identity';
+type SaveScope = 'all' | ChangeSection;
+type DialogKind = 'purge' | 'save-confirm' | 'leave';
+type BarPrompt = 'discard' | 'reload';
+type ToastTone = 'ok' | 'info' | 'warn' | 'err';
 
+interface Toast {
+  id: number;
+  text: string;
+  tone: ToastTone;
+  action?: { label: string; run: () => void };
+}
+
+interface PendingPurge {
+  days: number;
+  projects: number;
+  sessions: number;
+  secondsLeft: number;
+  total: number;
+}
+
+/** One row of the tab matrix, with everything the template needs already worked out. */
+interface MatrixRow {
+  tab: UiNavigationItemConfig;
+  /** Administrator-only tabs ignore the guest and member switches, so those are not offered. */
+  locked: boolean;
+  changed: ReadonlySet<NavFlag>;
+  guestNote: MatrixNote | null;
+  memberNote: MatrixNote | null;
+  enabledNote: MatrixNote | null;
+}
+
+/** A switch that is on but does not do what it says: a short label in the cell, the reason as its tooltip. */
+interface MatrixNote {
+  text: string;
+  hint: string;
+}
+
+const NO_FLAGS: ReadonlySet<NavFlag> = new Set<NavFlag>();
+const UNDO_SECONDS = 8;
+const CHANNEL_PREVIEW_ROWS = 10;
+
+const SCOPE_SORT_OPTIONS: readonly { key: ScopeSortKey; dir: SortDir; label: string }[] = [
+  { key: 'lastActive', dir: 'desc', label: 'Last active: newest first' },
+  { key: 'lastActive', dir: 'asc', label: 'Last active: oldest first' },
+  { key: 'projects', dir: 'desc', label: 'Projects: most first' },
+  { key: 'projects', dir: 'asc', label: 'Projects: fewest first' },
+  { key: 'storage', dir: 'desc', label: 'Storage: most first' },
+  { key: 'storage', dir: 'asc', label: 'Storage: least first' },
+  { key: 'name', dir: 'asc', label: 'Name: A to Z' },
+  { key: 'name', dir: 'desc', label: 'Name: Z to A' },
+  { key: 'type', dir: 'asc', label: 'Type: members first' },
+  { key: 'type', dir: 'desc', label: 'Type: guests first' },
+];
+
+const CHANNEL_SORT_OPTIONS: readonly { key: ChannelSortKey; dir: SortDir; label: string }[] = [
+  { key: 'connected', dir: 'desc', label: 'Newest connection first' },
+  { key: 'connected', dir: 'asc', label: 'Oldest connection first' },
+  { key: 'lastActive', dir: 'desc', label: 'Recently used first' },
+  { key: 'title', dir: 'asc', label: 'Name: A to Z' },
+  { key: 'title', dir: 'desc', label: 'Name: Z to A' },
+];
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/**
+ * Access & UI navigation: which tabs each audience sees, how much a signed-out guest may do,
+ * who has projects on this server, and which YouTube channels are connected.
+ *
+ * Everything editable here is a draft held beside the saved copy, so the page always knows
+ * what is unsaved: it counts it, shows it row by row, previews what it would do to each
+ * audience, and offers to save, review or discard it. Saving sends the same requests as
+ * before (one PUT for the guest policy, one for the navigation tabs). The session timeout is
+ * a per-browser setting that never touched the server and still does not.
+ */
 @Component({
   selector: 'app-admin-access-control',
-  standalone: true,
-  imports: [FormsModule, DatePipe],
-  template: `
-    <section class="access-control-page">
-      <header class="page-head" style="margin-top: 0">
-        <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-          <div class="studio-icon-badge" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-          </div>
-          <div>
-            <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-              <h2 style="margin: 0">Access Control & UI Navigation</h2>
-              <span class="pill brand">{{ accessInfo()?.mode || 'RBAC' }}</span>
-              <span class="pill success">Multi-Tenant Scoped</span>
-            </div>
-            <p class="muted">
-              Configure tab and page visibility, enforce anonymous visitor restrictions, manage isolated user scopes, and supervise connected cloud integrations.
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <!-- Sub-navigation Tabs -->
-      <nav class="sub-nav-tabs" aria-label="Access Control Sections">
-        <button
-          type="button"
-          class="sub-tab-btn"
-          [class.active]="activeTab() === 'matrix'"
-          (click)="setTab('matrix')"
-        >
-          <span class="tab-icon">🎛️</span>
-          <span>UI Tab Visibility Matrix</span>
-        </button>
-        <button
-          type="button"
-          class="sub-tab-btn"
-          [class.active]="activeTab() === 'policy'"
-          (click)="setTab('policy')"
-        >
-          <span class="tab-icon">🛡️</span>
-          <span>Guest Quotas & Policies</span>
-        </button>
-        <button
-          type="button"
-          class="sub-tab-btn"
-          [class.active]="activeTab() === 'scopes'"
-          (click)="setTab('scopes')"
-        >
-          <span class="tab-icon">👥</span>
-          <span>User & Session Scopes</span>
-          @if (userScopes()?.guestSessions; as gs) {
-            <span class="tab-badge">{{ gs }}</span>
-          }
-        </button>
-        <button
-          type="button"
-          class="sub-tab-btn"
-          [class.active]="activeTab() === 'identity'"
-          (click)="setTab('identity')"
-        >
-          <span class="tab-icon">▶️</span>
-          <span>YouTube Channels & IdP</span>
-        </button>
-      </nav>
-
-      @if (loading()) {
-        <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
-          <span class="spinner"></span> Loading access control and UI configurations&hellip;
-        </div>
-      } @else {
-
-        <!-- ================================================================= -->
-        <!-- TAB 1: UI TAB & PAGE VISIBILITY MATRIX                            -->
-        <!-- ================================================================= -->
-        @if (activeTab() === 'matrix') {
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3>UI Tab & Navigation Visibility Control</h3>
-                <p class="muted">
-                  Control which navigation tabs and pages appear in the top bar for Anonymous Guests vs Authenticated Members.
-                  Sensitive features (YouTube, Google Drive, Music Master Release) are protected from unauthenticated access.
-                </p>
-              </div>
-              <div class="head-actions">
-                <button
-                  type="button"
-                  class="btn-outline btn-sm"
-                  (click)="applyPreset('strict')"
-                  title="Hide all sensitive cloud publishing from guests"
-                >
-                  🔒 Strict Privacy
-                </button>
-                <button
-                  type="button"
-                  class="btn-outline btn-sm"
-                  (click)="applyPreset('defaults')"
-                  title="Restore default visibility settings"
-                >
-                  ↺ Reset Defaults
-                </button>
-                <button
-                  type="button"
-                  class="btn-primary-glow"
-                  (click)="saveUiNavigation()"
-                  [disabled]="saving()"
-                >
-                  @if (saving()) {
-                    <span class="spinner"></span> Saving...
-                  } @else {
-                    Save Navigation
-                  }
-                </button>
-              </div>
-            </div>
-
-            <div class="table-responsive">
-              <table class="channel-table matrix-table">
-                <thead>
-                  <tr>
-                    <th>Feature Tab / Page</th>
-                    <th>Route Path</th>
-                    <th>Sensitivity</th>
-                    <th style="text-align: center">Visible to Guests</th>
-                    <th style="text-align: center">Visible to Members</th>
-                    <th style="text-align: center">Enabled</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (tab of navTabs; track tab.id) {
-                    <tr [class.is-sensitive]="tab.isSensitive">
-                      <td>
-                        <div class="tab-row-cell">
-                          <span class="tab-row-icon">{{ tabIcon(tab.id) }}</span>
-                          <div>
-                            <strong>{{ tab.label }}</strong>
-                            <p class="cell-desc">{{ tab.description || 'Workspace section' }}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td><code>{{ tab.path }}</code></td>
-                      <td>
-                        @if (tab.isSensitive) {
-                          <span class="pill warn" title="Contains external cloud credentials and publishing capabilities">
-                            Sensitive Integration
-                          </span>
-                        } @else if (tab.requiresAuth) {
-                          <span class="pill brand">Requires Sign-In</span>
-                        } @else {
-                          <span class="pill">Public Safe</span>
-                        }
-                      </td>
-                      <td style="text-align: center">
-                        <input
-                          type="checkbox"
-                          class="matrix-checkbox"
-                          [(ngModel)]="tab.visibleToAnonymous"
-                          [name]="'anon_' + tab.id"
-                          [title]="'Show ' + tab.label + ' for anonymous guests'"
-                        />
-                      </td>
-                      <td style="text-align: center">
-                        <input
-                          type="checkbox"
-                          class="matrix-checkbox"
-                          [(ngModel)]="tab.visibleToMembers"
-                          [name]="'member_' + tab.id"
-                          [title]="'Show ' + tab.label + ' for authenticated members'"
-                        />
-                      </td>
-                      <td style="text-align: center">
-                        <input
-                          type="checkbox"
-                          class="matrix-checkbox"
-                          [(ngModel)]="tab.enabled"
-                          [name]="'enabled_' + tab.id"
-                          [title]="'Enable ' + tab.label + ' globally across studio'"
-                        />
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          </div>
-        }
-
-        <!-- ================================================================= -->
-        <!-- TAB 2: GUEST QUOTAS & POLICIES                                    -->
-        <!-- ================================================================= -->
-        @if (activeTab() === 'policy') {
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3>Anonymous Visitor Quotas & Feature Tiers</h3>
-                <p class="muted">
-                  Governs public visitors exploring AnimStudio without signing in. Restrict heavy workloads and lock sensitive publishing to protect server resources and channel credentials.
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn-primary-glow"
-                (click)="savePolicy()"
-                [disabled]="saving()"
-              >
-                @if (saving()) {
-                  <span class="spinner"></span> Saving...
-                } @else {
-                  Save Policy
-                }
-              </button>
-            </div>
-
-            <div class="grid-form">
-              <label class="toggle-control">
-                <input
-                  type="checkbox"
-                  [(ngModel)]="policy.enabled"
-                  name="enabled"
-                />
-                <span class="toggle-text">
-                  <strong>Allow Anonymous / Public Browsing</strong>
-                  <span class="muted">Unauthenticated visitors can explore the studio editor and templates.</span>
-                </span>
-              </label>
-
-              <label class="toggle-control">
-                <input
-                  type="checkbox"
-                  [(ngModel)]="policy.allowGuestProjectCreation"
-                  name="allowGuestProjectCreation"
-                />
-                <span class="toggle-text">
-                  <strong>Allow Guest Project Creation</strong>
-                  <span class="muted">Permit visitors to create isolated temporary projects in their session.</span>
-                </span>
-              </label>
-
-              <div class="input-control">
-                <label for="maxGuestProjects">
-                  <strong>Max Projects per Guest</strong>
-                  <span class="muted">Ceiling on active projects an unauthenticated visitor may create.</span>
-                </label>
-                <input
-                  id="maxGuestProjects"
-                  type="number"
-                  min="1"
-                  max="50"
-                  [(ngModel)]="policy.maxGuestProjects"
-                  name="maxGuestProjects"
-                />
-              </div>
-
-              <label class="toggle-control">
-                <input
-                  type="checkbox"
-                  [(ngModel)]="policy.allowRender"
-                  name="allowRender"
-                />
-                <span class="toggle-text">
-                  <strong>Allow Guest Video Renders</strong>
-                  <span class="muted">Permit unauthenticated guests to render preview clips locally.</span>
-                </span>
-              </label>
-
-              <div class="input-control">
-                <label for="maxDuration">
-                  <strong>Max Guest Render Duration (seconds)</strong>
-                  <span class="muted">Ceiling on preview export length for visitors.</span>
-                </label>
-                <input
-                  id="maxDuration"
-                  type="number"
-                  min="5"
-                  max="300"
-                  [(ngModel)]="policy.maxRenderDurationSeconds"
-                  name="maxRenderDurationSeconds"
-                />
-              </div>
-
-              <div class="input-control">
-                <label for="maxAi">
-                  <strong>Max Guest AI Calls (per day)</strong>
-                  <span class="muted">Daily rate limit on free-tier LLM and voiceover requests per guest.</span>
-                </label>
-                <input
-                  id="maxAi"
-                  type="number"
-                  min="0"
-                  max="50"
-                  [(ngModel)]="policy.maxAiCallsPerDay"
-                  name="maxAiCallsPerDay"
-                />
-              </div>
-
-              <!-- Sensitive Feature Toggles with Security Warnings -->
-              <label class="toggle-control danger-border">
-                <input
-                  type="checkbox"
-                  [(ngModel)]="policy.allowYouTubePublish"
-                  name="allowYouTubePublish"
-                />
-                <span class="toggle-text">
-                  <strong style="color: #fca5a5">Allow Guest YouTube Publishing</strong>
-                  <span class="muted">Permit guests to connect and upload to YouTube (strongly recommended: OFF).</span>
-                </span>
-              </label>
-
-              <label class="toggle-control danger-border">
-                <input
-                  type="checkbox"
-                  [(ngModel)]="policy.allowGoogleDrivePublish"
-                  name="allowGoogleDrivePublish"
-                />
-                <span class="toggle-text">
-                  <strong style="color: #fca5a5">Allow Guest Google Drive Publishing</strong>
-                  <span class="muted">Permit guests to connect Google Drive and export renders (strongly recommended: OFF).</span>
-                </span>
-              </label>
-
-              <label class="toggle-control">
-                <input
-                  type="checkbox"
-                  [(ngModel)]="policy.allowCloudSave"
-                  name="allowCloudSave"
-                />
-                <span class="toggle-text">
-                  <strong>Allow Guest Database Persistence</strong>
-                  <span class="muted">Persist guest projects to the central database rather than memory only.</span>
-                </span>
-              </label>
-            </div>
-          </div>
-        }
-
-        <!-- ================================================================= -->
-        <!-- TAB 3: USER & SESSION SCOPES INSPECTOR                            -->
-        <!-- ================================================================= -->
-        @if (activeTab() === 'scopes') {
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3>User &amp; Guest Isolation Scopes</h3>
-                <p class="muted">
-                  AnimStudio enforces strict user scoping: every project, asset, and credential is bound to a single user identity or isolated guest session.
-                  No user or guest can see or modify another user's projects.
-                </p>
-              </div>
-              <div class="head-actions">
-                <button
-                  type="button"
-                  class="btn-outline btn-sm icon"
-                  (click)="loadUserScopes()"
-                  [disabled]="loadingScopes()"
-                  title="Refresh active scopes"
-                >
-                  <span [class.spin]="loadingScopes()">↻</span> Refresh
-                </button>
-                <button
-                  type="button"
-                  class="btn-outline btn-sm danger"
-                  (click)="openPurgeModal()"
-                  title="Purge inactive guest projects"
-                >
-                  🧹 Purge Stale Guests
-                </button>
-              </div>
-            </div>
-
-            <!-- Scope Stats Bar -->
-            @if (userScopes(); as us) {
-              <div class="scope-stats-grid">
-                <div class="stat-box">
-                  <span class="stat-number">{{ us.totalProjects }}</span>
-                  <span class="stat-label">Total Projects</span>
-                </div>
-                <div class="stat-box">
-                  <span class="stat-number brand">{{ us.registeredMembers }}</span>
-                  <span class="stat-label">Registered Accounts</span>
-                </div>
-                <div class="stat-box">
-                  <span class="stat-number warn">{{ us.guestSessions }}</span>
-                  <span class="stat-label">Guest Sessions</span>
-                </div>
-                <div class="stat-box">
-                  <span class="stat-number success">100%</span>
-                  <span class="stat-label">Isolation Integrity</span>
-                </div>
-              </div>
-
-              <!-- Session Inactivity & Lifetime Policy Card -->
-              <div class="card" style="margin-top: 1.25rem; border: 1px solid rgba(108, 140, 255, 0.25); background: rgba(15, 23, 42, 0.55);">
-                <div class="card-head">
-                  <div>
-                    <h3 style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem">
-                      <span>⏱️</span> Session Inactivity &amp; Expiry Policy
-                    </h3>
-                    <p class="muted">
-                      Configure automatic sign out due to inactivity. Continuous user interactions (typing, editing, timeline scrubbing, renders) reset the countdown.
-                    </p>
-                  </div>
-                  <div class="head-actions">
-                    <button
-                      type="button"
-                      class="btn-primary-glow btn-sm"
-                      (click)="saveSessionPolicy()"
-                      title="Save inactivity policy"
-                    >
-                      Save Policy
-                    </button>
-                  </div>
-                </div>
-
-                <div class="policy-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; padding: 1rem 0;">
-                  <div class="form-field">
-                    <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #cbd5e1;">
-                      Inactivity Timeout Limit:
-                    </label>
-                    <select
-                      [(ngModel)]="sessionTimeoutMinutes"
-                      style="width: 100%; padding: 0.5rem; background: #0b101b; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #f1f5f9;"
-                    >
-                      <option [value]="15">15 Minutes</option>
-                      <option [value]="30">30 Minutes (Recommended)</option>
-                      <option [value]="45">45 Minutes</option>
-                      <option [value]="60">60 Minutes (1 Hour)</option>
-                      <option [value]="120">120 Minutes (2 Hours)</option>
-                      <option [value]="180">180 Minutes (3 Hours)</option>
-                    </select>
-                    <span class="muted" style="font-size: 0.76rem; display: block; margin-top: 0.3rem">
-                      User will be logged out after this duration of continuous inactivity.
-                    </span>
-                  </div>
-
-                  <div class="form-field">
-                    <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #cbd5e1;">
-                      Warning Alert Window:
-                    </label>
-                    <select
-                      [(ngModel)]="sessionWarningMinutes"
-                      style="width: 100%; padding: 0.5rem; background: #0b101b; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #f1f5f9;"
-                    >
-                      <option [value]="1">1 Minute before expiry</option>
-                      <option [value]="2">2 Minutes before expiry (Default)</option>
-                      <option [value]="3">3 Minutes before expiry</option>
-                      <option [value]="5">5 Minutes before expiry</option>
-                    </select>
-                    <span class="muted" style="font-size: 0.76rem; display: block; margin-top: 0.3rem">
-                      When this time remains, a top banner and pop-up with a progress bar will appear.
-                    </span>
-                  </div>
-
-                  <div class="form-field" style="display: flex; flex-direction: column; justify-content: center; background: rgba(0, 0, 0, 0.25); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                    <div style="font-size: 0.78rem; color: #94a3b8; margin-bottom: 0.25rem;">Live Session Countdown:</div>
-                    <div style="font-size: 1.25rem; font-weight: 700; color: #fbbf24; font-family: monospace;">
-                      {{ sessionTimeout.formattedRemaining() }} remaining
-                    </div>
-                    <div style="font-size: 0.74rem; color: #64748b; margin-top: 0.2rem;">
-                      Status: {{ sessionTimeout.isWarning() ? '⚠️ Warning Active' : '🟢 Session Active' }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              @if (loadingScopes()) {
-                <p class="muted">Loading user scopes&hellip;</p>
-              } @else if (us.scopes.length === 0) {
-                <p class="muted">No project scopes recorded yet.</p>
-              } @else {
-                <div class="table-responsive">
-                  <table class="channel-table">
-                    <thead>
-                      <tr>
-                        <th>User Scope / Guest ID</th>
-                        <th>Type</th>
-                        <th>Projects Owned</th>
-                        <th>Storage Used</th>
-                        <th>Last Active</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (s of us.scopes; track s.userId) {
-                        <tr>
-                          <td>
-                            <div class="scope-id-cell">
-                              <span class="scope-icon">{{ s.isGuest ? '👤' : '👑' }}</span>
-                              <div>
-                                <strong>{{ s.displayName }}</strong>
-                                <span class="mono muted scope-mono">{{ s.userId }}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            @if (s.isGuest) {
-                              <span class="pill">Guest Session</span>
-                            } @else {
-                              <span class="pill brand">Registered Member</span>
-                            }
-                          </td>
-                          <td>
-                            <strong>{{ s.projectCount }}</strong>
-                            <span class="muted"> project(s)</span>
-                          </td>
-                          <td class="muted">{{ s.storageEstimate }}</td>
-                          <td class="muted">{{ s.lastActiveUtc ? (s.lastActiveUtc | date:'short') : 'Recently' }}</td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-            }
-          </div>
-
-          <!-- Purge Inactive Guests Modal -->
-          @if (showPurgeDialog()) {
-            <div class="modal-backdrop" (click)="showPurgeDialog.set(false)">
-              <div class="modal-card" (click)="$event.stopPropagation()">
-                <div class="modal-head">
-                  <h4>🧹 Purge Inactive Guest Sessions</h4>
-                  <button type="button" class="modal-close" (click)="showPurgeDialog.set(false)">✕</button>
-                </div>
-                <p class="muted" style="margin-top: 0">
-                  Safely deletes temporary projects created by unauthenticated visitors that have been inactive for longer than the specified period.
-                  Registered member accounts and their projects are NEVER purged.
-                </p>
-                <div class="input-control" style="margin-bottom: 1.25rem">
-                  <label for="purgeDays">
-                    <strong>Inactive Days Threshold</strong>
-                    <span class="muted">Purge guest projects older than this many days:</span>
-                  </label>
-                  <input
-                    id="purgeDays"
-                    type="number"
-                    min="1"
-                    max="90"
-                    [(ngModel)]="purgeDays"
-                  />
-                </div>
-                <div class="modal-actions">
-                  <button type="button" class="btn-outline" (click)="showPurgeDialog.set(false)">
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    class="btn-danger-glow"
-                    (click)="confirmPurgeGuests()"
-                    [disabled]="purging()"
-                  >
-                    @if (purging()) {
-                      <span class="spinner"></span> Purging...
-                    } @else {
-                      Confirm Purge
-                    }
-                  </button>
-                </div>
-              </div>
-            </div>
-          }
-        }
-
-        <!-- ================================================================= -->
-        <!-- TAB 4: IDENTITY & MASTER YOUTUBE ACCOUNTS                         -->
-        <!-- ================================================================= -->
-        @if (activeTab() === 'identity') {
-          <!-- Central Identity Boundary & Roles Card -->
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3>Central Identity & App Scoping (id.keshavsingh.in)</h3>
-                <p class="muted">
-                  Hierarchical RBAC and app isolation boundaries enforced by the centralized Identity Provider.
-                </p>
-              </div>
-            </div>
-
-            <div class="identity-info-box">
-              <div class="info-row">
-                <span class="info-label">Active Roles:</span>
-                <div class="roles-pills">
-                  @for (role of accessInfo()?.availableRoles; track role) {
-                    <span class="pill" [class.brand]="role === 'Admin'">{{ role }}</span>
-                  }
-                </div>
-              </div>
-
-              <div class="info-notice">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                <span>
-                  <strong>App Boundary Rule:</strong> Users registered on AnimStudio receive the <code>StudioUser</code> role scoped to <code>app=studio</code>. By IdP security design, these accounts cannot authenticate to other admin portals unless explicitly granted permission by an administrator.
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Master Connected YouTube Channels Card -->
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3>Master YouTube Channel Supervision</h3>
-                <p class="muted">
-                  Global view of every YouTube channel connected across all users. Regular users can only see their own channels; administrators have platform oversight.
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn-outline icon"
-                (click)="loadAllChannels()"
-                [disabled]="loadingChannels()"
-                title="Refresh channel list"
-              >
-                <span [class.spin]="loadingChannels()">↻</span>
-              </button>
-            </div>
-
-            @if (loadingChannels()) {
-              <p class="muted">Loading channels&hellip;</p>
-            } @else if (allChannels().length === 0) {
-              <div class="empty-channels">
-                <p class="muted">No YouTube channels have been connected by any user yet.</p>
-              </div>
-            } @else {
-              <div class="table-responsive">
-                <table class="channel-table">
-                  <thead>
-                    <tr>
-                      <th>Channel</th>
-                      <th>Channel ID</th>
-                      <th>Owner (User ID)</th>
-                      <th>Status</th>
-                      <th>Connected</th>
-                      <th>Last Active</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (c of allChannels(); track c.id) {
-                      <tr>
-                        <td class="ch-cell">
-                          @if (c.thumbnailUrl) {
-                            <img [src]="c.thumbnailUrl" class="ch-thumb" alt="" />
-                          } @else {
-                            <div class="ch-placeholder">▶</div>
-                          }
-                          <span class="ch-title">{{ c.channelTitle || 'Untitled Channel' }}</span>
-                        </td>
-                        <td><code>{{ c.channelId }}</code></td>
-                        <td>
-                          <span class="owner-badge" [class.admin]="c.ownerUserId === 'ks_admin' || c.ownerUserId.startsWith('admin')">
-                            {{ c.ownerUserId }}
-                          </span>
-                        </td>
-                        <td>
-                          <span class="status-badge" [class.active]="c.status === 'Connected'">
-                            {{ c.status }}
-                          </span>
-                        </td>
-                        <td class="muted">{{ c.connectedAt | date:'mediumDate' }}</td>
-                        <td class="muted">{{ c.lastUsedAt ? (c.lastUsedAt | date:'short') : 'Never' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            }
-          </div>
-        }
-      }
-    </section>
-  `,
-  styles: [`
-    .access-control-page {
-      display: flex;
-      flex-direction: column;
-      gap: 1.5rem;
-    }
-
-    .sub-nav-tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 0.5rem;
-    }
-
-    .sub-tab-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.6rem 1rem;
-      border-radius: 8px;
-      background: transparent;
-      border: 1px solid transparent;
-      color: #94a3b8;
-      font-size: 0.88rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .sub-tab-btn:hover {
-      background: rgba(255, 255, 255, 0.03);
-      color: #fff;
-    }
-
-    .sub-tab-btn.active {
-      background: rgba(108, 140, 255, 0.12);
-      border-color: rgba(108, 140, 255, 0.35);
-      color: #8bb0ff;
-    }
-
-    .tab-badge {
-      padding: 0.1rem 0.4rem;
-      border-radius: 99px;
-      background: rgba(245, 158, 11, 0.25);
-      color: #f59e0b;
-      font-size: 0.72rem;
-      font-weight: 700;
-    }
-
-    .card {
-      background: var(--surface-1, #131b2e);
-      border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-      border-radius: 12px;
-      padding: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-    }
-
-    .card-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
-    }
-
-    .card-head h3 {
-      margin: 0 0 0.25rem;
-      font-size: 1.15rem;
-      color: #fff;
-    }
-
-    .head-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-
-    .grid-form {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.25rem;
-    }
-
-    .toggle-control {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 10px;
-      padding: 0.9rem 1rem;
-      cursor: pointer;
-      transition: border-color 0.15s ease, background 0.15s ease;
-    }
-
-    .toggle-control:hover {
-      border-color: rgba(255, 255, 255, 0.15);
-      background: rgba(255, 255, 255, 0.035);
-    }
-
-    .toggle-control.danger-border {
-      border-color: rgba(239, 68, 68, 0.3);
-      background: rgba(239, 68, 68, 0.03);
-    }
-
-    .toggle-control input[type="checkbox"] {
-      width: 1.15rem;
-      height: 1.15rem;
-      margin-top: 0.15rem;
-      accent-color: #6c8cff;
-      cursor: pointer;
-    }
-
-    .toggle-text {
-      display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
-    }
-
-    .toggle-text strong {
-      font-size: 0.92rem;
-      color: #e2e8f0;
-    }
-
-    .toggle-text .muted {
-      font-size: 0.78rem;
-      line-height: 1.4;
-    }
-
-    .input-control {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 10px;
-      padding: 0.9rem 1rem;
-    }
-
-    .input-control label {
-      display: flex;
-      flex-direction: column;
-      gap: 0.15rem;
-    }
-
-    .input-control strong {
-      font-size: 0.92rem;
-      color: #e2e8f0;
-    }
-
-    .input-control input {
-      margin-top: 0.35rem;
-      padding: 0.45rem 0.75rem;
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 6px;
-      color: #fff;
-      font-size: 0.92rem;
-      outline: none;
-    }
-
-    .matrix-table th, .matrix-table td {
-      vertical-align: middle;
-    }
-
-    .matrix-table tr.is-sensitive {
-      background: rgba(245, 158, 11, 0.02);
-    }
-
-    .tab-row-cell {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .tab-row-icon {
-      font-size: 1.25rem;
-    }
-
-    .cell-desc {
-      margin: 0.15rem 0 0;
-      font-size: 0.75rem;
-      color: #94a3b8;
-    }
-
-    .matrix-checkbox {
-      width: 1.25rem;
-      height: 1.25rem;
-      accent-color: #6c8cff;
-      cursor: pointer;
-    }
-
-    .scope-stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 1rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .stat-box {
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 10px;
-      padding: 1rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-    }
-
-    .stat-number {
-      font-size: 1.75rem;
-      font-weight: 800;
-      color: #fff;
-    }
-
-    .stat-number.brand { color: #8bb0ff; }
-    .stat-number.warn { color: #f59e0b; }
-    .stat-number.success { color: #10b981; }
-
-    .stat-label {
-      font-size: 0.78rem;
-      color: #94a3b8;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-top: 0.25rem;
-    }
-
-    .scope-id-cell {
-      display: flex;
-      align-items: center;
-      gap: 0.65rem;
-    }
-
-    .scope-icon {
-      font-size: 1.15rem;
-    }
-
-    .scope-mono {
-      display: block;
-      font-size: 0.75rem;
-      color: #8bb0ff;
-    }
-
-    .btn-primary-glow {
-      background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-      color: #fff;
-      border: none;
-      padding: 0.55rem 1.15rem;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 0.88rem;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-      box-shadow: 0 0 15px rgba(79, 70, 229, 0.35);
-      transition: all 0.15s ease;
-    }
-
-    .btn-primary-glow:hover {
-      box-shadow: 0 0 20px rgba(79, 70, 229, 0.6);
-      transform: translateY(-1px);
-    }
-
-    .btn-danger-glow {
-      background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
-      color: #fff;
-      border: none;
-      padding: 0.55rem 1.15rem;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 0.88rem;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-      box-shadow: 0 0 15px rgba(220, 38, 38, 0.35);
-    }
-
-    .btn-outline.danger {
-      border-color: rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
-    }
-
-    .btn-outline.danger:hover {
-      background: rgba(239, 68, 68, 0.1);
-      border-color: #ef4444;
-    }
-
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(4px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .modal-card {
-      background: var(--surface-1, #131b2e);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 12px;
-      padding: 1.75rem;
-      max-width: 480px;
-      width: 90%;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-    }
-
-    .modal-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 0.75rem;
-    }
-
-    .modal-head h4 {
-      margin: 0;
-      font-size: 1.15rem;
-      color: #fff;
-    }
-
-    .modal-close {
-      background: none;
-      border: none;
-      color: #94a3b8;
-      cursor: pointer;
-      font-size: 1.1rem;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 0.75rem;
-    }
-
-    .table-responsive {
-      overflow-x: auto;
-    }
-
-    .channel-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-    }
-
-    .channel-table th,
-    .channel-table td {
-      padding: 0.75rem 1rem;
-      text-align: left;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    }
-
-    .channel-table th {
-      color: #94a3b8;
-      font-weight: 600;
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .ch-cell {
-      display: flex;
-      align-items: center;
-      gap: 0.65rem;
-    }
-
-    .ch-thumb {
-      width: 2rem;
-      height: 2rem;
-      border-radius: 50%;
-      object-fit: cover;
-    }
-
-    .ch-placeholder {
-      width: 2rem;
-      height: 2rem;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.1);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.75rem;
-      color: #ff0000;
-    }
-
-    .owner-badge {
-      display: inline-block;
-      font-family: monospace;
-      font-size: 0.78rem;
-      padding: 0.15rem 0.45rem;
-      border-radius: 4px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: #cbd5e1;
-    }
-
-    .owner-badge.admin {
-      background: rgba(108, 140, 255, 0.12);
-      border-color: rgba(108, 140, 255, 0.35);
-      color: #8bb0ff;
-    }
-
-    .status-badge {
-      font-size: 0.76rem;
-      padding: 0.15rem 0.5rem;
-      border-radius: 99px;
-      background: rgba(239, 68, 68, 0.15);
-      color: #ef4444;
-      font-weight: 600;
-    }
-
-    .status-badge.active {
-      background: rgba(16, 185, 129, 0.15);
-      color: #10b981;
-    }
-
-    .identity-info-box {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    .info-row {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .info-label {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #94a3b8;
-    }
-
-    .roles-pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.45rem;
-    }
-
-    .info-notice {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.65rem;
-      font-size: 0.82rem;
-      color: #94a3b8;
-      background: rgba(108, 140, 255, 0.06);
-      border: 1px solid rgba(108, 140, 255, 0.2);
-      border-radius: 8px;
-      padding: 0.85rem 1rem;
-      line-height: 1.45;
-    }
-
-    .info-notice code {
-      color: #8bb0ff;
-      background: rgba(0, 0, 0, 0.3);
-      padding: 0.1rem 0.35rem;
-      border-radius: 4px;
-    }
-
-    .pill.brand {
-      background: rgba(108, 140, 255, 0.15);
-      color: #8bb0ff;
-      border: 1px solid rgba(108, 140, 255, 0.3);
-    }
-
-    .pill.success {
-      background: rgba(16, 185, 129, 0.15);
-      color: #10b981;
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .pill.warn {
-      background: rgba(245, 158, 11, 0.15);
-      color: #f59e0b;
-      border: 1px solid rgba(245, 158, 11, 0.3);
-    }
-
-    .spinner {
-      width: 1rem;
-      height: 1rem;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      display: inline-block;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-  `],
+  imports: [DatePipe, RouterLink],
+  templateUrl: './admin-access-control.component.html',
+  styleUrl: './admin-access-control.component.css',
 })
 export class AdminAccessControlComponent {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly status = inject(StatusService);
   private readonly uiNav = inject(UiNavigationService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly sessionTimeout = inject(SessionTimeoutService);
 
-  readonly activeTab = signal<AdminViewTab>('matrix');
-  readonly accessInfo = signal<AdminAccessControl | null>(null);
-  readonly allChannels = signal<AdminYouTubeChannelItem[]>([]);
-  readonly userScopes = signal<UserScopesOverview | null>(null);
+  private readonly dlg = viewChild<ElementRef<HTMLDialogElement>>('dlg');
 
-  readonly loading = signal<boolean>(true);
-  readonly saving = signal<boolean>(false);
-  readonly loadingChannels = signal<boolean>(false);
-  readonly loadingScopes = signal<boolean>(false);
-  readonly purging = signal<boolean>(false);
-  readonly showPurgeDialog = signal<boolean>(false);
+  // --- static text for the template ----------------------------------------------------------
 
-  purgeDays = 7;
-  sessionTimeoutMinutes = this.sessionTimeout.timeoutMinutes();
-  sessionWarningMinutes = this.sessionTimeout.warningMinutes();
+  readonly sectionNav: readonly { id: SectionId; label: string }[] = [
+    { id: 'preview', label: 'Preview' },
+    { id: 'nav', label: 'Navigation' },
+    { id: 'policy', label: 'Guest policy' },
+    { id: 'session', label: 'Session timeout' },
+    { id: 'scopes', label: 'Users & guests' },
+    { id: 'identity', label: 'Identity & channels' },
+  ];
 
-  saveSessionPolicy(): void {
-    this.sessionTimeout.setTimeoutMinutes(this.sessionTimeoutMinutes);
-    this.sessionTimeout.setWarningMinutes(this.sessionWarningMinutes);
-    this.status.showNotice(`Session policy updated: ${this.sessionTimeoutMinutes} min inactivity timeout, ${this.sessionWarningMinutes} min warning.`);
-  }
-
-  // Form model for Anonymous visitor policies
-  policy: AnonymousAccessPolicy = {
-    enabled: true,
-    allowRender: true,
-    maxRenderDurationSeconds: 60,
-    maxAiCallsPerDay: 5,
-    allowYouTubePublish: false,
-    allowCloudSave: false,
-    allowGoogleDrivePublish: false,
-    maxGuestProjects: 5,
-    allowGuestProjectCreation: true,
+  readonly personaMeta: Readonly<Record<Persona, { label: string; short: string; icon: string; blurb: string }>> = {
+    guest: { label: 'Anonymous visitor', short: 'Guest', icon: '👤', blurb: 'Not signed in' },
+    member: { label: 'Signed-in member', short: 'Member', icon: '🧑', blurb: 'AnimStudio account' },
+    admin: { label: 'Administrator', short: 'Admin', icon: '🛡️', blurb: 'Admin role' },
   };
 
-  // Nav tabs model for matrix configuration
-  navTabs: UiNavigationItemConfig[] = [...DEFAULT_UI_NAVIGATION_TABS];
+  readonly navFilterOptions: readonly { id: NavFilter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'changed', label: 'Changed' },
+    { id: 'guest-visible', label: 'Shown to guests' },
+    { id: 'guest-hidden', label: 'Hidden from guests' },
+    { id: 'sensitive', label: 'Sensitive' },
+    { id: 'disabled', label: 'Disabled' },
+  ];
+
+  readonly channelFilterOptions: readonly { id: ChannelFilter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'connected', label: 'Connected' },
+    { id: 'reconnect', label: 'Needs reconnect' },
+  ];
+
+  readonly activityOptions: readonly { id: ScopeActivity; label: string }[] = [
+    { id: 'any', label: 'Any time' },
+    { id: 'day', label: 'Last 24 hours' },
+    { id: 'week', label: 'Last 7 days' },
+    { id: 'month', label: 'Last 30 days' },
+    { id: 'older', label: 'Over 30 days ago' },
+  ];
+
+  readonly scopeSortOptions = SCOPE_SORT_OPTIONS;
+  readonly channelSortOptions = CHANNEL_SORT_OPTIONS;
+  readonly pageSizes = PAGE_SIZES;
+  readonly purgeQuickDays: readonly number[] = [1, 3, 7, 14, 30, 90];
+  readonly undoSeconds = UNDO_SECONDS;
+  readonly limits = POLICY_LIMITS;
+  readonly tabIcon = tabIcon;
+  readonly sectionLabel = SECTION_LABEL;
+
+  // --- remembered UI choices -----------------------------------------------------------------
+
+  readonly prefs = signal<AccessPrefs>(loadPrefs());
+  readonly persona = computed(() => this.prefs().persona);
+  readonly navFilter = computed(() => this.prefs().navFilter);
+  readonly scopeFilter = computed(() => this.prefs().scopeFilter);
+  readonly scopeActivity = computed(() => this.prefs().scopeActivity);
+  readonly scopeSort = computed(() => this.prefs().scopeSort);
+  readonly scopeSortValue = computed(() => `${this.scopeSort().key}:${this.scopeSort().dir}`);
+  readonly scopePageSize = computed(() => this.prefs().scopePageSize);
+  readonly channelFilter = computed(() => this.prefs().channelFilter);
+  readonly channelSort = computed(() => this.prefs().channelSort);
+  readonly channelSortValue = computed(() => `${this.channelSort().key}:${this.channelSort().dir}`);
+
+  // --- what the server has, and what is being edited -----------------------------------------
+
+  readonly loading = signal(true);
+  readonly loadError = signal<string | null>(null);
+  readonly accessInfo = signal<AdminAccessControl | null>(null);
+
+  readonly savedTabs = signal<UiNavigationItemConfig[]>([]);
+  readonly draftTabs = signal<UiNavigationItemConfig[]>([]);
+  readonly savedPolicy = signal<PolicyForm>({ ...DEFAULT_POLICY_FORM });
+  readonly draftPolicy = signal<PolicyForm>({ ...DEFAULT_POLICY_FORM });
+  readonly savedSession = signal<SessionForm>(this.currentSession());
+  readonly draftSession = signal<SessionForm>(this.currentSession());
+
+  /** The policy as the server last sent it, so fields this page does not edit are sent back unchanged. */
+  private rawPolicy: AnonymousAccessPolicy | null = null;
+
+  // --- derived: changes ----------------------------------------------------------------------
+
+  readonly tabChanges = computed(() => diffTabs(this.savedTabs(), this.draftTabs()));
+  readonly policyChanges = computed(() => diffPolicy(this.savedPolicy(), this.draftPolicy()));
+  readonly sessionChanges = computed(() => diffSession(this.savedSession(), this.draftSession()));
+  readonly changes = computed<ChangeItem[]>(() => [...this.tabChanges(), ...this.policyChanges(), ...this.sessionChanges()]);
+  readonly changeCount = computed(() => this.changes().length);
+  readonly dirty = computed(() => this.changeCount() > 0);
+  readonly sectionCounts = computed<Record<SectionId, number>>(() => ({
+    preview: this.tabChanges().length + this.policyChanges().length,
+    nav: this.tabChanges().length,
+    policy: this.policyChanges().length,
+    session: this.sessionChanges().length,
+    scopes: 0,
+    identity: 0,
+  }));
+  readonly changedTabIds = computed<ReadonlySet<string>>(() => new Set(this.tabChanges().map((c) => c.target)));
+  readonly changedPolicyKeys = computed<ReadonlySet<string>>(() => new Set(this.policyChanges().map((c) => c.target)));
+  readonly changeBreakdown = computed(() => {
+    const parts: string[] = [];
+    if (this.tabChanges().length) parts.push(`Navigation ${this.tabChanges().length}`);
+    if (this.policyChanges().length) parts.push(`Guest policy ${this.policyChanges().length}`);
+    if (this.sessionChanges().length) parts.push(`Session ${this.sessionChanges().length}`);
+    return parts.join(' · ');
+  });
+
+  readonly errors = computed(() => policyErrors(this.draftPolicy()));
+  readonly hasPolicyErrors = computed(() => Object.keys(this.errors()).length > 0);
+  /** Edited guest limits the server would refuse part-way through a save. */
+  readonly saveBlocked = computed(() => this.policyChanges().length > 0 && this.hasPolicyErrors());
+
+  // --- derived: preview ----------------------------------------------------------------------
+
+  readonly personaViews = computed(() => buildPersonaViews(
+    this.savedTabs(), this.draftTabs(), this.savedPolicy().allowYouTubePublish, this.draftPolicy().allowYouTubePublish));
+  readonly guestCaps = computed(() => guestCapabilities(this.savedPolicy(), this.draftPolicy()));
+  readonly visibleCounts = computed(() => {
+    const counts: Record<Persona, number> = { guest: 0, member: 0, admin: 0 };
+    for (const view of this.personaViews()) counts[view.persona] = view.visible;
+    return counts;
+  });
+
+  // --- derived: navigation matrix ------------------------------------------------------------
+
+  readonly navQuery = signal('');
+
+  readonly shownTabs = computed(() => {
+    const filter = this.navFilter();
+    const changed = this.changedTabIds();
+    const allowSensitive = this.draftPolicy().allowYouTubePublish;
+    const query = this.navQuery();
+    return this.draftTabs().filter((tab) => matchesNavFilter(tab, filter, changed, allowSensitive) && matchesNavQuery(tab, query));
+  });
+
+  readonly navFilterCounts = computed(() => {
+    const tabs = this.draftTabs();
+    const changed = this.changedTabIds();
+    const allowSensitive = this.draftPolicy().allowYouTubePublish;
+    const counts = {} as Record<NavFilter, number>;
+    for (const filter of NAV_FILTERS) {
+      counts[filter] = tabs.filter((tab) => matchesNavFilter(tab, filter, changed, allowSensitive)).length;
+    }
+    return counts;
+  });
+
+  readonly matrixRows = computed<MatrixRow[]>(() => {
+    const allowSensitive = this.draftPolicy().allowYouTubePublish;
+    const flagsByTab = new Map<string, Set<NavFlag>>();
+    for (const change of this.tabChanges()) {
+      const flags = flagsByTab.get(change.target) ?? new Set<NavFlag>();
+      flags.add(change.field as NavFlag);
+      flagsByTab.set(change.target, flags);
+    }
+    return this.shownTabs().map((tab) => {
+      const locked = isAdminOnlyTab(tab);
+      return {
+        tab,
+        locked,
+        changed: flagsByTab.get(tab.id) ?? NO_FLAGS,
+        guestNote: locked ? null
+          : !tab.visibleToAnonymous ? null
+          : !tab.enabled ? { text: 'Tab is off', hint: 'Switched on for guests, but the tab is switched off for everyone.' }
+          : tab.isSensitive && !allowSensitive
+            ? { text: 'Hidden anyway', hint: 'Sensitive tabs stay hidden from guests while guest YouTube publishing is off.' }
+            : null,
+        memberNote: locked || !tab.visibleToMembers || tab.enabled ? null
+          : { text: 'Tab is off', hint: 'Switched on for members, but the tab is switched off for everyone.' },
+        enabledNote: tab.id === 'admin' && !tab.enabled
+          ? { text: 'Settings link hidden', hint: 'Nobody sees the Settings link in the navigation while this is off. /admin still opens directly.' }
+          : null,
+      };
+    });
+  });
+
+  // --- derived: policy and session -----------------------------------------------------------
+
+  readonly timeoutOptions = computed(() => withCurrent(TIMEOUT_OPTIONS, this.draftSession().timeoutMinutes));
+  readonly warningOptions = computed(() => withCurrent(WARNING_OPTIONS, this.draftSession().warningMinutes));
+
+  readonly posture = computed(() => {
+    const live = this.savedPolicy();
+    return {
+      browsing: live.enabled,
+      publishing: live.allowYouTubePublish || live.allowGoogleDrivePublish,
+      render: live.allowRender ? `Guest renders up to ${live.maxRenderDurationSeconds ?? '?'} s` : 'Guest renders off',
+    };
+  });
+
+  // --- scopes --------------------------------------------------------------------------------
+
+  readonly userScopes = signal<UserScopesOverview | null>(null);
+  readonly loadingScopes = signal(false);
+  readonly scopesError = signal<string | null>(null);
+  readonly now = signal(Date.now());
+
+  /** The idle threshold the table highlights and the purge uses; one number, so they always agree. */
+  readonly purgeInput = signal('7');
+  readonly purgeDays = computed(() => {
+    const value = parseNumberInput(this.purgeInput());
+    return value !== null && Number.isInteger(value) && value >= 1 && value <= 90 ? value : null;
+  });
+  readonly staleDays = computed(() => this.purgeDays() ?? 7);
+
+  readonly scopeQuery = signal('');
+  readonly scopePage = signal(0);
+  readonly scopeRows = computed(() => toScopeRows(this.userScopes()?.scopes ?? [], this.now(), this.staleDays()));
+  readonly scopeCounts = computed(() => {
+    const rows = this.scopeRows();
+    return {
+      all: rows.length,
+      registered: rows.filter((r) => !r.item.isGuest).length,
+      guest: rows.filter((r) => r.item.isGuest).length,
+      stale: rows.filter((r) => r.stale).length,
+    };
+  });
+  readonly filteredScopes = computed(() => {
+    const words = this.scopeQuery().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const filter = this.scopeFilter();
+    const activity = this.scopeActivity();
+    const now = this.now();
+    const rows = this.scopeRows().filter((row) =>
+      matchesScopeFilter(row, filter) && matchesActivity(row, activity, now) && words.every((w) => row.search.includes(w)));
+    return sortScopes(rows, this.scopeSort());
+  });
+  readonly scopePageCount = computed(() => Math.max(1, Math.ceil(this.filteredScopes().length / this.scopePageSize())));
+  readonly currentPage = computed(() => Math.min(this.scopePage(), this.scopePageCount() - 1));
+  readonly pagedScopes = computed(() => {
+    const start = this.currentPage() * this.scopePageSize();
+    return this.filteredScopes().slice(start, start + this.scopePageSize());
+  });
+  readonly pageRange = computed(() => {
+    const total = this.filteredScopes().length;
+    const start = this.currentPage() * this.scopePageSize();
+    return { from: total === 0 ? 0 : start + 1, to: Math.min(start + this.scopePageSize(), total) };
+  });
+
+  readonly purgeEstimate = computed(() => purgePreview(this.scopeRows(), this.purgeDays() ?? this.staleDays(), this.now()));
+  readonly purging = signal(false);
+  readonly purgeError = signal<string | null>(null);
+  readonly pendingPurge = signal<PendingPurge | null>(null);
+  readonly canStartPurge = computed(() => {
+    if (this.purgeDays() === null || this.purging() || this.pendingPurge()) return false;
+    if (this.userScopes() === null) return true;
+    const estimate = this.purgeEstimate();
+    return estimate.certainProjects > 0 || estimate.possibleProjects > 0;
+  });
+
+  // --- channels ------------------------------------------------------------------------------
+
+  readonly channelsRaw = signal<readonly unknown[]>([]);
+  readonly channelsLoaded = signal(false);
+  readonly loadingChannels = signal(false);
+  readonly channelsError = signal<string | null>(null);
+  readonly channelQuery = signal('');
+  readonly channelsExpanded = signal(false);
+  /** Thumbnails that failed to load (blocked, expired): those channels fall back to the placeholder. */
+  readonly brokenThumbs = signal<ReadonlySet<string>>(new Set());
+  readonly channelRows = computed(() => toChannelRows(this.channelsRaw()));
+  readonly channelsHaveOwner = computed(() => this.channelRows().some((row) => row.owner !== null));
+  readonly channelCounts = computed(() => {
+    const rows = this.channelRows();
+    return {
+      all: rows.length,
+      connected: rows.filter((r) => !r.needsReconnect).length,
+      reconnect: rows.filter((r) => r.needsReconnect).length,
+    };
+  });
+  readonly filteredChannels = computed(() => {
+    const words = this.channelQuery().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const filter = this.channelFilter();
+    const rows = this.channelRows().filter((row) =>
+      (filter === 'all' || (filter === 'reconnect') === row.needsReconnect) && words.every((w) => row.search.includes(w)));
+    return sortChannels(rows, this.channelSort());
+  });
+  readonly shownChannels = computed(() =>
+    this.channelsExpanded() ? this.filteredChannels() : this.filteredChannels().slice(0, CHANNEL_PREVIEW_ROWS));
+
+  // --- summaries shown when a section is folded ----------------------------------------------
+
+  readonly summaries = computed<Record<SectionId, string>>(() => {
+    const counts = this.visibleCounts();
+    const total = this.draftTabs().length;
+    const policy = this.draftPolicy();
+    const session = this.draftSession();
+    const scopes = this.scopeCounts();
+    return {
+      preview: `Guests ${counts.guest} · members ${counts.member} · admins ${counts.admin} of ${total} tabs`,
+      nav: `${counts.guest} of ${total} tabs shown to guests, ${counts.member} to members`,
+      policy: policy.enabled
+        ? `Browsing on · ${policy.allowRender ? `${policy.maxRenderDurationSeconds ?? '?'} s renders` : 'no renders'} · ${policy.maxAiCallsPerDay ?? '?'} AI calls/day · publishing ${policy.allowYouTubePublish || policy.allowGoogleDrivePublish ? 'allowed' : 'blocked'}`
+        : 'Anonymous browsing is off',
+      session: `Signs out after ${session.timeoutMinutes} min idle, warns ${session.warningMinutes} min before`,
+      scopes: this.userScopes()
+        ? `${scopes.guest} guest sessions · ${scopes.registered} members · ${scopes.stale} idle ${this.staleDays()}+ days`
+        : this.loadingScopes() ? 'Loading…' : 'Not loaded',
+      identity: `${this.accessInfo()?.mode ?? '…'} · ${this.accessInfo()?.availableRoles?.length ?? 0} roles · ${this.channelCounts().all} channels`,
+    };
+  });
+
+  // --- saving, prompts, dialogs and toasts ---------------------------------------------------
+
+  readonly saving = signal(false);
+  readonly saveError = signal<string | null>(null);
+  readonly lastSavedAt = signal<number | null>(null);
+  readonly barPrompt = signal<BarPrompt | null>(null);
+  readonly reviewOpen = signal(false);
+  readonly dialog = signal<DialogKind | null>(null);
+  readonly confirmScope = signal<SaveScope>('all');
+  readonly cautionChanges = computed(() => this.changesFor(this.confirmScope()).filter((c) => c.caution));
+  readonly allCautions = computed(() => this.changes().filter((c) => c.caution));
+  readonly toast = signal<Toast | null>(null);
+
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private toastSeq = 0;
+  private purgeTimer: ReturnType<typeof setInterval> | null = null;
+  private leaveResolve: ((leave: boolean) => void) | null = null;
+  private programmaticClose = false;
 
   constructor() {
-    this.loadData();
-    this.loadAllChannels();
+    this.loadConfig();
     this.loadUserScopes();
+    this.loadChannels();
+
+    effect(() => savePrefs(this.prefs()));
+    effect(() => this.syncDialog());
+
+    const clock = setInterval(() => this.now.set(Date.now()), 60_000);
+    this.destroyRef.onDestroy(() => {
+      clearInterval(clock);
+      if (this.toastTimer) clearTimeout(this.toastTimer);
+      this.stopPurgeTimer();
+      this.settleLeave(true);
+    });
+
+    this.guardRoute();
+    this.trackTopbar();
   }
 
-  setTab(tab: AdminViewTab): void {
-    this.activeTab.set(tab);
-    if (tab === 'scopes' && !this.userScopes()) {
-      this.loadUserScopes();
-    }
+  /**
+   * The save bar and the preview stick just under the app's top bar, which is one row tall on a
+   * wide window and two on a narrow one. Measuring it keeps them from sliding underneath it.
+   */
+  private trackTopbar(): void {
+    const topbar = document.querySelector<HTMLElement>('.topbar');
+    if (!topbar || typeof ResizeObserver === 'undefined') return;
+    const apply = () => this.host.nativeElement.style.setProperty('--ac-top', `${Math.round(topbar.getBoundingClientRect().height) + 10}px`);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(topbar);
+    this.destroyRef.onDestroy(() => observer.disconnect());
   }
 
-  loadData(): void {
+  // --- loading -------------------------------------------------------------------------------
+
+  loadConfig(): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.api.adminAccessControl().subscribe({
       next: (data) => {
-        this.accessInfo.set(data);
-        if (data.anonymousPolicy) {
-          this.policy = { ...data.anonymousPolicy };
-        }
-        if (data.uiNavigation && data.uiNavigation.tabs?.length > 0) {
-          this.navTabs = data.uiNavigation.tabs.map((t) => ({ ...t }));
-        }
+        this.applyServerConfig(data);
         this.loading.set(false);
       },
-      error: (err) => {
-        this.status.showError(err?.message || 'Failed to load access control settings.');
+      error: (err: unknown) => {
+        // The editors stay hidden: saving the placeholder values over the real settings would be worse than an error.
+        const message = errorMessage(err, 'Failed to load access control settings.');
+        this.loadError.set(message);
+        this.status.showError(message);
         this.loading.set(false);
-      },
-    });
-  }
-
-  loadAllChannels(): void {
-    this.loadingChannels.set(true);
-    this.api.adminAllYouTubeChannels().subscribe({
-      next: (channels) => {
-        this.allChannels.set(channels);
-        this.loadingChannels.set(false);
-      },
-      error: () => {
-        this.loadingChannels.set(false);
       },
     });
   }
 
   loadUserScopes(): void {
     this.loadingScopes.set(true);
+    this.scopesError.set(null);
     this.api.adminUserScopes().subscribe({
       next: (overview) => {
         this.userScopes.set(overview);
+        this.now.set(Date.now());
         this.loadingScopes.set(false);
       },
-      error: () => {
+      error: (err: unknown) => {
+        this.scopesError.set(errorMessage(err, 'Could not load users and guest sessions.'));
         this.loadingScopes.set(false);
       },
     });
   }
 
-  savePolicy(): void {
+  loadChannels(): void {
+    this.loadingChannels.set(true);
+    this.channelsError.set(null);
+    this.api.adminAllYouTubeChannels().subscribe({
+      next: (channels) => {
+        this.channelsRaw.set(channels ?? []);
+        this.channelsLoaded.set(true);
+        this.loadingChannels.set(false);
+      },
+      error: (err: unknown) => {
+        this.channelsError.set(errorMessage(err, 'Could not load connected channels.'));
+        this.loadingChannels.set(false);
+      },
+    });
+  }
+
+  refreshing(): boolean {
+    return this.loading() || this.loadingScopes() || this.loadingChannels();
+  }
+
+  /** Reloading would overwrite the drafts, so with unsaved changes it asks first. */
+  refreshAll(): void {
+    if (this.dirty()) {
+      this.barPrompt.set('reload');
+      return;
+    }
+    this.reloadAll();
+  }
+
+  private reloadAll(): void {
+    this.reviewOpen.set(false);
+    this.loadConfig();
+    this.loadUserScopes();
+    this.loadChannels();
+  }
+
+  private applyServerConfig(data: AdminAccessControl): void {
+    this.accessInfo.set(data);
+    if (data.anonymousPolicy) {
+      this.rawPolicy = { ...data.anonymousPolicy };
+      const form = toPolicyForm(data.anonymousPolicy);
+      this.savedPolicy.set(form);
+      this.draftPolicy.set({ ...form });
+    }
+    const tabs = data.uiNavigation?.tabs?.length ? data.uiNavigation.tabs : DEFAULT_UI_NAVIGATION_TABS;
+    this.savedTabs.set(tabs.map((t) => ({ ...t })));
+    this.draftTabs.set(tabs.map((t) => ({ ...t })));
+    const session = this.currentSession();
+    this.savedSession.set(session);
+    this.draftSession.set({ ...session });
+    this.invalidateUndo();
+  }
+
+  private currentSession(): SessionForm {
+    return {
+      timeoutMinutes: this.sessionTimeout.timeoutMinutes(),
+      warningMinutes: this.sessionTimeout.warningMinutes(),
+    };
+  }
+
+  // --- sections ------------------------------------------------------------------------------
+
+  isCollapsed(id: SectionId): boolean {
+    return this.prefs().collapsed[id] ?? COLLAPSED_BY_DEFAULT[id];
+  }
+
+  toggleSection(id: SectionId): void {
+    this.setCollapsed(id, !this.isCollapsed(id));
+  }
+
+  setAllCollapsed(value: boolean): void {
+    const collapsed: Partial<Record<SectionId, boolean>> = {};
+    for (const id of SECTION_IDS) collapsed[id] = value;
+    this.prefs.update((p) => ({ ...p, collapsed }));
+  }
+
+  private setCollapsed(id: SectionId, value: boolean): void {
+    this.prefs.update((p) => ({ ...p, collapsed: { ...p.collapsed, [id]: value } }));
+  }
+
+  goTo(id: SectionId): void {
+    if (this.isCollapsed(id)) this.setCollapsed(id, false);
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(() => document.getElementById(`ac-sec-${id}`)?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' }), 60);
+  }
+
+  setPersona(persona: Persona): void {
+    this.prefs.update((p) => ({ ...p, persona }));
+  }
+
+  // --- navigation matrix ---------------------------------------------------------------------
+
+  setNavFilter(filter: NavFilter): void {
+    this.prefs.update((p) => ({ ...p, navFilter: filter }));
+  }
+
+  setFlag(id: string, flag: NavFlag, value: boolean): void {
+    if (this.saving()) return;
+    this.invalidateUndo();
+    this.draftTabs.update((tabs) => tabs.map((tab) => {
+      if (tab.id !== id || tab[flag] === value) return tab;
+      const next: UiNavigationItemConfig = { ...tab };
+      next[flag] = value;
+      return next;
+    }));
+  }
+
+  /** Puts one tab back to what is saved. */
+  revertTab(id: string): void {
+    const saved = this.savedTabs().find((tab) => tab.id === id);
+    if (!saved || this.saving()) return;
+    this.invalidateUndo();
+    this.draftTabs.update((tabs) => tabs.map((tab) => (tab.id === id ? { ...saved } : tab)));
+  }
+
+  /**
+   * Sets one switch on every tab currently shown. Two kinds of tab are left alone and reported
+   * rather than changed in bulk: showing a sensitive or sign-in-only tab to guests, and switching
+   * the Settings tab off. Each of those has to be a deliberate, individual choice.
+   */
+  bulkFlag(flag: NavFlag, value: boolean): void {
+    if (this.saving()) return;
+    const shown = new Set(this.shownTabs().map((tab) => tab.id));
+    const restore = this.snapshotAll();
+    let changed = 0;
+    let skipped = 0;
+
+    const next = this.draftTabs().map((tab) => {
+      if (!shown.has(tab.id) || tab[flag] === value) return tab;
+      if (flag !== 'enabled' && isAdminOnlyTab(tab)) return tab;
+      if (flag === 'visibleToAnonymous' && value && (tab.isSensitive || tab.requiresAuth)) { skipped++; return tab; }
+      if (flag === 'enabled' && !value && tab.id === 'admin') { skipped++; return tab; }
+      changed++;
+      const updated: UiNavigationItemConfig = { ...tab };
+      updated[flag] = value;
+      return updated;
+    });
+
+    if (changed === 0) {
+      this.showToast(skipped > 0 ? `Nothing changed: ${skipped} tab${skipped === 1 ? ' needs' : 's need'} an individual choice.` : 'Nothing to change.', 'info');
+      return;
+    }
+
+    this.draftTabs.set(next);
+    const who = flag === 'visibleToAnonymous' ? 'guests' : 'members';
+    const tabs = `${changed} tab${changed === 1 ? '' : 's'}`;
+    const text = flag === 'enabled'
+      ? `${value ? 'Enabled' : 'Disabled'} ${tabs}.`
+      : `${value ? 'Showed' : 'Hid'} ${tabs} ${value ? 'to' : 'from'} ${who}.`;
+    const note = skipped > 0 ? ` Left ${skipped} that need${skipped === 1 ? 's' : ''} an individual choice.` : '';
+    this.showToast(text + note, 'ok', { label: 'Undo', run: () => restore() });
+  }
+
+  /** The old "Strict Privacy" preset: nothing sensitive or sign-in-only is offered to guests. */
+  strictPrivacy(): void {
+    if (this.saving()) return;
+    const restore = this.snapshotAll();
+    let changed = 0;
+    const next = this.draftTabs().map((tab) => {
+      if (!(tab.isSensitive || tab.requiresAuth) || !tab.visibleToAnonymous) return tab;
+      changed++;
+      return { ...tab, visibleToAnonymous: false };
+    });
+    if (changed === 0) {
+      this.showToast('Already strict: no sensitive or sign-in-only tab is shown to guests.', 'info');
+      return;
+    }
+    this.draftTabs.set(next);
+    this.showToast(`Strict privacy: hid ${changed} sensitive or sign-in tab${changed === 1 ? '' : 's'} from guests.`, 'ok', { label: 'Undo', run: () => restore() });
+  }
+
+  /**
+   * Puts the three visibility switches of every known tab back to their defaults. Names, paths
+   * and the sensitivity flags stay as the server has them, and tabs the defaults do not know are untouched.
+   */
+  resetNavDefaults(): void {
+    if (this.saving()) return;
+    const restore = this.snapshotAll();
+    const defaults = new Map(DEFAULT_UI_NAVIGATION_TABS.map((tab) => [tab.id, tab]));
+    let changed = 0;
+    const next = this.draftTabs().map((tab) => {
+      const base = defaults.get(tab.id);
+      if (!base) return tab;
+      if (tab.visibleToAnonymous === base.visibleToAnonymous && tab.visibleToMembers === base.visibleToMembers && tab.enabled === base.enabled) return tab;
+      changed++;
+      return { ...tab, visibleToAnonymous: base.visibleToAnonymous, visibleToMembers: base.visibleToMembers, enabled: base.enabled };
+    });
+    if (changed === 0) {
+      this.showToast('Already at the defaults.', 'info');
+      return;
+    }
+    this.draftTabs.set(next);
+    this.showToast(`Reset ${changed} tab${changed === 1 ? '' : 's'} to default visibility.`, 'ok', { label: 'Undo', run: () => restore() });
+  }
+
+  // --- guest policy --------------------------------------------------------------------------
+
+  boolValue(key: PolicyBoolKey): boolean {
+    return this.draftPolicy()[key];
+  }
+
+  numValue(key: PolicyNumberKey): number | null {
+    return this.draftPolicy()[key];
+  }
+
+  setPolicyBool(key: PolicyBoolKey, value: boolean): void {
+    if (this.saving()) return;
+    this.invalidateUndo();
+    this.draftPolicy.update((p) => ({ ...p, [key]: value }));
+  }
+
+  setPolicyNumber(key: PolicyNumberKey, raw: string): void {
+    if (this.saving()) return;
+    this.invalidateUndo();
+    this.draftPolicy.update((p) => ({ ...p, [key]: parseNumberInput(raw) }));
+  }
+
+  revertPolicy(key: PolicyKey): void {
+    if (this.saving()) return;
+    this.invalidateUndo();
+    const saved = this.savedPolicy()[key];
+    this.draftPolicy.update((p) => ({ ...p, [key]: saved }));
+  }
+
+  /** What the saved value was, for the "was …" note beside an edited field. */
+  wasValue(key: PolicyKey): string {
+    return formatPolicyValue(key, this.savedPolicy()[key]);
+  }
+
+  /** Turns every guest-facing publishing and persistence switch off; limits stay as they are. */
+  lockDownPublishing(): void {
+    if (this.saving()) return;
+    const policy = this.draftPolicy();
+    if (!policy.allowYouTubePublish && !policy.allowGoogleDrivePublish && !policy.allowCloudSave) {
+      this.showToast('Publishing and cloud save are already off for guests.', 'info');
+      return;
+    }
+    const restore = this.snapshotAll();
+    this.draftPolicy.set({ ...policy, allowYouTubePublish: false, allowGoogleDrivePublish: false, allowCloudSave: false });
+    this.showToast('Guest publishing and cloud save switched off.', 'ok', { label: 'Undo', run: () => restore() });
+  }
+
+  resetPolicyDefaults(): void {
+    if (this.saving()) return;
+    const restore = this.snapshotAll();
+    this.draftPolicy.set({ ...DEFAULT_POLICY_FORM });
+    this.showToast('Guest policy set to the built-in defaults.', 'ok', { label: 'Undo', run: () => restore() });
+  }
+
+  // --- session timeout (this browser) --------------------------------------------------------
+
+  setSessionValue(key: keyof SessionForm, raw: string): void {
+    const value = Number(raw);
+    if (this.saving() || !Number.isFinite(value)) return;
+    this.invalidateUndo();
+    this.draftSession.update((s) => ({ ...s, [key]: value }));
+  }
+
+  revertSession(key: keyof SessionForm): void {
+    this.invalidateUndo();
+    const saved = this.savedSession()[key];
+    this.draftSession.update((s) => ({ ...s, [key]: saved }));
+  }
+
+  // --- saving --------------------------------------------------------------------------------
+
+  private changesFor(scope: SaveScope): ChangeItem[] {
+    return scope === 'all' ? this.changes() : this.changes().filter((c) => c.section === scope);
+  }
+
+  /** Whether the Save button for a scope may be pressed. */
+  canSave(scope: SaveScope = 'all'): boolean {
+    if (this.saving() || this.loading() || this.loadError() !== null) return false;
+    const pending = this.changesFor(scope);
+    if (pending.length === 0) return false;
+    return !(this.saveBlocked() && pending.some((c) => c.section === 'policy'));
+  }
+
+  requestSave(scope: SaveScope = 'all'): void {
+    if (!this.canSave(scope)) return;
+    if (this.changesFor(scope).some((c) => c.caution)) {
+      this.confirmScope.set(scope);
+      this.dialog.set('save-confirm');
+      return;
+    }
+    this.runSave(scope);
+  }
+
+  confirmSave(): void {
+    const scope = this.confirmScope();
+    this.dialog.set(null);
+    this.runSave(scope);
+  }
+
+  /** Session first (local, cannot fail), then the guest policy, then the navigation - one request each, as before. */
+  private runSave(scope: SaveScope, done?: (ok: boolean) => void): void {
+    const doSession = (scope === 'all' || scope === 'session') && this.sessionChanges().length > 0;
+    const doPolicy = (scope === 'all' || scope === 'policy') && this.policyChanges().length > 0;
+    const doNav = (scope === 'all' || scope === 'nav') && this.tabChanges().length > 0;
+    if (!doSession && !doPolicy && !doNav) {
+      done?.(true);
+      return;
+    }
+
     this.saving.set(true);
-    this.api.updateAdminAccessControl({ anonymousPolicy: this.policy }).subscribe({
-      next: (res) => {
+    this.saveError.set(null);
+    this.barPrompt.set(null);
+    this.invalidateUndo();
+
+    const saved: string[] = [];
+    if (doSession) {
+      this.applySession();
+      saved.push(`session timeout (${this.savedSession().timeoutMinutes} min)`);
+    }
+
+    const steps: Observable<unknown>[] = [];
+    if (doPolicy) steps.push(defer(() => this.savePolicy()).pipe(tap(() => saved.push('guest policy'))));
+    if (doNav) steps.push(defer(() => this.saveNavigation()).pipe(tap(() => saved.push('navigation'))));
+
+    concat(...steps).subscribe({
+      error: (err: unknown) => {
+        const message = errorMessage(err, 'Failed to update access control settings.');
         this.saving.set(false);
+        this.saveError.set(message);
+        this.status.showError(message);
+        if (saved.length > 0) this.lastSavedAt.set(Date.now());
+        done?.(false);
+      },
+      complete: () => {
+        this.saving.set(false);
+        this.lastSavedAt.set(Date.now());
+        this.showToast(`Saved ${saved.join(' and ')}.`, 'ok');
+        done?.(true);
+      },
+    });
+  }
+
+  private applySession(): void {
+    const draft = this.draftSession();
+    this.sessionTimeout.setTimeoutMinutes(draft.timeoutMinutes);
+    this.sessionTimeout.setWarningMinutes(draft.warningMinutes);
+    // The service clamps to its own limits, so what it now holds is what is saved.
+    const applied = this.currentSession();
+    this.savedSession.set(applied);
+    this.draftSession.set({ ...applied });
+  }
+
+  private savePolicy(): Observable<unknown> {
+    const body = mergePolicy(this.rawPolicy, this.draftPolicy());
+    return this.api.updateAdminAccessControl({ anonymousPolicy: body }).pipe(
+      tap((res) => {
         this.accessInfo.set(res);
         if (res.anonymousPolicy) {
-          this.policy = { ...res.anonymousPolicy };
+          this.rawPolicy = { ...res.anonymousPolicy };
+          const form = toPolicyForm(res.anonymousPolicy);
+          this.savedPolicy.set(form);
+          this.draftPolicy.set({ ...form });
+        } else {
+          this.rawPolicy = body;
+          this.savedPolicy.set({ ...this.draftPolicy() });
         }
-        this.status.showNotice('Access control policy updated successfully.');
         this.auth.fetchSystemSession().subscribe();
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.status.showError(err?.message || 'Failed to update access control settings.');
-      },
-    });
+      }),
+      catchError((err: unknown) => throwError(() => new Error(errorMessage(err, 'Failed to update access control settings.')))),
+    );
   }
 
-  saveUiNavigation(): void {
-    this.saving.set(true);
+  private saveNavigation(): Observable<unknown> {
+    // Guest restrictions stay enforced: this page has never offered a way to turn that off.
     const navSettings: UiNavigationSettings = {
       enforceGuestRestrictions: true,
-      tabs: this.navTabs,
+      tabs: this.draftTabs().map((tab) => ({ ...tab })),
     };
-
-    this.api.updateAdminAccessControl({ uiNavigation: navSettings }).subscribe({
-      next: (res) => {
-        this.saving.set(false);
+    return this.api.updateAdminAccessControl({ uiNavigation: navSettings }).pipe(
+      tap((res) => {
         this.accessInfo.set(res);
-        this.uiNav.settings.set(navSettings);
-        this.status.showNotice('UI Navigation visibility rules saved and updated.');
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.status.showError(err?.message || 'Failed to update UI navigation settings.');
+        const applied = res.uiNavigation?.tabs?.length ? res.uiNavigation.tabs : navSettings.tabs;
+        this.savedTabs.set(applied.map((tab) => ({ ...tab })));
+        this.draftTabs.set(applied.map((tab) => ({ ...tab })));
+        this.uiNav.settings.set({ enforceGuestRestrictions: true, tabs: applied.map((tab) => ({ ...tab })) });
+      }),
+      catchError((err: unknown) => throwError(() => new Error(errorMessage(err, 'Failed to update UI navigation settings.')))),
+    );
+  }
+
+  // --- discarding and undoing ----------------------------------------------------------------
+
+  askDiscard(): void {
+    if (this.dirty() && !this.saving()) this.barPrompt.set('discard');
+  }
+
+  confirmBarPrompt(): void {
+    const prompt = this.barPrompt();
+    this.barPrompt.set(null);
+    if (prompt === 'discard') this.discardAll();
+    else if (prompt === 'reload') this.reloadAll();
+  }
+
+  /** Backing out of a prompt hands keyboard focus back to the bar, which just replaced the button that had it. */
+  closeBarPrompt(): void {
+    this.barPrompt.set(null);
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>('.ac-bar-actions button')?.focus(), 0);
+  }
+
+  private discardAll(): void {
+    const count = this.changeCount();
+    const restore = this.snapshotAll();
+    this.resetDrafts();
+    this.reviewOpen.set(false);
+    this.showToast(`Discarded ${count} unsaved change${count === 1 ? '' : 's'}.`, 'info', {
+      label: 'Undo',
+      run: () => {
+        restore();
+        this.showToast('Your changes are back.', 'ok');
       },
     });
   }
 
-  applyPreset(preset: 'strict' | 'defaults'): void {
-    if (preset === 'strict') {
-      for (const t of this.navTabs) {
-        if (t.isSensitive || t.requiresAuth) {
-          t.visibleToAnonymous = false;
-        }
-      }
-      this.status.showNotice('Strict Privacy preset applied: sensitive publishing features hidden from guests.');
+  private resetDrafts(): void {
+    this.draftTabs.set(this.savedTabs().map((tab) => ({ ...tab })));
+    this.draftPolicy.set({ ...this.savedPolicy() });
+    this.draftSession.set({ ...this.savedSession() });
+  }
+
+  /** The drafts as they are now, as a function that puts them back. The values are never edited in place, so references are enough. */
+  private snapshotAll(): () => void {
+    const tabs = this.draftTabs();
+    const policy = this.draftPolicy();
+    const session = this.draftSession();
+    return () => {
+      this.draftTabs.set(tabs);
+      this.draftPolicy.set(policy);
+      this.draftSession.set(session);
+    };
+  }
+
+  /** An "Undo" is only honest while nothing else has changed, so any further edit retires it. */
+  private invalidateUndo(): void {
+    if (this.toast()?.action) this.dismissToast();
+  }
+
+  revertChange(change: ChangeItem): void {
+    if (this.saving()) return;
+    if (change.section === 'nav') {
+      const saved = this.savedTabs().find((tab) => tab.id === change.target);
+      if (saved) this.setFlag(change.target, change.field as NavFlag, saved[change.field as NavFlag]);
+    } else if (change.section === 'policy') {
+      this.revertPolicy(change.target as PolicyKey);
     } else {
-      this.navTabs = DEFAULT_UI_NAVIGATION_TABS.map((t) => ({ ...t }));
-      this.status.showNotice('Defaults restored.');
+      this.revertSession(change.target as keyof SessionForm);
     }
   }
 
-  openPurgeModal(): void {
-    this.showPurgeDialog.set(true);
+  // --- purging stale guests ------------------------------------------------------------------
+
+  openPurge(): void {
+    if (this.pendingPurge() || this.purging()) return;
+    this.purgeError.set(null);
+    this.dialog.set('purge');
   }
 
-  confirmPurgeGuests(): void {
+  setPurgeInput(raw: string): void {
+    this.purgeInput.set(raw);
+  }
+
+  setPurgeDays(days: number): void {
+    this.purgeInput.set(String(days));
+  }
+
+  /** Out-of-range days are pulled back into 1-90 once the box is left, so the field never sits on a refused value. */
+  settlePurgeInput(): void {
+    const value = parseNumberInput(this.purgeInput());
+    if (value === null) {
+      this.purgeInput.set('7');
+      return;
+    }
+    this.purgeInput.set(String(Math.min(90, Math.max(1, Math.round(value)))));
+  }
+
+  /** Confirming starts a short countdown rather than deleting at once, so a slip can still be taken back. */
+  startPurge(): void {
+    const days = this.purgeDays();
+    if (days === null || !this.canStartPurge()) return;
+    const estimate = this.purgeEstimate();
+    this.dialog.set(null);
+    this.pendingPurge.set({
+      days,
+      projects: estimate.certainProjects,
+      sessions: estimate.certainSessions,
+      secondsLeft: UNDO_SECONDS,
+      total: UNDO_SECONDS,
+    });
+    this.stopPurgeTimer();
+    this.purgeTimer = setInterval(() => this.tickPurge(), 1000);
+  }
+
+  undoPurge(): void {
+    if (!this.pendingPurge()) return;
+    this.stopPurgeTimer();
+    this.pendingPurge.set(null);
+    this.showToast('Purge cancelled. Nothing was deleted.', 'info');
+  }
+
+  private tickPurge(): void {
+    const pending = this.pendingPurge();
+    if (!pending) {
+      this.stopPurgeTimer();
+      return;
+    }
+    if (pending.secondsLeft <= 1) {
+      this.stopPurgeTimer();
+      this.pendingPurge.set(null);
+      this.runPurge(pending.days);
+      return;
+    }
+    this.pendingPurge.set({ ...pending, secondsLeft: pending.secondsLeft - 1 });
+  }
+
+  private runPurge(days: number): void {
     this.purging.set(true);
-    this.api.purgeGuestProjects(this.purgeDays).subscribe({
+    this.purgeError.set(null);
+    this.api.purgeGuestProjects(days).subscribe({
       next: (res) => {
         this.purging.set(false);
-        this.showPurgeDialog.set(false);
-        this.status.showNotice(`Purged ${res.projectsPurged} stale guest project(s) across ${res.guestScopesCleaned} guest scope(s).`);
+        this.showToast(`Purged ${res.projectsPurged} stale guest project(s) across ${res.guestScopesCleaned} guest scope(s).`, 'ok');
         this.loadUserScopes();
       },
-      error: (err) => {
+      error: (err: unknown) => {
+        const message = errorMessage(err, 'Failed to purge guest projects.');
         this.purging.set(false);
-        this.status.showError(err?.message || 'Failed to purge guest projects.');
+        this.purgeError.set(message);
+        this.status.showError(message);
       },
     });
   }
 
-  tabIcon(id: string): string {
-    switch (id) {
-      case 'projects': return '📁';
-      case 'shorts': return '📱';
-      case 'calendar': return '📅';
-      case 'effects': return '✨';
-      case 'clips': return '🎞️';
-      case 'tools': return '🛠️';
-      case 'release': return '🎵';
-      case 'youtube': return '▶️';
-      case 'details': return '🔍';
-      case 'live': return '🔴';
-      case 'camera': return '📷';
-      case 'motion-copy': return '🕺';
-      case 'collab': return '👥';
-      case 'logs': return '📜';
-      case 'admin': return '⚙️';
-      default: return '📄';
+  private stopPurgeTimer(): void {
+    if (this.purgeTimer) clearInterval(this.purgeTimer);
+    this.purgeTimer = null;
+  }
+
+  // --- scopes and channels: filters, sorting, paging -----------------------------------------
+
+  setScopeFilter(filter: ScopeFilter): void {
+    this.prefs.update((p) => ({ ...p, scopeFilter: filter }));
+    this.scopePage.set(0);
+  }
+
+  setScopeActivity(raw: string): void {
+    const activity = SCOPE_ACTIVITIES.find((a) => a === raw);
+    if (!activity) return;
+    this.prefs.update((p) => ({ ...p, scopeActivity: activity }));
+    this.scopePage.set(0);
+  }
+
+  setScopeQuery(raw: string): void {
+    this.scopeQuery.set(raw);
+    this.scopePage.set(0);
+  }
+
+  /** Clicking a heading sorts by it; clicking it again flips the direction. */
+  toggleScopeSort(key: ScopeSortKey): void {
+    const current = this.scopeSort();
+    const dir: SortDir = current.key === key
+      ? (current.dir === 'asc' ? 'desc' : 'asc')
+      : (key === 'name' || key === 'type' ? 'asc' : 'desc');
+    this.prefs.update((p) => ({ ...p, scopeSort: { key, dir } }));
+    this.scopePage.set(0);
+  }
+
+  setScopeSortValue(value: string): void {
+    const option = SCOPE_SORT_OPTIONS.find((o) => `${o.key}:${o.dir}` === value);
+    if (!option) return;
+    this.prefs.update((p) => ({ ...p, scopeSort: { key: option.key, dir: option.dir } }));
+    this.scopePage.set(0);
+  }
+
+  ariaSort(key: ScopeSortKey): 'ascending' | 'descending' | 'none' {
+    const sort = this.scopeSort();
+    return sort.key !== key ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending';
+  }
+
+  sortMark(key: ScopeSortKey): string {
+    const sort = this.scopeSort();
+    return sort.key !== key ? '' : sort.dir === 'asc' ? '▲' : '▼';
+  }
+
+  setPageSize(raw: string): void {
+    const size = Number(raw);
+    if (!PAGE_SIZES.includes(size)) return;
+    this.prefs.update((p) => ({ ...p, scopePageSize: size }));
+    this.scopePage.set(0);
+  }
+
+  gotoPage(page: number): void {
+    this.scopePage.set(Math.min(Math.max(0, page), this.scopePageCount() - 1));
+  }
+
+  clearScopeFilters(): void {
+    this.scopeQuery.set('');
+    this.prefs.update((p) => ({ ...p, scopeFilter: 'all', scopeActivity: 'any' }));
+    this.scopePage.set(0);
+  }
+
+  setChannelFilter(filter: ChannelFilter): void {
+    this.prefs.update((p) => ({ ...p, channelFilter: filter }));
+  }
+
+  setChannelSortValue(value: string): void {
+    const option = CHANNEL_SORT_OPTIONS.find((o) => `${o.key}:${o.dir}` === value);
+    if (option) this.prefs.update((p) => ({ ...p, channelSort: { key: option.key, dir: option.dir } }));
+  }
+
+  clearChannelFilters(): void {
+    this.channelQuery.set('');
+    this.setChannelFilter('all');
+  }
+
+  markThumbBroken(key: string): void {
+    this.brokenThumbs.update((keys) => new Set(keys).add(key));
+  }
+
+  copyId(id: string): void {
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      this.showToast('Copying is not available in this browser.', 'warn');
+      return;
     }
+    clipboard.writeText(id).then(
+      () => this.showToast('ID copied to the clipboard.', 'ok'),
+      () => this.showToast('Could not copy the ID.', 'warn'),
+    );
+  }
+
+  // --- dialogs -------------------------------------------------------------------------------
+
+  private syncDialog(): void {
+    const kind = this.dialog();
+    const element = this.dlg()?.nativeElement;
+    if (!element) return;
+    if (kind !== null && !element.open) {
+      element.showModal();
+      // The dialog's content for this kind is rendered just after this runs, so the browser's own
+      // autofocus has nothing to find yet: put focus on the safe choice once it exists.
+      setTimeout(() => element.querySelector<HTMLElement>('[autofocus]')?.focus(), 0);
+    } else if (kind === null && element.open) {
+      this.programmaticClose = true;
+      element.close();
+    }
+  }
+
+  /** Escape on a modal dialog: the browser asks to close it, and this decides what that means for the page. */
+  onDialogCancel(event: Event): void {
+    event.preventDefault();
+    this.cancelDialog();
+  }
+
+  /** The browser closed the dialog itself (a second Escape it does not let a page veto). */
+  onDialogClosed(): void {
+    if (this.programmaticClose) {
+      this.programmaticClose = false;
+      return;
+    }
+    if (this.dialog() !== null) this.cancelDialog();
+  }
+
+  onDialogClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) this.cancelDialog();
+  }
+
+  cancelDialog(): void {
+    const kind = this.dialog();
+    this.dialog.set(null);
+    if (kind === 'leave') this.settleLeave(false);
+  }
+
+  // --- leaving the page ----------------------------------------------------------------------
+
+  /**
+   * In-app navigation away asks first; closing the tab is covered by beforeunload below.
+   * Routes are declared elsewhere, so the page registers its own guard on its route for as long
+   * as it is alive and takes it off again when it goes - a guard left behind would block the next visit.
+   */
+  private guardRoute(): void {
+    const config = this.route.routeConfig;
+    if (!config) return;
+    const guard: CanDeactivateFn<unknown> = () => this.canLeave();
+    config.canDeactivate = [...(config.canDeactivate ?? []), guard];
+    this.destroyRef.onDestroy(() => {
+      const rest = (config.canDeactivate ?? []).filter((g) => g !== guard);
+      config.canDeactivate = rest.length > 0 ? rest : undefined;
+    });
+  }
+
+  private canLeave(): boolean | Promise<boolean> {
+    if (!this.dirty() && !this.pendingPurge()) return true;
+    this.settleLeave(false);
+    return new Promise<boolean>((resolve) => {
+      this.leaveResolve = resolve;
+      this.barPrompt.set(null);
+      this.dialog.set('leave');
+    });
+  }
+
+  private settleLeave(leave: boolean): void {
+    const resolve = this.leaveResolve;
+    this.leaveResolve = null;
+    resolve?.(leave);
+  }
+
+  leaveDiscard(): void {
+    this.dialog.set(null);
+    this.stopPurgeTimer();
+    this.pendingPurge.set(null);
+    this.resetDrafts();
+    this.settleLeave(true);
+  }
+
+  leaveSave(): void {
+    if (this.dirty() && !this.canSave()) return;
+    this.dialog.set(null);
+    if (this.dirty()) {
+      this.runSave('all', (ok) => this.settleLeave(ok));
+    } else {
+      this.settleLeave(true);
+    }
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  warnBeforeUnload(event: BeforeUnloadEvent): void {
+    if (this.dirty() || this.pendingPurge()) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  }
+
+  // --- keyboard ------------------------------------------------------------------------------
+
+  @HostListener('document:keydown', ['$event'])
+  onKey(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      if (this.dialog() || this.loading() || this.loadError() !== null) return;
+      if (this.dirty()) this.requestSave('all');
+      else this.showToast('Nothing to save.', 'info');
+      return;
+    }
+    if (event.key === 'Escape') this.onEscape(event);
+  }
+
+  /** Closes the topmost thing that is open. Escape never discards edits by itself. */
+  private onEscape(event: KeyboardEvent): void {
+    if (this.dialog()) return;
+    if (this.barPrompt()) {
+      this.closeBarPrompt();
+      event.preventDefault();
+    } else if (this.pendingPurge()) {
+      this.undoPurge();
+      event.preventDefault();
+    } else if (this.reviewOpen()) {
+      this.reviewOpen.set(false);
+      event.preventDefault();
+    }
+  }
+
+  // --- toasts --------------------------------------------------------------------------------
+
+  private showToast(text: string, tone: ToastTone = 'ok', action?: { label: string; run: () => void }): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    const id = ++this.toastSeq;
+    this.toast.set({ id, text, tone, action });
+    this.toastTimer = setTimeout(() => {
+      if (this.toast()?.id === id) this.toast.set(null);
+    }, action ? 9000 : 4500);
+  }
+
+  dismissToast(): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = null;
+    this.toast.set(null);
+  }
+
+  runToastAction(): void {
+    const toast = this.toast();
+    if (!toast?.action) return;
+    this.dismissToast();
+    toast.action.run();
+  }
+
+  // --- small helpers for the template --------------------------------------------------------
+
+  timeoutLabel(minutes: number): string {
+    const hours = minutes >= 60 && minutes % 60 === 0 ? ` (${minutes / 60} hour${minutes === 60 ? '' : 's'})` : '';
+    return `${minutes} minutes${hours}${minutes === DEFAULT_TIMEOUT_MINUTES ? ', default' : ''}`;
+  }
+
+  valueOf(event: Event): string {
+    return (event.target as HTMLInputElement | HTMLSelectElement).value;
+  }
+
+  checked(event: Event): boolean {
+    return (event.target as HTMLInputElement).checked;
+  }
+
+  plural(count: number, word: string): string {
+    return `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`;
+  }
+
+  fmt(value: number): string {
+    return value.toLocaleString();
+  }
+
+  ago(ms: number | null): string {
+    return ago(ms, this.now());
   }
 }
