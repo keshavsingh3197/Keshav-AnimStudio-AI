@@ -136,10 +136,36 @@ public static class MongoMappingRegistrar
 
             var idMember = map.GetMemberMap("Id");
             map.SetIdMember(idMember);
-            idMember.SetSerializer(new StringSerializer(BsonType.ObjectId));
+            idMember.SetSerializer(ObjectIdOrStringSerializer.Instance);
             // A new entity arrives with an empty id; let the driver assign one.
             idMember.SetIdGenerator(MongoDB.Bson.Serialization.IdGenerators
                 .StringObjectIdGenerator.Instance);
         });
+    }
+}
+
+/// <summary>
+/// Stores a string id as a real ObjectId when it is one, and as a plain string otherwise.
+/// <para>
+/// Ids reach the repositories from URLs and from other records - a Drive-imported short's job
+/// id is <c>drive-&lt;fileId&gt;</c>, and SQL Server ids are GUIDs - and the plain ObjectId
+/// serializer throws on those, turning a simple "not found" into a 500 anywhere such an id is
+/// looked up. Written as a string, a lookup simply matches nothing. Reading accepts both.
+/// </para>
+/// </summary>
+internal sealed class ObjectIdOrStringSerializer : SealedClassSerializerBase<string>
+{
+    public static readonly ObjectIdOrStringSerializer Instance = new();
+
+    private static readonly StringSerializer AsObjectId = new(BsonType.ObjectId);
+    private static readonly StringSerializer AsString = new(BsonType.String);
+
+    protected override string DeserializeValue(BsonDeserializationContext context, BsonDeserializationArgs args) =>
+        AsObjectId.Deserialize(context, args);
+
+    protected override void SerializeValue(BsonSerializationContext context, BsonSerializationArgs args, string value)
+    {
+        if (ObjectId.TryParse(value, out _)) AsObjectId.Serialize(context, args, value);
+        else AsString.Serialize(context, args, value);
     }
 }

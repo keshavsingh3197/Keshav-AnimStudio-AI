@@ -11,6 +11,12 @@ const TICKET_KEY = 'animstudio_media_ticket';
 /** Renewed this long before it expires, so a URL handed to the page never goes stale while shown. */
 const RENEW_BEFORE_MS = 20 * 60 * 1000;
 
+/** Shortest gap between renewals forced by failed media requests. */
+const RECOVER_INTERVAL_MS = 30 * 1000;
+
+/** A tab hidden this long may come back to a server that restarted meanwhile. */
+const HIDDEN_RENEW_MS = 10 * 60 * 1000;
+
 interface StoredTicket {
   ticket: string;
   expiresAt: number;
@@ -38,6 +44,8 @@ export class MediaTicketService {
 
   private inFlight$: Observable<boolean> | null = null;
   private renewTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastRecoverAt = 0;
+  private hiddenAt: number | null = null;
 
   constructor() {
     effect(() => {
@@ -52,9 +60,33 @@ export class MediaTicketService {
           this.ensure().subscribe();
         } else {
           this.scheduleRenewal(this.current()!);
+          // A ticket kept from before a reload may predate a server restart, which voids it.
+          this.recover().subscribe();
         }
       });
     });
+
+    // The API sleeps when idle and wakes with fresh keys, so a ticket from before is void.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this.hiddenAt = Date.now();
+      } else if (this.hiddenAt !== null && Date.now() - this.hiddenAt > HIDDEN_RENEW_MS) {
+        this.hiddenAt = null;
+        this.recover().subscribe();
+      }
+    });
+  }
+
+  /**
+   * Gets a fresh ticket after a media request failed - the server may have restarted and
+   * stopped accepting the old one. Every URL built through {@link sign} re-signs when it
+   * arrives. At most once per {@link RECOVER_INTERVAL_MS}, so a really missing file can't
+   * cause a renewal storm; resolves false when throttled or not signed in.
+   */
+  recover(): Observable<boolean> {
+    if (Date.now() - this.lastRecoverAt < RECOVER_INTERVAL_MS) return of(false);
+    this.lastRecoverAt = Date.now();
+    return this.ensure(true);
   }
 
   /** Appends the ticket to an API media URL. Anything else, or no ticket, is returned unchanged. */

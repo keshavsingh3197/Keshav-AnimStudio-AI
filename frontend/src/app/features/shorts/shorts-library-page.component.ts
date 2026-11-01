@@ -7,6 +7,7 @@ import { Observable, TimeoutError, switchMap, timeout } from 'rxjs';
 
 import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from '../../core/models/shorts.models';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { MediaTicketService } from '../../core/services/media-ticket.service';
 import { ShortsService } from '../../core/services/shorts.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { ContentTopic } from '../../core/models/calendar.models';
@@ -758,6 +759,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
 })
 export class ShortsLibraryPageComponent implements OnDestroy {
   private readonly api = inject(ShortsService);
+  private readonly media = inject(MediaTicketService);
   private readonly route = inject(ActivatedRoute);
   private readonly youtube = inject(YouTubePublishService);
   private readonly injector = inject(Injector);
@@ -966,6 +968,13 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   onPreviewError(item: LibraryItem): void {
+    // A media ticket voided by a server restart: renewing it re-signs the src and the player retries.
+    this.media.recover().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((renewed) => {
+      if (!renewed) this.showPreviewError(item);
+    });
+  }
+
+  private showPreviewError(item: LibraryItem): void {
     const text = `Could not play "${item.title || 'short'}". Try opening it in Google Drive${item.driveUrl ? ' using the Drive link' : ' after syncing the library'}.`;
     if (this.sampleItem()?.handoffId === item.handoffId) this.previewError.set(text);
     else {
@@ -979,7 +988,12 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   showThumb(item: LibraryItem): boolean {
-    return ((item.hasLocalPreview ?? true) || !!item.driveUrl) && !this.failedThumbs().has(item.handoffId);
+    return ((item.hasLocalPreview ?? true) || !!item.driveUrl) && !this.failedThumbs().has(this.thumbKey(item.handoffId));
+  }
+
+  /** A failure counts for the ticket it was signed with, so a renewed ticket retries every thumbnail. */
+  private thumbKey(handoffId: string): string {
+    return `${handoffId}|${this.media.ticket() ?? ''}`;
   }
 
   thumbUrl(item: LibraryItem): string {
@@ -991,11 +1005,13 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   onThumbError(handoffId: string): void {
+    const key = this.thumbKey(handoffId);
     this.failedThumbs.update((set) => {
       const next = new Set(set);
-      next.add(handoffId);
+      next.add(key);
       return next;
     });
+    this.media.recover().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
   }
 
   onThumbClick(item: LibraryItem): void {
