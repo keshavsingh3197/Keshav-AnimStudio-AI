@@ -161,6 +161,67 @@ public sealed partial class GoogleDriveClient : IDisposable
         }
     }
 
+    /// <summary>Largest thumbnail image accepted from Drive.</summary>
+    private const int MaxThumbnailBytes = 2 * 1024 * 1024;
+
+    /// <summary>
+    /// Drive's own preview image of an app-made file (a video frame Drive picked), as image
+    /// bytes, or null when Drive has none yet (just uploaded, or still processing). The link
+    /// Drive returns is only followed when it is on Google's image host.
+    /// </summary>
+    public async Task<(byte[] Bytes, string ContentType)?> GetThumbnailAsync(string accessToken, string fileId, int width, CancellationToken ct)
+    {
+        if (!IsFileId(fileId)) return null;
+
+        string? link;
+        try
+        {
+            using var doc = await SendJsonAsync(HttpMethod.Get, $"{Api}files/{Uri.EscapeDataString(fileId)}?fields=thumbnailLink",
+                null, accessToken, "files.get", ct).ConfigureAwait(false);
+            link = ReadString(doc.RootElement, "thumbnailLink");
+        }
+        catch (YouTubePublishException ex) when (ex.Code == "drive-not-found")
+        {
+            return null;
+        }
+
+        if (link is null || !Uri.TryCreate(link, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps
+            || !uri.Host.EndsWith(".googleusercontent.com", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // The link ends in "=s220" (its size); ask for the width the page shows instead.
+        var sized = ThumbnailSize().Replace(uri.AbsoluteUri, $"=s{Math.Clamp(width, 120, 1280)}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, sized);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        try
+        {
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            var type = response.Content.Headers.ContentType?.MediaType;
+            if (!response.IsSuccessStatusCode || type is not ("image/jpeg" or "image/png" or "image/webp")
+                || response.Content.Headers.ContentLength > MaxThumbnailBytes)
+            {
+                _logger.LogInformation("Google Drive thumbnail unavailable: {Status}", (int)response.StatusCode);
+                return null;
+            }
+
+            await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await source.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > MaxThumbnailBytes) return null;
+                buffer.Write(chunk, 0, read);
+            }
+            return (buffer.ToArray(), type);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Google Drive thumbnail could not be fetched: {ErrorType}", ex.GetType().Name);
+            return null;
+        }
+    }
+
     /// <summary>Moves an app-made file into <paramref name="folderId"/> (out of every other folder) and renames it.</summary>
     public async Task MoveFileAsync(string accessToken, GoogleDriveFileInfo file, string folderId, string newName, CancellationToken ct)
     {
@@ -546,4 +607,7 @@ public sealed partial class GoogleDriveClient : IDisposable
 
     [GeneratedRegex("^[A-Za-z0-9_-]{10,200}$")]
     private static partial Regex FileIdPattern();
+
+    [GeneratedRegex(@"=s\d+$")]
+    private static partial Regex ThumbnailSize();
 }
