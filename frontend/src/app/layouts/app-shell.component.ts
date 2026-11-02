@@ -14,6 +14,8 @@ import { SessionTimeoutService } from '../core/services/session-timeout.service'
 import { StatusService } from '../core/services/status.service';
 import { ThemeService } from '../core/services/theme.service';
 import { UiNavigationService } from '../core/services/ui-navigation.service';
+import { CREATOR, SOCIAL_LINKS } from '../core/site-links';
+import { SocialIconComponent } from '../shared/social-icon.component';
 
 /** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
 const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
@@ -29,7 +31,8 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent, SessionTimeoutComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent, SessionTimeoutComponent, SocialIconComponent],
+  host: { '(document:keydown.escape)': 'closeMobileNav()' },
   template: `
     <app-session-timeout></app-session-timeout>
 
@@ -58,13 +61,14 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           id="studio-navigation"
           class="topbar-nav"
           [class.mobile-open]="mobileNavOpen()"
+          [class.nav-dense]="uiNav.visibleNavItems().length > 9"
           (click)="closeMobileNav()"
           aria-label="Main Studio Navigation">
           @for (tab of uiNav.visibleNavItems(); track tab.id) {
             @if (tab.id === 'clips') {
               <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
                 <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-                <span>{{ tab.label }}</span>
+                <span class="topbar-label">{{ tab.label }}</span>
               </button>
             } @else if (tab.id !== 'admin') {
               <a [routerLink]="tab.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: tab.path === '/live' }" class="topbar-navlink" [title]="tab.description || tab.label">
@@ -112,7 +116,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>
                   }
                 }
-                <span>{{ tab.label }}</span>
+                <span class="topbar-label">{{ tab.label }}</span>
                 @if (tab.id === 'shorts' && shortsAttention() > 0) {
                   <span class="topbar-badge warn">{{ shortsAttention() }}</span>
                 }
@@ -240,23 +244,53 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
 
     <footer class="app-footer">
       <div class="wrap app-footer-inner">
-        <div class="app-footer-brand">
-          <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
-          <span class="app-footer-tagline">Script to screen: scenes, clips, live broadcast, and renders in one studio.</span>
+        <div class="app-footer-top">
+          <div class="app-footer-about">
+            <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
+            <p class="app-footer-tagline">Script to screen: scenes, clips, live broadcast, and renders in one studio.</p>
+            <p class="app-footer-creator">
+              Created by <a [href]="creator.portfolioUrl" target="_blank" rel="noopener noreferrer">{{ creator.name }}</a>
+            </p>
+            <div class="app-footer-social">
+              @for (link of socialLinks; track link.id) {
+                <a [href]="link.url" target="_blank" rel="noopener noreferrer"
+                   [attr.aria-label]="link.label + ' - ' + link.handle" [title]="link.label + ' - ' + link.handle">
+                  <app-social-icon [id]="link.id" />
+                </a>
+              }
+            </div>
+          </div>
+
+          <!-- The tabs already list Settings when it applies, so it is not added again here. -->
+          <nav class="app-footer-col" aria-label="Studio">
+            <h2>Studio</h2>
+            <ul class="app-footer-links">
+              @for (tab of uiNav.visibleNavItems(); track tab.id) {
+                @if (tab.id !== 'clips') {
+                  <li><a [routerLink]="tab.path">{{ tab.label }}</a></li>
+                }
+              }
+            </ul>
+          </nav>
+
+          <nav class="app-footer-col" aria-label="Company">
+            <h2>Company</h2>
+            <ul class="app-footer-links app-footer-links-stack">
+              <li><a [href]="creator.portfolioUrl" target="_blank" rel="noopener noreferrer">About the creator</a></li>
+              <li><a routerLink="/contact">Contact us</a></li>
+              <li><a routerLink="/terms">Terms &amp; Conditions</a></li>
+              <li><a routerLink="/privacy">Privacy Policy</a></li>
+            </ul>
+          </nav>
         </div>
 
-        <nav class="app-footer-links" aria-label="Footer">
-          @for (tab of uiNav.visibleNavItems(); track tab.id) {
-            @if (tab.id !== 'clips') {
-              <a [routerLink]="tab.path">{{ tab.label }}</a>
-            }
-          }
-          @if (auth.isAdmin()) {
-            <a routerLink="/admin">Settings</a>
-          }
-        </nav>
-
-        <span class="app-footer-copy">&copy; {{ year }} AnimStudio AI</span>
+        <div class="app-footer-bottom">
+          <span>&copy; {{ year }} AnimStudio AI. All rights reserved.</span>
+          <span>
+            Designed &amp; built by
+            <a [href]="creator.portfolioUrl" target="_blank" rel="noopener noreferrer">keshavsingh.in</a>
+          </span>
+        </div>
       </div>
     </footer>
   `,
@@ -281,35 +315,87 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     }
 
     .app-footer-inner {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: .85rem 1.5rem;
-      padding-top: 1.1rem;
+      padding-top: 1.8rem;
       padding-bottom: 1.1rem;
     }
 
-    .app-footer-brand {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: .75rem;
+    /* About | Studio | Company on desktop; stacks on tablets and phones. */
+    .app-footer-top {
+      display: grid;
+      grid-template-columns: minmax(16rem, 1.1fr) 2fr minmax(11rem, .8fr);
+      gap: 1.6rem 2.5rem;
+      padding-bottom: 1.4rem;
     }
 
-    .app-footer-brand .brand {
-      font-size: 0.98rem;
+    .app-footer-about .brand {
+      font-size: 1rem;
     }
 
-    .app-footer-tagline {
+    .app-footer-tagline,
+    .app-footer-creator {
+      margin: .5rem 0 0;
       color: var(--muted);
       font-size: 0.8rem;
+      line-height: 1.55;
+    }
+
+    .app-footer-creator a,
+    .app-footer-bottom a {
+      color: var(--text-dim);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .app-footer-creator a:hover,
+    .app-footer-bottom a:hover {
+      color: var(--brand-bright);
+    }
+
+    .app-footer-social {
+      display: flex;
+      gap: .45rem;
+      margin-top: .85rem;
+    }
+
+    .app-footer-social a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.25rem;
+      height: 2.25rem;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-dim);
+      transition: color .15s ease, border-color .15s ease, background .15s ease;
+    }
+
+    .app-footer-social a:hover {
+      color: var(--brand-bright);
+      border-color: color-mix(in srgb, var(--brand) 55%, var(--border));
+      background: var(--surface-3);
+    }
+
+    .app-footer-col h2 {
+      margin: 0 0 .7rem;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
     }
 
     .app-footer-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.9rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+      gap: .55rem 1rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .app-footer-links-stack {
+      grid-template-columns: 1fr;
     }
 
     .app-footer-links a {
@@ -323,12 +409,69 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       color: var(--text);
     }
 
+    .app-footer-bottom {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: .5rem 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: .76rem;
+    }
+
+    @media (max-width: 900px) {
+      .app-footer-top {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .app-footer-about {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .app-footer-top {
+        grid-template-columns: 1fr;
+      }
+
+      .app-footer-links {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .app-footer-links-stack {
+        grid-template-columns: 1fr;
+      }
+
+      /* Thumb-sized targets on phones. */
+      .app-footer-links a {
+        display: inline-block;
+        padding: .3rem 0;
+      }
+
+      .app-footer-social a {
+        width: 2.75rem;
+        height: 2.75rem;
+      }
+    }
+
+    /* The bar spans wider than page content so fifteen tabs and the account controls fit
+       side by side on a laptop; the page below keeps its own reading width. */
+    .topbar-inner {
+      max-width: min(98vw, 2400px);
+    }
+
+    /*
+      "safe center": plain center pushes overflowing tabs past the LEFT edge, where no
+      scrolling can reach them - Projects, Shorts, Calendar and Effects simply vanished.
+      Safe centring falls back to start-aligned once the tabs no longer fit.
+    */
     .topbar-nav {
       display: flex;
       align-items: center;
       gap: .22rem;
       flex: 1 1 auto;
-      justify-content: center;
+      min-width: 0;
+      justify-content: safe center;
       overflow-x: auto;
       scrollbar-width: none;
       padding: 2px 4px;
@@ -679,6 +822,54 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       cursor: not-allowed;
     }
 
+    /*
+      Laptops and tablets in landscape: tabs go icon-only (the active one keeps its name)
+      so every tab stays on screen. The label is hidden visually, not removed, so screen
+      readers still announce it; the title attribute gives sighted users a tooltip. A short
+      list (guests see ~9 tabs) keeps its labels up to a smaller width than a long one.
+    */
+    @media (min-width: 901px) and (max-width: 1599px) {
+      .topbar-nav .topbar-navlink:not(.active) .topbar-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      .topbar-nav .topbar-navlink:not(.active) {
+        padding: .42rem .5rem;
+      }
+    }
+
+    @media (min-width: 1600px) and (max-width: 2299px) {
+      .topbar-nav.nav-dense .topbar-navlink:not(.active) .topbar-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      .topbar-nav.nav-dense .topbar-navlink:not(.active) {
+        padding: .42rem .5rem;
+      }
+    }
+
+    /* Account controls give up their words before the tabs give up space. */
+    @media (max-width: 1399px) {
+      .theme-toggle-label,
+      .user-name {
+        display: none;
+      }
+
+      .theme-toggle {
+        padding: .3rem .55rem;
+      }
+    }
+
     @media (max-width: 900px) {
       .topbar-inner {
         flex-wrap: wrap;
@@ -753,6 +944,13 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         white-space: nowrap;
       }
     }
+
+    /* Small phones: one tab per row keeps long names like "Camera Studio" on one line. */
+    @media (max-width: 380px) {
+      .topbar-nav.mobile-open {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
   `],
 })
 
@@ -783,6 +981,8 @@ export class AppShellComponent {
   readonly shortsAttention = signal(0);
   private readonly shorts = inject(ShortsService);
   readonly year = new Date().getFullYear();
+  readonly creator = CREATOR;
+  readonly socialLinks = SOCIAL_LINKS;
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
 
   private refreshShortsAttention() {

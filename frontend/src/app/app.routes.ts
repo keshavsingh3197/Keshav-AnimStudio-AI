@@ -357,6 +357,25 @@ export const routes: Routes = [
   },
 
   {
+    path: 'contact',
+    title: 'Contact - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/info/contact.component').then((m) => m.ContactComponent),
+  },
+  {
+    path: 'terms',
+    title: 'Terms & Conditions - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/info/terms.component').then((m) => m.TermsComponent),
+  },
+  {
+    path: 'privacy',
+    title: 'Privacy Policy - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/info/privacy.component').then((m) => m.PrivacyComponent),
+  },
+
+  {
     path: 'not-found',
     title: 'Not Found - AnimStudio AI',
     loadComponent: () =>
