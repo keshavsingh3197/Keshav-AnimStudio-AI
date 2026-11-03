@@ -1,0 +1,207 @@
+import { DecimalPipe } from '@angular/common';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
+
+import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import {
+  CreateStoryRunBody,
+  StoryAgentOptions,
+  StoryBuildOptions,
+  StoryFormat,
+  StoryRunSummary,
+  StoryTopic,
+  StoryWriterMode,
+} from '../../core/models/story-agent.models';
+import { StatusService } from '../../core/services/status.service';
+import { StoryAgentService } from '../../core/services/story-agent.service';
+import { StoryOptionsComponent } from './story-options.component';
+import { STATUS_LABEL, statusTone, timeAgo } from './story-agent.utils';
+
+const TOPICS_SHOWN = 8;
+const LIST_POLL_MS = 4000;
+
+/** Lengths a story is offered in. The script is written to about this; it is a target, not a promise. */
+const LENGTHS: { minutes: number; label: string }[] = [
+  { minutes: 1, label: 'About 1 minute' },
+  { minutes: 2.5, label: 'About 2½ minutes' },
+  { minutes: 4, label: 'About 4 minutes' },
+  { minutes: 6, label: 'About 6 minutes' },
+  { minutes: 10, label: 'About 10 minutes' },
+];
+
+/**
+ * The Story Agent's front door: say what the story is about - a title is enough - and choose how it should be made; and
+ * below it, the stories already started. Starting one opens it, and it carries on by itself from there.
+ */
+@Component({
+  selector: 'app-story-agent',
+  imports: [DecimalPipe, RouterLink, StoryOptionsComponent],
+  templateUrl: './story-agent.component.html',
+  styleUrls: ['./story-agent.component.css'],
+})
+export class StoryAgentComponent {
+  private readonly stories = inject(StoryAgentService);
+  private readonly router = inject(Router);
+  private readonly status = inject(StatusService);
+
+  readonly caps = signal<StoryAgentOptions | null>(null);
+  readonly capsError = signal<string | null>(null);
+  /** Null until the first answer, so the list can tell "loading" from "none yet". */
+  readonly runs = signal<StoryRunSummary[] | null>(null);
+  readonly listError = signal<string | null>(null);
+  readonly starting = signal(false);
+  readonly startError = signal<string | null>(null);
+  readonly deleting = signal<string | null>(null);
+
+  readonly title = signal('');
+  readonly notes = signal('');
+  readonly language = signal<'hi' | 'en'>('hi');
+  readonly minutes = signal(2.5);
+  readonly format = signal<StoryFormat>('Wide');
+  readonly writer = signal<StoryWriterMode>('Auto');
+  readonly packId = signal<string | null>(null);
+  readonly options = signal<StoryBuildOptions | null>(null);
+  readonly showAllTopics = signal(false);
+
+  readonly lengths = LENGTHS;
+  readonly label = STATUS_LABEL;
+  readonly tone = statusTone;
+  readonly ago = timeAgo;
+
+  readonly topics = computed<StoryTopic[]>(() => {
+    const all = this.caps()?.topics ?? [];
+    return this.showAllTopics() ? all : all.slice(0, TOPICS_SHOWN);
+  });
+  readonly hiddenTopics = computed(() => Math.max(0, (this.caps()?.topics.length ?? 0) - TOPICS_SHOWN));
+  readonly pack = computed(() => this.caps()?.packs.find((pack) => pack.id === this.packId()) ?? null);
+  readonly titleTooShort = computed(() => this.writer() !== 'BuiltIn' && this.title().trim().length < 3);
+
+  /** Why Start is not pressed yet, in words, or null when it can be. */
+  readonly missing = computed(() => {
+    const caps = this.caps();
+    if (!caps) return 'Loading…';
+    if (!caps.enabled) return 'The Story Agent is switched off on this server.';
+    if (this.writer() === 'BuiltIn') return this.pack() ? null : 'Pick one of the built-in stories.';
+    return this.titleTooShort() ? 'Give the story a title.' : null;
+  });
+
+  readonly working = computed(() => (this.runs() ?? []).filter((run) => run.working).length);
+
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
+
+  constructor() {
+    this.stories.options().subscribe({
+      next: (caps) => {
+        this.caps.set(caps);
+        this.applyDefaults(caps);
+      },
+      error: (failure: unknown) => this.capsError.set(failure instanceof ApiFailure ? failure.message : 'The Story Agent could not be reached.'),
+    });
+    this.refresh();
+
+    inject(DestroyRef).onDestroy(() => {
+      this.destroyed = true;
+      if (this.timer !== null) clearTimeout(this.timer);
+    });
+  }
+
+  /** The choices a first-time visitor should find already made: what this server can do, and the person's own voice if it is quick. */
+  private applyDefaults(caps: StoryAgentOptions): void {
+    const mine = caps.speechEngine ? caps.myVoices.find((voice) => voice.tuned) : undefined;
+    this.options.set({
+      narration: mine ? 'MyVoice' : caps.speechEngine ? 'Stock' : 'None',
+      voiceProfileId: mine?.id ?? null,
+      voiceId: null,
+      speechEngine: null,
+      speechRate: 0.95,
+      closestToMyVoice: false,
+      visuals: 'Auto',
+      imageStyle: null,
+      music: caps.music,
+      uploadsAreAiMade: true,
+      musicQuery: null,
+      musicVolume: 0.2,
+      renderWhenReady: caps.renderer,
+      autoApprove: false,
+    });
+    this.writer.set(caps.textModel ? 'Auto' : 'Manual');
+    this.packId.set(caps.packs[0]?.id ?? null);
+  }
+
+  // ------------------------------------------------------------------------------------------------ the list
+
+  private refresh(): void {
+    this.stories.list().subscribe({
+      next: (runs) => {
+        if (this.destroyed) return;
+        this.listError.set(null);
+        this.runs.set(runs);
+        // Only a story being made changes by itself, so only then is the list asked again.
+        if (runs.some((run) => run.working)) this.timer = setTimeout(() => this.refresh(), LIST_POLL_MS);
+      },
+      error: (failure: unknown) => {
+        if (this.destroyed) return;
+        this.listError.set(failure instanceof ApiFailure ? failure.message : 'Your stories could not be loaded.');
+        if (this.runs() === null) this.runs.set([]);
+      },
+    });
+  }
+
+  async remove(run: StoryRunSummary): Promise<void> {
+    if (!confirm(`Delete "${run.title}", with its script, pictures and narration?${run.hasProject ? ' The project and video it made are kept.' : ''}`)) return;
+    this.deleting.set(run.id);
+    try {
+      await firstValueFrom(this.stories.delete(run.id));
+      this.runs.update((list) => (list ?? []).filter((item) => item.id !== run.id));
+    } catch (failure: unknown) {
+      this.status.showError(failure instanceof ApiFailure ? failure.message : 'That story could not be deleted.');
+    } finally {
+      this.deleting.set(null);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ starting
+
+  useTopic(topic: StoryTopic): void {
+    this.title.set(this.language() === 'hi' ? topic.hindi : topic.name);
+  }
+
+  setWriter(writer: StoryWriterMode): void {
+    this.writer.set(writer);
+    this.startError.set(null);
+  }
+
+  async start(): Promise<void> {
+    if (this.starting() || this.missing()) return;
+    const builtIn = this.writer() === 'BuiltIn';
+    const notes = this.notes().trim();
+
+    const body: CreateStoryRunBody = {
+      title: builtIn ? undefined : this.title().trim(),
+      notes: builtIn || !notes ? undefined : notes,
+      language: this.language(),
+      targetSeconds: Math.round(this.minutes() * 60),
+      format: this.format(),
+      writer: this.writer(),
+      packId: builtIn ? (this.packId() ?? undefined) : undefined,
+      options: this.options() ?? undefined,
+    };
+
+    this.starting.set(true);
+    this.startError.set(null);
+    try {
+      const run = await firstValueFrom(this.stories.create(body));
+      await this.router.navigate(['/story-agent', run.id]);
+    } catch (failure: unknown) {
+      this.startError.set(failure instanceof ApiFailure ? failure.message : 'The story could not be started.');
+    } finally {
+      this.starting.set(false);
+    }
+  }
+
+  text(event: Event): string {
+    return (event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value;
+  }
+}

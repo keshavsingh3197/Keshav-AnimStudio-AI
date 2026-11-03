@@ -86,6 +86,60 @@ internal static class ScriptFonts
     private static string[] Nirmala() =>
         [@"C:\Windows\Fonts\NirmalaB.ttf", @"C:\Windows\Fonts\Nirmala.ttc", @"C:\Windows\Fonts\Nirmala.ttf"];
 
+    /// <summary>
+    /// The families libass can be asked for by name, per script, each with the files that prove it is installed. Subtitles go
+    /// through libass, which looks a face up by family and not by file, and - like drawtext - draws a box for a glyph the face
+    /// lacks. The first family whose file exists wins.
+    /// </summary>
+    private static readonly Dictionary<string, (string Family, string[] Files)[]> Families = new(StringComparer.Ordinal)
+    {
+        ["Devanagari"] =
+        [
+            ("Nirmala UI", Nirmala()), ("Mangal", [@"C:\Windows\Fonts\mangal.ttf"]), ("Noto Sans Devanagari", Noto("Devanagari")),
+            ("Lohit Devanagari", ["/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf"]),
+            ("Devanagari Sangam MN", ["/System/Library/Fonts/Supplemental/Devanagari Sangam MN.ttc"]),
+            ("Kohinoor Devanagari", ["/System/Library/Fonts/Kohinoor.ttc"])
+        ],
+        ["Bengali"] = [("Nirmala UI", Nirmala()), ("Noto Sans Bengali", Noto("Bengali"))],
+        ["Gurmukhi"] = [("Nirmala UI", Nirmala()), ("Noto Sans Gurmukhi", Noto("Gurmukhi"))],
+        ["Gujarati"] = [("Nirmala UI", Nirmala()), ("Noto Sans Gujarati", Noto("Gujarati"))],
+        ["Oriya"] = [("Nirmala UI", Nirmala()), ("Noto Sans Oriya", Noto("Oriya"))],
+        ["Tamil"] = [("Nirmala UI", Nirmala()), ("Noto Sans Tamil", Noto("Tamil"))],
+        ["Telugu"] = [("Nirmala UI", Nirmala()), ("Noto Sans Telugu", Noto("Telugu"))],
+        ["Kannada"] = [("Nirmala UI", Nirmala()), ("Noto Sans Kannada", Noto("Kannada"))],
+        ["Malayalam"] = [("Nirmala UI", Nirmala()), ("Noto Sans Malayalam", Noto("Malayalam"))],
+        ["Arabic"] =
+        [
+            ("Segoe UI", [@"C:\Windows\Fonts\segoeui.ttf"]), ("Arial", [@"C:\Windows\Fonts\arial.ttf"]), ("Noto Sans Arabic", Noto("Arabic")),
+            ("DejaVu Sans", ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"])
+        ],
+        ["Thai"] = [("Leelawadee UI", [@"C:\Windows\Fonts\LeelawUI.ttf", @"C:\Windows\Fonts\LeelaUIb.ttf"]), ("Noto Sans Thai", Noto("Thai"))],
+        ["Cjk"] =
+        [
+            ("Microsoft YaHei", [@"C:\Windows\Fonts\msyh.ttc"]), ("Yu Gothic", [@"C:\Windows\Fonts\YuGothB.ttc"]),
+            ("Malgun Gothic", [@"C:\Windows\Fonts\malgun.ttf"]), ("Noto Sans CJK SC", ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"]),
+            ("PingFang SC", ["/System/Library/Fonts/PingFang.ttc"])
+        ]
+    };
+
+    /// <summary>
+    /// The family name to put in a subtitle style so text in <paramref name="script"/> is drawn with real glyphs, or null when
+    /// no face for it is installed (the caller then keeps what it had). <paramref name="exists"/> says whether a file is there;
+    /// it defaults to the file system.
+    /// </summary>
+    public static string? FamilyFor(string script, Func<string, bool>? exists = null)
+    {
+        if (!Families.TryGetValue(script, out var families)) return null;
+
+        exists ??= File.Exists;
+        foreach (var (family, files) in families)
+        {
+            if (Array.Exists(files, f => exists(f))) return family;
+        }
+
+        return null;
+    }
+
     /// <summary>The Debian and Fedora locations of a Noto Sans face for one script.</summary>
     private static string[] Noto(string script) =>
     [

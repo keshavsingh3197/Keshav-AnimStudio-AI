@@ -1,0 +1,19 @@
+:host { display: block; }
+
+fieldset.so { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1.15rem; }
+fieldset.so:disabled { opacity: .6; }
+
+.so-group { display: grid; gap: .55rem; align-content: start; }
+.so-title { font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+.so-field { display: grid; gap: .3rem; }
+.so-field label { margin: 0; }
+.so-field input[type="range"] { margin: .2rem 0; }
+
+.so-note { margin: 0; font-size: .82rem; line-height: 1.45; color: var(--muted); }
+.so-note code { font-size: .78rem; padding: .05rem .3rem; border-radius: 4px; background: var(--ov-2); color: var(--text-dim); }
+.so-warn { color: var(--warn); }
+
+.so-switch { align-items: center; }
+.so-off { opacity: .55; }
+.seg > label.so-off { cursor: not-allowed; }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using AnimStudio.Application.Abstractions.Rendering;
+using AnimStudio.Infrastructure.Ffmpeg;
 
 namespace AnimStudio.Infrastructure.Subtitles;
 
@@ -15,8 +16,14 @@ namespace AnimStudio.Infrastructure.Subtitles;
 /// needs one filter instead of one per line, and gives per-character styling for free.
 /// </para>
 /// </summary>
-public sealed class AssSubtitleWriter : ISubtitleWriter
+public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : ISubtitleWriter
 {
+    /// <summary>
+    /// The face the render options name when nobody has chosen one. It has no Devanagari, Arabic or CJK glyphs, so for text
+    /// in those scripts it is swapped for an installed face that has; a face the operator chose is never touched.
+    /// </summary>
+    public const string StockFontName = "DejaVu Sans";
+
     private const string DefaultStyleName = "Default";
 
     public string Write(SubtitleRequest request)
@@ -24,15 +31,21 @@ public sealed class AssSubtitleWriter : ISubtitleWriter
         ArgumentNullException.ThrowIfNull(request);
 
         var builder = new StringBuilder();
-        var font = AssTextSanitizer.SanitizeStyleName(request.FontName) == "Default"
-            ? request.FontName
-            : request.FontName;
+        var font = FontFor(request);
 
         builder.Append(Header(request));
         builder.Append(Styles(request, font));
         builder.Append(Events(request));
 
         return builder.ToString();
+    }
+
+    private string FontFor(SubtitleRequest request)
+    {
+        if (!string.Equals(request.FontName, StockFontName, StringComparison.OrdinalIgnoreCase)) return request.FontName;
+
+        var script = ScriptFonts.Detect(string.Concat(request.Lines.Select(l => l.Text)));
+        return script is null ? request.FontName : ScriptFonts.FamilyFor(script, fileExists) ?? request.FontName;
     }
 
     private static string Header(SubtitleRequest request) =>

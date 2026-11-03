@@ -182,6 +182,9 @@ public sealed class SqlDatabaseInitializer(
             UPDATE VoiceProfiles SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
             WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
 
+            UPDATE StoryRuns SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
             UPDATE YouTubePublications SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
             WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
 
@@ -567,6 +570,19 @@ public sealed class SqlDatabaseInitializer(
                 DataJson NVARCHAR(MAX) NOT NULL
             );
             CREATE INDEX IX_VoiceProfiles_UserId ON VoiceProfiles (UserId);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StoryRuns')
+        BEGIN
+            CREATE TABLE StoryRuns (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                Status NVARCHAR(32) NOT NULL,
+                UpdatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_StoryRuns_User ON StoryRuns (UserId, UpdatedAt DESC);
+            CREATE INDEX IX_StoryRuns_Status ON StoryRuns (Status, UpdatedAt);
         END;
 
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')

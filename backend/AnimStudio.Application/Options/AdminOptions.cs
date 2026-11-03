@@ -110,6 +110,7 @@ public sealed class UiNavigationSettings
         Tabs = new List<UiNavigationItemConfig>
         {
             new() { Id = "projects", Label = "Projects", Path = "/projects", Icon = "folder", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Personal video projects and timeline workspace" },
+            new() { Id = "story-agent", Label = "Story Agent", Path = "/story-agent", Icon = "book", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Give a title; get a researched, narrated video and its YouTube details" },
             new() { Id = "shorts", Label = "Shorts", Path = "/shorts", Icon = "video", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Vertical video clips and batch shorts generator" },
             new() { Id = "calendar", Label = "Calendar", Path = "/calendar", Icon = "calendar", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = false, Description = "Social media scheduling and release planning" },
             new() { Id = "effects", Label = "Effects", Path = "/effects", Icon = "sparkles", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Stingers, overlays, sound effects and visual elements" },

@@ -19,6 +19,7 @@ public static class BuiltInPrompts
     public const string ActionBeats = "action-beats";
     public const string VideoMetadata = "video-metadata";
     public const string LiveMetadata = "live-metadata";
+    public const string StoryScript = "story-script";
 
     /// <summary>
     /// Repeated in every system prompt. The transcript in these prompts is someone else's
@@ -369,6 +370,101 @@ public static class BuiltInPrompts
                                   "items": { "type": "string", "maxLength": 40 } },
                     "pinnedComment": { "type": "string", "maxLength": 1000 },
                     "engagementComment": { "type": "string", "maxLength": 600 }
+                  }
+                }
+                """
+        },
+
+        new()
+        {
+            TemplateKey = StoryScript,
+            Version = 1,
+            Capability = AiCapability.Text,
+            SystemPrompt =
+                """
+                You are a careful storyteller and a student of the Hindu Granths - the Puranas, the Itihasa and the Gita. You write the narration of a short devotional video that explains a festival, a deity or an episode to an ordinary viewer, truthfully and with reverence.
+
+                Rules you never break:
+                1. Ground every claim. The passages and pointers inside the data blocks are your evidence. Where they do not cover something you may use what you reliably know of the Granths, but then mark that scene as tradition and say so in the narration (for example "it is believed", or "मान्यता है" in Hindi). Never invent a chapter, a verse, a name or an event to fill a gap.
+                2. Cite places in the texts, never quotations you are unsure of. A citation is {"text": <one of the allowed text ids>, "ref": <place>}. A numbered place is DIVISION.UNIT or DIVISION.FIRST-LAST, where the division is the skandha, kanda, amsha, parva or part of that text, for example Bhagavata Purana 10.59, Valmiki Ramayana 6.124-128, Devi Mahatmya 2-4. For a text without numbers give a short section name. A chapter is enough; do not give verse numbers you are not certain of.
+                3. Do not mix up traditions, do not disparage any tradition or community, and do not promise worldly results from worship.
+                4. The narration is read aloud by a speech engine. Write numbers as words, avoid abbreviations, brackets, lists and Latin letters inside Hindi text, keep sentences under 25 words, and end each with a full stop (। in Hindi).
+                5. The English meaning is for a reader who may not read the narration. Translate it faithfully; do not add to it.
+                """ + " " + DataFenceRule,
+            Body =
+                """
+                Write the script of a video with the title in the data block below.
+
+                {{title}}
+
+                Language of the narration: {{language}}. Write about {{sceneCount}} scenes. Each scene is one to three short sentences, about ten to fifteen seconds when spoken.
+
+                Points the creator wants covered, if any:
+
+                {{notes}}
+
+                What the search of the Granths found:
+
+                {{research}}
+
+                The texts you may cite, by id:
+
+                {{sources}}
+
+                Shape the story like this: a short hook of one or two scenes; then the stories or sections the title calls for, each in one or two scenes, in the order a viewer can follow; then the meaning they share; then a closing blessing. Name the festival or the deity early, and say where the stories come from.
+
+                For every scene give:
+                - "headline": a few words, in the narration's language.
+                - "narration": what the voice says.
+                - "english": the meaning in English.
+                - "basis": "text" when a text says it, "tradition" when it is handed down, "reflection" for your own hook, moral or blessing.
+                - "sources": the citations, for scenes whose basis is "text".
+                - "imagePrompt": English. A concrete, respectful picture of the scene: who is there, where, doing what, and the light. Never ask for letters, words or logos in the picture.
+                - "imageKeywords": three to six English words.
+                - "mood": one of devotional, joyful, solemn, epic, serene.
+
+                Also give "title" (in the narration's language), "titleEnglish", "summary" (one sentence), "musicQuery" (two or three English words to search instrumental music, such as "sitar flute devotional"), and "reviewNotes": up to six short points a person should check before publishing, such as any detail you are unsure of.
+                """,
+            Variables = ["title", "language", "sceneCount", "notes", "research", "sources"],
+            LiteralVariables = ["language", "sceneCount"],
+            OutputJsonSchema =
+                """
+                {
+                  "type": "object",
+                  "required": ["scenes"],
+                  "additionalProperties": true,
+                  "properties": {
+                    "title": { "type": "string", "maxLength": 200 },
+                    "titleEnglish": { "type": "string", "maxLength": 200 },
+                    "summary": { "type": "string", "maxLength": 600 },
+                    "musicQuery": { "type": "string", "maxLength": 80 },
+                    "reviewNotes": { "type": "array", "maxItems": 12,
+                                     "items": { "type": "string", "maxLength": 300 } },
+                    "scenes": {
+                      "type": "array", "minItems": 3, "maxItems": 60,
+                      "items": {
+                        "type": "object",
+                        "required": ["narration"],
+                        "additionalProperties": true,
+                        "properties": {
+                          "headline": { "type": "string", "maxLength": 160 },
+                          "narration": { "type": "string", "minLength": 1, "maxLength": 1600 },
+                          "english": { "type": "string", "maxLength": 1600 },
+                          "basis": { "type": "string", "maxLength": 24 },
+                          "sources": { "type": "array", "maxItems": 8,
+                                       "items": { "type": "object", "additionalProperties": true,
+                                                  "properties": {
+                                                    "text": { "type": "string", "maxLength": 100 },
+                                                    "ref": { "type": "string", "maxLength": 80 },
+                                                    "note": { "type": "string", "maxLength": 240 }
+                                                  } } },
+                          "imagePrompt": { "type": "string", "maxLength": 800 },
+                          "imageKeywords": { "type": "array", "maxItems": 12,
+                                             "items": { "type": "string", "maxLength": 40 } },
+                          "mood": { "type": "string", "maxLength": 30 }
+                        }
+                      }
+                    }
                   }
                 }
                 """

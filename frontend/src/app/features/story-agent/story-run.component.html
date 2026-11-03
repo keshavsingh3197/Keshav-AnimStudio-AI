@@ -1,0 +1,322 @@
+@if (loading()) {
+  <div class="sr-page">
+    <div class="empty sr-center"><span class="spinner" role="status" aria-label="Loading the story"></span> Opening the story…</div>
+  </div>
+} @else if (loadError(); as problem) {
+  <div class="sr-page">
+    <div class="notice error" role="alert">{{ problem }}</div>
+    <a routerLink="/story-agent" class="sr-back">← All stories</a>
+  </div>
+} @else if (run(); as r) {
+  <div class="sr-page">
+    <!-- ================================================================== header -->
+    <a routerLink="/story-agent" class="sr-back">← All stories</a>
+
+    <div class="page-head sb-studio-bar sr-head">
+      <div class="sb-studio-title-col">
+        <h2 [attr.lang]="language()">{{ r.title }}</h2>
+        <p class="muted sr-sub">
+          <span class="pill" [class]="tone(r.status)">{{ statusLabel[r.status] }}</span>
+          <span>Started {{ ago(r.createdAtUtc) }}</span>
+          <span>· {{ r.brief.language === 'en' ? 'English' : 'Hindi' }}</span>
+          <span>· {{ r.brief.format === 'Vertical' ? '9:16 vertical' : '16:9 wide' }}</span>
+          @if (r.brief.writer === 'BuiltIn') { <span>· built-in story</span> }
+        </p>
+      </div>
+      <div class="sb-studio-actions">
+        @if (r.working) {
+          <button type="button" class="secondary" [disabled]="busy() !== null" (click)="cancel()">
+            @if (busy() === 'cancel') { <span class="spinner" aria-hidden="true"></span> }
+            Stop
+          </button>
+        }
+        @if (r.status === 'Failed' || r.status === 'Cancelled') {
+          <button type="button" [disabled]="busy() !== null" (click)="retry()">
+            @if (busy() === 'retry') { <span class="spinner" aria-hidden="true"></span> }
+            Try again
+          </button>
+        }
+        <button type="button" class="danger" [disabled]="busy() !== null" (click)="remove()">Delete</button>
+      </div>
+    </div>
+
+    @if (offline()) {
+      <div class="notice sr-offline" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        Can't reach the server just now. The story keeps being made there; this page will catch up when it is back.
+      </div>
+    }
+    @if (actionError(); as problem) {
+      <div class="notice error" role="alert">{{ problem }}</div>
+    }
+
+    <!-- ================================================================== progress -->
+    <section class="card sr-progress" aria-label="Progress">
+      <ol class="sr-stages">
+        @for (stage of r.stages; track stage.id) {
+          <li class="sr-stage" [class]="'sr-' + stage.status.toLowerCase()" [attr.aria-current]="stage.status === 'Running' ? 'step' : null">
+            <span class="sr-mark" aria-hidden="true">{{ mark(stage.status) }}</span>
+            <div class="sr-stage-text">
+              <strong>{{ info[stage.id].label }}</strong>
+              <span class="muted">{{ stage.message || info[stage.id].hint }}</span>
+              @if (stage.status === 'Running') {
+                <div class="bar" role="progressbar" [attr.aria-valuenow]="stage.progress" aria-valuemin="0" aria-valuemax="100">
+                  <i [style.width.%]="stage.progress"></i>
+                </div>
+              }
+            </div>
+            <span class="sr-only">{{ stage.status }}</span>
+          </li>
+        }
+      </ol>
+      @if (r.working) {
+        <div class="bar sr-overall" role="progressbar" aria-label="The whole story" [attr.aria-valuenow]="overall(r)" aria-valuemin="0" aria-valuemax="100">
+          <i [style.width.%]="overall(r)"></i>
+        </div>
+      }
+    </section>
+
+    @if (r.status === 'Failed') {
+      <div class="notice error sr-problem" role="alert">
+        <strong>
+          @if (failedStage(); as stage) { {{ info[stage.id].label }} stopped. } @else { The story stopped. }
+        </strong>
+        <p>{{ r.errorMessage || 'Something went wrong.' }}</p>
+        <p class="muted">Everything already made is kept. Fix what it says, then try again from where it stopped.</p>
+        <div class="row">
+          <button type="button" [disabled]="busy() !== null" (click)="retry()">Try again</button>
+        </div>
+      </div>
+    }
+
+    @if (warnings().length > 0) {
+      <details class="notice sr-warnings">
+        <summary><strong>Worth a second look ({{ warnings().length }})</strong></summary>
+        <ul>
+          @for (warning of warnings(); track $index) {
+            <li>{{ warning }}</li>
+          }
+        </ul>
+      </details>
+    }
+
+    <!-- ================================================================== the research -->
+    @if (r.research; as research) {
+      <details class="card sr-research">
+        <summary>
+          <strong>What the search of the Granths found</strong>
+          <span class="muted">
+            {{ research.topics.length }} {{ research.topics.length === 1 ? 'topic' : 'topics' }} ·
+            {{ research.passages.length }} {{ research.passages.length === 1 ? 'passage' : 'passages' }} read
+          </span>
+        </summary>
+
+        @if (research.topics.length === 0) {
+          <p class="muted">The title did not match anything in the catalogue, so the writer works from the title and your notes alone. Every citation is still checked.</p>
+        }
+        @for (topic of research.topics; track topic.topicId) {
+          <div class="sr-topic">
+            <strong>{{ topic.name }}</strong>
+            @if (topic.summary) { <p class="muted">{{ topic.summary }}</p> }
+            <ul class="sr-refs">
+              @for (source of topic.sources; track $index) {
+                <li>
+                  <span class="pill" [class.ok]="source.confidence === 'High'" [class.warn]="source.confidence !== 'High'"
+                        [title]="source.confidence === 'High' ? 'The catalogue is sure of this chapter.' : source.confidence === 'Medium' ? 'The right text and section; check the exact chapter against your own edition.' : 'A traditional pointer rather than a chapter; look it up yourself.'">
+                    {{ source.confidence }}
+                  </span>
+                  <span>{{ source.textName }} {{ source.ref }}</span>
+                  @if (source.note) { <span class="muted">· {{ source.note }}</span> }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        @if (research.passages.length > 0) {
+          <h4 class="sr-h4">Passages the writer read</h4>
+          <ul class="sr-passages">
+            @for (passage of research.passages; track $index) {
+              <li>
+                <div class="sr-passage-head">
+                  <strong>{{ passage.textName }} {{ passage.ref }}</strong>
+                  <span class="muted">{{ passage.direct ? 'asked for by name' : 'found by search' }} · {{ passage.license }}</span>
+                  <a [href]="passage.url" target="_blank" rel="noopener noreferrer">Open on Wikisource</a>
+                </div>
+                <p class="sr-excerpt" lang="sa">{{ passage.excerpt }}</p>
+              </li>
+            }
+          </ul>
+        }
+
+        @if (research.warnings.length > 0) {
+          <ul class="sr-research-warnings">
+            @for (warning of research.warnings; track $index) {
+              <li>{{ warning }}</li>
+            }
+          </ul>
+        }
+      </details>
+    }
+
+    <!-- ================================================================== the script -->
+    @if (r.status === 'AwaitingScript') {
+      <section class="card sr-manual" aria-labelledby="sr-manual-title">
+        <h3 id="sr-manual-title">Get the script written</h3>
+        <p class="muted">
+          No text model writes this one, so you do. It takes a minute: copy the prompt, paste it into any chat you use
+          (ChatGPT, Gemini, Claude…), then paste its whole answer back here. The prompt already holds what was found in the
+          Granths, so the chat writes from the texts instead of from memory.
+        </p>
+
+        @if (promptError(); as problem) {
+          <div class="notice error" role="alert">{{ problem }}</div>
+        } @else if (prompt() === null) {
+          <div class="muted"><span class="spinner" aria-hidden="true"></span> Preparing the prompt…</div>
+        } @else {
+          <div class="sr-step"><span class="n">1</span><strong>Copy the prompt</strong></div>
+          <textarea readonly rows="8" class="sr-prompt" aria-label="The prompt" [value]="prompt()"></textarea>
+          <div class="row">
+            <button type="button" (click)="copyPrompt()">{{ copied() ? '✓ Copied' : 'Copy the prompt' }}</button>
+            <span class="muted">{{ prompt()?.length | number }} characters</span>
+          </div>
+        }
+
+        <div class="sr-step"><span class="n">2</span><strong>Paste the chat's answer here</strong></div>
+        <textarea rows="10" class="sr-reply" aria-label="The reply from the chat" [ngModel]="reply()"
+                  (ngModelChange)="reply.set($event)" placeholder="Paste the whole reply, the JSON and everything…"
+                  [attr.aria-invalid]="replyError() ? 'true' : null"></textarea>
+        @if (replyError(); as problem) {
+          <div class="notice error" role="alert">{{ problem }}</div>
+        }
+        <div class="row">
+          <button type="button" [disabled]="!reply().trim() || busy() !== null" (click)="paste()">
+            @if (busy() === 'paste') { <span class="spinner" aria-hidden="true"></span> }
+            Use this script
+          </button>
+          @if (caps()?.textModel) {
+            <button type="button" class="secondary" [disabled]="busy() !== null" (click)="rewrite('Auto')">Let the text model write it instead</button>
+          }
+        </div>
+      </section>
+    }
+
+    @if (r.script) {
+      <section class="sr-script" aria-labelledby="sr-script-title">
+        <div class="sr-section-head">
+          <h3 id="sr-script-title">
+            {{ r.status === 'ScriptReady' ? 'Read the script before the video is made' : 'The script' }}
+          </h3>
+          @if (!r.working) {
+            <div class="row">
+              @if (caps()?.textModel) {
+                <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Auto')"
+                        title="Throws this script away and has the text model write it again">Rewrite with the text model</button>
+              }
+              <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Manual')"
+                      title="Gets a prompt to paste into any chat, then paste the answer back">Write it with a chat</button>
+            </div>
+          }
+        </div>
+        @if (r.status === 'ScriptReady') {
+          <p class="muted sr-lede">
+            Read it once. Fix the words, check each source, and put a picture on every scene (or leave a scene for the AI, or a
+            plain background). The video is made only when you press Build.
+          </p>
+        }
+        <app-story-script-editor [run]="r" (runChange)="onEditorChange($event)" />
+      </section>
+
+      @if (canBuild() && buildOptions() && caps()) {
+        <section class="card sr-build" aria-labelledby="sr-build-title">
+          <h3 id="sr-build-title">{{ r.status === 'ScriptReady' ? 'Make the video' : 'Make it again' }}</h3>
+          <p class="muted">
+            Pictures, narration, music, the project and the render happen one after another. You can leave this page; the story keeps
+            being made, and it will be in your list.
+          </p>
+          <app-story-options [caps]="caps()!" [language]="language()" [value]="buildOptions()!" (valueChange)="buildOptions.set($event)" />
+          <div class="row sr-build-actions">
+            <button type="button" class="sr-build-btn" [disabled]="busy() !== null" (click)="build()">
+              @if (busy() === 'build') { <span class="spinner" aria-hidden="true"></span> }
+              {{ r.status === 'ScriptReady' ? 'Build the video' : 'Build it again' }}
+            </button>
+            @if (editor()?.dirty()) {
+              <span class="muted">Your unsaved edits to the script are saved first.</span>
+            }
+          </div>
+        </section>
+      }
+    }
+
+    <!-- ================================================================== the result -->
+    @if (r.projectId || r.render) {
+      <section class="card sr-result" aria-labelledby="sr-result-title">
+        <h3 id="sr-result-title">The video</h3>
+
+        @if (r.render; as render) {
+          @if (render.downloadable) {
+            @if (signedIn()) {
+              <video class="sr-video" controls preload="metadata" [src]="previewUrl(render.jobId)" [class.sr-vertical]="r.brief.format === 'Vertical'">
+                Your browser cannot play this video. Download it instead.
+              </video>
+            } @else if (localUrl(render.jobId); as url) {
+              <video class="sr-video" controls [src]="url" [class.sr-vertical]="r.brief.format === 'Vertical'">
+                Your browser cannot play this video. Download it instead.
+              </video>
+            } @else {
+              <div class="sr-guest-video">
+                <p class="muted">
+                  You are not signed in, so the browser cannot stream the video directly. Load it here to watch it - the file is
+                  large, so it takes a moment - or download it.
+                </p>
+                <button type="button" class="secondary" [disabled]="videoBusy() !== null" (click)="fetchVideo(render.jobId, false)">
+                  @if (videoBusy() === 'watch') { <span class="spinner" aria-hidden="true"></span> }
+                  Load the video to watch it here
+                </button>
+              </div>
+            }
+            @if (videoError(); as problem) {
+              <div class="notice error" role="alert">{{ problem }}</div>
+            }
+          } @else if (render.status === 'Pending' || render.status === 'Processing') {
+            <div class="sr-rendering">
+              <div class="row"><span class="spinner" aria-hidden="true"></span> <strong>Rendering</strong> <span class="muted">{{ render.message }}</span></div>
+              <div class="bar" role="progressbar" [attr.aria-valuenow]="render.progress" aria-valuemin="0" aria-valuemax="100"><i [style.width.%]="render.progress"></i></div>
+            </div>
+          } @else if (render.status === 'Failed' || render.status === 'Cancelled') {
+            <div class="notice error">The render {{ render.status === 'Failed' ? 'failed' : 'was stopped' }}.{{ render.message ? ' ' + render.message : '' }}</div>
+          }
+        } @else if (r.projectId && r.status === 'Completed') {
+          <p class="muted">The project is built, but it was not rendered. Open it and press Render when you want the video.</p>
+        }
+
+        <div class="row sr-result-actions">
+          @if (r.render?.downloadable) {
+            @if (signedIn()) {
+              <a class="sr-btn" [href]="downloadUrl(r.render!.jobId)" download>⬇ Download the MP4</a>
+            } @else {
+              <button type="button" class="sr-btn-button" [disabled]="videoBusy() !== null" (click)="fetchVideo(r.render!.jobId, true)">
+                @if (videoBusy() === 'save') { <span class="spinner" aria-hidden="true"></span> }
+                ⬇ Download the MP4
+              </button>
+            }
+          }
+          @if (r.projectId) {
+            <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', r.projectId, 'scenes']">Open the project</a>
+            <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', r.projectId, 'render']">Renders</a>
+          }
+        </div>
+        <p class="muted sr-reminder">
+          Nothing is published for you. Watch it once, then upload it yourself with the details below.
+          @if (r.options.uploadsAreAiMade) {
+            Tick YouTube's "altered or synthetic content" box, because the pictures are AI-made.
+          }
+        </p>
+      </section>
+    }
+
+    @if (r.kit; as kit) {
+      <app-story-kit [kit]="kit" [music]="r.music" />
+    }
+  </div>
+}

@@ -112,6 +112,20 @@ export const routes: Routes = [
   },
 
   {
+    path: 'story-agent',
+    title: 'Story Agent - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-agent.component').then((m) => m.StoryAgentComponent),
+  },
+
+  {
+    path: 'story-agent/:runId',
+    title: 'Story - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-run.component').then((m) => m.StoryRunComponent),
+  },
+
+  {
     path: 'shorts',
     title: 'Shorts - AnimStudio AI',
     loadComponent: () =>

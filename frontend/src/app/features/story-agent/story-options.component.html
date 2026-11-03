@@ -1,0 +1,173 @@
+@let v = value();
+@let c = caps();
+
+<fieldset class="so" [disabled]="disabled()">
+  <!-- ------------------------------------------------------------------ narration -->
+  <div class="so-group">
+    <div class="so-title" [id]="uid + '-narration'">Narration</div>
+    <div class="seg" role="radiogroup" [attr.aria-labelledby]="uid + '-narration'">
+      <label [class.selected]="v.narration === 'Stock'" [class.so-off]="!c.speechEngine">
+        <input type="radio" [name]="uid + '-narration'" [checked]="v.narration === 'Stock'" [disabled]="!c.speechEngine"
+               (change)="setNarration('Stock')" />
+        A voice
+      </label>
+      <label [class.selected]="v.narration === 'MyVoice'" [class.so-off]="!c.speechEngine || c.myVoices.length === 0">
+        <input type="radio" [name]="uid + '-narration'" [checked]="v.narration === 'MyVoice'"
+               [disabled]="!c.speechEngine || c.myVoices.length === 0" (change)="setNarration('MyVoice')" />
+        My voice
+      </label>
+      <label [class.selected]="v.narration === 'None'">
+        <input type="radio" [name]="uid + '-narration'" [checked]="v.narration === 'None'" (change)="setNarration('None')" />
+        Subtitles only
+      </label>
+    </div>
+
+    @if (!c.speechEngine) {
+      <p class="so-note so-warn">
+        No speech engine is turned on, so there is no voice yet. Start one with <code>scripts\setup-voiceover.ps1</code>,
+        or make a video with subtitles only.
+      </p>
+    } @else if (c.myVoices.length === 0) {
+      <p class="so-note">To narrate in your own voice, add a voice from the Voiceover tab of any project, with its owner's consent.</p>
+    }
+
+    @if (v.narration === 'Stock') {
+      @if (voiceGroups().length > 0) {
+        <div class="so-field">
+          <label [for]="uid + '-voice'">Voice</label>
+          <select [id]="uid + '-voice'" [value]="v.voiceId ?? ''" (change)="patch({ voiceId: text($event) || null })">
+            <option value="">Recommended for this language</option>
+            @for (group of voiceGroups(); track group.label) {
+              <optgroup [label]="group.label">
+                @for (voice of group.voices; track voice.id) {
+                  <option [value]="voice.id" [selected]="voice.id === v.voiceId">{{ voice.label }}</option>
+                }
+              </optgroup>
+            }
+          </select>
+        </div>
+      }
+      <div class="so-field">
+        <label [for]="uid + '-rate'">Speed <span class="muted">{{ v.speechRate | number: '1.2-2' }}×</span></label>
+        <input [id]="uid + '-rate'" type="range" min="0.8" max="1.3" step="0.05" [value]="v.speechRate"
+               (input)="patch({ speechRate: numeric($event) })" />
+        <p class="so-note">A story told a little slower than conversation (0.9–1.0×) is easier to follow.</p>
+      </div>
+    }
+
+    @if (v.narration === 'MyVoice') {
+      <div class="so-field">
+        <label [for]="uid + '-profile'">Which of your voices</label>
+        <select [id]="uid + '-profile'" [value]="v.voiceProfileId ?? ''" (change)="patch({ voiceProfileId: text($event) || null })">
+          @for (voice of c.myVoices; track voice.id) {
+            <option [value]="voice.id" [selected]="voice.id === v.voiceProfileId">
+              {{ voice.name }}{{ voice.tuned ? ' · tuned' : '' }}
+            </option>
+          }
+        </select>
+        @if (myVoice(); as mine) {
+          <p class="so-note">
+            {{ mine.tuned
+              ? 'The speech engine has a voice tuned from your sample, so each line takes seconds.'
+              : 'Each line is first spoken in a stock voice and then converted into yours by the AI voice converter. That works, and takes minutes.' }}
+          </p>
+        }
+      </div>
+      <label class="switch so-switch" title="Convert every line with the AI voice converter instead of using the tuned voice">
+        <input type="checkbox" [checked]="v.closestToMyVoice" (change)="patch({ closestToMyVoice: checked($event) })" />
+        <span class="track"></span>
+        <span>Closest to my voice <span class="muted">(slower)</span></span>
+      </label>
+    }
+  </div>
+
+  <!-- ------------------------------------------------------------------ pictures -->
+  <div class="so-group">
+    <div class="so-title" [id]="uid + '-pictures'">Pictures</div>
+    <div class="seg" role="radiogroup" [attr.aria-labelledby]="uid + '-pictures'">
+      <label [class.selected]="v.visuals === 'Auto'">
+        <input type="radio" [name]="uid + '-pictures'" [checked]="v.visuals === 'Auto'" (change)="patch({ visuals: 'Auto' })" />
+        Mine, then AI
+      </label>
+      <label [class.selected]="v.visuals === 'UploadsOnly'">
+        <input type="radio" [name]="uid + '-pictures'" [checked]="v.visuals === 'UploadsOnly'" (change)="patch({ visuals: 'UploadsOnly' })" />
+        Only mine
+      </label>
+    </div>
+    <p class="so-note">
+      Pictures you attach to a scene are always used first.
+      @if (v.visuals === 'UploadsOnly') {
+        A scene without one gets a plain coloured background.
+      } @else if (c.imageEngine) {
+        A scene without one is drawn by the AI image engine.
+      } @else {
+        No AI image engine is on, so a scene without a picture gets a plain coloured background. You can attach pictures made
+        in Google Flow or anywhere else on the next page.
+      }
+    </p>
+    <label class="switch so-switch">
+      <input type="checkbox" [checked]="v.uploadsAreAiMade" (change)="patch({ uploadsAreAiMade: checked($event) })" />
+      <span class="track"></span>
+      <span>The pictures I attach are AI-made <span class="muted">(Google Flow, Midjourney…)</span></span>
+    </label>
+    <p class="so-note">This puts the right credit in the description and reminds you to tick YouTube's "altered or synthetic content" box.</p>
+    <div class="so-field">
+      <label [for]="uid + '-style'">Picture style <span class="muted">(optional)</span></label>
+      <input [id]="uid + '-style'" type="text" maxlength="300" [value]="v.imageStyle ?? ''"
+             (input)="patch({ imageStyle: text($event) || null })"
+             placeholder="e.g. warm devotional illustration, golden light, no text in the picture" />
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------------ music -->
+  <div class="so-group">
+    <div class="so-title">Music</div>
+    <label class="switch so-switch" [class.so-off]="!c.music">
+      <input type="checkbox" [checked]="v.music && c.music" [disabled]="!c.music" (change)="patch({ music: checked($event) })" />
+      <span class="track"></span>
+      <span>A soft background track</span>
+    </label>
+    @if (!c.music) {
+      <p class="so-note so-warn">The music catalogue is not set up on this server, so the video will have no background music.</p>
+    } @else if (v.music) {
+      <p class="so-note">Creative Commons music that allows commercial use is searched for, and the credit it asks for goes in the description.</p>
+      <div class="so-field">
+        <label [for]="uid + '-music'">Search for <span class="muted">(optional, otherwise the script suggests one)</span></label>
+        <input [id]="uid + '-music'" type="text" maxlength="80" [value]="v.musicQuery ?? ''"
+               (input)="patch({ musicQuery: text($event) || null })" placeholder="e.g. sitar flute devotional" />
+      </div>
+      <div class="so-field">
+        <label [for]="uid + '-volume'">Music volume <span class="muted">{{ v.musicVolume * 100 | number: '1.0-0' }}%</span></label>
+        <input [id]="uid + '-volume'" type="range" min="0.05" max="0.5" step="0.05" [value]="v.musicVolume"
+               (input)="patch({ musicVolume: numeric($event) })" />
+      </div>
+    }
+  </div>
+
+  <!-- ------------------------------------------------------------------ finishing -->
+  <div class="so-group">
+    <div class="so-title">When it is built</div>
+    <label class="switch so-switch" [class.so-off]="!c.renderer">
+      <input type="checkbox" [checked]="v.renderWhenReady && c.renderer" [disabled]="!c.renderer"
+             (change)="patch({ renderWhenReady: checked($event) })" />
+      <span class="track"></span>
+      <span>Render the video straight away</span>
+    </label>
+    @if (!c.renderer) {
+      <p class="so-note so-warn">Video rendering is not set up on this server (it needs ffmpeg). The project is still built, and you can render it later.</p>
+    }
+    @if (offerAutoApprove()) {
+      <label class="switch so-switch">
+        <input type="checkbox" [checked]="v.autoApprove" (change)="patch({ autoApprove: checked($event) })" />
+        <span class="track"></span>
+        <span>Skip the review and build as soon as the script is written</span>
+      </label>
+      @if (v.autoApprove) {
+        <p class="so-note so-warn">
+          Not recommended. A script written by a model should be read once before it is published: it can misattribute a
+          story or get a chapter wrong, and the review is where you catch that.
+        </p>
+      }
+    }
+  </div>
+</fieldset>
