@@ -1,0 +1,354 @@
+{
+  "title": "दीपावली: क्यों मनाते हैं, और कैसे शुरू हुई?",
+  "titleEnglish": "Diwali: why we celebrate it and how it began",
+  "summary": "A short, source-based explanation of Diwali: the churning of the ocean (Dhanvantari and Lakshmi), the slaying of Narakasura, Sri Rama's return to Ayodhya, Govardhan Puja and Bhai Dooj.",
+  "musicQuery": "sitar tanpura devotional",
+  "reviewNotes": [
+    "The lamps lit on Rama's return (scene 11) are tradition ('मान्यता'). Valmiki describes the return and the coronation; the lamps are later tradition.",
+    "Bhai Dooj (scenes 14-15) follows the Puranic tradition of Yama Dwitiya, so no chapter is cited.",
+    "Check Bhagavata 8.8 and 10.59 against your own edition before you publish."
+  ],
+  "scenes": [
+    {
+      "headline": "अंधकार और एक दीपक",
+      "narration": "अंधकार चाहे कितना भी गहरा हो, एक छोटा-सा दीपक उसे मिटा देता है। यही है दीपावली।",
+      "english": "However deep the darkness, one small lamp dispels it. That is Deepavali.",
+      "basis": "reflection",
+      "sources": [],
+      "imagePrompt": "A woman in a saree gently lighting a clay diya at dusk by a river, the flame reflected in still water, other small diyas floating nearby, deep blue twilight, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "diya",
+        "river",
+        "dusk"
+      ],
+      "mood": "hopeful"
+    },
+    {
+      "headline": "दीपावली क्यों मनाते हैं?",
+      "narration": "पर क्या आप जानते हैं, यह पर्व क्यों मनाया जाता है, और इसकी शुरुआत कैसे हुई?",
+      "english": "But do you know why this festival is celebrated, and how it began?",
+      "basis": "reflection",
+      "sources": [],
+      "imagePrompt": "Hands of village potters arranging rows of freshly made clay diyas to dry in the sun, terracotta glow, a market street before Diwali, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "potter",
+        "clay lamps",
+        "market"
+      ],
+      "mood": "curious"
+    },
+    {
+      "headline": "कार्तिक माहात्म्य और दीपदान",
+      "narration": "हमारे ग्रंथों में दीपावली की एक नहीं, कई कथाएँ मिलती हैं। स्कंद पुराण और पद्म पुराण के कार्तिक माहात्म्य में दीपदान की विशेष महिमा बताई गई है।",
+      "english": "Our scriptures hold not one but many stories of Deepavali. The Kartika Mahatmya of the Skanda and Padma Puranas praises the offering of lamps (deepdan).",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "skanda-purana",
+          "ref": "Vaishnava Khanda: Kartika Mahatmya",
+          "note": "Offering lamps (deepdan) in the month of Kartika"
+        },
+        {
+          "text": "padma-purana",
+          "ref": "Uttara Khanda: Kartika Mahatmya",
+          "note": "The merit of offering lamps in Kartika"
+        }
+      ],
+      "imagePrompt": "Devotees on a river ghat at dawn releasing small lamps on leaf boats into the water in the month of Kartika, soft mist, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "ghat",
+        "lamps on water",
+        "dawn"
+      ],
+      "mood": "devotional"
+    },
+    {
+      "headline": "समुद्र मंथन और धन्वंतरि",
+      "narration": "पहली कथा समुद्र मंथन की है। भागवत पुराण के अनुसार, मंथन से भगवान धन्वंतरि अमृत कलश लेकर प्रकट हुए। उसी स्मृति में धनतेरस पर आरोग्य और समृद्धि की कामना की जाती है।",
+      "english": "The first story is the churning of the ocean. According to the Bhagavata Purana, Lord Dhanvantari emerged with the pot of nectar. In that memory, Dhanteras is observed with prayers for health and prosperity.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "bhagavata-purana",
+          "ref": "8.8",
+          "note": "Dhanvantari appears from the churning of the ocean with the pot of nectar"
+        }
+      ],
+      "imagePrompt": "Lord Dhanvantari rising from the milky ocean holding a golden pot of amrit, devas and asuras churning with the serpent Vasuki around Mount Mandara, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "dhanvantari",
+        "samudra manthan",
+        "amrit"
+      ],
+      "mood": "divine"
+    },
+    {
+      "headline": "माता लक्ष्मी का प्राकट्य",
+      "narration": "उसी मंथन से माता लक्ष्मी भी प्रकट हुईं, और उन्होंने भगवान विष्णु को वरण किया। मान्यता है कि दीपावली की रात माता लक्ष्मी के स्वागत और पूजन की रात होती है।",
+      "english": "From the same churning Goddess Lakshmi also appeared and chose Lord Vishnu. It is believed that Deepavali night is the night to welcome and worship Mata Lakshmi.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "bhagavata-purana",
+          "ref": "8.8",
+          "note": "Lakshmi appears from the ocean and chooses Vishnu"
+        }
+      ],
+      "imagePrompt": "Goddess Lakshmi seated on a blooming lotus between two elephants pouring water from golden pots, gold and crimson saree, soft halo of light, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "lakshmi",
+        "lotus",
+        "gaja lakshmi"
+      ],
+      "mood": "auspicious"
+    },
+    {
+      "headline": "नरकासुर और बंदी कन्याएँ",
+      "narration": "दूसरी कथा द्वापर युग की है। भागवत पुराण में वर्णन है कि नरकासुर ने सोलह हज़ार से अधिक कन्याओं को बंदी बना रखा था।",
+      "english": "The second story is from Dwapara Yuga. The Bhagavata Purana describes how Narakasura held over sixteen thousand maidens captive.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "bhagavata-purana",
+          "ref": "10.59",
+          "note": "Narakasura holds sixteen thousand captive maidens"
+        },
+        {
+          "text": "vishnu-purana",
+          "ref": "5.29",
+          "note": "Krishna's war on Naraka"
+        }
+      ],
+      "imagePrompt": "Lord Krishna and Satyabhama riding Garuda across the sky toward the fortress city of Pragjyotishpura, dramatic clouds, the Sudarshana Chakra in Krishna's hand, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "krishna",
+        "satyabhama",
+        "garuda"
+      ],
+      "mood": "dramatic"
+    },
+    {
+      "headline": "नरक चतुर्दशी की कथा",
+      "narration": "श्रीकृष्ण ने सत्यभामा के साथ जाकर उसका वध किया, और सबको मुक्त कराया। वही दिन नरक चतुर्दशी कहलाया।",
+      "english": "Sri Krishna, together with Satyabhama, slew him and freed them all. That day is called Naraka Chaturdashi.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "bhagavata-purana",
+          "ref": "10.59",
+          "note": "Krishna slays Narakasura and frees the captives"
+        }
+      ],
+      "imagePrompt": "Krishna and Satyabhama on Garuda in battle, the Sudarshana Chakra blazing, the demon Narakasura falling, freed maidens in the background, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "krishna",
+        "narakasura",
+        "chakra"
+      ],
+      "mood": "triumphant"
+    },
+    {
+      "headline": "श्रीराम की अयोध्या वापसी",
+      "narration": "लेकिन दीपावली की सबसे प्रिय कथा श्रीराम की अयोध्या वापसी की है।",
+      "english": "But the most beloved story of Deepavali is Sri Rama's return to Ayodhya.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "valmiki-ramayana",
+          "ref": "Yuddha Kanda",
+          "note": "The return of Rama to Ayodhya"
+        }
+      ],
+      "imagePrompt": "Hanuman with folded hands greeting Lord Rama and Mother Sita at the gates of Ayodhya, joyful crowds, flower petals, warm sunset sky, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "hanuman",
+        "rama",
+        "ayodhya"
+      ],
+      "mood": "joyful"
+    },
+    {
+      "headline": "पुष्पक विमान से वापसी",
+      "narration": "वाल्मीकि रामायण के युद्धकांड में वर्णन है कि चौदह वर्ष का वनवास पूरा कर, और रावण का वध करके, श्रीराम माता सीता और लक्ष्मण के साथ अयोध्या लौटे।",
+      "english": "The Yuddha Kanda of the Valmiki Ramayana describes that after fourteen years of exile and the slaying of Ravana, Sri Rama returned to Ayodhya with Mata Sita and Lakshmana.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "valmiki-ramayana",
+          "ref": "Yuddha Kanda",
+          "note": "The journey in the Pushpaka and the arrival at Ayodhya"
+        }
+      ],
+      "imagePrompt": "The flying Pushpaka Vimana carrying Rama, Sita and Lakshmana over the ocean toward Ayodhya, a golden chariot-palace in a luminous sky, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "pushpaka vimana",
+        "rama",
+        "sky"
+      ],
+      "mood": "triumphant"
+    },
+    {
+      "headline": "भरत और चरण-पादुका",
+      "narration": "हनुमान जी ने आगे जाकर भरत जी को यह शुभ समाचार सुनाया। भरत जी ने चौदह वर्ष तक श्रीराम की चरण-पादुकाओं को सिंहासन पर रखकर राज्य चलाया था। आज प्रतीक्षा पूरी हुई।",
+      "english": "Hanuman went ahead and gave Bharata the glad news. For fourteen years Bharata had ruled with Rama's sandals on the throne. Today the waiting ended.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "valmiki-ramayana",
+          "ref": "Ayodhya Kanda",
+          "note": "Bharata takes Rama's sandals and rules in his name"
+        },
+        {
+          "text": "valmiki-ramayana",
+          "ref": "Yuddha Kanda",
+          "note": "Hanuman brings Bharata the news of the return"
+        }
+      ],
+      "imagePrompt": "Bharata at Nandigram in simple ascetic clothes, placing Rama's sandals on the throne and waiting for his return, quiet dawn light, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "bharata",
+        "paduka",
+        "nandigram"
+      ],
+      "mood": "tender"
+    },
+    {
+      "headline": "दीपों की पंक्ति: दीपावली",
+      "narration": "मान्यता है कि कार्तिक अमावस्या की उस अँधेरी रात में अयोध्यावासियों ने घर-घर, द्वार-द्वार दीप जलाए। पूरी नगरी प्रकाश से जगमगा उठी। दीपों की इसी पंक्ति से यह पर्व दीपावली कहलाया।",
+      "english": "It is believed that on that dark new-moon night of Kartika the people of Ayodhya lit lamps at every home and door. The whole city shone with light. From this row of lamps the festival is called Deepavali.",
+      "basis": "tradition",
+      "sources": [],
+      "imagePrompt": "The city of Ayodhya on a new-moon night glowing with thousands of oil lamps on every rooftop, window and doorway, river reflections, magical warm light, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "ayodhya",
+        "diyas",
+        "night"
+      ],
+      "mood": "glowing"
+    },
+    {
+      "headline": "राज्याभिषेक और रामराज्य",
+      "narration": "फिर श्रीराम का राज्याभिषेक हुआ, और रामराज्य की स्थापना हुई, जहाँ धर्म, न्याय और सुख का वास था।",
+      "english": "Then Sri Rama was crowned, and Ram Rajya was established, where dharma, justice and happiness dwelt.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "valmiki-ramayana",
+          "ref": "Yuddha Kanda",
+          "note": "The coronation of Rama"
+        }
+      ],
+      "imagePrompt": "The royal coronation of Lord Rama with Sita beside him, Hanuman praying with folded hands, Bharata, Lakshmana, sages and citizens in a golden court, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "coronation",
+        "rama",
+        "ram rajya"
+      ],
+      "mood": "majestic"
+    },
+    {
+      "headline": "गोवर्धन पूजा",
+      "narration": "दीपावली के बाद गोवर्धन पूजा होती है। भागवत पुराण के अनुसार, इंद्र के क्रोध से जब वृंदावन पर मूसलाधार वर्षा हुई, तब श्रीकृष्ण ने अपनी छोटी उँगली पर गोवर्धन पर्वत उठाकर सबकी रक्षा की।",
+      "english": "After Deepavali comes Govardhan Puja. According to the Bhagavata Purana, when Indra's anger brought torrential rain on Vrindavan, Sri Krishna lifted Mount Govardhan on his little finger and protected everyone.",
+      "basis": "text",
+      "sources": [
+        {
+          "text": "bhagavata-purana",
+          "ref": "10.24-25",
+          "note": "Krishna lifts Govardhan hill and protects Vrindavan"
+        }
+      ],
+      "imagePrompt": "Young Krishna lifting Mount Govardhan on his little finger like an umbrella, cowherds and cows sheltering beneath, storm clouds above, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "krishna",
+        "govardhan",
+        "cowherds"
+      ],
+      "mood": "protective"
+    },
+    {
+      "headline": "भाई दूज: यमराज और यमुना",
+      "narration": "और फिर आता है भाई दूज। पुराणों में कथा है कि इसी दिन यमराज अपनी बहन यमुना के घर पधारे।",
+      "english": "And then comes Bhai Dooj. The Puranas tell that on this day Yamaraja visited the home of his sister Yamuna.",
+      "basis": "tradition",
+      "sources": [],
+      "imagePrompt": "Goddess Yamuna warmly welcoming her brother Yamaraja at the door of her riverside home, lamps and an aarti plate, gentle light, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "yamuna",
+        "yamaraja",
+        "bhai dooj"
+      ],
+      "mood": "warm"
+    },
+    {
+      "headline": "तिलक और वरदान",
+      "narration": "यमुना ने तिलक कर उनका सत्कार किया, और यमराज ने वरदान दिया कि इस दिन बहन से तिलक करवाने वाले भाई को यम का भय नहीं रहेगा।",
+      "english": "Yamuna honoured him with a tilak, and Yamaraja granted the boon that a brother who receives a tilak from his sister on this day will not fear Yama.",
+      "basis": "tradition",
+      "sources": [],
+      "imagePrompt": "Yamuna applying a tilak on the forehead of her brother Yamaraja while he blesses her, a plate with a lamp, flowers and sweets, soft light, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "tilak",
+        "yamuna",
+        "blessing"
+      ],
+      "mood": "tender"
+    },
+    {
+      "headline": "सत्य, प्रकाश और धर्म की विजय",
+      "narration": "इन सभी कथाओं का संदेश एक ही है: असत्य पर सत्य की, अंधकार पर प्रकाश की, और अधर्म पर धर्म की विजय।",
+      "english": "The message of all these stories is one: the victory of truth over untruth, light over darkness, dharma over adharma.",
+      "basis": "reflection",
+      "sources": [],
+      "imagePrompt": "Hanuman holding a glowing oil lamp in both hands in the dark, its light spreading across the scene, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "hanuman",
+        "oil lamp",
+        "light"
+      ],
+      "mood": "uplifting"
+    },
+    {
+      "headline": "भीतर का दीप",
+      "narration": "इसलिए दीपावली केवल घर सजाने का पर्व नहीं है। यह अपने भीतर के अहंकार, क्रोध और लोभ के अँधेरे को मिटाकर, प्रेम और करुणा का दीप जलाने का पर्व है।",
+      "english": "So Deepavali is not only about decorating homes. It is about lighting the lamp of love and compassion by removing the darkness of ego, anger and greed within.",
+      "basis": "reflection",
+      "sources": [],
+      "imagePrompt": "Women making a colorful rangoli of lotus petals and diyas at a doorstep before Diwali, flowers, bright colors, seen from above, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "rangoli",
+        "diyas",
+        "flowers"
+      ],
+      "mood": "gentle"
+    },
+    {
+      "headline": "तीन दीप",
+      "narration": "इस दीपावली, एक दीप अपनों के नाम जलाइए, एक दीप किसी ज़रूरतमंद के नाम, और एक दीप अपने भीतर के राम के नाम। आप सभी को दीपावली की हार्दिक शुभकामनाएँ।",
+      "english": "This Deepavali, light one lamp for your loved ones, one for someone in need, and one for the Rama within you. Warm Deepavali wishes to you all.",
+      "basis": "reflection",
+      "sources": [],
+      "imagePrompt": "Families placing rows of diyas on the stone steps of a river city at dusk, people smiling, hundreds of small flames, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "ghats",
+        "diyas",
+        "families"
+      ],
+      "mood": "warm"
+    },
+    {
+      "headline": "शुभ दीपावली",
+      "narration": "शुभ दीपावली!",
+      "english": "Shubh Deepavali!",
+      "basis": "reflection",
+      "sources": [],
+      "imagePrompt": "A brass aarti thali with a lit lamp held up by devotees in the evening glow, marigold garlands, hands in worship, open space for an end card, classical Indian devotional painting, rich jewel colors, warm golden light, no text, no watermark",
+      "imageKeywords": [
+        "aarti",
+        "marigold",
+        "lamp"
+      ],
+      "mood": "festive"
+    }
+  ]
+}

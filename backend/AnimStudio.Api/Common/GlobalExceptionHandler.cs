@@ -104,6 +104,13 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                     : StatusCodes.Status400BadRequest,
                 render.Code.ToString(), render.UserMessage),
 
+            // The server refused to read the request: past an endpoint's size limit, cut short, or too slow. The caller's
+            // doing, not a fault, and what the exception says (limits, byte counts) is not for the client.
+            BadHttpRequestException refused when refused.StatusCode is >= 400 and < 500 =>
+                refused.StatusCode == StatusCodes.Status413PayloadTooLarge
+                    ? (refused.StatusCode, "payload-too-large", "That is too large to send.")
+                    : (refused.StatusCode, "bad-request", "The request could not be read."),
+
             UnauthorizedAccessException =>
                 (StatusCodes.Status403Forbidden, "forbidden", "You do not have access to that resource."),
 

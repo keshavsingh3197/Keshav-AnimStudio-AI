@@ -112,6 +112,20 @@ export const routes: Routes = [
   },
 
   {
+    path: 'story-agent',
+    title: 'Story Agent - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-agent.component').then((m) => m.StoryAgentComponent),
+  },
+
+  {
+    path: 'story-agent/:runId',
+    title: 'Story - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-run.component').then((m) => m.StoryRunComponent),
+  },
+
+  {
     path: 'shorts',
     title: 'Shorts - AnimStudio AI',
     loadComponent: () =>
@@ -354,6 +368,25 @@ export const routes: Routes = [
             .then((m) => m.AdminActivityComponent),
       },
     ],
+  },
+
+  {
+    path: 'contact',
+    title: 'Contact - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/info/contact.component').then((m) => m.ContactComponent),
+  },
+  {
+    path: 'terms',
+    title: 'Terms & Conditions - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/info/terms.component').then((m) => m.TermsComponent),
+  },
+  {
+    path: 'privacy',
+    title: 'Privacy Policy - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/info/privacy.component').then((m) => m.PrivacyComponent),
   },
 
   {

@@ -194,6 +194,16 @@ Order is dependency-driven. `P3` unlocks most of the rest.
 - [x] **A14.6** Camera Studio: live camera / screen with on-device identity protection (characters, fail-closed strict mode), voice changer, switchable overlays (people count, YouTube subscribers and viewers), scenes, presets
 - [x] **A14.7** Collab Studio: record with an existing video (duet, stacked, react, green screen, stitch), takes rebuilt after recording from the raw camera take, save to a project
 
+### P15 — Story Agent — [detail](plans/P15-story-agent.md)
+- [x] **A15.1** A title becomes a researched, narrated video: search the Granths (Wikisource), write a script whose every source is checked, make pictures, narration and music, build an ordinary project, render it, and prepare the YouTube title, description, tags and chapters
+- [x] **A15.2** Three writers: the text model, a script pasted from any chat (no key), or a built-in story (Diwali). The person reads and edits the script, and puts their own pictures on it, before anything is made
+- [x] **A15.3** Runs survive restarts: resumed after a restart, retried from the stage that failed, only an edited scene is narrated again
+- [x] **A15.4** Hindi subtitles in an installed Devanagari font, so burned-in captions are never boxes
+- [ ] **A15.5** More of the Granths read from Wikisource, and more built-in stories (Dhanteras, Janmashtami, Ganesh Chaturthi…)
+- [ ] **A15.6** Generate the pictures in Google Flow from the page instead of by hand
+- [ ] **A15.7** Upload the finished video and its details to YouTube (OAuth), still only on the person's say-so
+- [ ] **A15.8** Dubbing into further languages
+
 ### P12 — Hardening — [detail](plans/P12-hardening.md)
 - [ ] **A12.1** Rate limiting and request size caps on every ingest/AI endpoint
 - [ ] **A12.2** Structured logging with personal-data scrubbing on the AI and ingest paths

@@ -10,6 +10,7 @@ using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
+using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.System;
 using AnimStudio.Domain.Voices;
 using MongoDB.Bson;
@@ -95,6 +96,9 @@ public static class MongoMappingRegistrar
 
             // "vp_{guid}" - a voice a user added from their own sample.
             MapWithLiteralId<VoiceProfile>();
+
+            // "sr_{guid}" - one Story Agent run: a title becoming a video.
+            MapWithLiteralId<StoryRun>();
 
             // App-assigned GUIDs - the content calendar's topics, posts and saved links.
             MapWithLiteralId<ContentTopic>();

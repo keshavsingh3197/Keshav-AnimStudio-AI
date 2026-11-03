@@ -5,6 +5,7 @@ using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.System;
+using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.Voices;
 using KeshavSingh.Mongo.NoSql;
 using Microsoft.Extensions.Hosting;
@@ -111,6 +112,16 @@ public sealed class MongoIndexInitializer(
             await voiceProfiles.Indexes.CreateOneAsync(
                 new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys
                     .Ascending(v => v.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
+            // A person's recent runs, and the working runs a restarted worker resumes.
+            var storyRuns = mongo.GetCollection<StoryRun>(MongoCollections.StoryRuns);
+            await storyRuns.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<StoryRun>(Builders<StoryRun>.IndexKeys
+                    .Ascending(r => r.UserId).Descending(r => r.UpdatedAtUtc)),
+                new CreateIndexModel<StoryRun>(Builders<StoryRun>.IndexKeys
+                    .Ascending(r => r.Status).Ascending(r => r.UpdatedAtUtc))
+            ], ct).ConfigureAwait(false);
 
             // The calendar lists one owner's posts by date and one topic's posts for planning;
             // the sync walks a date window across everyone.

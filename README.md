@@ -85,6 +85,14 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - `token.reuse_detected` is different from password lockout: the identity service received an already-rotated refresh token and revoked sessions. The identity proxy does not keep cookies in its pooled HTTP handler; it forwards each browser's cookie explicitly. Session-rotation POSTs are never automatically retried, and same-origin tabs serialize refreshes with Web Locks when supported. These safeguards do not bypass identity-service replay detection.
 - On a matching production subdomain, the proxy preserves the shared SSO cookie domain and removes the legacy host-only copy. On localhost or an unrelated host it uses a host-only cookie. Previously created stale cookies may require signing in again after updating the API. Same-origin locks do not coordinate simultaneous refreshes from different portal origins.
 
+### 📖 Story Agent (a title in, a narrated video out)
+- **Just give a title**: Open **Story Agent** in the top bar. It searches the Granths (Wikisource), writes a Hindi or English script, makes the pictures, narration and music, builds an ordinary project, renders it, and prepares the YouTube title, description, tags and chapters.
+- **Sources are checked, not trusted**: Every citation is checked against the shape of the text it names (an invented "Bhagavata Purana 13.2" is flagged), the chapters the writer was shown are marked *read*, and anything the texts don't say must be told as tradition ("it is believed"). You read and edit the script before anything is made, and nothing is published for you.
+- **Works with no AI key**: A built-in Diwali story and "paste the script from any chat" (the app gives you the prompt, with the research already in it) need nothing configured. A text model, if you turn one on, writes it for you.
+- **Your pictures, your voice**: Copy the picture prompts into Google Flow (or any image tool) and add the results to the scenes in one go. Narrate with a stock voice or your own consented voice; Hindi subtitles are drawn in an installed Devanagari font.
+- **Safe to leave and come back**: A story keeps being made if you close the tab, resumes after a restart, retries from the step that failed, and only re-speaks a scene you edited.
+- Setup, limits and the API: [docs/plans/P15-story-agent.md](docs/plans/P15-story-agent.md).
+
 ### 🎵 Music Release Kit
 - **Distributor-Ready Master**: Two-pass loudness normalisation to -14 LUFS / -1 dBTP (or -16 / -11), 16- or 24-bit WAV at 44.1/48/96 kHz.
 - **Artwork & Promo Videos**: 3000×3000 cover, a full-length 16:9 YouTube visualizer, and an 8-second 9:16 loop for Spotify Canvas, Reels and Shorts.
@@ -243,6 +251,9 @@ AI keys can be added via User Secrets or through the built-in Admin Settings UI:
 ```bash
 dotnet user-secrets set "Ai:Secrets:groq" "gsk_your_groq_api_key"
 ```
+
+### Story Agent (Optional)
+Nothing needs configuring: the built-in story and pasting a script from any chat work without a key. To let a model write the scripts, turn a text provider on under **Settings → AI providers** (`ollama`, `claude-code` and `copilot-cli` need no key). For narration run `scripts\setup-voiceover.ps1`; background music needs `Music:JamendoClientId`. The `StoryAgent` section of `appsettings.json` has the limits and the Wikisource politeness settings; see [docs/plans/P15-story-agent.md](docs/plans/P15-story-agent.md).
 
 ---
 

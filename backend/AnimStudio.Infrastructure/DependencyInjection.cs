@@ -8,6 +8,7 @@ using AnimStudio.Application.Abstractions.Diagnostics;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Abstractions.Workbooks;
 using AnimStudio.Application.Abstractions.Music;
+using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Assets;
@@ -22,6 +23,8 @@ using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Scenes;
 using AnimStudio.Application.Scripts;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Transcripts;
 using AnimStudio.Application.Transcripts.Parsing;
 using AnimStudio.Application.Workbooks;
@@ -42,6 +45,7 @@ using AnimStudio.Infrastructure.Settings;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
+using AnimStudio.Infrastructure.StoryAgent;
 using AnimStudio.Infrastructure.Subtitles;
 using AnimStudio.Infrastructure.Diagnostics;
 using AnimStudio.Infrastructure.Media;
@@ -138,6 +142,7 @@ public static class DependencyInjection
             services.AddScoped<IGoogleDriveConnectionRepository, SqlGoogleDriveConnectionRepository>();
             services.AddScoped<IPhoneHandoffRepository, SqlPhoneHandoffRepository>();
             services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
+            services.AddScoped<IStoryRunRepository, SqlStoryRunRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -180,6 +185,7 @@ public static class DependencyInjection
             services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
             services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
             services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
+            services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
@@ -380,6 +386,33 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<JamendoMusicCatalog>>()));
 
         services.AddScoped<ProjectRenderOrchestrator>();
+
+        // The Story Agent: reads the Granths (Wikisource, one polite request at a time) so a story
+        // is written from the texts. The source is a singleton because its pacing and cache are shared.
+        services.Configure<StoryAgentOptions>(configuration.GetSection(StoryAgentOptions.Section));
+        services.AddSingleton<IScriptureSource>(sp => new WikisourceScriptureSource(
+            sp.GetRequiredService<IOptionsMonitor<StoryAgentOptions>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<WikisourceScriptureSource>>()));
+        services.AddScoped<ScriptureResearcher>();
+
+        // ...then writes it, makes the pictures, narration and music, builds an ordinary project and renders it.
+        // Each stage is a scoped service the executor walks in order; the worker owns the queue the API talks to.
+        services.AddSingleton<IStoryAudioFinisher, FfmpegStoryAudioFinisher>();
+        services.AddScoped<StoryNarrator>();
+        services.AddScoped<IStoryStage, ResearchStage>();
+        services.AddScoped<IStoryStage, ScriptStage>();
+        services.AddScoped<IStoryStage, VisualsStage>();
+        services.AddScoped<IStoryStage, NarrationStage>();
+        services.AddScoped<IStoryStage, MusicStage>();
+        services.AddScoped<IStoryStage, AssembleStage>();
+        services.AddScoped<IStoryStage, RenderStage>();
+        services.AddScoped<IStoryStage, KitStage>();
+        services.AddScoped<StoryRunExecutor>();
+        services.AddScoped<StoryRunService>();
+        services.AddSingleton<StoryRunWorker>();
+        services.AddSingleton<IStoryRunQueue>(sp => sp.GetRequiredService<StoryRunWorker>());
+        services.AddHostedService(sp => sp.GetRequiredService<StoryRunWorker>());
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project
         // render above; only the per-clip conform pass is its own.

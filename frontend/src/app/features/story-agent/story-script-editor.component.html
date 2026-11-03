@@ -1,0 +1,219 @@
+@let s = script();
+@if (s) {
+  <section class="se" [attr.aria-busy]="locked()">
+    @if (run().scriptWarnings.length > 0) {
+      <div class="notice se-note" role="status">
+        <strong>Check these before you build ({{ run().scriptWarnings.length }})</strong>
+        <ul>
+          @for (warning of run().scriptWarnings; track $index) {
+            <li>{{ warning }}</li>
+          }
+        </ul>
+      </div>
+    }
+    @if (s.reviewNotes.length > 0) {
+      <div class="notice notice-info se-note">
+        <strong>The writer asks you to check</strong>
+        <ul>
+          @for (note of s.reviewNotes; track $index) {
+            <li>{{ note }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    <div class="se-bar">
+      <div class="se-bar-info">
+        <strong>{{ draft().length }} scenes</strong>
+        <span class="muted">· about {{ totalLabel() }} · {{ withPicture() }} of {{ s.scenes.length }} with a picture</span>
+        @if (run().brief.targetSeconds; as target) {
+          <span class="muted">· you asked for about {{ target / 60 | number: '1.0-1' }} min</span>
+        }
+      </div>
+      <div class="row se-bar-actions">
+        <button type="button" class="secondary small" (click)="copyPrompts()"
+                title="Copies every scene's picture prompt, numbered, to paste into Google Flow or any image tool">
+          {{ copied() === 'all' ? '✓ Copied' : 'Copy picture prompts' }}
+        </button>
+        <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="bulk.click()"
+                title="Choose all the pictures at once. They go to the scenes in file-name order.">
+          Add pictures…
+        </button>
+        <input #bulk type="file" multiple hidden [accept]="accept" (change)="onPickedMany($event)" />
+      </div>
+    </div>
+
+    <fieldset class="se-fields" [disabled]="locked()">
+      <div class="se-meta">
+        <div class="se-field se-span">
+          <label for="se-title">Title of the video</label>
+          <input id="se-title" type="text" maxlength="200" [attr.lang]="s.language" [ngModel]="meta().title"
+                 (ngModelChange)="setMeta('title', $event)" />
+        </div>
+        <div class="se-field se-span">
+          <label for="se-title-en">Title in English <span class="muted">(optional)</span></label>
+          <input id="se-title-en" type="text" maxlength="200" [ngModel]="meta().titleEnglish"
+                 (ngModelChange)="setMeta('titleEnglish', $event)" />
+        </div>
+        <div class="se-field se-span">
+          <label for="se-summary">Summary <span class="muted">(opens the YouTube description)</span></label>
+          <textarea id="se-summary" rows="2" maxlength="600" [attr.lang]="s.language" [ngModel]="meta().summary"
+                    (ngModelChange)="setMeta('summary', $event)"></textarea>
+        </div>
+        <div class="se-field">
+          <label for="se-music">Music search <span class="muted">(optional)</span></label>
+          <input id="se-music" type="text" maxlength="80" [ngModel]="meta().musicQuery"
+                 (ngModelChange)="setMeta('musicQuery', $event)" placeholder="e.g. sitar flute devotional" />
+        </div>
+        @if (s.writtenBy) {
+          <div class="se-field se-by"><span class="muted">Written by {{ s.writtenBy }}</span></div>
+        }
+      </div>
+
+      @for (scene of draft(); track scene.key; let i = $index; let last = $last) {
+        <article class="card se-scene" [attr.aria-label]="'Scene ' + (i + 1)">
+          <header class="se-scene-head">
+            <span class="se-no">{{ i + 1 }}</span>
+            <input type="text" class="se-headline" maxlength="160" placeholder="Scene title" [attr.lang]="s.language"
+                   [attr.aria-label]="'Title of scene ' + (i + 1)" [ngModel]="scene.headline"
+                   (ngModelChange)="scene.headline = $event; touch()" />
+            <span class="se-time muted" title="About how long this scene runs">{{ seconds(scene) | number: '1.0-0' }}s</span>
+            <div class="se-tools" role="group" [attr.aria-label]="'Scene ' + (i + 1) + ' actions'">
+              <button type="button" class="icon" [disabled]="i === 0" (click)="move(i, -1)" title="Move up" aria-label="Move scene up">↑</button>
+              <button type="button" class="icon" [disabled]="last" (click)="move(i, 1)" title="Move down" aria-label="Move scene down">↓</button>
+              <button type="button" class="icon" [disabled]="!canAdd()" (click)="add(i)" title="Add a scene after this one" aria-label="Add a scene after this one">＋</button>
+              <button type="button" class="icon" [disabled]="!canRemove()" (click)="remove(i)" title="Remove this scene" aria-label="Remove this scene">✕</button>
+            </div>
+          </header>
+
+          <div class="se-body">
+            <div class="se-words">
+              <div class="se-field">
+                <label [for]="'se-nar-' + scene.key">What the voice says <span class="muted">· also the subtitles</span></label>
+                <textarea [id]="'se-nar-' + scene.key" rows="3" maxlength="1600" spellcheck="false" [attr.lang]="s.language"
+                          [ngModel]="scene.narration" (ngModelChange)="scene.narration = $event; touch()"></textarea>
+                <div class="se-count muted" [class.se-over]="characters(scene) > 1400">{{ characters(scene) }} / 1600</div>
+              </div>
+
+              <div class="se-field">
+                <label [for]="'se-en-' + scene.key">What it means in English <span class="muted">· lets you check a Hindi script without reading Hindi</span></label>
+                <textarea [id]="'se-en-' + scene.key" rows="2" maxlength="1600" [ngModel]="scene.english"
+                          (ngModelChange)="scene.english = $event; touch()"></textarea>
+              </div>
+
+              <div class="se-basis">
+                <label [for]="'se-basis-' + scene.key">Where it comes from</label>
+                <select [id]="'se-basis-' + scene.key" [ngModel]="scene.basis" (ngModelChange)="scene.basis = $event; touch()">
+                  @for (choice of basisChoices; track choice.id) {
+                    <option [ngValue]="choice.id">{{ choice.label }}</option>
+                  }
+                </select>
+                <span class="muted se-basis-help">{{ basis(scene.basis).title }}</span>
+              </div>
+
+              <div class="se-sources">
+                @if (scene.sources.length > 0 || scene.basis === 'Text') {
+                  <div class="se-sources-title">Sources</div>
+                }
+                @for (source of scene.sources; track $index; let at = $index) {
+                  <div class="se-source">
+                    <input type="text" maxlength="100" placeholder="Text, e.g. Bhagavata Purana" [attr.aria-label]="'Source ' + (at + 1) + ' text'"
+                           [ngModel]="source.text" (ngModelChange)="source.text = $event; touch()" />
+                    <input type="text" maxlength="80" placeholder="Chapter, e.g. 10.59" [attr.aria-label]="'Source ' + (at + 1) + ' chapter'"
+                           [ngModel]="source.ref" (ngModelChange)="source.ref = $event; touch()" />
+                    <input type="text" maxlength="240" class="se-source-note" placeholder="What it says here (optional)"
+                           [attr.aria-label]="'Source ' + (at + 1) + ' note'" [ngModel]="source.note"
+                           (ngModelChange)="source.note = $event; touch()" />
+                    <button type="button" class="icon" (click)="removeSource(scene, at)" title="Remove this source" aria-label="Remove this source">✕</button>
+                    <div class="se-source-check">
+                      @if (checked(source); as server) {
+                        @let verdict = badge(server);
+                        <span class="pill" [class]="verdict.tone" [title]="verdict.title">{{ verdict.text }}</span>
+                        @if (server.url) {
+                          <a [href]="server.url" target="_blank" rel="noopener noreferrer" class="se-read">Read the chapter</a>
+                        }
+                      } @else {
+                        <span class="pill" title="The place named is checked against the text when the script is saved.">Checked when saved</span>
+                      }
+                    </div>
+                  </div>
+                }
+                @if (scene.basis === 'Text' && scene.sources.length === 0) {
+                  <p class="se-hint">A scene that says "the text says…" should name where. Add a source, or change this scene to Tradition or Reflection.</p>
+                }
+                <button type="button" class="link small" [disabled]="scene.sources.length >= 8" (click)="addSource(scene)">＋ Add a source</button>
+              </div>
+            </div>
+
+            <div class="se-art">
+              <div class="se-frame" [class.se-vertical]="vertical()" [appFileDrop]="accept"
+                   [fileDropDisabled]="locked() || scene.number === 0" (filesDropped)="attach(scene, $event[0])">
+                @if (pictureOf(scene.number); as url) {
+                  <img [src]="url" [alt]="'Picture for scene ' + (i + 1)" loading="lazy" />
+                } @else if (hasPicture(scene.number)) {
+                  <span class="spinner" role="status" aria-label="Loading the picture"></span>
+                } @else {
+                  <div class="se-empty">
+                    @if (scene.number === 0) {
+                      Save the script to add a picture to this scene.
+                    } @else {
+                      Drop a picture here, or use the button below.
+                    }
+                  </div>
+                }
+                @if (sending() === scene.number || sending() === 0) {
+                  <div class="se-busy"><span class="spinner" role="status" aria-label="Sending the picture"></span></div>
+                }
+              </div>
+
+              @if (scene.number > 0) {
+                <div class="row se-art-actions">
+                  <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="pick.click()">
+                    {{ hasOwnPicture(scene.number) ? 'Replace' : 'Add picture' }}
+                  </button>
+                  @if (hasOwnPicture(scene.number)) {
+                    <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="detach(scene)">Remove</button>
+                  }
+                  <input #pick type="file" hidden [accept]="accept" (change)="onPicked(scene, $event)" />
+                </div>
+                @if (pictureNote(scene.number); as note) {
+                  <div class="muted se-art-note">{{ note }}</div>
+                }
+              }
+
+              <div class="se-field">
+                <label [for]="'se-img-' + scene.key">Picture prompt <span class="muted">· for Google Flow or any image tool</span></label>
+                <textarea [id]="'se-img-' + scene.key" rows="3" maxlength="800" [ngModel]="scene.imagePrompt"
+                          (ngModelChange)="scene.imagePrompt = $event; touch()"></textarea>
+                <button type="button" class="link small se-copy" [disabled]="!scene.imagePrompt.trim()" (click)="copyPrompt(scene, i)">
+                  {{ copied() === 's' + scene.key ? '✓ Copied' : 'Copy this prompt' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
+      }
+
+      <div class="se-add">
+        <button type="button" class="secondary small" [disabled]="!canAdd() || locked()" (click)="add(draft().length - 1)">＋ Add a scene at the end</button>
+      </div>
+    </fieldset>
+
+    @if (error()) {
+      <div class="notice error se-error" role="alert">{{ error() }}</div>
+    }
+
+    @if (dirty()) {
+      <div class="se-unsaved" role="status">
+        <span>You have changes that are not saved.</span>
+        <div class="row">
+          <button type="button" class="secondary small" [disabled]="saving()" (click)="reset()">Discard</button>
+          <button type="button" class="small" [disabled]="saving()" (click)="save()">
+            @if (saving()) { <span class="spinner" aria-hidden="true"></span> }
+            Save changes
+          </button>
+        </div>
+      </div>
+    }
+  </section>
+}

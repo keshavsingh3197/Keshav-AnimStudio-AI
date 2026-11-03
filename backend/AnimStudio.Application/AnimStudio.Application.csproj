@@ -9,6 +9,11 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Hand-written Story Agent scripts that ship with the app, one JSON file each (see StoryPacks). -->
+    <EmbeddedResource Include="StoryAgent\Packs\*.json" LogicalName="StoryPacks/%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

@@ -1,0 +1,257 @@
+<div class="sa-page">
+  <div class="page-head sb-studio-bar">
+    <div class="sa-head-left">
+      <div class="studio-icon-badge purple" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+          <path d="M9 7h7M9 11h5"></path>
+        </svg>
+      </div>
+      <div class="sb-studio-title-col">
+        <h2>Story Agent</h2>
+        <p class="muted sa-lede">
+          Give it a title. It searches the Granths, writes a script in which every source is checked, then makes the pictures,
+          narration and music, builds a project, renders the video and prepares the YouTube title, description and tags.
+          You read the script before anything is made, and nothing is published for you.
+        </p>
+      </div>
+    </div>
+    @if (caps(); as c) {
+      <div class="sb-studio-actions sa-caps" aria-label="What this server can do">
+        <span class="pill" [class.ok]="c.textModel" [class.warn]="!c.textModel"
+              [title]="c.textModel ? 'A text model writes the script.' : 'No text model is on: paste the script from any chat.'">
+          {{ c.textModel ? '✓ Script writer' : 'Script from a chat' }}
+        </span>
+        <span class="pill" [class.ok]="c.speechEngine" [class.warn]="!c.speechEngine"
+              [title]="c.speechEngine ? 'A speech engine can narrate.' : 'No speech engine is on, so there is no narration.'">
+          {{ c.speechEngine ? '✓ Narration' : 'No narration' }}
+        </span>
+        <span class="pill" [class.ok]="c.imageEngine"
+              [title]="c.imageEngine ? 'An image engine can draw pictures.' : 'No image engine is on: attach your own pictures.'">
+          {{ c.imageEngine ? '✓ AI pictures' : 'Your pictures' }}
+        </span>
+        <span class="pill" [class.ok]="c.music" [class.warn]="!c.music">{{ c.music ? '✓ Music' : 'No music' }}</span>
+        <span class="pill" [class.ok]="c.renderer" [class.warn]="!c.renderer">{{ c.renderer ? '✓ Render' : 'No renderer' }}</span>
+      </div>
+    }
+  </div>
+
+  @if (capsError(); as problem) {
+    <div class="notice error" role="alert">{{ problem }}</div>
+  }
+  @if (caps(); as c) {
+    @if (!c.enabled) {
+      <div class="notice" role="status">The Story Agent is switched off on this server. An administrator can turn it on with <code>StoryAgent:Enabled</code>.</div>
+    }
+  }
+
+  <div class="sa-grid">
+    <!-- ================================================================== start a story -->
+    <section class="card sa-new" aria-labelledby="sa-new-title">
+      <h3 id="sa-new-title" class="sa-step"><span>1</span> What is the story about?</h3>
+
+      @if (caps(); as c) {
+        <div class="sa-field">
+          <div class="sa-label" id="sa-writer-label">Who writes the script?</div>
+          <div class="seg" role="radiogroup" aria-labelledby="sa-writer-label">
+            <label [class.selected]="writer() === 'Auto'">
+              <input type="radio" name="sa-writer" [checked]="writer() === 'Auto'" (change)="setWriter('Auto')" />
+              The AI
+            </label>
+            <label [class.selected]="writer() === 'Manual'">
+              <input type="radio" name="sa-writer" [checked]="writer() === 'Manual'" (change)="setWriter('Manual')" />
+              I'll paste it from a chat
+            </label>
+            @if (c.packs.length > 0) {
+              <label [class.selected]="writer() === 'BuiltIn'">
+                <input type="radio" name="sa-writer" [checked]="writer() === 'BuiltIn'" (change)="setWriter('BuiltIn')" />
+                A built-in story
+              </label>
+            }
+          </div>
+          <p class="sa-help">
+            @switch (writer()) {
+              @case ('Auto') {
+                @if (c.textModel) {
+                  The text model set up on this server writes it, from what the search finds in the Granths.
+                } @else {
+                  No text model is turned on yet, so you will be given a prompt to paste into any chat, and paste its answer back.
+                  That works the same way and needs no key.
+                }
+              }
+              @case ('Manual') {
+                You get a prompt - with what was found in the Granths already in it - to paste into any chat (ChatGPT, Gemini,
+                Claude…), and you paste the answer back. No key needed.
+              }
+              @default {
+                A story that ships with the app, written and checked by hand. It needs no text model, so it works the first time.
+              }
+            }
+          </p>
+        </div>
+
+        @if (writer() === 'BuiltIn') {
+          <div class="sa-field" role="radiogroup" aria-label="Built-in stories">
+            @for (p of c.packs; track p.id) {
+              <label class="sa-pack" [class.selected]="packId() === p.id">
+                <input type="radio" name="sa-pack" [checked]="packId() === p.id" (change)="packId.set(p.id)" />
+                <span class="sa-pack-body">
+                  <strong lang="hi">{{ p.title }}</strong>
+                  <span>{{ p.titleEnglish }}</span>
+                  <span class="muted">{{ p.description }} About {{ p.targetSeconds / 60 | number: '1.0-1' }} minutes.</span>
+                </span>
+              </label>
+            }
+          </div>
+        } @else {
+          <div class="sa-field">
+            <label for="sa-title">Title</label>
+            <input id="sa-title" type="text" maxlength="160" autocomplete="off" [attr.lang]="language()" [value]="title()"
+                   (input)="title.set(text($event))" (keydown.enter)="start()"
+                   placeholder="e.g. दीपावली क्यों मनाते हैं? · Why do we celebrate Diwali?" />
+            <p class="sa-help">A title is enough. Add points to cover below if you want to steer it.</p>
+          </div>
+
+          @if (c.topics.length > 0) {
+            <div class="sa-field">
+              <div class="sa-label">Ideas from the catalogue</div>
+              <div class="sa-topics">
+                @for (topic of topics(); track topic.id) {
+                  <button type="button" class="sa-topic" [title]="topic.summary" (click)="useTopic(topic)">
+                    {{ language() === 'hi' ? topic.hindi : topic.name }}
+                  </button>
+                }
+                @if (hiddenTopics() > 0) {
+                  <button type="button" class="link small" (click)="showAllTopics.set(!showAllTopics())">
+                    {{ showAllTopics() ? 'Show fewer' : '+ ' + hiddenTopics() + ' more' }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
+
+          <div class="sa-field">
+            <label for="sa-notes">Points to cover <span class="muted">(optional)</span></label>
+            <textarea id="sa-notes" rows="3" maxlength="2000" [value]="notes()" (input)="notes.set(text($event))"
+                      placeholder="e.g. Start with the churning of the ocean. Keep it simple for children. End with a blessing."></textarea>
+          </div>
+
+          <div class="sa-row">
+            <div class="sa-field">
+              <div class="sa-label" id="sa-lang-label">Language</div>
+              <div class="seg" role="radiogroup" aria-labelledby="sa-lang-label">
+                <label [class.selected]="language() === 'hi'">
+                  <input type="radio" name="sa-lang" [checked]="language() === 'hi'" (change)="language.set('hi')" />
+                  Hindi
+                </label>
+                <label [class.selected]="language() === 'en'">
+                  <input type="radio" name="sa-lang" [checked]="language() === 'en'" (change)="language.set('en')" />
+                  English
+                </label>
+              </div>
+            </div>
+            <div class="sa-field">
+              <label for="sa-length">Length</label>
+              <select id="sa-length" [value]="minutes()" (change)="minutes.set(+text($event))">
+                @for (length of lengths; track length.minutes) {
+                  <option [value]="length.minutes" [selected]="length.minutes === minutes()">{{ length.label }}</option>
+                }
+              </select>
+            </div>
+          </div>
+        }
+
+        <div class="sa-field">
+          <div class="sa-label" id="sa-format-label">Shape</div>
+          <div class="seg" role="radiogroup" aria-labelledby="sa-format-label">
+            <label [class.selected]="format() === 'Wide'">
+              <input type="radio" name="sa-format" [checked]="format() === 'Wide'" (change)="format.set('Wide')" />
+              Wide 16:9 · YouTube
+            </label>
+            <label [class.selected]="format() === 'Vertical'">
+              <input type="radio" name="sa-format" [checked]="format() === 'Vertical'" (change)="format.set('Vertical')" />
+              Vertical 9:16 · Shorts
+            </label>
+          </div>
+        </div>
+
+        <details class="sa-more">
+          <summary>
+            <strong>Voice, pictures and music</strong>
+            <span class="muted">
+              {{ options()?.narration === 'MyVoice' ? 'My voice' : options()?.narration === 'Stock' ? 'A voice' : 'Subtitles only' }}
+              · {{ options()?.music ? 'with music' : 'no music' }}
+            </span>
+          </summary>
+          @if (options(); as value) {
+            <app-story-options [caps]="c" [language]="language()" [value]="value" [offerAutoApprove]="true" (valueChange)="options.set($event)" />
+          }
+        </details>
+
+        @if (startError(); as problem) {
+          <div class="notice error" role="alert">{{ problem }}</div>
+        }
+        <div class="sa-start">
+          <button type="button" class="sa-start-btn" [disabled]="starting() || missing() !== null" (click)="start()">
+            @if (starting()) { <span class="spinner" aria-hidden="true"></span> }
+            Start the story
+          </button>
+          @if (missing(); as reason) {
+            <span class="muted">{{ reason }}</span>
+          } @else {
+            <span class="muted">You will read the script before any video is made.</span>
+          }
+        </div>
+      } @else if (!capsError()) {
+        <div class="empty"><span class="spinner" role="status" aria-label="Loading"></span> Getting ready…</div>
+      }
+    </section>
+
+    <!-- ================================================================== the stories so far -->
+    <section class="card sa-list" aria-labelledby="sa-list-title">
+      <h3 id="sa-list-title" class="sa-step"><span>2</span> Your stories</h3>
+
+      @if (listError(); as problem) {
+        <div class="notice error" role="alert">{{ problem }}</div>
+      }
+      @if (runs(); as list) {
+        @if (list.length === 0) {
+          <div class="empty sa-empty">
+            No stories yet. Start one, or try the built-in Diwali story to see the whole thing work.
+          </div>
+        } @else {
+          <ul class="sa-runs">
+            @for (run of list; track run.id) {
+              <li class="sa-run" [class.sa-run-working]="run.working">
+                <div class="sa-run-main">
+                  <a class="sa-run-title" lang="hi" [routerLink]="['/story-agent', run.id]">{{ run.title }}</a>
+                  <div class="sa-run-meta">
+                    <span class="pill" [class]="tone(run.status)">{{ label[run.status] }}</span>
+                    <span class="muted">{{ ago(run.updatedAtUtc) }}</span>
+                    @if (run.hasKit) { <span class="muted">· YouTube details ready</span> }
+                  </div>
+                  @if (run.working) {
+                    <div class="bar" role="progressbar" aria-label="Progress" [attr.aria-valuenow]="run.progress" aria-valuemin="0" aria-valuemax="100">
+                      <i [style.width.%]="run.progress"></i>
+                    </div>
+                  }
+                  @if (run.message && (run.working || run.status === 'Failed')) { <div class="muted sa-run-msg">{{ run.message }}</div> }
+                </div>
+                <button type="button" class="icon" [disabled]="deleting() === run.id" (click)="remove(run)"
+                        [attr.aria-label]="'Delete ' + run.title" title="Delete this story">✕</button>
+              </li>
+            }
+          </ul>
+        }
+      } @else if (!listError()) {
+        <div class="empty sa-empty"><span class="spinner" role="status" aria-label="Loading"></span></div>
+      }
+      @if (caps(); as c) {
+        @if (working() >= c.maxActiveRuns) {
+          <p class="muted sa-limit">{{ working() }} stories are being made. Wait for one to finish before you start another.</p>
+        }
+      }
+    </section>
+  </div>
+</div>

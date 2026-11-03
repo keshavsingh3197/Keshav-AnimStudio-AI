@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 
 export const DEFAULT_UI_NAVIGATION_TABS: UiNavigationItemConfig[] = [
   { id: 'projects', label: 'Projects', path: '/projects', icon: 'projects', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Personal video projects and timeline workspace' },
+  { id: 'story-agent', label: 'Story Agent', path: '/story-agent', icon: 'story-agent', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Give a title; get a researched, narrated video and its YouTube details' },
   { id: 'shorts', label: 'Shorts', path: '/shorts', icon: 'shorts', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Vertical video clips and batch shorts generator' },
   { id: 'calendar', label: 'Calendar', path: '/calendar', icon: 'calendar', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: false, enabled: true, description: 'Social media scheduling and release planning' },
   { id: 'effects', label: 'Effects', path: '/effects', icon: 'effects', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Stingers, overlays, sound effects and visual elements' },

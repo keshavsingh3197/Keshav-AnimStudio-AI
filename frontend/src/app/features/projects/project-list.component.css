@@ -177,6 +177,16 @@
   color: var(--c-yellow);
 }
 
+.icon-rose {
+  background: rgba(244, 63, 94, 0.16);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: var(--c-pink);
+}
+
+a.launchpad-card {
+  text-decoration: none;
+}
+
 .card-tag {
   font-size: 0.68rem;
   font-weight: 700;

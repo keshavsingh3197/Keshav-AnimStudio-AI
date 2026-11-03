@@ -240,10 +240,12 @@ public sealed class SqlSceneRepository(ISqlConnectionFactory factory) : ISceneRe
     public async Task<IReadOnlyList<Scene>> ListByProjectAsync(string projectId, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        // OrderKey is an NVARCHAR column holding a double, so a plain ORDER BY sorts it as text
+        // ("1", "10", "11", ... "2") and scrambles any project with ten or more scenes.
         const string sql = """
             SELECT DataJson FROM Scenes
             WHERE ProjectId = @ProjectId AND Status = 0
-            ORDER BY OrderKey ASC
+            ORDER BY TRY_CAST(OrderKey AS FLOAT) ASC, OrderKey ASC
             """;
         await using var cmd = new SqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@ProjectId", projectId);

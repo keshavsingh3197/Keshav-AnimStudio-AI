@@ -1,0 +1,128 @@
+@let k = kit();
+
+<section class="card sk" aria-labelledby="sk-heading">
+  <div class="sk-head">
+    <h3 id="sk-heading">For YouTube</h3>
+    <span class="muted">Copy each part when you upload. Nothing here is sent anywhere.</span>
+  </div>
+
+  <div class="sk-block">
+    <div class="sk-label">Title <span class="muted">· pick one</span></div>
+    <ul class="sk-list">
+      @for (title of k.titleOptions; track $index; let first = $first) {
+        <li class="sk-row">
+          <span class="sk-text" lang="hi">{{ title }}</span>
+          <span class="sk-meta muted" [class.sk-over]="title.length > titleLimit">{{ title.length }}/{{ titleLimit }}</span>
+          @if (first) { <span class="pill brand">Recommended</span> }
+          <button type="button" class="secondary small" (click)="copy('title' + $index, title)">
+            {{ copied() === 'title' + $index ? '✓ Copied' : 'Copy' }}
+          </button>
+        </li>
+      }
+    </ul>
+  </div>
+
+  <div class="sk-block">
+    <div class="sk-label">
+      Description
+      <span class="muted" [class.sk-over]="k.descriptionBytes > descriptionLimit">· {{ k.descriptionBytes }} / {{ descriptionLimit }} bytes</span>
+      <button type="button" class="secondary small sk-copy" (click)="copy('description', k.description)">
+        {{ copied() === 'description' ? '✓ Copied' : 'Copy' }}
+      </button>
+    </div>
+    <textarea readonly rows="12" class="sk-area" lang="hi" aria-label="Description" [value]="k.description"></textarea>
+  </div>
+
+  <div class="sk-block">
+    <div class="sk-label">
+      Tags
+      <span class="muted" [class.sk-over]="k.tagsLength > tagsLimit">· {{ k.tagsLength }} / {{ tagsLimit }} characters</span>
+      <button type="button" class="secondary small sk-copy" (click)="copy('tags', tagsText())">
+        {{ copied() === 'tags' ? '✓ Copied' : 'Copy tags' }}
+      </button>
+    </div>
+    <div class="chips" role="list">
+      @for (tag of k.tags; track $index) {
+        <span class="chip sk-chip" role="listitem" lang="hi">{{ tag }}</span>
+      }
+    </div>
+    <p class="muted sk-help">Paste into YouTube's Tags box, separated by commas.</p>
+  </div>
+
+  @if (k.hashtags.length > 0) {
+    <div class="sk-block">
+      <div class="sk-label">
+        Hashtags
+        <button type="button" class="secondary small sk-copy" (click)="copy('hashtags', hashtagsText())">
+          {{ copied() === 'hashtags' ? '✓ Copied' : 'Copy' }}
+        </button>
+      </div>
+      <div class="sk-hashtags" lang="hi">{{ hashtagsText() }}</div>
+    </div>
+  }
+
+  @if (k.chapters.length > 0) {
+    <div class="sk-block">
+      <div class="sk-label">
+        Chapters <span class="muted">· already in the description, shown here to check</span>
+        <button type="button" class="secondary small sk-copy" (click)="copy('chapters', chaptersText())">
+          {{ copied() === 'chapters' ? '✓ Copied' : 'Copy' }}
+        </button>
+      </div>
+      <ol class="sk-chapters">
+        @for (chapter of k.chapters; track $index) {
+          <li><span class="mono sk-stamp">{{ chapter.stamp }}</span> <span lang="hi">{{ chapter.title }}</span></li>
+        }
+      </ol>
+    </div>
+  }
+
+  <div class="sk-pair">
+    <div class="sk-block">
+      <div class="sk-label">
+        Pinned comment
+        <button type="button" class="secondary small sk-copy" (click)="copy('pinned', k.pinnedComment)">
+          {{ copied() === 'pinned' ? '✓ Copied' : 'Copy' }}
+        </button>
+      </div>
+      <p class="sk-quote" lang="hi">{{ k.pinnedComment }}</p>
+    </div>
+    <div class="sk-block">
+      <div class="sk-label">
+        A question for the comments
+        <button type="button" class="secondary small sk-copy" (click)="copy('engage', k.engagementComment)">
+          {{ copied() === 'engage' ? '✓ Copied' : 'Copy' }}
+        </button>
+      </div>
+      <p class="sk-quote" lang="hi">{{ k.engagementComment }}</p>
+    </div>
+  </div>
+
+  @if (music(); as m) {
+    <div class="sk-block">
+      <div class="sk-label">Music credit <span class="muted">· already in the description</span></div>
+      <p class="sk-quote">
+        {{ m.attribution }}
+        @if (m.pageUrl) {
+          · <a [href]="m.pageUrl" target="_blank" rel="noopener noreferrer">track page</a>
+        }
+      </p>
+    </div>
+  }
+
+  @if (k.checklist.length > 0) {
+    <div class="sk-block">
+      <div class="sk-label">Before and after you upload</div>
+      <ul class="sk-checks">
+        @for (item of k.checklist; track $index) {
+          <li>
+            <label class="sk-check">
+              <input type="checkbox" [checked]="done().has($index)" (change)="toggle($index)" />
+              <span [class.sk-done]="done().has($index)">{{ item }}</span>
+            </label>
+          </li>
+        }
+      </ul>
+    </div>
+  }
+</section>
