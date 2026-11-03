@@ -332,6 +332,9 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
         services.AddSingleton(sp => new YouTubeCommentClient(
             sp.GetRequiredService<ILogger<YouTubeCommentClient>>()));
+        // Subtitle tracks for videos the Story Agent made.
+        services.AddSingleton(sp => new YouTubeCaptionClient(
+            sp.GetRequiredService<ILogger<YouTubeCaptionClient>>()));
         // Go Live can create the YouTube broadcast and its stream key itself.
         services.AddSingleton(sp => new YouTubeLiveClient(
             sp.GetRequiredService<ILogger<YouTubeLiveClient>>()));
@@ -410,6 +413,8 @@ public static class DependencyInjection
         services.AddScoped<IStoryStage, KitStage>();
         services.AddScoped<StoryRunExecutor>();
         services.AddScoped<StoryRunService>();
+        services.AddScoped<IStoryPublishing, YouTubeStoryPublishing>();
+        services.AddScoped<StoryCaptionPublisher>();
         services.AddSingleton<StoryRunWorker>();
         services.AddSingleton<IStoryRunQueue>(sp => sp.GetRequiredService<StoryRunWorker>());
         services.AddHostedService(sp => sp.GetRequiredService<StoryRunWorker>());

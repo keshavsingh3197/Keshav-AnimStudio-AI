@@ -213,6 +213,51 @@ export interface StoryBuildOptions {
   autoApprove: boolean;
 }
 
+/** A subtitle track the story offers as an SRT file: the narration, or (for a Hindi story) its English meaning. */
+export interface StorySubtitle {
+  language: string;
+  label: string;
+  source: 'narration' | 'translation';
+  cues: number;
+}
+
+/** A YouTube video made from the story's project. */
+export interface StoryPublication {
+  videoId: string;
+  channelTitle: string;
+  title: string;
+  /** What it was uploaded as: public, unlisted or private (a scheduled upload is private until its time). */
+  privacy: string;
+  /** What YouTube last said it is. */
+  privacyStatus: string | null;
+  publishedAtUtc: string;
+  /** When a scheduled upload goes public. */
+  publishAtUtc: string | null;
+  health: 'Unknown' | 'Processing' | 'Ok' | 'Issue' | 'Removed' | string;
+  issueMessage: string | null;
+  videoUrl: string;
+  studioUrl: string;
+  thumbnailUrl: string | null;
+  /** The channel's connection allows adding subtitle tracks. */
+  canCaption: boolean;
+  /** It is the story's latest render, not an earlier build. */
+  currentRender: boolean;
+  /** Subtitle languages added to it from here. */
+  captions: string[];
+}
+
+export interface StoryCaptionResult {
+  language: string;
+  label: string;
+  outcome: 'added' | 'already' | 'failed';
+  message: string | null;
+}
+
+export interface StoryCaptionsSent {
+  run: StoryRun;
+  results: StoryCaptionResult[];
+}
+
 export interface StoryRun {
   id: string;
   title: string;
@@ -233,9 +278,15 @@ export interface StoryRun {
   errorMessage: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
+  /** When the person said "go with this script"; cleared whenever the words change. */
+  scriptApprovedAtUtc: string | null;
+  /** Empty until the project has been built. */
+  subtitles: StorySubtitle[];
+  /** Newest first. */
+  publications: StoryPublication[];
 }
 
-/** A run in the list: enough to draw a card and open it. */
+/** A run in the list and on the storyboard: enough to draw a card, place it in its column and open it. */
 export interface StoryRunSummary {
   id: string;
   title: string;
@@ -247,6 +298,17 @@ export interface StoryRunSummary {
   hasKit: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
+  language: string;
+  format: StoryFormat;
+  sceneCount: number;
+  durationSeconds: number;
+  scriptApprovedAtUtc: string | null;
+  hasRender: boolean;
+  /** The first scene with a picture of its own, for the card. */
+  coverScene: number | null;
+  publicationCount: number;
+  /** The newest YouTube video made from it. */
+  publication: StoryPublication | null;
 }
 
 // ------------------------------------------------------------------------------------------------ what the page sends

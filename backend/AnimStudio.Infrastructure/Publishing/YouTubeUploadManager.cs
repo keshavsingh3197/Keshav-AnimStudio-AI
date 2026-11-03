@@ -289,7 +289,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             var saved = await publications.RecordAsync(
                 request.UserId, request.ProjectId, request.JobId, request.ChannelId, request.ChannelTitle,
                 videoId, request.Metadata.Title, request.Metadata.Privacy, request.RelatedVideoIds ?? [],
-                CancellationToken.None, request.Metadata.CategoryId).ConfigureAwait(false);
+                CancellationToken.None, request.Metadata.CategoryId, request.Metadata.PublishAt).ConfigureAwait(false);
             entry.PublicationId = saved.Id;
         }
         catch (Exception ex)

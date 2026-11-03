@@ -39,6 +39,17 @@ export type YouTubePrivacy = 'public' | 'unlisted' | 'private';
  */
 export type YouTubePublishSource = 'render' | 'release';
 
+/**
+ * Details already written for a video - the Story Agent's YouTube kit, for one - that the publish dialog opens with in
+ * place of its own draft. Anything left out keeps the draft's value.
+ */
+export interface YouTubePrefill {
+  title?: string | null;
+  description?: string | null;
+  tags?: readonly string[] | null;
+  firstComment?: string | null;
+}
+
 /** YouTube's Music category; what makes an upload show up on YouTube Music. */
 export const YOUTUBE_MUSIC_CATEGORY_ID = '10';
 

@@ -9,6 +9,7 @@ import {
   EditStoryScriptBody,
   StoryAgentOptions,
   StoryBuildOptionsBody,
+  StoryCaptionsSent,
   StoryRun,
   StoryRunSummary,
   StoryWriterMode,
@@ -54,6 +55,11 @@ export class StoryAgentService {
     return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/script`, body));
   }
 
+  /** "Go with this script." Nothing is made yet; changing the words later takes the approval back. */
+  approve(id: string): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/approve`, {}));
+  }
+
   rewrite(id: string, writer?: StoryWriterMode): Observable<StoryRun> {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/rewrite`, writer ? { writer } : {}));
   }
@@ -79,6 +85,16 @@ export class StoryAgentService {
    */
   renderFile(jobId: string): Observable<Blob> {
     return this.http.get(`${environment.apiUrl}/api/render-jobs/${encodeURIComponent(jobId)}/download`, { responseType: 'blob' });
+  }
+
+  /** One subtitle track as an SRT file (UTF-8). Fetched through HttpClient so it carries the caller's identity. */
+  subtitleFile(id: string, language: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/subtitles/${encodeURIComponent(language)}`, { responseType: 'blob' });
+  }
+
+  /** Adds the story's subtitles to one of its YouTube videos; no languages means every one the story has. */
+  sendSubtitles(id: string, videoId: string, languages?: string[]): Observable<StoryCaptionsSent> {
+    return this.unwrap(this.http.post<ApiResponse<StoryCaptionsSent>>(`${this.run(id)}/subtitles/youtube`, { videoId, languages }));
   }
 
   /** Approves the script and starts making the video. Options sent here replace the ones the story started with. */

@@ -6,7 +6,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, catchError, debounceTime, distinctUntilChanged, forkJoin, map, of, switchMap, tap } from 'rxjs';
 
 import {
-  GoogleDriveStatus, MAX_RELATED_VIDEOS, MAX_THUMBNAIL_UPLOAD_BYTES, PhoneHandoff, PhoneUploadCandidate, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeThumbnailChoice, YouTubeDestination, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
+  GoogleDriveStatus, MAX_RELATED_VIDEOS, MAX_THUMBNAIL_UPLOAD_BYTES, PhoneHandoff, PhoneUploadCandidate, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeThumbnailChoice, YouTubeDestination, YouTubeDraft, YouTubePrefill, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
   YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload, YouTubeUploadRoute,
   isHandoffActive, isUploadFinished, isValidDriveFolderName, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
@@ -1284,6 +1284,8 @@ export class YouTubePublishDialogComponent implements OnInit {
    * YouTube Studio. The API has no real draft state, so private is the closest equivalent.
    */
   readonly asDraft = input(false);
+  /** Details already written for this video; they replace the draft's title, description, tags and first comment. */
+  readonly prefill = input<YouTubePrefill | null>(null);
   readonly closed = output<void>();
   /** An upload of this render finished; the link is now saved with it. */
   readonly published = output<YouTubeUpload>();
@@ -1670,6 +1672,11 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.tagsText.set(draft.tags.join(', '));
         this.notify.set(draft.notifySubscribers);
         this.firstComment.set(draft.firstComment ?? '');
+        const given = this.prefill();
+        if (given?.title?.trim()) this.title.set(given.title.trim());
+        if (given?.description?.trim()) this.description.set(given.description.trim());
+        if (given?.tags?.length) this.tagsText.set(given.tags.join(', '));
+        if (given?.firstComment?.trim()) this.firstComment.set(given.firstComment.trim());
 
         // A brand channel with a publishing setup decides; otherwise this browser's last choices.
         const brand = draft.channelId ? status.channels.find((c) => c.channelId === draft.channelId) : undefined;

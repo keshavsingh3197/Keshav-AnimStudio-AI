@@ -10,13 +10,21 @@
 } @else if (run(); as r) {
   <div class="sr-page">
     <!-- ================================================================== header -->
-    <a routerLink="/story-agent" class="sr-back">← All stories</a>
+    <nav class="sr-crumbs" aria-label="Story Agent">
+      <a routerLink="/story-agent" class="sr-back">← All stories</a>
+      <a routerLink="/story-agent/board" class="sr-back">▦ Storyboard</a>
+    </nav>
 
     <div class="page-head sb-studio-bar sr-head">
       <div class="sb-studio-title-col">
         <h2 [attr.lang]="language()">{{ r.title }}</h2>
         <p class="muted sr-sub">
           <span class="pill" [class]="tone(r.status)">{{ statusLabel[r.status] }}</span>
+          @if (approved() && !r.working && r.status === 'ScriptReady') { <span class="pill ok">Script approved</span> }
+          @if (r.publications.length > 0) {
+            @let latest = videoState(r.publications[0]);
+            <span class="pill" [class]="latest.tone">▶ {{ latest.label }}</span>
+          }
           <span>Started {{ ago(r.createdAtUtc) }}</span>
           <span>· {{ r.brief.language === 'en' ? 'English' : 'Hindi' }}</span>
           <span>· {{ r.brief.format === 'Vertical' ? '9:16 vertical' : '16:9 wide' }}</span>
@@ -50,273 +58,475 @@
       <div class="notice error" role="alert">{{ problem }}</div>
     }
 
-    <!-- ================================================================== progress -->
-    <section class="card sr-progress" aria-label="Progress">
-      <ol class="sr-stages">
-        @for (stage of r.stages; track stage.id) {
-          <li class="sr-stage" [class]="'sr-' + stage.status.toLowerCase()" [attr.aria-current]="stage.status === 'Running' ? 'step' : null">
-            <span class="sr-mark" aria-hidden="true">{{ mark(stage.status) }}</span>
-            <div class="sr-stage-text">
-              <strong>{{ info[stage.id].label }}</strong>
-              <span class="muted">{{ stage.message || info[stage.id].hint }}</span>
-              @if (stage.status === 'Running') {
-                <div class="bar" role="progressbar" [attr.aria-valuenow]="stage.progress" aria-valuemin="0" aria-valuemax="100">
-                  <i [style.width.%]="stage.progress"></i>
-                </div>
-              }
-            </div>
-            <span class="sr-only">{{ stage.status }}</span>
-          </li>
-        }
-      </ol>
-      @if (r.working) {
-        <div class="bar sr-overall" role="progressbar" aria-label="The whole story" [attr.aria-valuenow]="overall(r)" aria-valuemin="0" aria-valuemax="100">
-          <i [style.width.%]="overall(r)"></i>
-        </div>
+    <!-- ================================================================== tabs -->
+    <div class="sr-tabs" role="tablist" aria-label="Steps of the story">
+      @for (t of tabs(); track t.id; let i = $index) {
+        <button type="button" role="tab" class="sr-tab" [id]="'sr-tab-' + t.id" [class]="'sr-tab-' + t.state"
+                [class.active]="selected() === t.id" [attr.aria-selected]="selected() === t.id" [attr.aria-controls]="'sr-panel'"
+                [attr.tabindex]="selected() === t.id ? 0 : -1" [disabled]="t.state === 'locked'"
+                [title]="t.state === 'locked' ? 'Not ready yet' : ''" (click)="go(t.id)" (keydown)="onTabKey($event, i)">
+          <span class="sr-tab-mark" aria-hidden="true">{{ t.state === 'done' ? '✓' : t.state === 'locked' ? '🔒' : t.step || '◎' }}</span>
+          <span class="sr-tab-label">{{ t.label }}</span>
+          @if (t.note) { <span class="sr-tab-note">{{ t.note }}</span> }
+        </button>
       }
-    </section>
-
-    @if (r.status === 'Failed') {
-      <div class="notice error sr-problem" role="alert">
-        <strong>
-          @if (failedStage(); as stage) { {{ info[stage.id].label }} stopped. } @else { The story stopped. }
-        </strong>
-        <p>{{ r.errorMessage || 'Something went wrong.' }}</p>
-        <p class="muted">Everything already made is kept. Fix what it says, then try again from where it stopped.</p>
-        <div class="row">
-          <button type="button" [disabled]="busy() !== null" (click)="retry()">Try again</button>
-        </div>
+    </div>
+    @if (r.working) {
+      <div class="bar sr-overall" role="progressbar" aria-label="The whole story" [attr.aria-valuenow]="overall(r)" aria-valuemin="0" aria-valuemax="100">
+        <i [style.width.%]="overall(r)"></i>
       </div>
     }
 
-    @if (warnings().length > 0) {
-      <details class="notice sr-warnings">
-        <summary><strong>Worth a second look ({{ warnings().length }})</strong></summary>
-        <ul>
-          @for (warning of warnings(); track $index) {
-            <li>{{ warning }}</li>
-          }
-        </ul>
-      </details>
-    }
-
-    <!-- ================================================================== the research -->
-    @if (r.research; as research) {
-      <details class="card sr-research">
-        <summary>
-          <strong>What the search of the Granths found</strong>
-          <span class="muted">
-            {{ research.topics.length }} {{ research.topics.length === 1 ? 'topic' : 'topics' }} ·
-            {{ research.passages.length }} {{ research.passages.length === 1 ? 'passage' : 'passages' }} read
-          </span>
-        </summary>
-
-        @if (research.topics.length === 0) {
-          <p class="muted">The title did not match anything in the catalogue, so the writer works from the title and your notes alone. Every citation is still checked.</p>
-        }
-        @for (topic of research.topics; track topic.topicId) {
-          <div class="sr-topic">
-            <strong>{{ topic.name }}</strong>
-            @if (topic.summary) { <p class="muted">{{ topic.summary }}</p> }
-            <ul class="sr-refs">
-              @for (source of topic.sources; track $index) {
-                <li>
-                  <span class="pill" [class.ok]="source.confidence === 'High'" [class.warn]="source.confidence !== 'High'"
-                        [title]="source.confidence === 'High' ? 'The catalogue is sure of this chapter.' : source.confidence === 'Medium' ? 'The right text and section; check the exact chapter against your own edition.' : 'A traditional pointer rather than a chapter; look it up yourself.'">
-                    {{ source.confidence }}
-                  </span>
-                  <span>{{ source.textName }} {{ source.ref }}</span>
-                  @if (source.note) { <span class="muted">· {{ source.note }}</span> }
-                </li>
-              }
-            </ul>
-          </div>
+    <div class="sr-panel" id="sr-panel" role="tabpanel" [attr.aria-labelledby]="'sr-tab-' + selected()">
+      <!-- ================================================================== overview -->
+      @if (selected() === 'overview') {
+        @if (next(); as n) {
+          <section class="card sr-next" aria-label="What is next">
+            <div>
+              <strong>Next</strong>
+              <p>{{ n.text }}</p>
+            </div>
+            <button type="button" (click)="go(n.tab)">{{ n.action }} →</button>
+          </section>
         }
 
-        @if (research.passages.length > 0) {
-          <h4 class="sr-h4">Passages the writer read</h4>
-          <ul class="sr-passages">
-            @for (passage of research.passages; track $index) {
-              <li>
-                <div class="sr-passage-head">
-                  <strong>{{ passage.textName }} {{ passage.ref }}</strong>
-                  <span class="muted">{{ passage.direct ? 'asked for by name' : 'found by search' }} · {{ passage.license }}</span>
-                  <a [href]="passage.url" target="_blank" rel="noopener noreferrer">Open on Wikisource</a>
+        <section class="card sr-progress" aria-label="Progress">
+          <ol class="sr-stages">
+            @for (stage of r.stages; track stage.id) {
+              <li class="sr-stage" [class]="'sr-' + stage.status.toLowerCase()" [attr.aria-current]="stage.status === 'Running' ? 'step' : null">
+                <span class="sr-mark" aria-hidden="true">{{ mark(stage.status) }}</span>
+                <div class="sr-stage-text">
+                  <strong>{{ info[stage.id].label }}</strong>
+                  <span class="muted">{{ stage.message || info[stage.id].hint }}</span>
+                  @if (stage.status === 'Running') {
+                    <div class="bar" role="progressbar" [attr.aria-valuenow]="stage.progress" aria-valuemin="0" aria-valuemax="100">
+                      <i [style.width.%]="stage.progress"></i>
+                    </div>
+                  }
                 </div>
-                <p class="sr-excerpt" lang="sa">{{ passage.excerpt }}</p>
+                <span class="sr-only">{{ stage.status }}</span>
               </li>
             }
-          </ul>
-        }
+          </ol>
+        </section>
 
-        @if (research.warnings.length > 0) {
-          <ul class="sr-research-warnings">
-            @for (warning of research.warnings; track $index) {
-              <li>{{ warning }}</li>
-            }
-          </ul>
-        }
-      </details>
-    }
-
-    <!-- ================================================================== the script -->
-    @if (r.status === 'AwaitingScript') {
-      <section class="card sr-manual" aria-labelledby="sr-manual-title">
-        <h3 id="sr-manual-title">Get the script written</h3>
-        <p class="muted">
-          No text model writes this one, so you do. It takes a minute: copy the prompt, paste it into any chat you use
-          (ChatGPT, Gemini, Claude…), then paste its whole answer back here. The prompt already holds what was found in the
-          Granths, so the chat writes from the texts instead of from memory.
-        </p>
-
-        @if (promptError(); as problem) {
-          <div class="notice error" role="alert">{{ problem }}</div>
-        } @else if (prompt() === null) {
-          <div class="muted"><span class="spinner" aria-hidden="true"></span> Preparing the prompt…</div>
-        } @else {
-          <div class="sr-step"><span class="n">1</span><strong>Copy the prompt</strong></div>
-          <textarea readonly rows="8" class="sr-prompt" aria-label="The prompt" [value]="prompt()"></textarea>
-          <div class="row">
-            <button type="button" (click)="copyPrompt()">{{ copied() ? '✓ Copied' : 'Copy the prompt' }}</button>
-            <span class="muted">{{ prompt()?.length | number }} characters</span>
+        @if (r.status === 'Failed') {
+          <div class="notice error sr-problem" role="alert">
+            <strong>
+              @if (failedStage(); as stage) { {{ info[stage.id].label }} stopped. } @else { The story stopped. }
+            </strong>
+            <p>{{ r.errorMessage || 'Something went wrong.' }}</p>
+            <p class="muted">Everything already made is kept. Fix what it says, then try again from where it stopped.</p>
+            <div class="row">
+              <button type="button" [disabled]="busy() !== null" (click)="retry()">Try again</button>
+            </div>
           </div>
         }
 
-        <div class="sr-step"><span class="n">2</span><strong>Paste the chat's answer here</strong></div>
-        <textarea rows="10" class="sr-reply" aria-label="The reply from the chat" [ngModel]="reply()"
-                  (ngModelChange)="reply.set($event)" placeholder="Paste the whole reply, the JSON and everything…"
-                  [attr.aria-invalid]="replyError() ? 'true' : null"></textarea>
-        @if (replyError(); as problem) {
-          <div class="notice error" role="alert">{{ problem }}</div>
-        }
-        <div class="row">
-          <button type="button" [disabled]="!reply().trim() || busy() !== null" (click)="paste()">
-            @if (busy() === 'paste') { <span class="spinner" aria-hidden="true"></span> }
-            Use this script
-          </button>
-          @if (caps()?.textModel) {
-            <button type="button" class="secondary" [disabled]="busy() !== null" (click)="rewrite('Auto')">Let the text model write it instead</button>
-          }
-        </div>
-      </section>
-    }
-
-    @if (r.script) {
-      <section class="sr-script" aria-labelledby="sr-script-title">
-        <div class="sr-section-head">
-          <h3 id="sr-script-title">
-            {{ r.status === 'ScriptReady' ? 'Read the script before the video is made' : 'The script' }}
-          </h3>
-          @if (!r.working) {
-            <div class="row">
-              @if (caps()?.textModel) {
-                <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Auto')"
-                        title="Throws this script away and has the text model write it again">Rewrite with the text model</button>
+        @if (warnings().length > 0) {
+          <details class="notice sr-warnings">
+            <summary><strong>Worth a second look ({{ warnings().length }})</strong></summary>
+            <ul>
+              @for (warning of warnings(); track $index) {
+                <li>{{ warning }}</li>
               }
-              <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Manual')"
-                      title="Gets a prompt to paste into any chat, then paste the answer back">Write it with a chat</button>
+            </ul>
+          </details>
+        }
+
+        @if (r.research; as research) {
+          <details class="card sr-research">
+            <summary>
+              <strong>What the search of the Granths found</strong>
+              <span class="muted">
+                {{ research.topics.length }} {{ research.topics.length === 1 ? 'topic' : 'topics' }} ·
+                {{ research.passages.length }} {{ research.passages.length === 1 ? 'passage' : 'passages' }} read
+              </span>
+            </summary>
+
+            @if (research.topics.length === 0) {
+              <p class="muted">The title did not match anything in the catalogue, so the writer works from the title and your notes alone. Every citation is still checked.</p>
+            }
+            @for (topic of research.topics; track topic.topicId) {
+              <div class="sr-topic">
+                <strong>{{ topic.name }}</strong>
+                @if (topic.summary) { <p class="muted">{{ topic.summary }}</p> }
+                <ul class="sr-refs">
+                  @for (source of topic.sources; track $index) {
+                    <li>
+                      <span class="pill" [class.ok]="source.confidence === 'High'" [class.warn]="source.confidence !== 'High'"
+                            [title]="source.confidence === 'High' ? 'The catalogue is sure of this chapter.' : source.confidence === 'Medium' ? 'The right text and section; check the exact chapter against your own edition.' : 'A traditional pointer rather than a chapter; look it up yourself.'">
+                        {{ source.confidence }}
+                      </span>
+                      <span>{{ source.textName }} {{ source.ref }}</span>
+                      @if (source.note) { <span class="muted">· {{ source.note }}</span> }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (research.passages.length > 0) {
+              <h4 class="sr-h4">Passages the writer read</h4>
+              <ul class="sr-passages">
+                @for (passage of research.passages; track $index) {
+                  <li>
+                    <div class="sr-passage-head">
+                      <strong>{{ passage.textName }} {{ passage.ref }}</strong>
+                      <span class="muted">{{ passage.direct ? 'asked for by name' : 'found by search' }} · {{ passage.license }}</span>
+                      <a [href]="passage.url" target="_blank" rel="noopener noreferrer">Open on Wikisource</a>
+                    </div>
+                    <p class="sr-excerpt" lang="sa">{{ passage.excerpt }}</p>
+                  </li>
+                }
+              </ul>
+            }
+
+            @if (research.warnings.length > 0) {
+              <ul class="sr-research-warnings">
+                @for (warning of research.warnings; track $index) {
+                  <li>{{ warning }}</li>
+                }
+              </ul>
+            }
+          </details>
+        }
+      }
+
+      <!-- ================================================================== script: before there is one -->
+      @if (selected() === 'script') {
+        @if (r.status === 'Researching' || r.status === 'WritingScript') {
+          <div class="card empty sr-center sr-wait">
+            <span class="spinner" role="status" aria-label="Working"></span>
+            {{ r.status === 'Researching' ? 'Searching the Granths. The script is written next.' : 'Writing the script from what was found…' }}
+          </div>
+        }
+
+        @if (r.status === 'AwaitingScript') {
+          <section class="card sr-manual" aria-labelledby="sr-manual-title">
+            <h3 id="sr-manual-title">Get the script written</h3>
+            <p class="muted">
+              No text model writes this one, so you do. It takes a minute: copy the prompt, paste it into any chat you use
+              (ChatGPT, Gemini, Claude…), then paste its whole answer back here. The prompt already holds what was found in the
+              Granths, so the chat writes from the texts instead of from memory.
+            </p>
+
+            @if (promptError(); as problem) {
+              <div class="notice error" role="alert">{{ problem }}</div>
+            } @else if (prompt() === null) {
+              <div class="muted"><span class="spinner" aria-hidden="true"></span> Preparing the prompt…</div>
+            } @else {
+              <div class="sr-step"><span class="n">1</span><strong>Copy the prompt</strong></div>
+              <textarea readonly rows="8" class="sr-prompt" aria-label="The prompt" [value]="prompt()"></textarea>
+              <div class="row">
+                <button type="button" (click)="copyPrompt()">{{ copied() ? '✓ Copied' : 'Copy the prompt' }}</button>
+                <span class="muted">{{ prompt()?.length | number }} characters</span>
+              </div>
+            }
+
+            <div class="sr-step"><span class="n">2</span><strong>Paste the chat's answer here</strong></div>
+            <textarea rows="10" class="sr-reply" aria-label="The reply from the chat" [ngModel]="reply()"
+                      (ngModelChange)="reply.set($event)" placeholder="Paste the whole reply, the JSON and everything…"
+                      [attr.aria-invalid]="replyError() ? 'true' : null"></textarea>
+            @if (replyError(); as problem) {
+              <div class="notice error" role="alert">{{ problem }}</div>
+            }
+            <div class="row">
+              <button type="button" [disabled]="!reply().trim() || busy() !== null" (click)="paste()">
+                @if (busy() === 'paste') { <span class="spinner" aria-hidden="true"></span> }
+                Use this script
+              </button>
+              @if (caps()?.textModel) {
+                <button type="button" class="secondary" [disabled]="busy() !== null" (click)="rewrite('Auto')">Let the text model write it instead</button>
+              }
             </div>
+          </section>
+        }
+
+        @if (r.script) {
+          <div class="sr-section-head">
+            <div>
+              <h3>{{ approved() ? 'The approved script' : 'Read the script, then approve it' }}</h3>
+              <p class="muted sr-lede">
+                @if (approved()) {
+                  Approved {{ ago(r.scriptApprovedAtUtc!) }}. Changing the words takes the approval back, so the video is only made from words you have read.
+                } @else {
+                  Fix any words, check each source, then approve. Nothing is made until you build, and everything you save is kept.
+                }
+              </p>
+            </div>
+            @if (!r.working) {
+              <div class="row">
+                @if (caps()?.textModel) {
+                  <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Auto')"
+                          title="Throws this script away and has the text model write it again">Rewrite with the text model</button>
+                }
+                <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Manual')"
+                        title="Gets a prompt to paste into any chat, then paste the answer back">Write it with a chat</button>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      @if (selected() === 'pictures' && r.script) {
+        <div class="sr-section-head">
+          <div>
+            <h3>Pictures for each scene</h3>
+            <p class="muted sr-lede">
+              {{ pictured() }} of {{ sceneCount() }} scenes have a picture.
+              @if (r.options.visuals === 'Auto' && caps()?.imageEngine) {
+                Scenes left empty get a picture from the AI image engine when you build.
+              } @else {
+                Scenes left empty get a plain background when you build.
+              }
+            </p>
+          </div>
+        </div>
+      }
+
+      <!-- One editor for the Script and Pictures tabs, kept while switching, so unsaved words are not lost. -->
+      @if (r.script) {
+        <div [class.sr-hidden]="selected() !== 'script' && selected() !== 'pictures'">
+          <app-story-script-editor [run]="r" [view]="selected() === 'pictures' ? 'pictures' : 'script'" (runChange)="onEditorChange($event)" />
+        </div>
+      }
+
+      @if (selected() === 'script' && r.script && !r.working) {
+        <div class="sr-approve" [class.sr-approve-done]="approved()" role="region" aria-label="Approve the script">
+          @if (approved()) {
+            <span><strong>✓ Script approved.</strong> <span class="muted">Next: the pictures.</span></span>
+            <button type="button" (click)="go('pictures')">Go to the pictures →</button>
+          } @else {
+            <span><strong>Happy with this script?</strong> <span class="muted">Approving saves it and moves on to the pictures.</span></span>
+            <button type="button" [disabled]="busy() !== null || r.status === 'AwaitingScript'" (click)="approve()">
+              @if (busy() === 'approve') { <span class="spinner" aria-hidden="true"></span> }
+              ✓ Approve the script
+            </button>
           }
         </div>
-        @if (r.status === 'ScriptReady') {
-          <p class="muted sr-lede">
-            Read it once. Fix the words, check each source, and put a picture on every scene (or leave a scene for the AI, or a
-            plain background). The video is made only when you press Build.
-          </p>
-        }
-        <app-story-script-editor [run]="r" (runChange)="onEditorChange($event)" />
-      </section>
+      }
 
-      @if (canBuild() && buildOptions() && caps()) {
-        <section class="card sr-build" aria-labelledby="sr-build-title">
-          <h3 id="sr-build-title">{{ r.status === 'ScriptReady' ? 'Make the video' : 'Make it again' }}</h3>
-          <p class="muted">
-            Pictures, narration, music, the project and the render happen one after another. You can leave this page; the story keeps
-            being made, and it will be in your list.
-          </p>
-          <app-story-options [caps]="caps()!" [language]="language()" [value]="buildOptions()!" (valueChange)="buildOptions.set($event)" />
-          <div class="row sr-build-actions">
-            <button type="button" class="sr-build-btn" [disabled]="busy() !== null" (click)="build()">
-              @if (busy() === 'build') { <span class="spinner" aria-hidden="true"></span> }
-              {{ r.status === 'ScriptReady' ? 'Build the video' : 'Build it again' }}
-            </button>
-            @if (editor()?.dirty()) {
-              <span class="muted">Your unsaved edits to the script are saved first.</span>
+      @if (selected() === 'pictures' && r.script && !r.working) {
+        <div class="sr-approve sr-approve-done" role="region" aria-label="Next step">
+          <span><strong>Pictures done?</strong> <span class="muted">Empty scenes are filled when you build.</span></span>
+          <button type="button" (click)="go('build')">Go to the build →</button>
+        </div>
+      }
+
+      <!-- ================================================================== build -->
+      @if (selected() === 'build') {
+        @if (canBuild() && buildOptions() && caps()) {
+          <section class="card sr-build" aria-labelledby="sr-build-title">
+            <h3 id="sr-build-title">{{ r.status === 'Completed' ? 'Make it again' : 'Make the video' }}</h3>
+            <p class="muted">
+              Pictures, narration, music, the project and the render happen one after another. You can leave this page; the story keeps
+              being made, and it stays on your storyboard.
+            </p>
+            @if (!approved()) {
+              <p class="notice sr-gate">The script is not approved yet. Building approves it as it now reads, so read it on the Script tab first.</p>
+            }
+            <app-story-options [caps]="caps()!" [language]="language()" [value]="buildOptions()!" (valueChange)="buildOptions.set($event)" />
+            <div class="row sr-build-actions">
+              <button type="button" class="sr-build-btn" [disabled]="busy() !== null" (click)="build()">
+                @if (busy() === 'build') { <span class="spinner" aria-hidden="true"></span> }
+                {{ r.status === 'Completed' ? 'Build it again' : approved() ? 'Build the video' : 'Approve the script and build' }}
+              </button>
+              @if (editor()?.dirty()) {
+                <span class="muted">Your unsaved edits to the script are saved first.</span>
+              }
+            </div>
+          </section>
+        } @else if (r.working) {
+          <div class="card empty sr-center sr-wait">
+            <span class="spinner" role="status" aria-label="Working"></span> The video is being made. Follow it on the Overview tab.
+          </div>
+        }
+      }
+
+      <!-- ================================================================== the video, its subtitles, YouTube -->
+      @if (selected() === 'publish') {
+        <section class="card sr-result" aria-labelledby="sr-result-title">
+          <h3 id="sr-result-title">The video</h3>
+
+          @if (r.render; as render) {
+            @if (render.downloadable) {
+              @if (signedIn()) {
+                <video class="sr-video" controls preload="metadata" [src]="previewUrl(render.jobId)" [class.sr-vertical]="r.brief.format === 'Vertical'">
+                  Your browser cannot play this video. Download it instead.
+                </video>
+              } @else if (localUrl(render.jobId); as url) {
+                <video class="sr-video" controls [src]="url" [class.sr-vertical]="r.brief.format === 'Vertical'">
+                  Your browser cannot play this video. Download it instead.
+                </video>
+              } @else {
+                <div class="sr-guest-video">
+                  <p class="muted">
+                    You are not signed in, so the browser cannot stream the video directly. Load it here to watch it - the file is
+                    large, so it takes a moment - or download it.
+                  </p>
+                  <button type="button" class="secondary" [disabled]="videoBusy() !== null" (click)="fetchVideo(render.jobId, false)">
+                    @if (videoBusy() === 'watch') { <span class="spinner" aria-hidden="true"></span> }
+                    Load the video to watch it here
+                  </button>
+                </div>
+              }
+              @if (videoError(); as problem) {
+                <div class="notice error" role="alert">{{ problem }}</div>
+              }
+            } @else if (render.status === 'Pending' || render.status === 'Processing') {
+              <div class="sr-rendering">
+                <div class="row"><span class="spinner" aria-hidden="true"></span> <strong>Rendering</strong> <span class="muted">{{ render.message }}</span></div>
+                <div class="bar" role="progressbar" [attr.aria-valuenow]="render.progress" aria-valuemin="0" aria-valuemax="100"><i [style.width.%]="render.progress"></i></div>
+              </div>
+            } @else if (render.status === 'Failed' || render.status === 'Cancelled') {
+              <div class="notice error">The render {{ render.status === 'Failed' ? 'failed' : 'was stopped' }}.{{ render.message ? ' ' + render.message : '' }}</div>
+            }
+          } @else if (r.projectId && r.status === 'Completed') {
+            <p class="muted">The project is built, but it was not rendered. Open it and press Render when you want the video.</p>
+          }
+
+          <div class="row sr-result-actions">
+            @if (r.render?.downloadable) {
+              @if (signedIn()) {
+                <a class="sr-btn sr-btn-secondary" [href]="downloadUrl(r.render!.jobId)" download>⬇ Download the MP4</a>
+              } @else {
+                <button type="button" class="sr-btn-button secondary" [disabled]="videoBusy() !== null" (click)="fetchVideo(r.render!.jobId, true)">
+                  @if (videoBusy() === 'save') { <span class="spinner" aria-hidden="true"></span> }
+                  ⬇ Download the MP4
+                </button>
+              }
+            }
+            @if (r.projectId) {
+              <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', r.projectId, 'scenes']">Open the project</a>
+              <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', r.projectId, 'render']">Renders</a>
             }
           </div>
         </section>
-      }
-    }
 
-    <!-- ================================================================== the result -->
-    @if (r.projectId || r.render) {
-      <section class="card sr-result" aria-labelledby="sr-result-title">
-        <h3 id="sr-result-title">The video</h3>
-
-        @if (r.render; as render) {
-          @if (render.downloadable) {
-            @if (signedIn()) {
-              <video class="sr-video" controls preload="metadata" [src]="previewUrl(render.jobId)" [class.sr-vertical]="r.brief.format === 'Vertical'">
-                Your browser cannot play this video. Download it instead.
-              </video>
-            } @else if (localUrl(render.jobId); as url) {
-              <video class="sr-video" controls [src]="url" [class.sr-vertical]="r.brief.format === 'Vertical'">
-                Your browser cannot play this video. Download it instead.
-              </video>
-            } @else {
-              <div class="sr-guest-video">
-                <p class="muted">
-                  You are not signed in, so the browser cannot stream the video directly. Load it here to watch it - the file is
-                  large, so it takes a moment - or download it.
-                </p>
-                <button type="button" class="secondary" [disabled]="videoBusy() !== null" (click)="fetchVideo(render.jobId, false)">
-                  @if (videoBusy() === 'watch') { <span class="spinner" aria-hidden="true"></span> }
-                  Load the video to watch it here
-                </button>
-              </div>
-            }
-            @if (videoError(); as problem) {
-              <div class="notice error" role="alert">{{ problem }}</div>
-            }
-          } @else if (render.status === 'Pending' || render.status === 'Processing') {
-            <div class="sr-rendering">
-              <div class="row"><span class="spinner" aria-hidden="true"></span> <strong>Rendering</strong> <span class="muted">{{ render.message }}</span></div>
-              <div class="bar" role="progressbar" [attr.aria-valuenow]="render.progress" aria-valuemin="0" aria-valuemax="100"><i [style.width.%]="render.progress"></i></div>
-            </div>
-          } @else if (render.status === 'Failed' || render.status === 'Cancelled') {
-            <div class="notice error">The render {{ render.status === 'Failed' ? 'failed' : 'was stopped' }}.{{ render.message ? ' ' + render.message : '' }}</div>
-          }
-        } @else if (r.projectId && r.status === 'Completed') {
-          <p class="muted">The project is built, but it was not rendered. Open it and press Render when you want the video.</p>
-        }
-
-        <div class="row sr-result-actions">
-          @if (r.render?.downloadable) {
-            @if (signedIn()) {
-              <a class="sr-btn" [href]="downloadUrl(r.render!.jobId)" download>⬇ Download the MP4</a>
-            } @else {
-              <button type="button" class="sr-btn-button" [disabled]="videoBusy() !== null" (click)="fetchVideo(r.render!.jobId, true)">
-                @if (videoBusy() === 'save') { <span class="spinner" aria-hidden="true"></span> }
-                ⬇ Download the MP4
+        <!-- YouTube -->
+        <section class="card sr-yt" aria-labelledby="sr-yt-title">
+          <div class="sr-yt-head">
+            <h3 id="sr-yt-title"><span class="sr-yt-logo" aria-hidden="true">▶</span> YouTube</h3>
+            @if (r.render?.downloadable) {
+              <button type="button" class="sr-yt-publish" (click)="openPublish()">
+                {{ r.publications.length > 0 ? 'Publish again…' : 'Publish to YouTube…' }}
               </button>
             }
-          }
-          @if (r.projectId) {
-            <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', r.projectId, 'scenes']">Open the project</a>
-            <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', r.projectId, 'render']">Renders</a>
-          }
-        </div>
-        <p class="muted sr-reminder">
-          Nothing is published for you. Watch it once, then upload it yourself with the details below.
-          @if (r.options.uploadsAreAiMade) {
-            Tick YouTube's "altered or synthetic content" box, because the pictures are AI-made.
-          }
-        </p>
-      </section>
-    }
+          </div>
 
-    @if (r.kit; as kit) {
-      <app-story-kit [kit]="kit" [music]="r.music" />
-    }
+          @if (!r.render?.downloadable) {
+            <p class="muted">Publishing opens once the video has been rendered.</p>
+          } @else {
+            <p class="muted sr-yt-lede">
+              The title, description, tags and pinned comment start from this story's YouTube details. Choose public, unlisted, private,
+              or <strong>Scheduled</strong> to pick the day and time it goes live.
+              @if (r.options.uploadsAreAiMade) {
+                Tick YouTube's "altered or synthetic content" box, because the pictures are AI-made.
+              }
+            </p>
+            @if (r.subtitles.length > 0) {
+              <label class="sr-check">
+                <input type="checkbox" [checked]="autoCaptions()" (change)="autoCaptions.set(!autoCaptions())" />
+                Add the {{ r.subtitles.length === 2 ? r.subtitles[0].label + ' and ' + r.subtitles[1].label : r.subtitles[0].label }} subtitles once it is up
+              </label>
+            }
+          }
+
+          @if (r.publications.length > 0) {
+            <ul class="sr-videos">
+              @for (v of r.publications; track v.videoId) {
+                @let st = videoState(v);
+                <li class="sr-video-row">
+                  @if (v.thumbnailUrl) {
+                    <img class="sr-thumb" [src]="v.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                  } @else {
+                    <div class="sr-thumb sr-thumb-empty" aria-hidden="true">▶</div>
+                  }
+                  <div class="sr-video-main">
+                    <a class="sr-video-title" [href]="v.videoUrl" target="_blank" rel="noopener noreferrer" [attr.lang]="language()">{{ v.title }}</a>
+                    <div class="sr-video-meta">
+                      <span class="pill" [class]="st.tone">{{ st.label }}</span>
+                      <span class="muted">{{ v.channelTitle }} · uploaded {{ ago(v.publishedAtUtc) }}</span>
+                      @if (!v.currentRender) { <span class="pill" title="Uploaded from an earlier build of this story">Earlier build</span> }
+                    </div>
+                    @if (v.issueMessage) { <p class="sr-video-issue">{{ v.issueMessage }}</p> }
+                    <div class="sr-video-caps">
+                      <span class="muted">Subtitles:</span>
+                      @for (s of r.subtitles; track s.language) {
+                        <span class="chip" [class.sr-cap-on]="v.captions.includes(s.language)">{{ v.captions.includes(s.language) ? '✓' : '○' }} {{ s.label }}</span>
+                      } @empty {
+                        <span class="muted">ready once the project is built</span>
+                      }
+                      @if (missingCaptions(v).length > 0) {
+                        <button type="button" class="link small" [disabled]="captionBusy() !== null || !v.canCaption" (click)="sendCaptions(v.videoId)"
+                                [title]="v.canCaption ? 'Adds the missing subtitle tracks to this video' : 'Reconnect this channel on the YouTube page to allow subtitles'">
+                          @if (captionBusy() === v.videoId) { <span class="spinner" aria-hidden="true"></span> }
+                          {{ v.canCaption ? 'Add ' + (missingCaptions(v).length === 1 ? 'it' : 'them') + ' now' : 'Reconnect the channel to add them' }}
+                        </button>
+                      }
+                    </div>
+                    @if (captionResults(); as cr) {
+                      @if (cr.videoId === v.videoId) {
+                        <ul class="sr-cap-results">
+                          @for (res of cr.results; track $index) {
+                            <li [class.sr-cap-fail]="res.outcome === 'failed'">
+                              {{ res.label }}: {{ res.outcome === 'added' ? 'added' : res.outcome === 'already' ? 'already there' : res.message }}
+                            </li>
+                          }
+                        </ul>
+                      }
+                    }
+                  </div>
+                  <div class="sr-video-links">
+                    <a class="sr-btn sr-btn-secondary" [href]="v.videoUrl" target="_blank" rel="noopener noreferrer">Watch</a>
+                    <a class="sr-btn sr-btn-secondary" [href]="v.studioUrl" target="_blank" rel="noopener noreferrer">Studio</a>
+                  </div>
+                </li>
+              }
+            </ul>
+          } @else if (r.render?.downloadable) {
+            <p class="muted sr-yt-none">Not on YouTube yet.</p>
+          }
+        </section>
+
+        <!-- Subtitles -->
+        <section class="card sr-subs" aria-labelledby="sr-subs-title">
+          <h3 id="sr-subs-title">Subtitles (SRT)</h3>
+          @if (r.subtitles.length === 0) {
+            <p class="muted">The subtitle files are made from the built project, so they are ready once the video has been built.</p>
+          } @else {
+            <p class="muted">Timed to the last build. Add them on YouTube from the list above, or download them for anywhere else.</p>
+            <ul class="sr-sub-list">
+              @for (s of r.subtitles; track s.language) {
+                <li>
+                  <span class="sr-sub-lang">{{ s.label }}</span>
+                  <span class="muted">{{ s.source === 'narration' ? 'what the voice says' : 'the English meaning of each scene' }} · {{ s.cues }} lines</span>
+                  <button type="button" class="secondary small" [disabled]="subtitleBusy() !== null" (click)="downloadSubtitles(s.language)">
+                    @if (subtitleBusy() === s.language) { <span class="spinner" aria-hidden="true"></span> }
+                    ⬇ {{ s.language }}.srt
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </section>
+
+        @if (r.kit; as kit) {
+          <app-story-kit [kit]="kit" [music]="r.music" />
+        }
+      }
+    </div>
   </div>
+
+  @if (publishing() && r.render?.downloadable) {
+    <app-youtube-publish-dialog
+      [jobId]="r.render!.jobId"
+      [previewSrc]="previewUrl(r.render!.jobId)"
+      [returnPath]="'/story-agent/' + r.id + '?tab=publish'"
+      [projectId]="r.projectId"
+      [prefill]="prefill()"
+      (published)="onPublished($event)"
+      (closed)="publishing.set(false)" />
+  }
 }

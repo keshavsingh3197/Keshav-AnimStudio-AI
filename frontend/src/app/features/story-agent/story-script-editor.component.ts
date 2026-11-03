@@ -23,10 +23,14 @@ import {
   clock,
   copyText,
   estimateSeconds,
-  naturalCompare,
+  matchPictures,
+  pictureFileName,
   picturePrompts,
   pictureProblem,
 } from './story-agent.utils';
+
+/** The words of the script, or its pictures: the same draft, shown on two tabs of the story page. */
+export type StoryEditorView = 'script' | 'pictures';
 
 /** A source as it is edited: the words in the boxes, and what the server last said about the place they name. */
 interface DraftSource {
@@ -65,6 +69,9 @@ const MIN_SCENES = 2;
  * remove a citation, reorder, add and remove scenes, and put their own picture on each. Nothing is made until Build.
  * While a story is being made the script is shown but cannot be changed.
  *
+ * The story page keeps one editor for both its Script and Pictures tabs and switches `view`, so words typed on one tab
+ * are still there - unsaved - on the other.
+ *
  * A picture goes up the moment it is chosen; the words wait for Save. Everything that writes goes through one queue,
  * because each write replaces the whole story on the server and two at once would lose one of them.
  */
@@ -73,12 +80,14 @@ const MIN_SCENES = 2;
   imports: [FormsModule, DecimalPipe, FileDropDirective],
   templateUrl: './story-script-editor.component.html',
   styleUrls: ['./story-script-editor.component.css'],
+  host: { '(window:beforeunload)': 'onLeave($event)' },
 })
 export class StoryScriptEditorComponent {
   private readonly stories = inject(StoryAgentService);
   private readonly status = inject(StatusService);
 
   readonly run = input.required<StoryRun>();
+  readonly view = input<StoryEditorView>('script');
   /** The story came back changed - a picture attached, the script saved - so the page should show this version. */
   readonly runChange = output<StoryRun>();
 
@@ -105,7 +114,7 @@ export class StoryScriptEditorComponent {
   readonly locked = computed(() => this.run().working);
   readonly vertical = computed(() => this.run().brief.format === 'Vertical');
   readonly byNumber = computed(() => new Map((this.run().script?.scenes ?? []).map((scene) => [scene.number, scene])));
-  readonly withPicture = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasImage && scene.imageSource !== 'plain').length);
+  readonly withPicture = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasImage && scene.imageSource !== 'placeholder').length);
   readonly canAdd = computed(() => this.draft().length < MAX_SCENES);
   readonly canRemove = computed(() => this.draft().length > MIN_SCENES);
 
@@ -324,18 +333,24 @@ export class StoryScriptEditorComponent {
   /** A picture someone chose - or the image engine drew - as against the plain background a build falls back to. */
   hasOwnPicture(number: number): boolean {
     const scene = this.byNumber().get(number);
-    return !!scene?.hasImage && scene.imageSource !== 'plain';
+    return !!scene?.hasImage && scene.imageSource !== 'placeholder';
+  }
+
+  /** The file name this scene's picture should be saved as, for adding a whole set at once. */
+  fileName(index: number): string {
+    return pictureFileName(index, this.draft().length);
   }
 
   /** Where a scene's picture came from, in a few words. */
   pictureNote(number: number): string {
     const scene = this.byNumber().get(number);
     if (!scene?.hasImage) return '';
+    // The server names the image engine that drew a picture by its provider id.
     switch (scene.imageSource) {
       case 'upload': return scene.imageName ? `Yours · ${scene.imageName}` : 'Your picture';
-      case 'ai': return 'Drawn by the AI image engine';
-      case 'plain': return 'A plain background, because no picture was attached';
-      default: return '';
+      case 'placeholder': return 'A plain background, because no picture was attached';
+      case null: case '': return '';
+      default: return `Drawn by the AI image engine (${scene.imageSource})`;
     }
   }
 
@@ -374,26 +389,35 @@ export class StoryScriptEditorComponent {
     }
   }
 
-  /** Several pictures at once - the whole set from an image tool - go to the scenes in file-name order. */
+  /**
+   * Several pictures at once - the whole set from an image tool. A file named by its scene (01.png, scene-3.jpg) goes to
+   * that scene; otherwise the files go to the scenes in file-name order.
+   */
   async attachMany(files: File[]): Promise<void> {
-    const saved = this.draft().filter((scene) => scene.number > 0);
-    const usable = [...files].sort((a, b) => naturalCompare(a.name, b.name));
-    const refused = usable.map(pictureProblem).find((problem) => problem !== null);
+    const refused = files.map(pictureProblem).find((problem) => problem !== null);
     if (refused) {
       this.error.set(refused);
       return;
     }
 
-    const chosen = usable.slice(0, saved.length);
+    const scenes = this.draft();
+    const { byNumber, slots } = matchPictures(files.map((file) => file.name), scenes.length);
+    // A scene added here and not saved yet has no number on the server, so nothing can be attached to it.
+    const plan = files
+      .map((file, at) => ({ file, position: slots[at] }))
+      .filter((item) => item.position >= 0 && scenes[item.position].number > 0)
+      .sort((a, b) => a.position - b.position);
+
     this.sending.set(0);
     let added = 0;
     try {
-      for (const [index, file] of chosen.entries()) {
-        await this.upload(saved[index].number, file);
+      for (const item of plan) {
+        await this.upload(scenes[item.position].number, item.file);
         added++;
       }
-      const skipped = usable.length - chosen.length;
-      this.status.showNotice(`Added ${added} picture${added === 1 ? '' : 's'} to scenes 1-${added}.${skipped > 0 ? ` ${skipped} more than there are scenes, so they were left out.` : ''}`);
+      const skipped = files.length - plan.length;
+      const where = byNumber ? 'by the number in each file name' : 'in file-name order';
+      this.status.showNotice(`Added ${added} picture${added === 1 ? '' : 's'} ${where}.${skipped > 0 ? ` ${skipped} had no scene to go to, so they were left out.` : ''}`);
     } catch (failure: unknown) {
       this.error.set(`${failure instanceof ApiFailure ? failure.message : 'A picture could not be added.'}${added > 0 ? ` (${added} were added before it.)` : ''}`);
     } finally {
@@ -462,18 +486,39 @@ export class StoryScriptEditorComponent {
 
   async copyPrompts(): Promise<void> {
     const run = this.run();
+    const meta = this.meta();
+    const title = meta.title || run.title;
     const text = picturePrompts(
-      this.meta().title || run.title,
-      this.draft().map((scene) => ({ headline: scene.headline, imagePrompt: scene.imagePrompt })),
+      meta.titleEnglish.trim() ? `${title} (${meta.titleEnglish.trim()})` : title,
+      meta.summary,
+      this.draft().map((scene) => ({ headline: scene.headline, imagePrompt: scene.imagePrompt, context: this.context(scene) })),
       run.options.imageStyle,
       this.vertical(),
     );
-    await this.flash('all', text, 'The picture prompts are copied. Paste them into your image tool.');
+    await this.flash('all', text, 'The picture prompts are copied, numbered. Save each picture under its number, then add them all at once.');
   }
 
   async copyPrompt(scene: DraftScene, index: number): Promise<void> {
     const style = this.run().options.imageStyle?.trim();
-    await this.flash(`s${scene.key}`, style ? `${scene.imagePrompt.trim()}\n\nStyle: ${style}` : scene.imagePrompt.trim(), `Scene ${index + 1}'s prompt is copied.`);
+    const context = this.context(scene);
+    const parts = [
+      context ? `What happens: ${context}` : '',
+      scene.imagePrompt.trim(),
+      style ? `Style: ${style}` : '',
+      `${this.vertical() ? '9:16 vertical' : '16:9 wide'}. Save as ${this.fileName(index)}.png`,
+    ];
+    await this.flash(`s${scene.key}`, parts.filter(Boolean).join('\n\n'), `Scene ${index + 1}'s prompt is copied.`);
+  }
+
+  /** What happens in a scene, in words an image tool reads: the English meaning, or the narration of an English story. */
+  private context(scene: DraftScene): string | null {
+    const text = scene.english.trim() || (this.run().brief.language === 'en' ? scene.narration.trim() : '');
+    return text || null;
+  }
+
+  /** Closing or reloading the tab with words not yet saved asks first, as the browser allows. */
+  onLeave(event: BeforeUnloadEvent): void {
+    if (this.dirty()) event.preventDefault();
   }
 
   private async flash(id: string, text: string, notice: string): Promise<void> {

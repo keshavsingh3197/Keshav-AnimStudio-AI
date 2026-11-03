@@ -69,6 +69,7 @@ public sealed class StoryAgentControllerTests
         public MemoryJobs Jobs { get; } = new();
         public AdminOptions Admin { get; } = new();
         public StoryAgentOptions Options { get; } = new();
+        public FakeStoryPublishing Publishing { get; } = new();
         public string UserId { get; }
 
         public World(string userId = Me, bool authenticated = true)
@@ -78,7 +79,10 @@ public sealed class StoryAgentControllerTests
                 new FakeMusic(), new FakeCapabilities(), new FakeFinisher(), new StaticOptionsMonitor<StoryAgentOptions>(Options),
                 new StoryClock(new DateTimeOffset(StorySamples.Now)), NullLogger<StoryRunService>.Instance);
 
-            Controller = new StoryAgentController(service, Jobs, Projects, Store, new StaticOptionsMonitor<AdminOptions>(Admin), new TestUser(userId, authenticated))
+            var captions = new StoryCaptionPublisher(service, Publishing, new StoryClock(new DateTimeOffset(StorySamples.Now)),
+                NullLogger<StoryCaptionPublisher>.Instance);
+            Controller = new StoryAgentController(service, Jobs, Projects, Store, new StaticOptionsMonitor<AdminOptions>(Admin),
+                new TestUser(userId, authenticated), Publishing, captions)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
@@ -319,7 +323,10 @@ public sealed class StoryAgentControllerTests
             ["build"] = () => world.Controller.Build(theirs.Id, null, token),
             ["retry"] = () => world.Controller.Retry(theirs.Id, token),
             ["cancel"] = () => world.Controller.Cancel(theirs.Id, token),
-            ["delete"] = () => world.Controller.Delete(theirs.Id, token)
+            ["delete"] = () => world.Controller.Delete(theirs.Id, token),
+            ["approve"] = () => world.Controller.Approve(theirs.Id, token),
+            ["subtitles"] = () => world.Controller.Subtitles(theirs.Id, "hi", token),
+            ["send subtitles"] = () => world.Controller.SendSubtitles(theirs.Id, new SendStoryCaptionsRequest { VideoId = "abcdefghijk" }, token)
         };
 
         foreach (var (name, call) in calls)
@@ -376,6 +383,110 @@ public sealed class StoryAgentControllerTests
         var early = world.Seed(StoryRunStatus.Researching, withScript: false);
         var refusal = await Assert.ThrowsAsync<StoryRunException>(() => world.Controller.Prompt(early.Id, CancellationToken.None));
         Assert.Equal("research-not-ready", refusal.Code);
+    }
+
+    // ------------------------------------------------------------------------------------------------ approving, subtitles, YouTube
+
+    /// <summary>A finished story whose project is the caller's and was built: scenes ten seconds apart.</summary>
+    private static StoryRun Finished(World world)
+    {
+        var run = world.Seed(StoryRunStatus.Completed);
+        run.ProjectId = "66f1b2c3d4e5f60718293a01";
+        run.RenderJobId = "job-1";
+        run.SceneStarts = [.. run.Script!.Scenes.Select((_, i) => i * 10.0)];
+        run.TotalSeconds = run.Script.Scenes.Count * 10.0;
+        world.Runs.Seed(run);
+        world.Projects.Items.Add(new Project { Id = run.ProjectId, UserId = Me, Name = "Mine" });
+        return run;
+    }
+
+    [Fact]
+    public async Task Approving_says_when_and_the_story_stays_where_it_was()
+    {
+        var world = new World();
+        var run = world.Seed();
+
+        var approved = Data(await world.Controller.Approve(run.Id, CancellationToken.None));
+
+        Assert.Equal(StorySamples.Now, approved.ScriptApprovedAtUtc);
+        Assert.Equal(StoryRunStatus.ScriptReady, approved.Status);
+        Assert.Empty(world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task A_built_story_offers_hindi_and_english_subtitles_as_srt_files()
+    {
+        var world = new World();
+        var run = Finished(world);
+
+        var detail = Data(await world.Controller.Get(run.Id, CancellationToken.None));
+        Assert.Equal(["hi", "en"], detail.Subtitles.Select(s => s.Language));
+
+        var file = Assert.IsType<FileContentResult>(await world.Controller.Subtitles(run.Id, "HI", CancellationToken.None));
+        Assert.Equal("application/x-subrip", file.ContentType);
+        Assert.Equal($"{run.Id}.hi.srt", file.FileDownloadName);
+        Assert.Equal([0xEF, 0xBB, 0xBF], file.FileContents.Take(3));
+        Assert.StartsWith("1\n00:00:00,", System.Text.Encoding.UTF8.GetString(file.FileContents.AsSpan(3)));
+        Assert.Equal("private, no-store", world.Controller.Response.Headers.CacheControl.ToString());
+
+        var refusal = await Assert.ThrowsAsync<StoryRunException>(() => world.Controller.Subtitles(run.Id, "../x", CancellationToken.None));
+        Assert.Equal("subtitles-not-found", refusal.Code);
+
+        var unbuilt = world.Seed();
+        Assert.Empty(Data(await world.Controller.Get(unbuilt.Id, CancellationToken.None)).Subtitles);
+    }
+
+    [Fact]
+    public async Task The_videos_made_from_the_story_are_shown_with_which_render_they_are_and_on_the_list_card()
+    {
+        var world = new World();
+        var run = Finished(world);
+        world.Publishing.Videos.Add(FakeStoryPublishing.Video(run.ProjectId!, videoId: "aaaaaaaaaaa", jobId: "old-job"));
+        world.Publishing.Videos.Add(FakeStoryPublishing.Video(run.ProjectId!, videoId: "bbbbbbbbbbb", jobId: "job-1", privacy: "private",
+            publishAt: StorySamples.Now.AddDays(2)) with { PublishedAtUtc = StorySamples.Now.AddMinutes(5) });
+        world.Publishing.Videos.Add(FakeStoryPublishing.Video("someone-elses-project", videoId: "ccccccccccc"));
+
+        var detail = Data(await world.Controller.Get(run.Id, CancellationToken.None));
+
+        Assert.Equal(["bbbbbbbbbbb", "aaaaaaaaaaa"], detail.Publications.Select(p => p.VideoId));
+        Assert.True(detail.Publications[0].CurrentRender);
+        Assert.False(detail.Publications[1].CurrentRender);
+        Assert.Equal(StorySamples.Now.AddDays(2), detail.Publications[0].PublishAtUtc);
+
+        var list = ((ApiResponse<IReadOnlyList<StoryRunSummaryResponse>>)Assert.IsType<OkObjectResult>((await world.Controller.List(CancellationToken.None)).Result).Value!).Data!;
+        var card = Assert.Single(list);
+        Assert.Equal(2, card.PublicationCount);
+        Assert.Equal("bbbbbbbbbbb", card.Publication!.VideoId);
+        Assert.True(card.HasRender);
+        Assert.Equal(run.Script!.Scenes.Count, card.SceneCount);
+    }
+
+    [Fact]
+    public async Task Subtitles_are_sent_to_the_storys_video_and_each_language_is_reported()
+    {
+        var world = new World();
+        var run = Finished(world);
+        world.Publishing.Videos.Add(FakeStoryPublishing.Video(run.ProjectId!));
+
+        var result = await world.Controller.SendSubtitles(run.Id, new SendStoryCaptionsRequest { VideoId = "abcdefghijk", Languages = ["en"] }, CancellationToken.None);
+        var sent = ((ApiResponse<StoryCaptionsSentResponse>)Assert.IsType<OkObjectResult>(result.Result).Value!).Data!;
+
+        Assert.Equal("added", Assert.Single(sent.Results).Outcome);
+        Assert.Equal(["en"], Assert.Single(sent.Run.Publications).Captions);
+        Assert.Equal("en", Assert.Single(world.Publishing.Captions).Language);
+    }
+
+    [Fact]
+    public async Task A_guest_cannot_send_subtitles_to_youtube()
+    {
+        var world = new World(authenticated: false);
+        var run = Finished(world);
+        world.Publishing.Videos.Add(FakeStoryPublishing.Video(run.ProjectId!));
+
+        var result = await world.Controller.SendSubtitles(run.Id, new SendStoryCaptionsRequest { VideoId = "abcdefghijk" }, CancellationToken.None);
+
+        Assert.Equal(403, Assert.IsAssignableFrom<ObjectResult>(result.Result).StatusCode);
+        Assert.Empty(world.Publishing.Captions);
     }
 
     // ------------------------------------------------------------------------------------------------ the project and the render

@@ -1,7 +1,9 @@
+using System.Text;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Security;
 using AnimStudio.Application.StoryAgent;
@@ -17,7 +19,8 @@ namespace AnimStudio.Api.Controllers;
 /// <summary>
 /// The Story Agent: a title in, a researched, narrated video and its YouTube details out. A run belongs to the person who
 /// started it and every call here is checked against that; a run that is someone else's answers exactly as one that does
-/// not exist. Nothing is ever published: the run ends with a project, a render and a kit for the person to use.
+/// not exist. Nothing is published by the run itself: it ends with a project, a render and a kit, and the person puts the
+/// video on YouTube through the ordinary publish dialog. Here they can then add the story's subtitles to that video.
 /// </summary>
 [ApiController]
 [StoryRunErrors]
@@ -28,7 +31,9 @@ public sealed class StoryAgentController(
     IProjectRepository projects,
     IObjectStore store,
     IOptionsMonitor<AdminOptions> adminOptions,
-    ICurrentUser currentUser) : ControllerBase
+    ICurrentUser currentUser,
+    IStoryPublishing publishing,
+    StoryCaptionPublisher captions) : ControllerBase
 {
     private const long MaxImageRequestBytes = VisualsStage.MaxImageBytes + 64 * 1024;
 
@@ -51,7 +56,17 @@ public sealed class StoryAgentController(
     public async Task<ActionResult<ApiResponse<IReadOnlyList<StoryRunSummaryResponse>>>> List(CancellationToken ct)
     {
         var mine = await stories.ListAsync(currentUser.UserId, ct);
-        return Ok(ApiResponse<IReadOnlyList<StoryRunSummaryResponse>>.Ok([.. mine.Select(StoryAgentMapper.ToSummary)]));
+
+        // One read of the person's uploads for the whole list, matched to each story by its project.
+        var uploads = mine.Any(r => !string.IsNullOrEmpty(r.ProjectId)) && currentUser.IsAuthenticated
+            ? await publishing.ListAsync(currentUser.UserId, null, ct)
+            : [];
+        var byProject = uploads.GroupBy(p => p.ProjectId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<StoryPublication>)[.. g], StringComparer.Ordinal);
+
+        return Ok(ApiResponse<IReadOnlyList<StoryRunSummaryResponse>>.Ok([.. mine.Select(run =>
+            StoryAgentMapper.ToSummary(run,
+                run.ProjectId is { Length: > 0 } project && byProject.TryGetValue(project, out var videos) ? videos : []))]));
     }
 
     /// <summary>One run in full. This is what the page polls while a story is being made.</summary>
@@ -103,6 +118,11 @@ public sealed class StoryAgentController(
     public async Task<ActionResult<ApiResponse<StoryRunResponse>>> Edit(
         string id, [FromBody] EditStoryScriptRequest request, CancellationToken ct) =>
         await DetailAsync(await stories.UpdateScriptAsync(currentUser.UserId, id, request.ToEdit(), ct), ct);
+
+    /// <summary>"Go with this script": marks the words as approved. Nothing is made until Build.</summary>
+    [HttpPost("runs/{id}/script/approve")]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> Approve(string id, CancellationToken ct) =>
+        await DetailAsync(await stories.ApproveScriptAsync(currentUser.UserId, id, ct), ct);
 
     /// <summary>Throws the script away and writes it again from the same research, by the model or by hand.</summary>
     [HttpPost("runs/{id}/script/rewrite")]
@@ -189,6 +209,51 @@ public sealed class StoryAgentController(
         return NoContent();
     }
 
+    // ------------------------------------------------------------------------------------------------ subtitles
+
+    /// <summary>
+    /// One subtitle track as an SRT file, built from the run as the last build timed it: <c>hi</c> or <c>en</c>, whichever
+    /// the story offers. UTF-8 with a byte-order mark, which some players need to show Devanagari.
+    /// </summary>
+    [HttpGet("runs/{id}/subtitles/{language}")]
+    public async Task<IActionResult> Subtitles(string id, string language, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        var code = (language ?? string.Empty).Trim().ToLowerInvariant();
+        if (StoryCaptions.Tracks(run).All(t => t.Language != code))
+            throw new StoryRunException(StoryRunErrorKind.NotFound, "subtitles-not-found", "This story has no subtitles in that language yet.");
+
+        var srt = StoryCaptions.ToSrt(StoryCaptions.Build(run, code));
+        byte[] bytes = [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(srt)];
+
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        // The name is built here from the run's id and a checked code, never from the title.
+        return File(bytes, "application/x-subrip", $"{run.Id}.{code}.srt");
+    }
+
+    /// <summary>
+    /// Adds the story's subtitle tracks to one of the YouTube videos made from it. Each language is reported on its own:
+    /// one can be added while YouTube refuses another.
+    /// </summary>
+    [HttpPost("runs/{id}/subtitles/youtube")]
+    [RequestSizeLimit(MaxSmallRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryCaptionsSentResponse>>> SendSubtitles(
+        string id, [FromBody] SendStoryCaptionsRequest request, CancellationToken ct)
+    {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string message = "Adding subtitles to YouTube needs a signed-in account.";
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<StoryCaptionsSentResponse>.Fail(message, new ApiError("auth-required", message)));
+        }
+
+        var (run, results) = await captions.SendAsync(currentUser.UserId, id, request.VideoId, request.Languages, ct);
+        var detail = await DescribeAsync(run, ct);
+        return Ok(ApiResponse<StoryCaptionsSentResponse>.Ok(
+            new StoryCaptionsSentResponse(detail, [.. results.Select(StoryAgentMapper.ToResponse)])));
+    }
+
     // ------------------------------------------------------------------------------------------------ helpers
 
     /// <summary>
@@ -223,7 +288,10 @@ public sealed class StoryAgentController(
     /// The run as the page sees it. The render and the project are shown only while they exist and are the caller's, so a
     /// link the page draws never leads to a missing or someone else's page.
     /// </summary>
-    private async Task<ActionResult<ApiResponse<StoryRunResponse>>> DetailAsync(StoryRun run, CancellationToken ct)
+    private async Task<ActionResult<ApiResponse<StoryRunResponse>>> DetailAsync(StoryRun run, CancellationToken ct) =>
+        Ok(ApiResponse<StoryRunResponse>.Ok(await DescribeAsync(run, ct)));
+
+    private async Task<StoryRunResponse> DescribeAsync(StoryRun run, CancellationToken ct)
     {
         RenderJob? job = null;
         if (!string.IsNullOrEmpty(run.RenderJobId))
@@ -232,15 +300,20 @@ public sealed class StoryAgentController(
             if (job is not null && !string.Equals(job.UserId, currentUser.UserId, StringComparison.Ordinal)) job = null;
         }
 
-        var response = StoryAgentMapper.ToResponse(run, job);
+        var ownProject = false;
         if (!string.IsNullOrEmpty(run.ProjectId))
         {
             var project = await projects.GetAsync(run.ProjectId, ct);
-            if (project is null || !string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
-                response = response with { ProjectId = null };
+            ownProject = project is not null && string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal);
         }
 
-        return Ok(ApiResponse<StoryRunResponse>.Ok(response));
+        // The videos made from the project, read only for a project that is still the caller's.
+        var videos = ownProject && currentUser.IsAuthenticated
+            ? await publishing.ListAsync(currentUser.UserId, run.ProjectId, ct)
+            : [];
+
+        var response = StoryAgentMapper.ToResponse(run, job, videos);
+        return ownProject ? response : response with { ProjectId = null };
     }
 
     /// <summary>The kind of a stored picture, from the extension the server itself gave the key when it saved the file.</summary>

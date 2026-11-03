@@ -77,3 +77,6 @@
   .seg { width: 100%; }
   .seg > label { flex: 1 1 auto; justify-content: center; text-align: center; }
 }
+
+.sa-list-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+.sa-board-link { font-size: .86rem; font-weight: 650; text-decoration: none; }

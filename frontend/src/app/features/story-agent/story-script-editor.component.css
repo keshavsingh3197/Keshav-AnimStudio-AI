@@ -69,6 +69,26 @@ fieldset.se-fields:disabled { opacity: .72; }
 
 .se-add { display: flex; justify-content: center; }
 
+/* ---- the pictures view ------------------------------------------------------- */
+.se-howto {
+  margin: 0; padding: .8rem 1rem .8rem 2.2rem; display: grid; gap: .35rem; font-size: .88rem; line-height: 1.5;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--ov-1);
+}
+.se-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
+.se-gallery-vertical { grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
+.se-pic { margin: 0; padding: .8rem; display: grid; gap: .6rem; align-content: start; min-width: 0; }
+.se-pic-head { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.se-pic-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
+.se-file {
+  flex: 0 0 auto; font-size: .74rem; padding: .1rem .45rem; border-radius: 99px;
+  color: var(--brand-bright); background: var(--brand-subtle); border: 1px solid color-mix(in oklab, var(--brand) 35%, transparent);
+}
+.se-pic .se-frame.se-vertical { max-height: 22rem; width: 100%; }
+.se-context {
+  margin: 0; font-size: .8rem; line-height: 1.45; color: var(--text-dim);
+  display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
 .se-error { margin: 0; }
 
 /* ---- unsaved changes --------------------------------------------------------- */

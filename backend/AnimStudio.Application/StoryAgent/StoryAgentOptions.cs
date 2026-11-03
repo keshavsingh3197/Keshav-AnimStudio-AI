@@ -17,8 +17,14 @@ public sealed class StoryAgentOptions
     /// </summary>
     public int MaxActiveRunsPerUser { get; set; } = 2;
 
-    /// <summary>Saved runs per person; the oldest finished ones are deleted past this.</summary>
+    /// <summary>
+    /// Saved runs per person; past this the oldest that failed or were stopped are deleted. A finished story is kept
+    /// whatever the count, because it has a video and may already be on YouTube.
+    /// </summary>
     public int MaxSavedRunsPerUser { get; set; } = 40;
+
+    /// <summary>The most runs the list and the storyboard show at once, newest first.</summary>
+    public int MaxListedRuns { get; set; } = 300;
 
     public WikisourceOptions Wikisource { get; set; } = new();
 }

@@ -13,7 +13,7 @@
         <p class="muted sa-lede">
           Give it a title. It searches the Granths, writes a script in which every source is checked, then makes the pictures,
           narration and music, builds a project, renders the video and prepares the YouTube title, description and tags.
-          You read the script before anything is made, and nothing is published for you.
+          You read and approve the script before anything is made, and you choose when it goes to YouTube.
         </p>
       </div>
     </div>
@@ -210,7 +210,10 @@
 
     <!-- ================================================================== the stories so far -->
     <section class="card sa-list" aria-labelledby="sa-list-title">
-      <h3 id="sa-list-title" class="sa-step"><span>2</span> Your stories</h3>
+      <div class="sa-list-head">
+        <h3 id="sa-list-title" class="sa-step"><span>2</span> Your stories</h3>
+        <a routerLink="/story-agent/board" class="sa-board-link">▦ Open the storyboard</a>
+      </div>
 
       @if (listError(); as problem) {
         <div class="notice error" role="alert">{{ problem }}</div>
@@ -229,7 +232,11 @@
                   <div class="sa-run-meta">
                     <span class="pill" [class]="tone(run.status)">{{ label[run.status] }}</span>
                     <span class="muted">{{ ago(run.updatedAtUtc) }}</span>
-                    @if (run.hasKit) { <span class="muted">· YouTube details ready</span> }
+                    @if (run.publication) {
+                      <span class="muted">· ▶ on YouTube</span>
+                    } @else if (run.hasKit) {
+                      <span class="muted">· ready to publish</span>
+                    }
                   </div>
                   @if (run.working) {
                     <div class="bar" role="progressbar" aria-label="Progress" [attr.aria-valuenow]="run.progress" aria-valuemin="0" aria-valuemax="100">

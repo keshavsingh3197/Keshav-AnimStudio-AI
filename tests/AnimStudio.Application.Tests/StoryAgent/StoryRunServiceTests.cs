@@ -299,26 +299,33 @@ public sealed class StoryRunServiceTests
     }
 
     [Fact]
-    public async Task The_oldest_finished_runs_past_the_limit_are_deleted_with_their_files_and_working_ones_never_are()
+    public async Task The_oldest_failed_or_stopped_runs_past_the_limit_are_deleted_with_their_files_and_finished_or_working_ones_never_are()
     {
         var world = new World();
-        world.Options.MaxSavedRunsPerUser = 2;
+        world.Options.MaxSavedRunsPerUser = 1;
         world.Options.MaxActiveRunsPerUser = 9;
 
-        var oldest = await world.Seed(StoryRunStatus.Completed);
-        oldest.UpdatedAtUtc = StorySamples.Now.AddDays(-30);
-        var keys = await world.Stock(oldest);
-        var middle = await world.Seed(StoryRunStatus.Failed);
-        middle.UpdatedAtUtc = StorySamples.Now.AddDays(-20);
-        world.Runs.Seed(middle);
+        var finished = await world.Seed(StoryRunStatus.Completed);
+        finished.UpdatedAtUtc = StorySamples.Now.AddDays(-50);
+        var finishedKeys = await world.Stock(finished);
+        var failed = await world.Seed(StoryRunStatus.Failed);
+        failed.UpdatedAtUtc = StorySamples.Now.AddDays(-30);
+        var failedKeys = await world.Stock(failed);
+        var stopped = await world.Seed(StoryRunStatus.Cancelled);
+        stopped.UpdatedAtUtc = StorySamples.Now.AddDays(-20);
+        world.Runs.Seed(stopped);
         var working = await world.Seed(StoryRunStatus.Building);
         working.UpdatedAtUtc = StorySamples.Now.AddDays(-40);
         world.Runs.Seed(working);
 
         var fresh = await world.Service.CreateAsync(User, Brief(), null, CancellationToken.None);
 
-        Assert.Null(world.Runs.Read(oldest.Id));
-        Assert.All(keys, key => Assert.DoesNotContain(key, world.Store.Keys));
+        Assert.Null(world.Runs.Read(failed.Id));
+        Assert.Null(world.Runs.Read(stopped.Id));
+        Assert.All(failedKeys, key => Assert.DoesNotContain(key, world.Store.Keys));
+        // A finished story has a video and may be on YouTube: it stays, with its files, however old.
+        Assert.NotNull(world.Runs.Read(finished.Id));
+        Assert.All(finishedKeys, key => Assert.Contains(key, world.Store.Keys));
         Assert.NotNull(world.Runs.Read(working.Id));
         Assert.NotNull(world.Runs.Read(fresh.Id));
     }
@@ -342,6 +349,8 @@ public sealed class StoryRunServiceTests
             () => world.Service.ManualPromptAsync(User, id, token),
             () => world.Service.SubmitScriptAsync(User, id, StorySamples.ReplyJson, token),
             () => world.Service.UpdateScriptAsync(User, id, edit, token),
+            () => world.Service.ApproveScriptAsync(User, id, token),
+            () => world.Service.RecordCaptionsAsync(User, id, [new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "hi" }], token),
             () => world.Service.AttachImageAsync(User, id, 1, StoryTestData.Png(), "x.png", token),
             () => world.Service.RemoveImageAsync(User, id, 1, token),
             () => world.Service.RewriteAsync(User, id, null, token),
@@ -380,7 +389,7 @@ public sealed class StoryRunServiceTests
     public async Task The_list_is_the_persons_own_newest_first_and_limited()
     {
         var world = new World();
-        world.Options.MaxSavedRunsPerUser = 2;
+        world.Options.MaxListedRuns = 2;
         var a = await world.Seed(StoryRunStatus.Completed);
         a.UpdatedAtUtc = StorySamples.Now.AddDays(-3);
         world.Runs.Seed(a);
@@ -771,6 +780,67 @@ public sealed class StoryRunServiceTests
         Assert.NotNull(result.Script.Scenes[1].ImageKey);
     }
 
+    // ----------------------------------------------------------------------------------------------- approving
+
+    [Fact]
+    public async Task Approving_marks_the_script_and_saves_it_without_starting_anything()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+
+        var result = await world.Service.ApproveScriptAsync(User, run.Id, CancellationToken.None);
+
+        Assert.Equal(StorySamples.Now, result.ScriptApprovedAtUtc);
+        Assert.Equal(StoryRunStatus.ScriptReady, result.Status);
+        Assert.Equal(StorySamples.Now, world.Runs.Read(run.Id)!.ScriptApprovedAtUtc);
+        Assert.Empty(world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task Changing_the_words_takes_the_approval_back_and_a_picture_does_not()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+        await world.Service.ApproveScriptAsync(User, run.Id, CancellationToken.None);
+
+        var pictured = await world.Service.AttachImageAsync(User, run.Id, 1, StoryTestData.Png(), "1.png", CancellationToken.None);
+        Assert.NotNull(pictured.ScriptApprovedAtUtc);
+
+        var edited = await world.Service.UpdateScriptAsync(User, run.Id, Script(pictured, [.. pictured.Script!.Scenes.Select(s => Edit(s))]), CancellationToken.None);
+        Assert.Null(edited.ScriptApprovedAtUtc);
+        Assert.Null(world.Runs.Read(run.Id)!.ScriptApprovedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(StoryRunStatus.AwaitingScript, true)]
+    [InlineData(StoryRunStatus.Building, true)]
+    [InlineData(StoryRunStatus.Researching, false)]
+    public async Task There_is_nothing_to_approve_without_a_script_or_while_it_is_being_made(StoryRunStatus status, bool withScript)
+    {
+        var world = new World();
+        var run = await world.Seed(status, withScript);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.ApproveScriptAsync(User, run.Id, CancellationToken.None));
+
+        Assert.Equal(StoryRunErrorKind.Conflict, error.Kind);
+        Assert.Null(world.Runs.Read(run.Id)!.ScriptApprovedAtUtc);
+    }
+
+    [Fact]
+    public async Task Subtitles_sent_again_to_the_same_video_replace_the_old_note_of_them()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.Completed);
+
+        await world.Service.RecordCaptionsAsync(User, run.Id, [new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "hi", CaptionId = "old" }], CancellationToken.None);
+        var result = await world.Service.RecordCaptionsAsync(User, run.Id,
+            [new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "hi", CaptionId = "new" },
+             new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "en", CaptionId = "en1" }], CancellationToken.None);
+
+        Assert.Equal(["new", "en1"], result.CaptionUploads.Select(c => c.CaptionId));
+        Assert.Equal(2, world.Runs.Read(run.Id)!.CaptionUploads.Count);
+    }
+
     // ----------------------------------------------------------------------------------------------- building
 
     [Fact]
@@ -782,6 +852,7 @@ public sealed class StoryRunServiceTests
         var result = await world.Service.BuildAsync(User, run.Id, new StoryBuildOptions { Narration = StoryNarrationMode.Stock, VoiceId = "hf_alpha", Music = false }, CancellationToken.None);
 
         Assert.Equal(StoryRunStatus.Building, result.Status);
+        Assert.Equal(StorySamples.Now, result.ScriptApprovedAtUtc);
         Assert.Equal("hf_alpha", result.Options.VoiceId);
         Assert.All(StoryStageIds.Building, id => Assert.Equal(StoryStageStatus.Pending, result.Stage(id).Status));
         Assert.All(StoryStageIds.Planning, id => Assert.Equal(StoryStageStatus.Completed, result.Stage(id).Status));

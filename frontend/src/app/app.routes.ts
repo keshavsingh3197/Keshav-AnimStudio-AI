@@ -119,10 +119,19 @@ export const routes: Routes = [
   },
 
   {
+    path: 'story-agent/board',
+    title: 'Storyboard - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-board.component').then((m) => m.StoryBoardComponent),
+  },
+
+  {
     path: 'story-agent/:runId',
     title: 'Story - AnimStudio AI',
     loadComponent: () =>
       import('./features/story-agent/story-run.component').then((m) => m.StoryRunComponent),
+    // Script text typed and not yet saved is asked about before the page is left.
+    canDeactivate: [(page: { canLeave(): boolean }) => page.canLeave()],
   },
 
   {

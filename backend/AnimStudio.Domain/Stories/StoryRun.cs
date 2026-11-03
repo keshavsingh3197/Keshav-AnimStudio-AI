@@ -93,6 +93,15 @@ public sealed class StoryRun
     /// <summary>How many times the script has been rewritten. A rewrite asks the model afresh instead of reusing its cached answer.</summary>
     public int ScriptRevision { get; set; }
 
+    /// <summary>
+    /// When the person said "go with this script". Any change to the words clears it, so an approval always means the
+    /// script as it now reads. Pressing Build approves it too.
+    /// </summary>
+    public DateTime? ScriptApprovedAtUtc { get; set; }
+
+    /// <summary>The subtitle tracks sent to YouTube, so the same language is not added to the same video twice.</summary>
+    public List<StoryCaptionUpload> CaptionUploads { get; set; } = [];
+
     /// <summary>The project the build made. Set as soon as it exists so a retry can replace it rather than add a second.</summary>
     public string? ProjectId { get; set; }
 
@@ -142,6 +151,20 @@ public sealed class StoryRun
     /// <summary>A run starts with every stage pending, so a client can draw the whole timeline at once.</summary>
     public static List<StoryStageState> NewStages() =>
         [.. StoryStageIds.All.Select(id => new StoryStageState { Id = id })];
+}
+
+/// <summary>One subtitle track added to a YouTube video made from the run.</summary>
+public sealed class StoryCaptionUpload
+{
+    public string VideoId { get; set; } = string.Empty;
+
+    /// <summary>The track's language, e.g. <c>hi</c> or <c>en</c>.</summary>
+    public string Language { get; set; } = string.Empty;
+
+    /// <summary>YouTube's id for the caption track.</summary>
+    public string CaptionId { get; set; } = string.Empty;
+
+    public DateTime UploadedAtUtc { get; set; }
 }
 
 /// <summary>The background track picked for a run, with the credit its licence asks for.</summary>

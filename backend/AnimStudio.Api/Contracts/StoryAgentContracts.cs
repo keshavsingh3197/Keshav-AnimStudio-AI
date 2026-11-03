@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Stories;
@@ -140,6 +141,17 @@ public sealed record EditStoryScriptRequest
             s.ImagePrompt, s.ImageKeywords, s.Mood))]);
 }
 
+/// <summary>Which of a story's YouTube videos gets its subtitles, and in which languages (none: every one it has).</summary>
+public sealed record SendStoryCaptionsRequest
+{
+    [Required(ErrorMessage = "Choose the video to add the subtitles to.")]
+    [RegularExpression("^[A-Za-z0-9_-]{11}$", ErrorMessage = "Choose the video to add the subtitles to.")]
+    public string? VideoId { get; init; }
+
+    [MaxLength(StoryCaptionPublisher.MaxLanguages)]
+    public List<string>? Languages { get; init; }
+}
+
 // ------------------------------------------------------------------------------------------------ responses
 
 public sealed record StoryPackResponse(string Id, string Title, string TitleEnglish, string Description, string Language, int TargetSeconds);
@@ -232,6 +244,33 @@ public sealed record StoryOptionsResponse(
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
     bool RenderWhenReady, bool AutoApprove);
 
+/// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
+public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
+
+/// <summary>A YouTube video made from the story's project.</summary>
+/// <param name="CurrentRender">It is the story's latest render, not an earlier build of it.</param>
+/// <param name="Captions">The subtitle languages added to it from the Story Agent.</param>
+public sealed record StoryPublicationResponse(
+    string VideoId,
+    string ChannelTitle,
+    string Title,
+    string Privacy,
+    string? PrivacyStatus,
+    DateTime PublishedAtUtc,
+    DateTime? PublishAtUtc,
+    string Health,
+    string? IssueMessage,
+    string VideoUrl,
+    string StudioUrl,
+    string? ThumbnailUrl,
+    bool CanCaption,
+    bool CurrentRender,
+    IReadOnlyList<string> Captions);
+
+public sealed record StoryCaptionResultResponse(string Language, string Label, string Outcome, string? Message);
+
+public sealed record StoryCaptionsSentResponse(StoryRunResponse Run, IReadOnlyList<StoryCaptionResultResponse> Results);
+
 public sealed record StoryRunResponse(
     string Id,
     string Title,
@@ -251,9 +290,14 @@ public sealed record StoryRunResponse(
     string? ErrorCode,
     string? ErrorMessage,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    DateTime? ScriptApprovedAtUtc,
+    IReadOnlyList<StorySubtitleResponse> Subtitles,
+    IReadOnlyList<StoryPublicationResponse> Publications);
 
-/// <summary>A run in the list: enough to draw a card and open it.</summary>
+/// <summary>A run in the list and on the storyboard: enough to draw a card, place it in its column and open it.</summary>
+/// <param name="CoverScene">The first scene with a picture of its own, for the card; null when there is none yet.</param>
+/// <param name="Publication">The newest YouTube video made from the story, if any.</param>
 public sealed record StoryRunSummaryResponse(
     string Id,
     string Title,
@@ -264,7 +308,16 @@ public sealed record StoryRunSummaryResponse(
     bool HasProject,
     bool HasKit,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    string Language,
+    StoryFormat Format,
+    int SceneCount,
+    double DurationSeconds,
+    DateTime? ScriptApprovedAtUtc,
+    bool HasRender,
+    int? CoverScene,
+    int PublicationCount,
+    StoryPublicationResponse? Publication);
 
 public sealed record StoryPromptResponse(string Prompt);
 
@@ -284,7 +337,10 @@ public static class StoryAgentMapper
         [.. GranthTopics.All.Select(t => new StoryTopicSummaryResponse(t.Id, t.Name, t.Hindi, t.Summary))],
         [.. caps.MyVoices.Select(Controllers.MyVoicesController.ToResponse)]);
 
-    public static StoryRunSummaryResponse ToSummary(StoryRun run)
+    public static StoryRunSummaryResponse ToSummary(StoryRun run) => ToSummary(run, []);
+
+    /// <param name="publications">The person's uploads of this run's project, newest first.</param>
+    public static StoryRunSummaryResponse ToSummary(StoryRun run, IReadOnlyList<StoryPublication> publications)
     {
         var running = run.Stages.FirstOrDefault(s => s.Status == StoryStageStatus.Running);
         var message = run.Status switch
@@ -297,11 +353,22 @@ public static class StoryAgentMapper
             _ => running?.Message
         };
 
+        var scenes = run.Script?.Scenes ?? [];
+        var cover = scenes.FirstOrDefault(s => StoryObjectKeys.Owns(run.Id, s.ImageKey) && s.ImageSource is not "placeholder");
+        var latest = publications.Count == 0 ? null : publications.MaxBy(p => p.PublishedAtUtc);
+
         return new(run.Id, run.Title, run.Status, run.IsWorking, Overall(run), message, !string.IsNullOrEmpty(run.ProjectId),
-            run.Kit is not null, run.CreatedAtUtc, run.UpdatedAtUtc);
+            run.Kit is not null, run.CreatedAtUtc, run.UpdatedAtUtc,
+            run.Brief.Language, run.Brief.Format, scenes.Count,
+            run.TotalSeconds > 0 ? run.TotalSeconds : Math.Round(scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
+            run.ScriptApprovedAtUtc, !string.IsNullOrEmpty(run.RenderJobId), cover?.Number,
+            publications.Count, latest is null ? null : ToResponse(run, latest));
     }
 
-    public static StoryRunResponse ToResponse(StoryRun run, RenderJob? job) => new(
+    public static StoryRunResponse ToResponse(StoryRun run, RenderJob? job) => ToResponse(run, job, []);
+
+    /// <param name="publications">The person's uploads of this run's project.</param>
+    public static StoryRunResponse ToResponse(StoryRun run, RenderJob? job, IReadOnlyList<StoryPublication> publications) => new(
         run.Id,
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId),
@@ -322,7 +389,18 @@ public static class StoryAgentMapper
         run.ErrorCode,
         run.ErrorMessage,
         run.CreatedAtUtc,
-        run.UpdatedAtUtc);
+        run.UpdatedAtUtc,
+        run.ScriptApprovedAtUtc,
+        [.. StoryCaptions.Tracks(run).Select(t => new StorySubtitleResponse(t.Language, t.Label, t.Source, t.Cues))],
+        [.. publications.OrderByDescending(p => p.PublishedAtUtc).Select(p => ToResponse(run, p))]);
+
+    public static StoryCaptionResultResponse ToResponse(StoryCaptionResult r) => new(r.Language, r.Label, r.Outcome, r.Message);
+
+    private static StoryPublicationResponse ToResponse(StoryRun run, StoryPublication p) => new(
+        p.VideoId, p.ChannelTitle, p.Title, p.Privacy, p.PrivacyStatus, p.PublishedAtUtc, p.PublishAtUtc, p.Health, p.IssueMessage,
+        p.VideoUrl, p.StudioUrl, p.ThumbnailUrl, p.CanCaption,
+        !string.IsNullOrEmpty(run.RenderJobId) && string.Equals(p.JobId, run.RenderJobId, StringComparison.Ordinal),
+        [.. run.CaptionUploads.Where(c => c.VideoId == p.VideoId).Select(c => c.Language).Distinct()]);
 
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,

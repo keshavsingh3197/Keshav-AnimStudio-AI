@@ -1,0 +1,99 @@
+<div class="page sb-page">
+  <div class="page-head sb-studio-bar">
+    <div class="sb-studio-title-col">
+      <a routerLink="/story-agent" class="sb-back">← Story Agent</a>
+      <h2>Storyboard</h2>
+      <p class="muted">Every story you have made, from the first script to the video on YouTube. Open a card to carry on where it is.</p>
+    </div>
+    <div class="sb-studio-actions">
+      <input type="search" class="sb-search" placeholder="Find a story…" aria-label="Find a story" [value]="query()" (input)="query.set(text($event))" />
+      <a routerLink="/story-agent" class="sb-new">＋ New story</a>
+    </div>
+  </div>
+
+  @if (error(); as problem) {
+    <div class="notice error" role="alert">
+      {{ problem }}
+      <button type="button" class="secondary small" (click)="refresh()">Try again</button>
+    </div>
+  }
+
+  @if (runs() === null) {
+    <div class="empty sb-center"><span class="spinner" role="status" aria-label="Loading"></span> Loading your stories…</div>
+  } @else if ((runs() ?? []).length === 0) {
+    <div class="card empty sb-center sb-none">
+      <p>No stories yet.</p>
+      <a routerLink="/story-agent" class="sb-new">Start your first story</a>
+    </div>
+  } @else {
+    @let c = counts();
+    <div class="sb-stats" role="list" aria-label="At a glance">
+      <div class="sb-stat" role="listitem"><strong>{{ c.total }}</strong><span>stories</span></div>
+      <div class="sb-stat sb-stat-warn" role="listitem"><strong>{{ c.waiting }}</strong><span>waiting for you</span></div>
+      <div class="sb-stat" role="listitem"><strong>{{ c.making }}</strong><span>being made</span></div>
+      <div class="sb-stat sb-stat-brand" role="listitem"><strong>{{ c.scheduled }}</strong><span>scheduled</span></div>
+      <div class="sb-stat sb-stat-ok" role="listitem"><strong>{{ c.published }}</strong><span>on YouTube</span></div>
+    </div>
+
+    <div class="sb-board">
+      @for (column of columns(); track column.id) {
+        <section class="sb-col" [class]="'sb-col-' + column.id" [attr.aria-labelledby]="'sb-col-' + column.id">
+          <header class="sb-col-head">
+            <h3 [id]="'sb-col-' + column.id">{{ column.label }} <span class="sb-count">{{ column.runs.length }}</span></h3>
+            <p class="muted">{{ column.hint }}</p>
+          </header>
+
+          <ul class="sb-cards">
+            @for (run of column.runs; track run.id) {
+              @let state = stateOf(run);
+              <li class="sb-card" [class.sb-card-working]="run.working">
+                <div class="sb-cover" [class.sb-cover-vertical]="run.format === 'Vertical'">
+                  @if (cover(run); as url) {
+                    <img [src]="url" alt="" loading="lazy" />
+                  } @else {
+                    <span class="sb-cover-empty" aria-hidden="true">{{ run.format === 'Vertical' ? '▯' : '▭' }}</span>
+                  }
+                  @if (run.durationSeconds > 0) { <span class="sb-length">{{ clock(run.durationSeconds) }}</span> }
+                </div>
+
+                <div class="sb-card-body">
+                  <a class="sb-title" [attr.lang]="run.language" [routerLink]="['/story-agent', run.id]" [queryParams]="tabFor(column)">{{ run.title }}</a>
+                  <div class="sb-meta muted">
+                    {{ run.language === 'en' ? 'English' : 'Hindi' }} · {{ run.format === 'Vertical' ? '9:16' : '16:9' }}
+                    @if (run.sceneCount > 0) { · {{ run.sceneCount }} scenes }
+                  </div>
+                  <div class="sb-pills">
+                    <span class="pill" [class]="state.tone">{{ run.publication ? '▶ ' : '' }}{{ state.label }}</span>
+                    @if (run.publicationCount > 1) { <span class="pill">{{ run.publicationCount }} uploads</span> }
+                  </div>
+                  @if (run.working) {
+                    <div class="bar" role="progressbar" aria-label="Progress" [attr.aria-valuenow]="run.progress" aria-valuemin="0" aria-valuemax="100">
+                      <i [style.width.%]="run.progress"></i>
+                    </div>
+                  }
+                  @if (run.message && (run.working || run.status === 'Failed')) { <p class="sb-msg muted">{{ run.message }}</p> }
+                  <div class="sb-foot">
+                    <span class="muted">
+                      @if (run.publication?.publishAtUtc && state.label.startsWith('Scheduled')) {
+                        Goes live {{ when(run.publication!.publishAtUtc!) }}
+                      } @else if (run.publication) {
+                        Uploaded {{ ago(run.publication.publishedAtUtc) }} · {{ run.publication.channelTitle }}
+                      } @else {
+                        Updated {{ ago(run.updatedAtUtc) }}
+                      }
+                    </span>
+                    @if (run.publication) {
+                      <a class="sb-watch" [href]="run.publication.videoUrl" target="_blank" rel="noopener noreferrer" [attr.aria-label]="'Watch ' + run.title + ' on YouTube'">Watch ↗</a>
+                    }
+                  </div>
+                </div>
+              </li>
+            } @empty {
+              <li class="sb-empty muted">Nothing here.</li>
+            }
+          </ul>
+        </section>
+      }
+    </div>
+  }
+</div>

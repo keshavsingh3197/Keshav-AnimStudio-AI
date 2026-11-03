@@ -117,7 +117,7 @@ public sealed partial class StoryRunService(
             options.CurrentValue.MaxActiveRunsPerUser);
 
     public async Task<IReadOnlyList<StoryRun>> ListAsync(string userId, CancellationToken ct) =>
-        await runs.ListByUserAsync(userId, options.CurrentValue.MaxSavedRunsPerUser, ct).ConfigureAwait(false);
+        await runs.ListByUserAsync(userId, Math.Max(options.CurrentValue.MaxListedRuns, 1), ct).ConfigureAwait(false);
 
     public Task<StoryRun> GetAsync(string userId, string id, CancellationToken ct) => OwnedAsync(userId, id, ct);
 
@@ -209,6 +209,7 @@ public sealed partial class StoryRunService(
         await DeleteScriptFilesAsync(run, ct).ConfigureAwait(false);
         run.Script = result.Script;
         run.ScriptWarnings = [.. result.Warnings];
+        run.ScriptApprovedAtUtc = null;
         MarkScriptStageDone(run, "The script was pasted in.");
         return await SettleAfterScriptAsync(run, ct).ConfigureAwait(false);
     }
@@ -293,6 +294,46 @@ public sealed partial class StoryRunService(
 
         run.Script = result.Script;
         run.ScriptWarnings = [.. result.Warnings];
+        // An approval was of the words as they were; changed words need reading again.
+        run.ScriptApprovedAtUtc = null;
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>
+    /// The person has read the script and wants to go with it. Nothing is made yet: this only marks the words as approved,
+    /// so the page moves on to the pictures and the build. Saved like every other change, so it is never lost.
+    /// </summary>
+    public async Task<StoryRun> ApproveScriptAsync(string userId, string id, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        RequireEditableScript(run);
+        if (run.Status == StoryRunStatus.AwaitingScript)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "approve-not-allowed", "Paste the script in before approving it.");
+
+        if (run.ScriptApprovedAtUtc is null)
+        {
+            run.ScriptApprovedAtUtc = clock.GetUtcNow().UtcDateTime;
+            await Save(run, ct).ConfigureAwait(false);
+            logger.LogInformation("Story run {RunId}: script approved.", run.Id);
+        }
+
+        return run;
+    }
+
+    /// <summary>
+    /// Notes subtitle tracks that were added to a YouTube video, so the same language is not sent to the same video twice.
+    /// Read again before writing, and refused while a worker has the run, as every other write is.
+    /// </summary>
+    public async Task<StoryRun> RecordCaptionsAsync(string userId, string id, IReadOnlyList<StoryCaptionUpload> added, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (added.Count == 0) return run;
+        if (run.IsWorking)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "story-busy", "The story is being made again. Add the subtitles once it is done.");
+
+        run.CaptionUploads.RemoveAll(old => added.Any(a => a.VideoId == old.VideoId && a.Language == old.Language));
+        run.CaptionUploads.AddRange(added);
         await Save(run, ct).ConfigureAwait(false);
         return run;
     }
@@ -347,6 +388,7 @@ public sealed partial class StoryRunService(
 
         if (writer is { } chosen) run.Brief.Writer = chosen;
         run.Script = null;
+        run.ScriptApprovedAtUtc = null;
         run.ScriptWarnings = [];
         run.ScriptRevision++;
         run.Kit = null;
@@ -376,6 +418,8 @@ public sealed partial class StoryRunService(
         await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
 
         run.Options = checkedOptions;
+        // Pressing Build is saying yes to the script as it stands.
+        run.ScriptApprovedAtUtc ??= clock.GetUtcNow().UtcDateTime;
         run.Kit = null;
         run.RenderJobId = null;
         run.ErrorCode = null;
@@ -601,6 +645,7 @@ public sealed partial class StoryRunService(
         {
             await CheckCapacityAsync(run.UserId, ct).ConfigureAwait(false);
             Preflight(run.Options);
+            run.ScriptApprovedAtUtc = clock.GetUtcNow().UtcDateTime;
             run.Status = StoryRunStatus.Building;
             await Save(run, ct).ConfigureAwait(false);
             queue.Enqueue(run.Id);
@@ -670,12 +715,15 @@ public sealed partial class StoryRunService(
         }
     }
 
-    /// <summary>Keeps a person's saved runs to the limit by deleting their oldest finished ones.</summary>
+    /// <summary>
+    /// Keeps a person's saved runs near the limit by deleting their oldest ones that came to nothing - failed or stopped.
+    /// A finished story is never deleted by this: it has a video, and may be on YouTube. Only its owner deletes it.
+    /// </summary>
     private async Task PruneAsync(string userId, string keep, CancellationToken ct)
     {
         var limit = options.CurrentValue.MaxSavedRunsPerUser;
         var all = await runs.ListByUserAsync(userId, limit + 25, ct).ConfigureAwait(false);
-        foreach (var old in all.Skip(limit).Where(r => r.IsTerminal && r.Id != keep))
+        foreach (var old in all.Skip(limit).Where(r => r.Status is StoryRunStatus.Failed or StoryRunStatus.Cancelled && r.Id != keep))
         {
             await DeleteAllFilesAsync(old, ct).ConfigureAwait(false);
             await runs.DeleteAsync(old.Id, ct).ConfigureAwait(false);
