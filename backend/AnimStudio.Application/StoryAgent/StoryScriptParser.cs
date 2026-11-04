@@ -30,6 +30,12 @@ public static class StoryScriptParser
     public const int MaxTotalNarrationChars = 30_000;
     public const int MinScenes = 2;
 
+    /// <summary>More speaking characters than this in a short video is a crowd; the rest are read by the narrator.</summary>
+    public const int MaxCast = 8;
+
+    private const int MaxLinesPerScene = 24;
+    private const int MaxNameChars = 60;
+
     private const int MaxWarnings = 60;
 
     /// <summary>
@@ -95,6 +101,20 @@ public static class StoryScriptParser
                 }
             }
 
+            if (Property(root, "cast") is { ValueKind: JsonValueKind.Array } cast)
+            {
+                foreach (var member in cast.EnumerateArray().Take(MaxCast * 2))
+                {
+                    if (member.ValueKind != JsonValueKind.Object) continue;
+                    script.Cast.Add(new StoryCastMember
+                    {
+                        Name = Text(member, "name") ?? string.Empty,
+                        Gender = Text(member, "gender"),
+                        Age = Text(member, "age")
+                    });
+                }
+            }
+
             var dropped = 0;
             foreach (var element in scenes.EnumerateArray().Take(MaxScenes))
             {
@@ -145,6 +165,7 @@ public static class StoryScriptParser
 
         var warnings = new List<string>();
         var number = 0;
+        var cast = NormalizeCast(script.Cast);
 
         // A story told over several scenes says it is tradition once: "the Puranas tell that..." covers the scene after it.
         var hedgeCarries = false;
@@ -160,6 +181,9 @@ public static class StoryScriptParser
             scene.ImageKeywords = [.. scene.ImageKeywords
                 .Select(k => AiOutputSanitizer.ToSafeLine(k, 40)).OfType<string>().Take(8)];
             scene.EstimatedSeconds = StoryPacing.EstimateSeconds(scene.Narration);
+            scene.Lines = NormalizeLines(scene, cast, out var mismatch);
+            if (mismatch)
+                warnings.Add($"Scene {number}: the characters' lines did not match the narration, so the narrator reads all of it.");
 
             var sources = new List<StorySourceRef>();
             foreach (var source in scene.Sources.Take(8))
@@ -204,6 +228,9 @@ public static class StoryScriptParser
         }
 
         script.Scenes = scenes;
+        // Only those who still speak a line; their voice is given again when narration is made.
+        var speaking = scenes.SelectMany(s => s.Lines).Select(l => l.Speaker).ToHashSet(StringComparer.Ordinal);
+        script.Cast = [.. cast.Where(c => speaking.Contains(c.Name))];
         script.Language = brief.Language;
         script.Title = AiOutputSanitizer.ToSafeLine(script.Title, 200) ?? brief.Title;
         script.TitleEnglish = AiOutputSanitizer.ToSafeLine(script.TitleEnglish, 200);
@@ -321,6 +348,19 @@ public static class StoryScriptParser
         }
         scene.Sources = sources;
 
+        if (Property(element, "lines") is { ValueKind: JsonValueKind.Array } lines)
+        {
+            foreach (var line in lines.EnumerateArray().Take(MaxLinesPerScene))
+            {
+                if (line.ValueKind != JsonValueKind.Object) continue;
+                scene.Lines.Add(new StoryLine
+                {
+                    Speaker = Text(line, "speaker") ?? StoryCastMember.Narrator,
+                    Text = Text(line, "text") ?? string.Empty
+                });
+            }
+        }
+
         scene.Basis = Text(element, "basis")?.Trim().ToLowerInvariant() switch
         {
             "text" or "scripture" or "textual" => StoryBasis.Text,
@@ -330,6 +370,96 @@ public static class StoryScriptParser
         };
 
         return scene;
+    }
+
+    /// <summary>One entry per name, with a gender and age the casting understands, and never someone called "narrator".</summary>
+    private static List<StoryCastMember> NormalizeCast(IEnumerable<StoryCastMember> cast)
+    {
+        var result = new List<StoryCastMember>();
+        foreach (var member in cast)
+        {
+            var name = AiOutputSanitizer.ToSafeLine(member.Name, MaxNameChars);
+            if (name is null || IsNarrator(name) || result.Any(c => SameName(c.Name, name))) continue;
+
+            result.Add(new StoryCastMember
+            {
+                Name = name,
+                Gender = member.Gender?.Trim().ToLowerInvariant() switch
+                {
+                    "male" or "m" or "man" or "boy" => "male",
+                    "female" or "f" or "woman" or "girl" => "female",
+                    _ => null
+                },
+                Age = member.Age?.Trim().ToLowerInvariant() switch
+                {
+                    "child" or "kid" or "boy" or "girl" => "child",
+                    "young" or "youth" or "teen" or "teenager" => "young",
+                    "elder" or "old" or "elderly" or "aged" => "elder",
+                    "adult" => "adult",
+                    _ => null
+                },
+                VoiceId = member.VoiceId
+            });
+            if (result.Count == MaxCast) break;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The scene's lines, each spoken by the narrator or a member of the cast. They are kept only when they say the same
+    /// words as the narration (the subtitles), punctuation aside; otherwise the narrator reads the whole scene.
+    /// </summary>
+    private static List<StoryLine> NormalizeLines(StoryScene scene, IReadOnlyList<StoryCastMember> cast, out bool mismatch)
+    {
+        mismatch = false;
+        if (scene.Lines.Count == 0) return [];
+
+        var lines = new List<StoryLine>();
+        foreach (var line in scene.Lines.Take(MaxLinesPerScene))
+        {
+            var text = AiOutputSanitizer.ToSafeLine(line.Text, MaxNarrationChars);
+            if (text is null) continue;
+
+            var name = line.Speaker?.Trim() ?? string.Empty;
+            var speaker = cast.FirstOrDefault(c => SameName(c.Name, name))?.Name ?? StoryCastMember.Narrator;
+
+            // Two lines in a row by the same voice are one line.
+            if (lines.Count > 0 && lines[^1].Speaker == speaker) lines[^1].Text += " " + text;
+            else lines.Add(new StoryLine { Speaker = speaker, Text = text });
+        }
+
+        if (lines.All(l => l.Speaker == StoryCastMember.Narrator)) return [];
+
+        if (!string.Equals(Spoken(string.Concat(lines.Select(l => l.Text))), Spoken(scene.Narration), StringComparison.Ordinal))
+        {
+            mismatch = true;
+            return [];
+        }
+
+        return lines;
+    }
+
+    private static bool IsNarrator(string name) =>
+        string.Equals(name.Trim(), StoryCastMember.Narrator, StringComparison.OrdinalIgnoreCase);
+
+    private static bool SameName(string a, string b) =>
+        string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Only what is pronounced: letters, digits and the vowel signs Devanagari writes as marks.</summary>
+    private static string Spoken(string text)
+    {
+        var builder = new System.Text.StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            if (char.IsLetterOrDigit(c)
+                || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.NonSpacingMark
+                    or System.Globalization.UnicodeCategory.SpacingCombiningMark)
+            {
+                builder.Append(char.ToLowerInvariant(c));
+            }
+        }
+        return builder.ToString();
     }
 
     /// <summary>The first few words of the narration, for a scene the model left without a headline.</summary>

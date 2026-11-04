@@ -72,6 +72,14 @@ public sealed class AiProviderOptions
     /// making an operator work out which flag to turn off.
     /// </summary>
     public bool SupportsJsonMode { get; set; } = true;
+
+    /// <summary>
+    /// How hard a reasoning model thinks before answering - <c>minimal</c>, <c>low</c>,
+    /// <c>medium</c> or <c>high</c> - sent as OpenAI's <c>reasoning_effort</c>. Empty sends
+    /// nothing, which leaves the model's default. Thinking tokens count against a free
+    /// tier's allowance, and the short extraction calls here gain little from them.
+    /// </summary>
+    public string? ReasoningEffort { get; set; }
 }
 
 public sealed class AiCacheOptions

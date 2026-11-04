@@ -50,4 +50,16 @@ public sealed class VoiceProfile
 
     /// <summary>When the engine refused to tune from the sample, so it is not asked again on every line.</summary>
     public DateTime? TuneRefusedAtUtc { get; set; }
+
+    /// <summary>
+    /// The voice a hosted engine (Gemini) replicated from the sample, after the user sent it there
+    /// with a recording of their spoken consent. Null while the voice stays on this machine only.
+    /// </summary>
+    public string? GoogleVoiceId { get; set; }
+
+    /// <summary>The speech provider that keeps <see cref="GoogleVoiceId"/>, so lines name it and deleting the voice deletes it there.</summary>
+    public string? GoogleVoiceProviderId { get; set; }
+
+    /// <summary>When the user consented to the sample being sent to Google, and the voice was made.</summary>
+    public DateTime? GoogleConsentAtUtc { get; set; }
 }

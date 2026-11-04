@@ -47,7 +47,14 @@ public sealed record StoryBuildOptionsRequest
     [StringLength(40)]
     public string? SpeechEngine { get; init; }
 
+    [StringLength(80)]
+    public string? SpeechModel { get; init; }
+
+    [StringLength(300)]
+    public string? SpeechStyle { get; init; }
+
     public double SpeechRate { get; init; } = 1.0;
+    public bool CastVoices { get; init; } = true;
     public bool ClosestToMyVoice { get; init; }
     public StoryVisualMode Visuals { get; init; } = StoryVisualMode.Auto;
 
@@ -70,7 +77,10 @@ public sealed record StoryBuildOptionsRequest
         VoiceProfileId = VoiceProfileId,
         VoiceId = VoiceId,
         SpeechEngine = SpeechEngine,
+        SpeechModel = SpeechModel,
+        SpeechStyle = SpeechStyle,
         SpeechRate = SpeechRate,
+        CastVoices = CastVoices,
         ClosestToMyVoice = ClosestToMyVoice,
         Visuals = Visuals,
         ImageStyle = ImageStyle,
@@ -193,7 +203,14 @@ public sealed record StorySceneResponse(
     string? ImageSource,
     string? ImageName,
     bool HasAudio,
-    double? AudioSeconds);
+    double? AudioSeconds,
+    IReadOnlyList<StoryLineResponse> Lines);
+
+/// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
+public sealed record StoryLineResponse(string Speaker, string Text);
+
+/// <param name="VoiceId">The voice they were given when the narration was last made; null before that.</param>
+public sealed record StoryCastMemberResponse(string Name, string? Gender, string? Age, string? VoiceId);
 
 public sealed record StoryScriptResponse(
     string Title,
@@ -204,7 +221,8 @@ public sealed record StoryScriptResponse(
     IReadOnlyList<StorySceneResponse> Scenes,
     IReadOnlyList<string> ReviewNotes,
     string? WrittenBy,
-    double EstimatedSeconds);
+    double EstimatedSeconds,
+    IReadOnlyList<StoryCastMemberResponse> Cast);
 
 public sealed record StoryTopicResponse(string TopicId, string Name, string? Summary, IReadOnlyList<StorySourceResponse> Sources);
 
@@ -242,7 +260,7 @@ public sealed record StoryBriefResponse(
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
-    bool RenderWhenReady, bool AutoApprove);
+    bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -404,7 +422,7 @@ public static class StoryAgentMapper
 
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
-        o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove);
+        o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices);
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],
@@ -419,8 +437,10 @@ public static class StoryAgentMapper
             [.. scene.Sources.Select(ToResponse)],
             scene.ImagePrompt, scene.ImageKeywords, scene.Mood, scene.EstimatedSeconds,
             StoryObjectKeys.Owns(runId, scene.ImageKey), scene.ImageSource, scene.ImageName,
-            StoryObjectKeys.Owns(runId, scene.AudioKey), scene.AudioSeconds))],
-        s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1));
+            StoryObjectKeys.Owns(runId, scene.AudioKey), scene.AudioSeconds,
+            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))]))],
+        s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
+        [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))]);
 
     private static StorySourceResponse ToResponse(StorySourceRef s) =>
         new(s.TextId, s.TextName, s.Ref, s.Note, s.Confidence, s.Url, s.Check, s.Grounded, s.CheckMessage);

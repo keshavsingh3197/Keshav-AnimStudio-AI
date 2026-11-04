@@ -19,7 +19,9 @@ public enum AiProviderFamily
     WhisperCppTranscription = 9,
     OpenAiCompatibleAsr = 10,
     /// <summary>A signed-in command-line agent on this machine (Claude Code, Copilot CLI).</summary>
-    LocalCliText = 12
+    LocalCliText = 12,
+    /// <summary>Gemini's native <c>generateContent</c> with audio output; its OpenAI route has no speech.</summary>
+    GeminiSpeech = 13
 }
 
 /// <summary>
@@ -87,6 +89,7 @@ public static class KnownAiProviders
     public const string ComfyUiLocal = "comfyui-local";
     public const string PiperLocal = "piper-local";
     public const string Kokoro = "kokoro";
+    public const string GeminiTts = "gemini-tts";
     public const string OpenAiTts = "openai-tts";
     public const string WhisperCppLocal = "whispercpp-local";
     public const string FasterWhisper = "faster-whisper";
@@ -121,10 +124,12 @@ public static class KnownAiProviders
             Models:
             [
                 new("gemini-3.8-flash", "3.8 Flash - latest quality default"),
+                new("gemini-3.6-flash", "3.6 Flash - previous Flash, its own free allowance"),
                 new("gemini-3.5-flash-lite", "3.5 Flash-Lite - faster, larger free allowance"),
+                new("gemini-3.1-flash-lite", "3.1 Flash-Lite - cheapest, for bulk small calls"),
                 new("gemini-flash-latest", "Flash Latest - auto-tracks current Flash release"),
-                new("gemini-2.5-flash", "2.5 Flash (legacy)"),
-                new("gemini-2.5-flash-lite", "2.5 Flash-Lite (legacy)")
+                new("gemini-2.5-flash", "2.5 Flash (deprecated - becomes 3.5 Flash-Lite on 1 Dec 2026)"),
+                new("gemini-2.5-flash-lite", "2.5 Flash-Lite (legacy, still served)")
             ]),
 
 
@@ -248,6 +253,24 @@ public static class KnownAiProviders
             KeyUrl: null,
             LicenseClass: "PublicDomain"),
 
+        new(GeminiTts, AiCapability.Speech, AiProviderFamily.GeminiSpeech,
+            "Google Gemini speech",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-3.8-flash-tts",
+            RunsLocally: false,
+            "Free on the AI Studio tier. 30 voices that speak any language plus Google's " +
+            "per-language library and any voices designed in your Google project, with a " +
+            "delivery style per line. It speaks Hindi and 100+ other languages, detected from " +
+            "the line itself. The free daily allowance is small, so " +
+            "it suits short videos rather than a long transcript. It needs its own copy of the " +
+            "Gemini key, since credentials are held per provider id.",
+            "https://aistudio.google.com/apikey",
+            DefaultDailyRequestLimit: 50,
+            Models:
+            [
+                new("gemini-3.8-flash-tts", "3.8 Flash TTS - most natural, 130+ languages"),
+                new("gemini-3.8-flash-lite-tts", "3.8 Flash-Lite TTS - faster, 100+ languages")
+            ]),
 
         new(OpenAiTts, AiCapability.Speech, AiProviderFamily.OpenAiCompatibleTts,
             "OpenAI-compatible speech",
@@ -319,7 +342,8 @@ public static class KnownAiProviders
             or AiProviderFamily.ComfyUiImage => AiCapability.Image,
 
         AiProviderFamily.PiperSpeech
-            or AiProviderFamily.OpenAiCompatibleTts => AiCapability.Speech,
+            or AiProviderFamily.OpenAiCompatibleTts
+            or AiProviderFamily.GeminiSpeech => AiCapability.Speech,
 
         AiProviderFamily.WhisperCppTranscription
             or AiProviderFamily.OpenAiCompatibleAsr => AiCapability.Transcription,

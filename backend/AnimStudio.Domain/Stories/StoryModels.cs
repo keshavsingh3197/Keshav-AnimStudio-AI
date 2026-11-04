@@ -79,7 +79,20 @@ public sealed class StoryBuildOptions
     /// <summary>One named speech engine; null walks the configured chain.</summary>
     public string? SpeechEngine { get; set; }
 
+    /// <summary>One of <see cref="SpeechEngine"/>'s offered models; null for its configured one.</summary>
+    public string? SpeechModel { get; set; }
+
+    /// <summary>How the lines are delivered ("warm, unhurried storyteller"), for an engine that takes one.</summary>
+    public string? SpeechStyle { get; set; }
+
     public double SpeechRate { get; set; } = 1.0;
+
+    /// <summary>
+    /// Give each character of the script's cast a voice of their own (picked from the engine's voices by gender and
+    /// age), with the narrator in the chosen voice. Only an engine that can speak a dialogue does this; the others
+    /// read every line in the narrator's voice.
+    /// </summary>
+    public bool CastVoices { get; set; } = true;
 
     /// <summary>
     /// For my voice: convert every line with the AI voice converter even when a tuned voice exists.
@@ -229,6 +242,12 @@ public sealed class StoryScene
     /// <summary>What the narrator says, in the script's language. Becomes the subtitles.</summary>
     public string Narration { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The narration split by who speaks it, in order, when a character speaks in the scene; empty when the narrator
+    /// says it all. The lines say the same words as <see cref="Narration"/>, which stays the subtitles.
+    /// </summary>
+    public List<StoryLine> Lines { get; set; } = [];
+
     /// <summary>The meaning in English, so the person can check a Hindi script without reading Hindi.</summary>
     public string? English { get; set; }
 
@@ -265,6 +284,34 @@ public sealed class StoryScene
     public List<StoryPause> Pauses { get; set; } = [];
 }
 
+/// <summary>Part of a scene's narration and who says it.</summary>
+public sealed class StoryLine
+{
+    /// <summary><see cref="StoryCastMember.Narrator"/>, or the name of a member of the script's cast.</summary>
+    public string Speaker { get; set; } = StoryCastMember.Narrator;
+
+    public string Text { get; set; } = string.Empty;
+}
+
+/// <summary>A character who speaks in the story.</summary>
+public sealed class StoryCastMember
+{
+    /// <summary>The speaker of every line that is not a character's.</summary>
+    public const string Narrator = "narrator";
+
+    /// <summary>As the script names them, in its language.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary><c>male</c>, <c>female</c>, or null when it does not matter.</summary>
+    public string? Gender { get; set; }
+
+    /// <summary><c>child</c>, <c>young</c>, <c>adult</c> or <c>elder</c>; null for an adult.</summary>
+    public string? Age { get; set; }
+
+    /// <summary>The voice they were last given, so the person can see who speaks whom. Set when narration is made.</summary>
+    public string? VoiceId { get; set; }
+}
+
 /// <summary>A quiet stretch in a clip, in seconds from its start.</summary>
 public sealed class StoryPause
 {
@@ -284,6 +331,9 @@ public sealed class StoryScript
     public string? MusicQuery { get; set; }
 
     public List<StoryScene> Scenes { get; set; } = [];
+
+    /// <summary>The characters who speak in the scenes' lines. Empty when the narrator tells it all.</summary>
+    public List<StoryCastMember> Cast { get; set; } = [];
 
     /// <summary>Things the writer wants checked before this is published.</summary>
     public List<string> ReviewNotes { get; set; } = [];

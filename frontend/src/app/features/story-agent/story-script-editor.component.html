@@ -22,6 +22,25 @@
           </ul>
         </div>
       }
+      @if (s.cast?.length) {
+        <div class="notice notice-info se-note se-cast">
+          <strong>Characters ({{ s.cast!.length }})</strong>
+          <ul>
+            @for (member of s.cast!; track member.name) {
+              <li>
+                <span [attr.lang]="s.language">{{ member.name }}</span>
+                @if (member.gender || member.age) {
+                  <span class="muted"> · {{ member.gender }}{{ member.gender && member.age ? ', ' : '' }}{{ member.age }}</span>
+                }
+                @if (member.voiceId) {
+                  <span class="muted"> · voice {{ member.voiceId }}</span>
+                }
+              </li>
+            }
+          </ul>
+          <span class="muted">With Google Gemini TTS and "A voice for each character" on, each one speaks their own lines in a voice chosen for them; otherwise the narrator reads everything.</span>
+        </div>
+      }
     }
 
     <div class="se-bar">

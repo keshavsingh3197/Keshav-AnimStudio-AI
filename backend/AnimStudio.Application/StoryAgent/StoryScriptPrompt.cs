@@ -145,11 +145,13 @@ public static class StoryScriptPrompt
         {
           "title": "...", "titleEnglish": "...", "summary": "...", "musicQuery": "sitar flute devotional",
           "reviewNotes": ["..."],
+          "cast": [ { "name": "...", "gender": "male", "age": "adult" } ],
           "scenes": [
             {
               "headline": "...", "narration": "...", "english": "...", "basis": "text",
               "sources": [ { "text": "bhagavata-purana", "ref": "10.59", "note": "..." } ],
-              "imagePrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional"
+              "imagePrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
+              "lines": [ { "speaker": "narrator", "text": "..." }, { "speaker": "...", "text": "..." } ]
             }
           ]
         }

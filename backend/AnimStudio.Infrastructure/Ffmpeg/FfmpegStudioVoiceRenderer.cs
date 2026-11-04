@@ -159,8 +159,10 @@ public sealed class FfmpegStudioVoiceRenderer(
         await using var workspace = await workspaces.CreateAsync($"reference-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
         var stored = await workspace.MaterializeAsync(sampleStorageKey, "in/sample", ct).ConfigureAwait(false);
 
+        // Plain RIFF/fmt/data with no LIST metadata chunk: hosted services (Google's voice replication) parse it strictly.
         await FfmpegAsync(workspace,
-            ["-i", stored, "-vn", "-ac", "1", "-ar", $"{ReferenceSampleRate}", "-t", $"{SampleSeconds}", "-c:a", "pcm_s16le", "reference.wav"], ct)
+            ["-i", stored, "-vn", "-map_metadata", "-1", "-fflags", "+bitexact", "-ac", "1", "-ar", $"{ReferenceSampleRate}",
+             "-t", $"{SampleSeconds}", "-c:a", "pcm_s16le", "reference.wav"], ct)
             .ConfigureAwait(false);
         return await File.ReadAllBytesAsync(workspace.Resolve("reference.wav"), ct).ConfigureAwait(false);
     }

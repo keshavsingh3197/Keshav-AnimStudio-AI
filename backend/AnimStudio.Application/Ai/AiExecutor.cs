@@ -338,7 +338,9 @@ public sealed class AiExecutor(
         r.Text, r.VoiceId,
         r.Rate.ToString("R", CultureInfo.InvariantCulture),
         r.Pitch.ToString("R", CultureInfo.InvariantCulture),
-        r.LanguageCode);
+        // Appended only when set, so lines cached before styles existed are still found.
+        (r.Style is null ? r.LanguageCode : $"{r.LanguageCode}\nstyle:{r.Style}")
+        + (r.ReplicatedVoiceId is null ? string.Empty : $"\nreplicated:{r.ReplicatedVoiceId}"));
 
     /// <summary>Null when the caller supplied no audio digest - see the request's comment.</summary>
     private static string? FingerprintOf(AiTranscriptionRequest r) =>

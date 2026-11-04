@@ -15,5 +15,9 @@ fieldset.so:disabled { opacity: .6; }
 .so-warn { color: var(--warn); }
 
 .so-switch { align-items: center; }
+.so-more { display: grid; gap: .55rem; }
+.so-more[open] { padding-bottom: .2rem; }
+.so-more > summary { cursor: pointer; font-size: .85rem; font-weight: 600; color: var(--text-dim); }
+.so-more[open] > summary { margin-bottom: .55rem; }
 .so-off { opacity: .55; }
 .seg > label.so-off { cursor: not-allowed; }

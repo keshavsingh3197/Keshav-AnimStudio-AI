@@ -249,6 +249,64 @@ public sealed class StoryRunServiceTests
     }
 
     [Theory]
+    [InlineData(null, "gemini-3.8-flash-tts")]
+    [InlineData("gemini-tts", "../../files")]
+    [InlineData("gemini-tts", "gemini-3.8-flash")]
+    public async Task A_speech_model_the_engine_does_not_offer_is_refused(string? engine, string model)
+    {
+        var world = new World();
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.CreateAsync(User, Brief(),
+            new StoryBuildOptions { SpeechEngine = engine, SpeechModel = model }, CancellationToken.None));
+
+        Assert.Equal("model-invalid", error.Code);
+    }
+
+    [Fact]
+    public async Task A_gemini_model_and_style_are_kept_and_a_style_for_another_engine_is_dropped()
+    {
+        var world = new World();
+
+        var gemini = await world.Service.CreateAsync(User, Brief(), new StoryBuildOptions
+        {
+            SpeechEngine = "gemini-tts", SpeechModel = " gemini-3.8-flash-lite-tts ", SpeechStyle = "  Calm \r\n and warm  "
+        }, CancellationToken.None);
+        var kokoro = await world.Service.CreateAsync(User, Brief(), new StoryBuildOptions
+        {
+            SpeechEngine = "kokoro", SpeechStyle = "Calm"
+        }, CancellationToken.None);
+
+        Assert.Equal("gemini-3.8-flash-lite-tts", gemini.Options.SpeechModel);
+        Assert.Equal("Calm and warm", gemini.Options.SpeechStyle);
+        Assert.Null(kokoro.Options.SpeechStyle);
+    }
+
+    [Fact]
+    public async Task My_voice_keeps_a_gemini_style_only_when_the_voice_was_sent_to_gemini()
+    {
+        var world = new World();
+        world.Voices.Items[ProfileId] = new VoiceProfile
+        {
+            Id = ProfileId, UserId = User, Name = "Mine", BaseVoiceId = "hm_omega", StorageKey = "k",
+            GoogleVoiceId = "voice_r3pl1ca", GoogleVoiceProviderId = "gemini-tts"
+        };
+        var options = new StoryBuildOptions
+        {
+            Narration = StoryNarrationMode.MyVoice, VoiceProfileId = ProfileId,
+            SpeechEngine = "gemini-tts", SpeechModel = "gemini-3.8-flash-tts", SpeechStyle = "Calm"
+        };
+
+        var onGoogle = await world.Service.CreateAsync(User, Brief(), options, CancellationToken.None);
+        world.Voices.Items[ProfileId].GoogleVoiceId = null;
+        var local = await world.Service.CreateAsync(User, Brief("Another"), options, CancellationToken.None);
+
+        Assert.Equal("Calm", onGoogle.Options.SpeechStyle);
+        Assert.Equal("gemini-3.8-flash-tts", onGoogle.Options.SpeechModel);
+        Assert.Null(local.Options.SpeechStyle);
+        Assert.Null(local.Options.SpeechModel);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("vp_nope")]
     [InlineData(ProfileId)]

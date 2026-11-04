@@ -152,6 +152,21 @@ public class OpenAiCompatibleTextProviderTests
         Assert.Equal("user", messages[1].GetProperty("role").GetString());
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("Low", "low")]
+    [InlineData("turbo", null)]
+    public async Task Reasoning_effort_is_sent_only_when_configured_and_known(string? configured, string? expected)
+    {
+        var (provider, handler, _) = Build(o => o.ReasoningEffort = configured);
+        handler.RespondJson(Completion("ok"));
+
+        await provider.CompleteAsync(Request(), CancellationToken.None);
+
+        var sent = handler.Sent().TryGetProperty("reasoning_effort", out var effort) ? effort.GetString() : null;
+        Assert.Equal(expected, sent);
+    }
+
     [Fact]
     public async Task It_posts_to_the_versioned_path_rather_than_replacing_the_last_segment()
     {

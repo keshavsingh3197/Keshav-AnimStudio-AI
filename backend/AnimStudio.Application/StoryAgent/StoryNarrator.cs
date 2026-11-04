@@ -22,13 +22,20 @@ public sealed record NarrationPlan(
     string? Engine,
     double Rate,
     VoiceProfile? Profile,
-    bool ClosestToMyVoice)
+    bool ClosestToMyVoice,
+    string? Model = null,
+    string? Style = null,
+    string? ReplicatedVoiceId = null,
+    IReadOnlyDictionary<string, string>? Cast = null)
 {
-    public string Describe() => Mode switch
+    public string Describe() => (Mode switch
     {
+        StoryNarrationMode.MyVoice when ReplicatedVoiceId is not null => $"{Profile?.Name ?? "My voice"} (Google)",
         StoryNarrationMode.MyVoice => $"{Profile?.Name ?? "My voice"}{(ClosestToMyVoice ? " (converted)" : string.Empty)}",
         _ => $"voice {VoiceId}"
-    };
+    }) + (Cast is { Count: > 0 } cast
+        ? $", with {cast.Count} character voice{(cast.Count == 1 ? string.Empty : "s")}"
+        : string.Empty);
 }
 
 public sealed record StoryNarration(byte[] Wav, double DurationSeconds, IReadOnlyList<StoryPause> Pauses);
@@ -46,7 +53,9 @@ public sealed record StoryNarration(byte[] Wav, double DurationSeconds, IReadOnl
 /// </para>
 /// <para>
 /// The person's recording is never sent to a hosted engine: for their own voice only the local paths above are used,
-/// whatever engine was named. The profile must belong to the run's owner; a run holds only an id.
+/// whatever engine was named - unless they sent that voice to the named engine themselves, with their spoken consent
+/// (<see cref="MyVoiceReplication"/>); then the engine speaks it. The profile must belong to the run's owner; a run
+/// holds only an id.
 /// </para>
 /// </remarks>
 public sealed partial class StoryNarrator(
@@ -60,8 +69,12 @@ public sealed partial class StoryNarrator(
 {
     public const string DefaultHindiVoice = "hm_omega";
     public const string DefaultEnglishVoice = "am_michael";
+    public const string DefaultGeminiVoice = "Charon";
 
     private const int MaxCachedLinesPerVoice = 400;
+
+    /// <summary>The breath between one speaker's line and the next one's, when they are spoken in separate calls.</summary>
+    private const double LineGapSeconds = 0.25;
     private const double MinRate = 0.5;
     private const double MaxRate = 2.0;
 
@@ -87,20 +100,58 @@ public sealed partial class StoryNarrator(
             }
         }
 
+        // Their own voice is made on this machine - unless they sent it to the engine named, with their consent.
+        var named = string.IsNullOrWhiteSpace(options.SpeechEngine) ? null : options.SpeechEngine.Trim();
+        var replicated = profile is null ? null : MyVoiceReplication.VoiceFor(profile, named);
+        var engine = profile is null || replicated is not null ? named : null;
+
         var voiceId = !string.IsNullOrWhiteSpace(options.VoiceId)
             ? options.VoiceId.Trim()
             : profile?.BaseVoiceId is { Length: > 0 } own
                 ? own
-                : string.Equals(run.Brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? DefaultEnglishVoice : DefaultHindiVoice;
+                // Gemini's voices speak every language, and it knows none of Kokoro's names.
+                : KnownAiProviders.Find(engine ?? string.Empty)?.Family == AiProviderFamily.GeminiSpeech
+                    ? DefaultGeminiVoice
+                    : string.Equals(run.Brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? DefaultEnglishVoice : DefaultHindiVoice;
 
         if (!VoiceIdPattern().IsMatch(voiceId) || MyVoiceTuning.IsTunedVoice(voiceId))
             throw new StoryStageException("voice-invalid", "That voice can't be used. Pick one from the voice list.");
 
         var rate = double.IsFinite(options.SpeechRate) ? Math.Clamp(options.SpeechRate, MinRate, MaxRate) : 1.0;
-        var engine = profile is null && !string.IsNullOrWhiteSpace(options.SpeechEngine) ? options.SpeechEngine.Trim() : null;
+        var model = engine is not null && !string.IsNullOrWhiteSpace(options.SpeechModel) ? options.SpeechModel.Trim() : null;
+        var style = SupportsStyle(engine) && !string.IsNullOrWhiteSpace(options.SpeechStyle) ? options.SpeechStyle.Trim() : null;
 
-        return new NarrationPlan(options.Narration, voiceId, engine, rate, profile, profile is not null && options.ClosestToMyVoice);
+        // A voice for each character, from an engine that can speak a dialogue; elsewhere the narrator reads every line.
+        var cast = options.CastVoices && SpeaksDialogue(engine) && run.Script?.Cast is { Count: > 0 } members
+            && (profile is null || replicated is not null)
+            ? StoryVoiceCasting.Assign(members, voiceId)
+            : null;
+
+        return new NarrationPlan(options.Narration, voiceId, engine, rate, profile,
+            profile is not null && replicated is null && options.ClosestToMyVoice, model, style, replicated, cast);
     }
+
+    /// <summary>Engines that take a delivery instruction with a line; the rest would ignore it.</summary>
+    public static bool SupportsStyle(string? engine) =>
+        engine is not null && KnownAiProviders.Find(engine)?.Family == AiProviderFamily.GeminiSpeech;
+
+    /// <summary>Engines that speak two voices in one call, so a scene with a character costs one request, not three.</summary>
+    public static bool SpeaksDialogue(string? engine) =>
+        engine is not null && KnownAiProviders.Find(engine)?.Family == AiProviderFamily.GeminiSpeech;
+
+    /// <summary>The scene has a character's line, and the plan has a voice for them.</summary>
+    private static bool UsesCast(NarrationPlan plan, StoryScene scene) =>
+        plan.Cast is { Count: > 0 } cast && scene.Lines.Any(l => cast.ContainsKey(l.Speaker));
+
+    /// <summary>As <see cref="Fingerprint(NarrationPlan, string)"/>, and who says which line when characters speak.</summary>
+    public static string Fingerprint(NarrationPlan plan, StoryScene scene) =>
+        UsesCast(plan, scene)
+            ? Fingerprint(plan, scene.Narration + "\ncast:" + string.Join('\n', scene.Lines.Select(l => $"{VoiceOf(plan, l) ?? "-"}|{l.Text}")))
+            : Fingerprint(plan, scene.Narration);
+
+    /// <summary>The character's voice, or null for the narrator's.</summary>
+    private static string? VoiceOf(NarrationPlan plan, StoryLine line) =>
+        plan.Cast is { } cast && cast.TryGetValue(line.Speaker, out var voice) ? voice : null;
 
     /// <summary>
     /// A short stable name for what a line sounds like, so a scene's narration is only made again when the words or the voice
@@ -108,14 +159,95 @@ public sealed partial class StoryNarrator(
     /// </summary>
     public static string Fingerprint(NarrationPlan plan, string text) =>
         Sha256Hex(string.Join('\n', "story-v1", text, plan.Mode, plan.VoiceId, plan.Engine, Invariant(plan.Rate),
-            plan.Profile?.Id, plan.Profile?.TunedVoiceId, plan.ClosestToMyVoice))[..16];
+            plan.Profile?.Id, plan.Profile?.TunedVoiceId, plan.ClosestToMyVoice)
+            // Appended only when set, so narration made before models and styles could be chosen is still found.
+            + (plan.Model is null ? string.Empty : $"\nmodel:{plan.Model}")
+            + (plan.Style is null ? string.Empty : $"\nstyle:{plan.Style}")
+            + (plan.ReplicatedVoiceId is null ? string.Empty : $"\nreplicated:{plan.ReplicatedVoiceId}"))[..16];
+
+    /// <summary>A scene: in the narrator's voice, or with each character's lines in their own voice.</summary>
+    public async Task<StoryNarration> SpeakAsync(NarrationPlan plan, StoryScene scene, string userId, CancellationToken ct)
+    {
+        if (!UsesCast(plan, scene)) return await SpeakAsync(plan, scene.Narration, userId, ct).ConfigureAwait(false);
+
+        if (!finisher.IsAvailable)
+            throw new StoryStageException("ffmpeg-missing", "ffmpeg isn't available on this server, so narration can't be finished.");
+
+        var parts = new List<byte[]>();
+        foreach (var chunk in Dialogue(plan, scene.Lines))
+        {
+            var outcome = await ai.SpeechAsync(chunk with
+            {
+                Rate = plan.Rate,
+                ProviderId = plan.Engine,
+                Model = plan.Model,
+                Style = plan.Style
+            }, new AiCallContext(null, userId), ct).ConfigureAwait(false);
+            Check(outcome, plan);
+
+            if (AiAudioValidator.Sniff(outcome.Value!.Content) != AiAudioValidator.Wav)
+                throw new StoryStageException("speech-format", "The speech engine returned audio in a format the studio can't use (WAV needed).");
+            parts.Add(outcome.Value.Content);
+        }
+
+        var joined = StoryWav.Join(parts, LineGapSeconds)
+            ?? throw new StoryStageException("speech-format", "The speech engine returned the lines of a scene in different audio formats.");
+
+        var finished = await finisher.FinishAsync(joined, StoryPacing.LeadSeconds, StoryPacing.TailSeconds, ct).ConfigureAwait(false);
+        return new StoryNarration(finished.Wav, finished.DurationSeconds, finished.Pauses);
+    }
+
+    /// <summary>
+    /// The scene's lines as requests of at most two voices each, in order: one voice is a plain line, two a dialogue
+    /// the engine speaks in one call.
+    /// </summary>
+    private static IEnumerable<AiSpeechRequest> Dialogue(NarrationPlan plan, IReadOnlyList<StoryLine> lines)
+    {
+        var chunk = new List<(string? Voice, string Text)>();
+        foreach (var line in lines)
+        {
+            var voice = VoiceOf(plan, line);
+            if (chunk.Select(t => t.Voice).Append(voice).Distinct().Count() > 2)
+            {
+                yield return Request(plan, chunk);
+                chunk = [];
+            }
+            chunk.Add((voice, line.Text));
+        }
+
+        if (chunk.Count > 0) yield return Request(plan, chunk);
+    }
+
+    private static AiSpeechRequest Request(NarrationPlan plan, List<(string? Voice, string Text)> chunk)
+    {
+        var voices = chunk.Select(t => t.Voice).Distinct().ToList();
+        if (voices.Count == 1)
+        {
+            return new AiSpeechRequest
+            {
+                Text = string.Join(' ', chunk.Select(t => t.Text)),
+                VoiceId = voices[0] ?? plan.VoiceId,
+                ReplicatedVoiceId = voices[0] is null ? plan.ReplicatedVoiceId : null
+            };
+        }
+
+        // Plain labels the model reads as speaker names, never says aloud; the characters' own names may not be ASCII.
+        var labels = voices.Select((v, i) => v is null ? "Narrator" : $"Speaker{i + 1}").ToList();
+        return new AiSpeechRequest
+        {
+            Text = string.Join('\n', chunk.Select(t => $"{labels[voices.IndexOf(t.Voice)]}: {t.Text}")),
+            VoiceId = plan.VoiceId,
+            Speakers = [.. voices.Select((v, i) => new AiSpeechSpeaker(labels[i], v ?? plan.VoiceId, v is null ? plan.ReplicatedVoiceId : null))]
+        };
+    }
 
     public async Task<StoryNarration> SpeakAsync(NarrationPlan plan, string text, string userId, CancellationToken ct)
     {
         if (!finisher.IsAvailable)
             throw new StoryStageException("ffmpeg-missing", "ffmpeg isn't available on this server, so narration can't be finished.");
 
-        var profile = plan.Profile;
+        // Their voice as Google replicated it: spoken there directly, nothing to tune or convert.
+        var profile = plan.ReplicatedVoiceId is null ? plan.Profile : null;
         var tunedVoice = profile is not null && !plan.ClosestToMyVoice
             ? await tuning.VoiceForAsync(profile, plan.VoiceId, ct).ConfigureAwait(false)
             : null;
@@ -162,7 +294,10 @@ public sealed partial class StoryNarrator(
             VoiceId = voiceId,
             Rate = plan.Rate,
             LanguageCode = language,
-            ProviderId = plan.Engine
+            ProviderId = plan.Engine,
+            Model = plan.Model,
+            Style = plan.Style,
+            ReplicatedVoiceId = voiceId == plan.VoiceId ? plan.ReplicatedVoiceId : null
         }, new AiCallContext(null, userId), ct);
 
     private static void Check(AiOutcome<AiSpeechResult> outcome, NarrationPlan plan)

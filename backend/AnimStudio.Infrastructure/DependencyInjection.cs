@@ -299,6 +299,7 @@ public static class DependencyInjection
         services.AddScoped<MediaTranscriptionService>();
         services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
         services.AddScoped<MyVoiceTuning>();
+        services.AddScoped<MyVoiceReplication>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddSingleton<ReleaseKitStore>();
 
@@ -546,6 +547,15 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<OpenAiCompatibleTtsProvider>>()));
+                    break;
+
+                case AiProviderFamily.GeminiSpeech:
+                    services.AddSingleton<IAiProvider>(sp => new GeminiSpeechProvider(
+                        providerId,
+                        sp.GetRequiredService<IAiHttpClientFactory>(),
+                        sp.GetRequiredService<IAiSecretResolver>(),
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<GeminiSpeechProvider>>()));
                     break;
 
                 case AiProviderFamily.ComfyUiImage:

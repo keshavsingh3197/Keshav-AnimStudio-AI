@@ -154,7 +154,8 @@
     @if (currentEngine(); as e) {
       @if (!e.runsLocally) {
         <div class="vo-dim vo-script-hint">
-          {{ e.name }} is a hosted service, paid per line spoken. Lines in your own voice are still made on this machine.
+          {{ e.name }} is a hosted service, paid per line spoken. Lines in your own voice are still made on this machine,
+          unless that voice has been sent to {{ e.name }}.
         </div>
       }
     }
@@ -186,6 +187,26 @@
     </div>
   </div>
 
+  @if (currentEngine()?.supportsStyle) {
+    <div class="vo-row">
+      <div class="vo-field">
+        <label class="vo-label" for="vo-style">Delivery style <span class="vo-dim">(optional)</span></label>
+        <input id="vo-style" type="text" class="form-control form-control-sm" list="vo-style-suggestions"
+               [maxlength]="maxStyleChars" placeholder="e.g. Warm, unhurried storyteller"
+               [ngModel]="deliveryStyle()" (ngModelChange)="onStyleChange($event)" [disabled]="generating()"
+               title="How every line is spoken: mood, energy, accent or pace. Speed above is added as a pace hint." />
+        <datalist id="vo-style-suggestions">
+          @for (s of styleSuggestions; track s) {
+            <option [value]="s"></option>
+          }
+        </datalist>
+      </div>
+    </div>
+    <div class="vo-dim vo-script-hint">
+      Lines can also carry vocal tags such as &lt;laugh&gt;, &lt;sigh&gt;, &lt;whispers&gt; or &lt;short pause&gt;.
+    </div>
+  }
+
   @if (scriptSetsVoice()) {
     <div class="vo-dim vo-script-hint">Lines whose cue or character names a voice or speed use it; the rest use these.</div>
   }
@@ -201,7 +222,10 @@
 
   @if (myVoice(); as mine) {
     <div class="vo-note">
-      @if (mine.tuned) {
+      @if (mine.googleEngine && mine.googleEngine === engine()) {
+        Spoken in <strong>{{ mine.name }}</strong> by {{ replicationEngineName() }}, from the copy Google made of your voice.
+        The model and delivery style above apply.
+      } @else if (mine.tuned) {
         Spoken in <strong>{{ mine.name }}</strong> by a Kokoro voice tuned from your sample, which is quick. It reads each line in
         the language of {{ labelFor(voiceId()) }}, so Hindi and English lines both use it.
       } @else {
@@ -211,10 +235,100 @@
       }
       <button type="button" class="vo-link" (click)="deleteMyVoice()" [disabled]="generating()">Delete this voice</button>
     </div>
-    @if (!myVoicesAvailable()) {
+    @if (!myVoicesAvailable() && !(mine.googleEngine && mine.googleEngine === engine())) {
       <div class="vo-warn">
         Nothing can speak in your voice yet. Run <code>scripts\setup-voiceover.ps1</code> to update Kokoro (quick, tunes a voice
         from your sample), or <code>scripts\setup-voice-ai.ps1</code> once for the slower converter. Then restart the API.
+      </div>
+    }
+
+    <!-- The same voice on Google Gemini TTS -->
+    @if (mine.googleEngine) {
+      <div class="vo-note">
+        <span class="vo-badge">On Google</span>
+        @if (mine.googleEngine !== engine()) {
+          Google has a copy of this voice. Pick
+          <button type="button" class="vo-link" (click)="useGoogleEngine()" [disabled]="generating()">{{ replicationEngineName() }}</button>
+          as the engine to speak it there, with its models and delivery styles; other engines make it on this machine.
+        } @else {
+          Google keeps the copy for up to a year.
+        }
+        <button type="button" class="vo-link" (click)="removeFromGoogle()" [disabled]="generating()">Remove from Google</button>
+      </div>
+    } @else if (!replicationEngine()) {
+      <div class="vo-dim vo-script-hint">
+        To speak this voice with Google Gemini TTS (its styles, and more languages), Gemini TTS must be set up first:
+        an administrator adds a Google AI key under <a href="/admin/providers">Admin → AI providers</a>, then restarts the API.
+      </div>
+    } @else if (!googleOpen()) {
+      <button type="button" class="vo-link vo-add-voice" (click)="openSendToGoogle()" [disabled]="generating()">
+        ⇪ Use this voice with {{ replicationEngineName() }}…
+      </button>
+    } @else {
+      <div class="vo-myvoice">
+        <div class="vo-myvoice-head">
+          <strong>Use "{{ mine.name }}" with {{ replicationEngineName() }}</strong>
+          <button type="button" class="vo-link" (click)="closeSendToGoogle()">Cancel</button>
+        </div>
+        <div class="vo-warn">
+          This sends your voice sample and a recording of you agreeing to Google, which makes a copy of the voice and keeps it
+          for up to a year in this studio's Google project. Lines then spoken with it go to Google too. Everything else about
+          your voice stays on this machine. You can remove it from Google at any time. Google offers voice replication only in
+          some regions; where it doesn't, Google refuses the voice.
+        </div>
+        @if (mine.durationSeconds != null && mine.durationSeconds < minGoogleSampleSeconds) {
+          <div class="vo-error">
+            Google needs a sample of at least {{ minGoogleSampleSeconds }}s; this one is {{ mine.durationSeconds | number: '1.1-1' }}s.
+            Add the voice again with a longer sample.
+          </div>
+        }
+
+        <label class="vo-label" for="vo-google-locale">Consent statement language</label>
+        <select id="vo-google-locale" class="form-select form-select-sm"
+                [ngModel]="googleLocale()" (ngModelChange)="googleLocale.set($event)">
+          @for (s of googleStatements; track s.locale) {
+            <option [value]="s.locale">{{ s.label }}</option>
+          }
+        </select>
+        <div class="vo-prompt">
+          <span class="vo-dim">The owner of the voice reads this aloud, exactly:</span>
+          <div>{{ googleStatement() }}</div>
+        </div>
+        <div class="vo-actions">
+          @if (!googleRecording()) {
+            <button type="button" class="vo-step" (click)="startGoogleRecording()" [disabled]="sendingGoogle() || googleStarting()">
+              {{ googleStarting() ? 'Starting microphone…' : '● Record' }}
+            </button>
+          } @else {
+            <button type="button" class="vo-step active" (click)="stopGoogleRecording()">
+              ■ Stop <span class="mono">{{ googleRecordSeconds() }}s / {{ maxConsentSeconds }}s</span>
+            </button>
+          }
+          <label class="vo-step vo-upload" [class.disabled]="googleRecording() || sendingGoogle()">
+            ⤒ Upload file
+            <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm" hidden
+                   [disabled]="googleRecording() || sendingGoogle()" (change)="onConsentFile($event)" />
+          </label>
+        </div>
+        @if (googleClip(); as clip) {
+          <audio class="vo-sample" controls [src]="clip.url"></audio>
+          @if (clip.seconds !== undefined) {
+            <div class="vo-dim mono">{{ clip.seconds | number: '1.1-1' }}s</div>
+          }
+        }
+
+        <label class="vo-consent">
+          <input type="checkbox" [ngModel]="googleAgree()" (ngModelChange)="googleAgree.set($event)" />
+          This is my own voice, and I agree to it being sent to Google to make a copy of it.
+        </label>
+
+        @if (googleError()) {
+          <div class="vo-error">{{ googleError() }}</div>
+        }
+        <button type="button" class="btn btn-sm btn-primary" (click)="sendToGoogle()"
+                [disabled]="!googleClip() || !googleAgree() || sendingGoogle() || googleRecording()">
+          {{ sendingGoogle() ? 'Sending to Google…' : 'Send to Google' }}
+        </button>
       </div>
     }
   }

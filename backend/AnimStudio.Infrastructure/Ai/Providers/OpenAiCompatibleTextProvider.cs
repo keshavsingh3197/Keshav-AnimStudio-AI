@@ -37,6 +37,9 @@ public sealed class OpenAiCompatibleTextProvider(
 {
     private const string Endpoint = "chat/completions";
 
+    private static readonly HashSet<string> ReasoningEfforts =
+        new(["minimal", "low", "medium", "high"], StringComparer.Ordinal);
+
     public async Task<AiTextResult> CompleteAsync(AiTextRequest request, CancellationToken ct)
     {
         var wantsJson = !string.IsNullOrWhiteSpace(request.JsonSchema);
@@ -103,6 +106,13 @@ public sealed class OpenAiCompatibleTextProvider(
         if (request.Seed is { } seed) body["seed"] = seed;
 
         if (useJsonMode) body["response_format"] = new { type = "json_object" };
+
+        // Only a value the API defines is sent; anything else is operator input with no meaning there.
+        if (ProviderOptions?.ReasoningEffort?.Trim().ToLowerInvariant() is { } effort &&
+            ReasoningEfforts.Contains(effort))
+        {
+            body["reasoning_effort"] = effort;
+        }
 
         using var response = await PostJsonAsync(Endpoint, body, ct).ConfigureAwait(false);
 

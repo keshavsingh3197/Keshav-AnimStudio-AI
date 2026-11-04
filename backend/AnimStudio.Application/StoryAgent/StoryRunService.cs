@@ -228,6 +228,8 @@ public sealed partial class StoryRunService(
             Summary = AiOutputSanitizer.ToSafeLine(edit.Summary, 600),
             MusicQuery = AiOutputSanitizer.ToSafeLine(edit.MusicQuery, 80),
             ReviewNotes = current.ReviewNotes,
+            // The cast is the writer's; the editor changes words, and lines that no longer match them are dropped below.
+            Cast = current.Cast,
             WrittenBy = current.WrittenBy is { } author && !author.EndsWith("(edited)", StringComparison.Ordinal) ? $"{author} (edited)" : current.WrittenBy,
             CreatedAtUtc = current.CreatedAtUtc
         };
@@ -273,6 +275,7 @@ public sealed partial class StoryRunService(
                 scene.AudioName = old.AudioName;
                 scene.AudioSource = old.AudioSource;
                 scene.Pauses = old.Pauses;
+                scene.Lines = old.Lines;
             }
 
             script.Scenes.Add(scene);
@@ -543,7 +546,16 @@ public sealed partial class StoryRunService(
         if (engine is not null && !EnginePattern().IsMatch(engine))
             throw new StoryRunException(StoryRunErrorKind.Invalid, "engine-invalid", "Pick a speech engine from the list.", "speechEngine");
 
+        // A model is part of a provider's request path, so only one the named engine offers is kept.
+        var model = string.IsNullOrWhiteSpace(o.SpeechModel) ? null : o.SpeechModel.Trim();
+        if (model is not null && (engine is null || KnownAiProviders.Find(engine) is not { } descriptor || !descriptor.Allows(model, null)))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "model-invalid", "Pick a model the chosen speech engine offers.", "speechModel");
+
+        // Sent only to an engine that takes a delivery instruction; elsewhere it would only split the narration's key.
+        var style = StoryNarrator.SupportsStyle(engine) ? AiOutputSanitizer.ToSafeLine(o.SpeechStyle, 300) : null;
+
         string? profileId = null;
+        var onGoogle = false;
         if (o.Narration == StoryNarrationMode.MyVoice)
         {
             profileId = o.VoiceProfileId?.Trim();
@@ -553,15 +565,22 @@ public sealed partial class StoryRunService(
             var profile = await voices.GetAsync(profileId, ct).ConfigureAwait(false);
             if (profile is null || !string.Equals(profile.UserId, userId, StringComparison.Ordinal))
                 throw new StoryRunException(StoryRunErrorKind.Invalid, "my-voice-invalid", "Pick one of your voices.", "voiceProfileId");
+
+            // Spoken by the engine only when the person sent this voice there; otherwise made on this machine.
+            onGoogle = MyVoiceReplication.VoiceFor(profile, engine) is not null;
         }
 
+        var keepDelivery = o.Narration != StoryNarrationMode.MyVoice || onGoogle;
         return new StoryBuildOptions
         {
             Narration = o.Narration,
             VoiceProfileId = profileId,
             VoiceId = voiceId,
             SpeechEngine = engine,
+            SpeechModel = keepDelivery ? model : null,
+            SpeechStyle = keepDelivery ? style : null,
             SpeechRate = double.IsFinite(o.SpeechRate) ? Math.Clamp(o.SpeechRate, 0.5, 2.0) : 1.0,
+            CastVoices = o.CastVoices,
             ClosestToMyVoice = o.ClosestToMyVoice && o.Narration == StoryNarrationMode.MyVoice,
             Visuals = o.Visuals,
             ImageStyle = AiOutputSanitizer.ToSafeLine(o.ImageStyle, 300),

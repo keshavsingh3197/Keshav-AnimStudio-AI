@@ -33,11 +33,15 @@ public sealed class NarrationStage(StoryNarrator narrator, IObjectStore store, I
         var spoken = 0;
         var reused = 0;
 
+        // Who speaks whom, for the person to see; no voice when the narrator reads every line.
+        foreach (var member in script.Cast)
+            member.VoiceId = plan.Cast is { } cast && cast.TryGetValue(member.Name, out var voice) ? voice : null;
+
         for (var i = 0; i < script.Scenes.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
             var scene = script.Scenes[i];
-            var key = StoryObjectKeys.Narration(run.Id, scene.Number, StoryNarrator.Fingerprint(plan, scene.Narration));
+            var key = StoryObjectKeys.Narration(run.Id, scene.Number, StoryNarrator.Fingerprint(plan, scene));
 
             await context.Report(i * 100 / script.Scenes.Count, $"Narrating scene {i + 1} of {script.Scenes.Count} in {plan.Describe()}").ConfigureAwait(false);
 
@@ -51,7 +55,7 @@ public sealed class NarrationStage(StoryNarrator narrator, IObjectStore store, I
             if (StoryObjectKeys.Owns(run.Id, scene.AudioKey) && scene.AudioKey != key)
                 await store.DeleteAsync(scene.AudioKey!, ct).ConfigureAwait(false);
 
-            var line = await narrator.SpeakAsync(plan, scene.Narration, run.UserId, ct).ConfigureAwait(false);
+            var line = await narrator.SpeakAsync(plan, scene, run.UserId, ct).ConfigureAwait(false);
             await using (var content = new MemoryStream(line.Wav, writable: false))
                 await store.SaveAsync(key, content, "audio/wav", ct).ConfigureAwait(false);
 

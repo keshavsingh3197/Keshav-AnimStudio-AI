@@ -1,7 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, input, model, signal } from '@angular/core';
 
-import { VoiceoverVoice } from '../../core/models/api.models';
+import { VoiceoverEngine, VoiceoverVoice } from '../../core/models/api.models';
 import { StoryAgentOptions, StoryBuildOptions } from '../../core/models/story-agent.models';
 import { ApiService } from '../../core/services/api.service';
 
@@ -15,6 +15,33 @@ const KOKORO_LANGUAGES: Record<string, string> = {
 };
 /** The voices that speak a story's language come first in the list. */
 const FIRST_LETTERS: Record<string, string[]> = { hi: ['h'], en: ['a', 'b'] };
+
+/** Must match the server's 300-character limit on a delivery style. */
+const MAX_STYLE_CHARS = 300;
+
+/** Ready-made delivery instructions for an engine that takes one; any other phrase works too. */
+const STYLE_SUGGESTIONS = [
+  'Warm, unhurried storyteller', 'Calm and devotional', 'Gentle bedtime story for children',
+  'Serious documentary narrator', 'Excited and energetic', 'Whispered, mysterious',
+];
+
+/** "hi-IN" as "Hindi (India)"; the code itself where the browser can't name it. */
+const LANGUAGE_NAMES = (() => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' });
+  } catch {
+    return null;
+  }
+})();
+
+function languageName(code?: string | null): string | null {
+  if (!code) return null;
+  try {
+    return LANGUAGE_NAMES?.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
 
 interface VoiceChoice {
   id: string;
@@ -51,21 +78,36 @@ export class StoryOptionsComponent {
 
   readonly uid = `so${++nextId}`;
   private readonly voices = signal<VoiceoverVoice[]>([]);
+  /** The speech engines that are on, in the configured order. */
+  readonly engines = signal<VoiceoverEngine[]>([]);
+  readonly currentEngine = computed(() => this.engines().find((e) => e.id === this.value().speechEngine) ?? null);
+  /** Gemini speaks a narrator and a character in one call, so only there does each character get a voice. */
+  readonly castAvailable = computed(() => !!this.currentEngine()?.supportsStyle);
+  readonly styleSuggestions = STYLE_SUGGESTIONS;
+  readonly maxStyleChars = MAX_STYLE_CHARS;
+  /** The engine whose voices are listed, so a slow answer for an earlier pick is dropped. */
+  private listedFor: string | null = null;
 
   /** The voices grouped by the language they speak, the story's own language first. */
   readonly voiceGroups = computed<VoiceGroup[]>(() => {
     const groups = new Map<string, { order: number; group: VoiceGroup }>();
     const preferred = FIRST_LETTERS[this.language().toLowerCase()] ?? [];
+    const storyLanguage = this.language().toLowerCase();
 
     for (const voice of this.voices()) {
       const stock = STOCK_VOICE.exec(voice.id);
-      const key = stock ? stock[1] : (voice.languageCode ?? '?');
-      const name = stock ? `${KOKORO_LANGUAGES[stock[1]]}` : (voice.languageCode ?? 'Other voices');
+      const key = stock ? stock[1] : (voice.group ?? voice.languageCode ?? '?');
+      const name = stock ? `${KOKORO_LANGUAGES[stock[1]]}` : (voice.group ?? languageName(voice.languageCode) ?? 'Other voices');
       const label = stock
         ? `${titled(stock[3])} · ${stock[2] === 'f' ? 'female' : 'male'}`
         : `${voice.name}${voice.gender ? ' · ' + voice.gender : ''}`;
 
-      const entry = groups.get(key) ?? { order: preferred.indexOf(key) >= 0 ? preferred.indexOf(key) : preferred.length + (stock ? 1 : 2), group: { label: name, voices: [] } };
+      // Voices that speak any language, or the story's own, come before the rest of another engine's library.
+      const speaksStory = !stock && (!!voice.group || voice.languageCode?.toLowerCase().startsWith(storyLanguage));
+      const order = preferred.indexOf(key) >= 0 ? preferred.indexOf(key)
+        : speaksStory ? preferred.length
+        : preferred.length + (stock ? 1 : 2);
+      const entry = groups.get(key) ?? { order, group: { label: name, voices: [] } };
       entry.group.voices.push({ id: voice.id, label });
       groups.set(key, entry);
     }
@@ -78,11 +120,37 @@ export class StoryOptionsComponent {
   readonly myVoice = computed(() => this.caps().myVoices.find((voice) => voice.id === this.value().voiceProfileId) ?? null);
 
   constructor() {
-    // A failed list only means the picker is not offered; the server then uses its own default voice.
-    this.api.voiceoverVoices().subscribe({
-      next: (list) => this.voices.set(list.voices ?? []),
+    this.loadVoices(undefined);
+  }
+
+  /** A failed list only means the picker is not offered; the server then uses its own default voice. */
+  private loadVoices(engine: string | null | undefined): void {
+    this.listedFor = engine ?? null;
+    this.api.voiceoverVoices(engine ?? undefined).subscribe({
+      next: (list) => {
+        if (this.listedFor !== (engine ?? null)) return;
+        this.voices.set(list.voices ?? []);
+        if (list.engines?.length) this.engines.set(list.engines);
+        // A story reopened for review names its engine; list that engine's voices, not the default's.
+        if (engine === undefined && this.value().speechEngine) this.loadVoices(this.value().speechEngine);
+      },
       error: () => undefined,
     });
+  }
+
+  setEngine(engine: string | null): void {
+    // A voice or model belongs to the engine it was picked for; the style is kept and only sent where it is understood.
+    this.patch({ speechEngine: engine, voiceId: null, speechModel: null });
+    this.voices.set([]);
+    this.loadVoices(engine);
+  }
+
+  setStyle(style: string): void {
+    this.patch({ speechStyle: style.slice(0, MAX_STYLE_CHARS) || null });
+  }
+
+  googleEngineName(id: string): string {
+    return this.engines().find((e) => e.id === id)?.name ?? 'Google Gemini TTS';
   }
 
   patch(change: Partial<StoryBuildOptions>): void {

@@ -292,6 +292,24 @@ export class ApiService {
     return this.http.delete<void>(`${this.base}/api/voiceover/my-voices/${encodeURIComponent(id)}`);
   }
 
+  /**
+   * Sends the voice to Google so Gemini TTS can speak in it: its sample plus `consent`, a recording of the owner
+   * reading Google's consent statement. Google keeps the voice in the studio's Google project for a year.
+   */
+  sendMyVoiceToGoogle(id: string, consent: Blob, fileName: string): Observable<MyVoice> {
+    const form = new FormData();
+    form.append('file', consent, fileName);
+    form.append('consent', 'true');
+    return this.unwrap(this.http.post<ApiResponse<MyVoice>>(
+      `${this.base}/api/voiceover/my-voices/${encodeURIComponent(id)}/google`, form));
+  }
+
+  /** Deletes the voice's copy at Google; the voice itself stays. */
+  removeMyVoiceFromGoogle(id: string): Observable<MyVoice> {
+    return this.unwrap(this.http.delete<ApiResponse<MyVoice>>(
+      `${this.base}/api/voiceover/my-voices/${encodeURIComponent(id)}/google`));
+  }
+
   /** What was said in a dictated script (16 kHz mono WAV), one line per spoken phrase. */
   dictateVoiceScript(projectId: string, wav: Blob, language: 'en' | 'hi' | null): Observable<VoiceScriptDictation> {
     const form = new FormData();

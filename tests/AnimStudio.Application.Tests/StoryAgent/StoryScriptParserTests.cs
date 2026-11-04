@@ -211,6 +211,101 @@ public class StoryScriptParserTests
 
         Assert.Contains(warnings, w => w.Contains("target of 600", StringComparison.Ordinal));
     }
+
+    private const string DialogueJson = """
+        {
+          "title": "शीर्षक",
+          "cast": [
+            { "name": "राम", "gender": "Male", "age": "adult" },
+            { "name": "सीता", "gender": "woman", "age": "young" },
+            { "name": "Narrator", "gender": "male" },
+            { "name": "रावण", "gender": "male", "age": "old" }
+          ],
+          "scenes": [
+            {
+              "narration": "राम ने कहा, चलो वन चलें। सीता बोलीं, मैं भी साथ चलूँगी।",
+              "lines": [
+                { "speaker": "narrator", "text": "राम ने कहा," },
+                { "speaker": "राम", "text": "चलो वन चलें।" },
+                { "speaker": "Narrator", "text": "सीता बोलीं," },
+                { "speaker": "सीता", "text": "मैं भी साथ चलूँगी।" }
+              ]
+            },
+            {
+              "narration": "वन बहुत सुंदर था।",
+              "lines": [ { "speaker": "राम", "text": "कुछ और ही बात।" } ]
+            },
+            {
+              "narration": "हनुमान ने कहा, जय श्री राम।",
+              "lines": [ { "speaker": "narrator", "text": "हनुमान ने कहा," }, { "speaker": "हनुमान", "text": "जय श्री राम।" } ]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public void Characters_and_their_lines_are_kept_when_the_lines_read_as_the_narration()
+    {
+        var result = StoryScriptParser.Parse(DialogueJson, StorySamples.Brief(), null, "x", StorySamples.Now, false);
+        var scene = result.Script.Scenes[0];
+
+        Assert.Equal(["narrator", "राम", "narrator", "सीता"], scene.Lines.Select(l => l.Speaker));
+        // Only those who actually speak stay in the cast, and the narrator is never one of them.
+        Assert.Equal(["राम", "सीता"], result.Script.Cast.Select(c => c.Name));
+        Assert.Equal(("male", "adult"), (result.Script.Cast[0].Gender, result.Script.Cast[0].Age));
+        Assert.Equal(("female", "young"), (result.Script.Cast[1].Gender, result.Script.Cast[1].Age));
+    }
+
+    [Fact]
+    public void Lines_that_do_not_read_as_the_narration_are_dropped_with_a_warning()
+    {
+        var result = StoryScriptParser.Parse(DialogueJson, StorySamples.Brief(), null, "x", StorySamples.Now, false);
+
+        Assert.Empty(result.Script.Scenes[1].Lines);
+        Assert.Contains(result.Warnings, w => w.StartsWith("Scene 2:", StringComparison.Ordinal) && w.Contains("narrator reads", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_speaker_not_in_the_cast_is_read_by_the_narrator()
+    {
+        var scene = StoryScriptParser.Parse(DialogueJson, StorySamples.Brief(), null, "x", StorySamples.Now, false).Script.Scenes[2];
+
+        // Everything falls to the narrator, so the scene needs no lines at all.
+        Assert.Empty(scene.Lines);
+    }
+}
+
+public class StoryVoiceCastingTests
+{
+    private static StoryCastMember Member(string name, string? gender, string? age) => new() { Name = name, Gender = gender, Age = age };
+
+    [Fact]
+    public void Each_character_gets_a_distinct_voice_that_is_never_the_narrators()
+    {
+        var cast = Enumerable.Range(0, 8).Select(i => Member($"c{i}", i % 2 == 0 ? "male" : "female", "adult")).ToList();
+
+        var voices = StoryVoiceCasting.Assign(cast, "Charon");
+
+        Assert.Equal(8, voices.Count);
+        Assert.Equal(8, voices.Values.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.DoesNotContain("Charon", voices.Values, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_woman_gets_a_female_voice_and_the_choice_is_the_same_every_time()
+    {
+        string[] female = ["Zephyr", "Kore", "Leda", "Aoede", "Callirrhoe", "Autonoe", "Despina", "Erinome",
+            "Laomedeia", "Achernar", "Gacrux", "Pulcherrima", "Vindemiatrix", "Sulafat"];
+        var cast = new[] { Member("सीता", "female", "young"), Member("कौशल्या", "female", "elder"), Member("राम", "male", null) };
+
+        var first = StoryVoiceCasting.Assign(cast, "Charon");
+        var second = StoryVoiceCasting.Assign(cast, "Charon");
+
+        Assert.Contains(first["सीता"], female);
+        Assert.Contains(first["कौशल्या"], female);
+        Assert.DoesNotContain(first["राम"], female);
+        Assert.Equal(first, second);
+    }
 }
 
 public class StoryScriptPromptTests

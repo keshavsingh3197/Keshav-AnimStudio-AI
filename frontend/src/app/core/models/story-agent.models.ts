@@ -51,6 +51,9 @@ export interface StoryMyVoice {
   durationSeconds: number | null;
   createdAtUtc: string;
   tuned: boolean;
+  /** The hosted engine (Gemini TTS) Google copied this voice to with its owner's consent; null when it is on this machine only. */
+  googleEngine?: string | null;
+  googleConsentAtUtc?: string | null;
 }
 
 /** What this server can do, so the page offers only choices that will work. */
@@ -108,6 +111,22 @@ export interface StoryScene {
   imageName: string | null;
   hasAudio: boolean;
   audioSeconds: number | null;
+  /** Who says which words of the narration; empty when the narrator reads it all. */
+  lines?: StoryLine[];
+}
+
+export interface StoryLine {
+  /** "narrator" or a cast member's name. */
+  speaker: string;
+  text: string;
+}
+
+export interface StoryCastMember {
+  name: string;
+  gender: string | null;
+  age: string | null;
+  /** The voice they were given when the narration was made; null until then, or when the narrator reads their lines. */
+  voiceId: string | null;
 }
 
 export interface StoryScript {
@@ -117,6 +136,8 @@ export interface StoryScript {
   summary: string | null;
   musicQuery: string | null;
   scenes: StoryScene[];
+  /** The characters who speak in the story, besides the narrator. */
+  cast?: StoryCastMember[];
   reviewNotes: string[];
   writtenBy: string | null;
   estimatedSeconds: number;
@@ -201,6 +222,12 @@ export interface StoryBuildOptions {
   voiceProfileId: string | null;
   voiceId: string | null;
   speechEngine: string | null;
+  /** One of the engine's offered models; null for its configured one. */
+  speechModel?: string | null;
+  /** How the lines are delivered, for an engine that supportsStyle (Gemini). */
+  speechStyle?: string | null;
+  /** With an engine that supportsStyle (Gemini), each character speaks in a voice of their own. */
+  castVoices?: boolean;
   speechRate: number;
   closestToMyVoice: boolean;
   visuals: StoryVisualMode;

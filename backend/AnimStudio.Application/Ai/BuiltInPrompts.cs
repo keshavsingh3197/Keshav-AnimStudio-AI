@@ -378,7 +378,7 @@ public static class BuiltInPrompts
         new()
         {
             TemplateKey = StoryScript,
-            Version = 1,
+            Version = 2,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
@@ -422,6 +422,11 @@ public static class BuiltInPrompts
                 - "imagePrompt": English. A concrete, respectful picture of the scene: who is there, where, doing what, and the light. Never ask for letters, words or logos in the picture.
                 - "imageKeywords": three to six English words.
                 - "mood": one of devotional, joyful, solemn, epic, serene.
+                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything.
+
+                Give the characters their own voice. When the story has characters - a deity, a sage, a brother and a sister - let them speak in direct speech in two to four scenes: the narrator introduces them ("यमराज बोले," / "Yama said,") and they say a short sentence in their own words, such as a promise, a prayer, a question or a blessing. Put it in "lines". Their words must carry only what the text or the tradition says they said - a faithful rendering, never a new event or teaching. The narrator still tells most of the story, and the hook, the meaning and the closing blessing stay with the narrator.
+
+                Give "cast": every character who speaks in a line, once: {"name": as written in the lines, "gender": "male" or "female", "age": "child", "young", "adult" or "elder"}. Leave it empty when no character speaks.
 
                 Also give "title" (in the narration's language), "titleEnglish", "summary" (one sentence), "musicQuery" (two or three English words to search instrumental music, such as "sitar flute devotional"), and "reviewNotes": up to six short points a person should check before publishing, such as any detail you are unsure of.
                 """,
@@ -440,6 +445,13 @@ public static class BuiltInPrompts
                     "musicQuery": { "type": "string", "maxLength": 80 },
                     "reviewNotes": { "type": "array", "maxItems": 12,
                                      "items": { "type": "string", "maxLength": 300 } },
+                    "cast": { "type": "array", "maxItems": 12,
+                              "items": { "type": "object", "required": ["name"], "additionalProperties": true,
+                                         "properties": {
+                                           "name": { "type": "string", "maxLength": 60 },
+                                           "gender": { "type": "string", "maxLength": 16 },
+                                           "age": { "type": "string", "maxLength": 16 }
+                                         } } },
                     "scenes": {
                       "type": "array", "minItems": 3, "maxItems": 60,
                       "items": {
@@ -461,7 +473,13 @@ public static class BuiltInPrompts
                           "imagePrompt": { "type": "string", "maxLength": 800 },
                           "imageKeywords": { "type": "array", "maxItems": 12,
                                              "items": { "type": "string", "maxLength": 40 } },
-                          "mood": { "type": "string", "maxLength": 30 }
+                          "mood": { "type": "string", "maxLength": 30 },
+                          "lines": { "type": "array", "maxItems": 24,
+                                     "items": { "type": "object", "required": ["speaker", "text"], "additionalProperties": true,
+                                                "properties": {
+                                                  "speaker": { "type": "string", "maxLength": 60 },
+                                                  "text": { "type": "string", "maxLength": 1600 }
+                                                } } }
                         }
                       }
                     }

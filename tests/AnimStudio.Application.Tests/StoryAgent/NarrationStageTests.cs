@@ -1,4 +1,5 @@
 using AnimStudio.Application.Abstractions.Ai;
+using AnimStudio.Application.Ai;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
@@ -495,5 +496,215 @@ public sealed class NarrationStageTests
         Assert.NotEqual(baseline, StoryNarrator.Fingerprint(plan with { Rate = 1.1 }, text));
         Assert.NotEqual(baseline, StoryNarrator.Fingerprint(plan with { Engine = "piper-local" }, text));
         Assert.NotEqual(baseline, StoryNarrator.Fingerprint(plan with { ClosestToMyVoice = true }, text));
+        Assert.NotEqual(baseline, StoryNarrator.Fingerprint(plan with { Model = "gemini-3.8-flash-lite-tts" }, text));
+        Assert.NotEqual(baseline, StoryNarrator.Fingerprint(plan with { Style = "Calm and devotional" }, text));
+    }
+
+    [Fact]
+    public async Task A_gemini_story_sends_its_model_and_delivery_style_and_defaults_to_a_gemini_voice()
+    {
+        var world = Build();
+        var run = BuildingRun();
+        run.Options.VoiceId = null;
+        run.Options.SpeechEngine = KnownAiProviders.GeminiTts;
+        run.Options.SpeechModel = "gemini-3.8-flash-lite-tts";
+        run.Options.SpeechStyle = "Warm, unhurried storyteller";
+
+        var outcome = await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.All(world.Ai.SpeechCalls, call =>
+        {
+            Assert.Equal(KnownAiProviders.GeminiTts, call.ProviderId);
+            Assert.Equal("gemini-3.8-flash-lite-tts", call.Model);
+            Assert.Equal("Warm, unhurried storyteller", call.Style);
+            Assert.Equal(StoryNarrator.DefaultGeminiVoice, call.VoiceId);
+        });
+    }
+
+    [Fact]
+    public async Task A_delivery_style_is_not_sent_to_an_engine_that_ignores_it()
+    {
+        var world = Build();
+        var run = BuildingRun();
+        run.Options.SpeechEngine = "kokoro";
+        run.Options.SpeechStyle = "Warm, unhurried storyteller";
+
+        var plan = await world.Narrator.PlanAsync(run, CancellationToken.None);
+
+        Assert.Null(plan.Style);
+    }
+
+    [Fact]
+    public async Task For_my_voice_no_model_or_style_is_sent()
+    {
+        var world = Build();
+        world.Voices.Items[ProfileId] = Profile();
+        var run = BuildingRun(StoryNarrationMode.MyVoice);
+        run.Options.VoiceProfileId = ProfileId;
+        run.Options.SpeechEngine = KnownAiProviders.GeminiTts;
+        run.Options.SpeechModel = "gemini-3.8-flash-tts";
+        run.Options.SpeechStyle = "Calm";
+
+        await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.All(world.Ai.SpeechCalls, c =>
+        {
+            Assert.Null(c.ProviderId);
+            Assert.Null(c.Model);
+            Assert.Null(c.Style);
+        });
+    }
+
+    [Fact]
+    public async Task A_voice_sent_to_google_is_spoken_there_with_its_model_and_style_and_not_converted()
+    {
+        var world = Build();
+        var profile = Profile();
+        profile.GoogleVoiceId = "voice_r3pl1ca";
+        profile.GoogleVoiceProviderId = KnownAiProviders.GeminiTts;
+        world.Voices.Items[ProfileId] = profile;
+        var run = BuildingRun(StoryNarrationMode.MyVoice);
+        run.Options.VoiceProfileId = ProfileId;
+        run.Options.SpeechEngine = KnownAiProviders.GeminiTts;
+        run.Options.SpeechModel = "gemini-3.8-flash-tts";
+        run.Options.SpeechStyle = "Calm";
+
+        var outcome = await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.NotEmpty(world.Ai.SpeechCalls);
+        Assert.All(world.Ai.SpeechCalls, c =>
+        {
+            Assert.Equal(KnownAiProviders.GeminiTts, c.ProviderId);
+            Assert.Equal("voice_r3pl1ca", c.ReplicatedVoiceId);
+            Assert.Equal("gemini-3.8-flash-tts", c.Model);
+            Assert.Equal("Calm", c.Style);
+        });
+        Assert.Empty(world.Voices.Items[ProfileId].CachedLineKeys);
+    }
+
+    [Fact]
+    public async Task A_voice_sent_to_google_is_still_made_on_this_machine_when_another_engine_is_named()
+    {
+        var world = Build();
+        var profile = Profile();
+        profile.GoogleVoiceId = "voice_r3pl1ca";
+        profile.GoogleVoiceProviderId = KnownAiProviders.GeminiTts;
+        world.Voices.Items[ProfileId] = profile;
+        var run = BuildingRun(StoryNarrationMode.MyVoice);
+        run.Options.VoiceProfileId = ProfileId;
+        run.Options.SpeechEngine = "some-hosted-engine";
+
+        await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.All(world.Ai.SpeechCalls, c =>
+        {
+            Assert.Null(c.ProviderId);
+            Assert.Null(c.ReplicatedVoiceId);
+        });
+    }
+
+    [Fact]
+    public async Task The_fingerprint_changes_when_the_line_is_spoken_by_a_replicated_voice()
+    {
+        var world = Build();
+        var plan = await world.Narrator.PlanAsync(BuildingRun(), CancellationToken.None);
+
+        Assert.NotEqual(StoryNarrator.Fingerprint(plan, "x"),
+            StoryNarrator.Fingerprint(plan with { ReplicatedVoiceId = "voice_r3pl1ca" }, "x"));
+    }
+
+    private static StoryRun DialogueRun(string engine = KnownAiProviders.GeminiTts)
+    {
+        var run = BuildingRun();
+        run.Options.SpeechEngine = engine;
+        run.Options.VoiceId = "Charon";
+        var script = run.Script!;
+        script.Cast = [new() { Name = "राम", Gender = "male", Age = "adult" }, new() { Name = "सीता", Gender = "female", Age = "young" }];
+        var scene = script.Scenes[0];
+        scene.Narration = "राम ने कहा, चलो। सीता बोलीं, हाँ।";
+        scene.Lines =
+        [
+            new() { Speaker = "narrator", Text = "राम ने कहा," },
+            new() { Speaker = "राम", Text = "चलो।" },
+            new() { Speaker = "narrator", Text = "सीता बोलीं," },
+            new() { Speaker = "सीता", Text = "हाँ।" }
+        ];
+        return run;
+    }
+
+    [Fact]
+    public async Task With_gemini_each_character_speaks_in_their_own_voice_two_voices_to_a_call()
+    {
+        var world = Build();
+        var run = DialogueRun();
+        var others = run.Script!.Scenes.Count - 1;
+
+        var outcome = await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        var voices = run.Script.Cast.ToDictionary(c => c.Name, c => c.VoiceId);
+        Assert.Contains(voices["सीता"], new[] { "Leda", "Zephyr", "Autonoe", "Laomedeia", "Aoede", "Pulcherrima" });
+        Assert.NotNull(voices["राम"]);
+        Assert.DoesNotContain("Charon", voices.Values);
+
+        // Narrator, Ram, narrator: one dialogue. Sita is a third voice, so she starts the next call.
+        var scene = world.Ai.SpeechCalls.Take(2).ToList();
+        Assert.Equal(2, scene[0].Speakers!.Count);
+        Assert.Equal(["Narrator", "Speaker2"], scene[0].Speakers!.Select(s => s.Label));
+        Assert.Equal(["Charon", voices["राम"]], scene[0].Speakers!.Select(s => s.VoiceId));
+        Assert.Equal("Narrator: राम ने कहा,\nSpeaker2: चलो।\nNarrator: सीता बोलीं,", scene[0].Text);
+        Assert.Null(scene[1].Speakers);
+        Assert.Equal(voices["सीता"], scene[1].VoiceId);
+        Assert.Equal("हाँ।", scene[1].Text);
+
+        // Scenes without lines are read by the narrator alone, as before.
+        Assert.Equal(others, world.Ai.SpeechCalls.Skip(2).Count(c => c.Speakers is null && c.VoiceId == "Charon"));
+        Assert.Contains("character voice", outcome.Message);
+    }
+
+    [Theory]
+    [InlineData("kokoro", true)]
+    [InlineData(KnownAiProviders.GeminiTts, false)]
+    public async Task Without_gemini_or_with_casting_off_the_narrator_reads_every_line(string engine, bool castVoices)
+    {
+        var world = Build();
+        var run = DialogueRun(engine);
+        run.Options.CastVoices = castVoices;
+        if (engine == "kokoro") run.Options.VoiceId = "hf_alpha";
+
+        await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.All(world.Ai.SpeechCalls, c => Assert.Null(c.Speakers));
+        Assert.Equal(run.Script!.Scenes[0].Narration, world.Ai.SpeechCalls[0].Text);
+        Assert.All(run.Script.Cast, c => Assert.Null(c.VoiceId));
+    }
+
+    [Fact]
+    public async Task The_fingerprint_changes_when_a_different_character_says_the_line()
+    {
+        var world = Build();
+        var run = DialogueRun();
+        var plan = await world.Narrator.PlanAsync(run, CancellationToken.None);
+        var scene = run.Script!.Scenes[0];
+        var before = StoryNarrator.Fingerprint(plan, scene);
+
+        scene.Lines[1].Speaker = "सीता";
+
+        Assert.NotEqual(before, StoryNarrator.Fingerprint(plan, scene));
+        Assert.NotEqual(StoryNarrator.Fingerprint(plan, scene.Narration), before);
+    }
+
+    [Fact]
+    public void Clips_of_one_format_are_joined_with_a_gap_and_mixed_formats_are_refused()
+    {
+        var one = FakeFinisher.Wav(1.0);
+        var joined = StoryWav.Join([one, one], 0.25)!;
+
+        Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(joined, 0, 4));
+        Assert.True(joined.Length > 2 * (one.Length - 44));
+        Assert.Same(one, StoryWav.Join([one], 0.25));
+        Assert.Null(StoryWav.Join([one, new byte[100]], 0.25));
     }
 }
