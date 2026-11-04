@@ -21,6 +21,7 @@ public static class MongoCollections
     public const string YouTubePublications = "youTubePublications";
     public const string GoogleDriveConnections = "googleDriveConnections";
     public const string PhoneHandoffs = "phoneHandoffs";
+    public const string PublishQueue = "publishQueue";
     public const string WebSettings = "webSettings";
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";

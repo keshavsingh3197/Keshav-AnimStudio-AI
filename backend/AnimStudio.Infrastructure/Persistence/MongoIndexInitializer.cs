@@ -102,6 +102,17 @@ public sealed class MongoIndexInitializer(
                     .Ascending(h => h.State).Ascending(h => h.CreatedAt)),
             ], ct).ConfigureAwait(false);
 
+            // The publishing board lists an owner's items newest first; the scheduler looks for
+            // waiting items by due time.
+            var queue = mongo.GetCollection<PublishQueueItem>(MongoCollections.PublishQueue);
+            await queue.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<PublishQueueItem>(Builders<PublishQueueItem>.IndexKeys
+                    .Ascending(i => i.UserId).Descending(i => i.CreatedAt)),
+                new CreateIndexModel<PublishQueueItem>(Builders<PublishQueueItem>.IndexKeys
+                    .Ascending(i => i.State).Ascending(i => i.DueAt)),
+            ], ct).ConfigureAwait(false);
+
             // A user's Drives (personal and per channel) are listed together.
             var drives = mongo.GetCollection<GoogleDriveConnection>(MongoCollections.GoogleDriveConnections);
             await drives.Indexes.CreateOneAsync(

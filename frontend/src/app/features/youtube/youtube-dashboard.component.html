@@ -16,6 +16,9 @@
     </div>
 
     <div class="yt-head-actions">
+      <a routerLink="/youtube/queue" class="yt-btn-checkup" title="Videos queued for YouTube and when each one goes out">
+        🗓️ Publishing board
+      </a>
       @if (channels().length > 0) {
         <a routerLink="/youtube/checkup" class="yt-btn-checkup" title="Audit and fix missing descriptions, tags, playlists, and audience with AI">
           🩺 Video Details Checkup

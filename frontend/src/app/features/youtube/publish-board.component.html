@@ -1,0 +1,476 @@
+<div class="pb-page studio-wide-page">
+  <header class="pb-head">
+    <div class="pb-head-left">
+      <div class="studio-icon-badge" aria-hidden="true">🗓️</div>
+      <div>
+        <h2>Publishing board</h2>
+        <p class="muted">Every video waiting to go to YouTube, and when. The server sends each one on time — or uploads it ahead
+          and lets YouTube release it on the dot — so you can close this page. Times are yours ({{ timeZone }}).</p>
+      </div>
+    </div>
+    <div class="pb-head-actions">
+      <a routerLink="/youtube" class="pill">📊 YouTube dashboard</a>
+      <button type="button" class="secondary" (click)="load()" [disabled]="loading()">🔄 Refresh</button>
+      <button type="button" (click)="openAdd()">＋ Add from exports</button>
+    </div>
+  </header>
+
+  @if (!configured()) {
+    <div class="pb-banner warn" role="status">YouTube publishing isn't set up on this server, so nothing on the board will go out. Ask an admin to add the Google sign-in keys.</div>
+  } @else if (board(); as b) {
+    @if (!b.autoPublish) {
+      <div class="pb-banner warn" role="status">Automatic publishing is turned off on this server. Videos wait here until you press 🚀 Publish now.</div>
+    }
+    @if (channels().length === 0) {
+      <div class="pb-banner" role="status">No YouTube channel connected yet. <a routerLink="/youtube">Connect one</a> to start queueing videos.</div>
+    }
+  }
+
+  @if (loading() && !board()) {
+    <p class="pb-muted">Loading the board…</p>
+  } @else if (loadError() && !board()) {
+    <div class="pb-banner err" role="alert">{{ loadError() }} <button type="button" class="link" (click)="load()">Try again</button></div>
+  } @else if (board()) {
+    <!-- Where things stand: each tile is also a filter. -->
+    <div class="pb-tiles" role="group" aria-label="Summary">
+      <div class="pb-tile pb-next">
+        <span class="pb-tile-l">Next up</span>
+        @if (stats().next; as n) {
+          <button type="button" class="pb-next-btn" (click)="open(n)">
+            <strong>{{ n.title }}</strong>
+            <small>{{ when(n.scheduledAt!) }} · {{ rel(n.scheduledAt!) }}</small>
+          </button>
+        } @else {
+          <span class="pb-muted">Nothing scheduled</span>
+        }
+      </div>
+      <button type="button" class="pb-tile" [class.on]="filter() === 'today'" (click)="filter.set('today')">
+        <span class="pb-tile-n">{{ stats().today }}</span><span class="pb-tile-l">Due today</span>
+      </button>
+      <button type="button" class="pb-tile" [class.on]="filter() === 'upcoming'" (click)="filter.set('upcoming')">
+        <span class="pb-tile-n">{{ stats().week }}</span><span class="pb-tile-l">Next 7 days</span>
+      </button>
+      <button type="button" class="pb-tile" [class.on]="filter() === 'uploading'" (click)="filter.set('uploading')">
+        <span class="pb-tile-n" [class.pb-brand-text]="stats().uploading > 0">{{ stats().uploading }}</span><span class="pb-tile-l">Uploading</span>
+      </button>
+      <button type="button" class="pb-tile" [class.on]="filter() === 'held'" (click)="filter.set('held')">
+        <span class="pb-tile-n">{{ stats().held }}</span><span class="pb-tile-l">Held</span>
+      </button>
+      <button type="button" class="pb-tile" [class.on]="filter() === 'attention'" (click)="filter.set('attention')">
+        <span class="pb-tile-n" [class.pb-err-text]="stats().attention > 0">{{ stats().attention }}</span><span class="pb-tile-l">Needs attention</span>
+      </button>
+      <button type="button" class="pb-tile" [class.on]="filter() === 'published'" (click)="filter.set('published')">
+        <span class="pb-tile-n pb-ok-text">{{ stats().published }}</span><span class="pb-tile-l">Published</span>
+      </button>
+    </div>
+
+    <div class="pb-toolbar">
+      <div class="pb-seg" role="tablist" aria-label="View">
+        <button type="button" role="tab" [class.on]="view() === 'timeline'" [attr.aria-selected]="view() === 'timeline'" (click)="view.set('timeline')">☰ Timeline</button>
+        <button type="button" role="tab" [class.on]="view() === 'columns'" [attr.aria-selected]="view() === 'columns'" (click)="view.set('columns')">▥ Board</button>
+        <button type="button" role="tab" [class.on]="view() === 'week'" [attr.aria-selected]="view() === 'week'" (click)="view.set('week')">📅 Week</button>
+      </div>
+      @if (view() === 'timeline') {
+        <select [ngModel]="filter()" (ngModelChange)="filter.set($event)" aria-label="Show">
+          <option value="upcoming">Coming up</option>
+          <option value="today">Due today</option>
+          <option value="attention">Needs attention</option>
+          <option value="uploading">Uploading</option>
+          <option value="held">Held</option>
+          <option value="published">Published</option>
+          <option value="all">Everything</option>
+        </select>
+      }
+      <select [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Channel">
+        <option value="">All channels</option>
+        @for (c of channels(); track c.channelId) { <option [value]="c.channelId">{{ c.channelTitle }}</option> }
+      </select>
+      <input type="search" class="pb-search" placeholder="Search titles, projects, tags…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Search" />
+    </div>
+
+    <!-- The card, shared by every view. -->
+    <ng-template #card let-i>
+      <article class="pb-card" [class.attention]="i.state === 'Failed' || (i.state === 'Waiting' && i.error)" [class.done]="i.state === 'Published'"
+               [class.muted]="i.state === 'Cancelled'" [class.busy]="busyId() === i.id">
+        <button type="button" class="pb-thumb" [class.vertical]="i.isVertical" (click)="open(i)" [attr.aria-label]="'Open ' + i.title">
+          @if (thumbUrl(i); as src) { <img [src]="src" alt="" loading="lazy" /> }
+          <span class="pb-play" aria-hidden="true">▶</span>
+          @if (i.durationSeconds) { <span class="pb-dur">{{ clock(i.durationSeconds) }}</span> }
+          @if (i.isVertical && (i.durationSeconds ?? 0) <= 180) { <span class="pb-short">Short</span> }
+        </button>
+        <div class="pb-body">
+          <div class="pb-row1">
+            <span class="pb-state" [attr.data-state]="i.state">{{ stateLabel(i) }}</span>
+            @if (i.scheduledAt) { <span class="pb-when" [title]="when(i.scheduledAt)">🕒 {{ time(i.scheduledAt) }}</span> }
+            <span class="pb-chip" [title]="modeLabel(i.effectiveMode)">{{ i.effectiveMode === 'ReleaseOnYouTube' ? '⏫ YouTube releases' : '⬆ At time' }}</span>
+          </div>
+          <button type="button" class="pb-title" (click)="open(i)" [title]="i.title">{{ i.title }}</button>
+          <div class="pb-meta">
+            @if (channelOf(i.channelId)?.thumbnailUrl; as av) { <img class="pb-av" [src]="av" alt="" referrerpolicy="no-referrer" /> }
+            <span>{{ i.channelTitle }}</span>
+            <span aria-hidden="true">·</span><span>{{ i.categoryName }}</span>
+            <span aria-hidden="true">·</span><span>{{ i.privacy }}</span>
+            @if (i.projectName) { <span aria-hidden="true">·</span><span class="pb-proj">{{ i.projectName }}</span> }
+          </div>
+          @if (nextStep(i); as step) { <p class="pb-next-step">{{ step }}</p> }
+          @if (i.state === 'Uploading') {
+            <div class="pb-bar" role="progressbar" [attr.aria-valuenow]="i.percent ?? 0" aria-valuemin="0" aria-valuemax="100"><div [style.width.%]="i.percent ?? 0"></div></div>
+          }
+          @if (i.error && i.state !== 'Cancelled') { <p class="pb-err">✕ {{ i.error }}</p> }
+          @if (i.warning) { <p class="pb-warn">⚠ {{ i.warning }}</p> }
+          @if (i.notes) { <p class="pb-note">📝 {{ i.notes }}</p> }
+          <div class="pb-actions">
+            @switch (i.state) {
+              @case ('Waiting') {
+                <button type="button" class="small" (click)="publishNow(i)" [disabled]="busyId() === i.id" title="Upload now instead of waiting">🚀 Now</button>
+                <button type="button" class="small secondary" (click)="shift(i, 1)" [disabled]="busyId() === i.id" title="One hour later">+1h</button>
+                <button type="button" class="small secondary" (click)="shift(i, 24)" [disabled]="busyId() === i.id" title="One day later">+1d</button>
+                <button type="button" class="small secondary" (click)="hold(i)" [disabled]="busyId() === i.id">⏸ Hold</button>
+              }
+              @case ('Held') {
+                <button type="button" class="small" (click)="resume(i)" [disabled]="busyId() === i.id">▶ Schedule</button>
+                <button type="button" class="small secondary" (click)="publishNow(i)" [disabled]="busyId() === i.id">🚀 Now</button>
+              }
+              @case ('Uploading') {
+                <button type="button" class="small secondary" (click)="cancel(i)" [disabled]="busyId() === i.id">Stop upload</button>
+              }
+              @case ('Published') {
+                @if (i.videoUrl) { <a class="pb-link" [href]="i.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> }
+                @if (i.studioUrl) { <a class="pb-link" [href]="i.studioUrl" target="_blank" rel="noopener noreferrer">Studio ↗</a> }
+              }
+              @case ('Failed') {
+                <button type="button" class="small" (click)="retry(i)" [disabled]="busyId() === i.id">↻ Retry now</button>
+                <button type="button" class="small secondary" (click)="open(i)">✎ Fix</button>
+              }
+              @case ('Cancelled') {
+                <button type="button" class="small secondary" (click)="resume(i)" [disabled]="busyId() === i.id">▶ Reschedule</button>
+              }
+            }
+            @if (i.canEdit && i.state !== 'Failed') { <button type="button" class="small secondary" (click)="open(i)">✎ Edit</button> }
+            @if (i.state !== 'Uploading') {
+              <button type="button" class="icon pb-remove" (click)="remove(i)" [disabled]="busyId() === i.id" title="Remove from the board" aria-label="Remove from the board">🗑</button>
+            }
+          </div>
+        </div>
+      </article>
+    </ng-template>
+
+    @switch (view()) {
+      @case ('timeline') {
+        @if (dayGroups().length === 0) {
+          <div class="pb-empty">
+            <p><strong>Nothing here.</strong></p>
+            <p class="pb-muted">Queue videos from the publish dialog (📋 Add to queue), or add many at once from your exports.</p>
+            <button type="button" (click)="openAdd()">＋ Add from exports</button>
+          </div>
+        }
+        @for (g of dayGroups(); track g.key) {
+          <section class="pb-day">
+            <h3>{{ g.label }} <span class="pb-count">{{ g.items.length }}</span></h3>
+            <div class="pb-list">
+              @for (i of g.items; track i.id) { <ng-container *ngTemplateOutlet="card; context: { $implicit: i }" /> }
+            </div>
+          </section>
+        }
+      }
+      @case ('columns') {
+        <div class="pb-columns">
+          @for (col of columns(); track col.state) {
+            <section class="pb-col" [attr.data-col]="col.state">
+              <h3>{{ col.label }} <span class="pb-count">{{ col.items.length }}</span></h3>
+              <p class="pb-col-hint">{{ col.hint }}</p>
+              @for (i of col.items; track i.id) { <ng-container *ngTemplateOutlet="card; context: { $implicit: i }" /> }
+              @empty { <p class="pb-col-empty">—</p> }
+            </section>
+          }
+        </div>
+      }
+      @case ('week') {
+        <div class="pb-week-nav">
+          <button type="button" class="secondary small" (click)="weekOffset.set(weekOffset() - 1)" aria-label="Previous week">‹</button>
+          <button type="button" class="secondary small" (click)="weekOffset.set(0)" [disabled]="weekOffset() === 0">This week</button>
+          <button type="button" class="secondary small" (click)="weekOffset.set(weekOffset() + 1)" aria-label="Next week">›</button>
+          <strong>{{ weekLabel() }}</strong>
+        </div>
+        <div class="pb-week">
+          @for (d of weekDays(); track d.date.getTime()) {
+            <section class="pb-wday" [class.today]="d.isToday" [class.past]="d.isPast">
+              <h4>{{ weekday(d.date) }} <span>{{ d.date.getDate() }}</span></h4>
+              @for (i of d.items; track i.id) {
+                <button type="button" class="pb-wslot" [attr.data-state]="i.state" (click)="open(i)" [title]="i.title + ' · ' + i.channelTitle">
+                  <span class="pb-wtime">{{ time(i.scheduledAt!) }}</span>
+                  <span class="pb-wtitle">{{ i.title }}</span>
+                </button>
+              } @empty { <p class="pb-col-empty">—</p> }
+            </section>
+          }
+        </div>
+      }
+    }
+  }
+
+  <!-- One video: play it, read and change its details. -->
+  @if (opened(); as i) {
+    <div class="pb-drawer-backdrop" (click)="closeDrawer()"></div>
+    <aside class="pb-drawer" role="dialog" aria-modal="true" [attr.aria-label]="i.title">
+      <header class="pb-drawer-head">
+        <span class="pb-state" [attr.data-state]="i.state">{{ stateLabel(i) }}</span>
+        <h3 [title]="i.title">{{ i.title }}</h3>
+        <button type="button" class="icon" (click)="closeDrawer()" aria-label="Close">✕</button>
+      </header>
+      <div class="pb-drawer-body">
+        <div class="pb-player" [class.vertical]="i.isVertical">
+          @if (playing()) {
+            <video [src]="previewUrl(i)" controls autoplay playsinline preload="metadata"></video>
+          } @else {
+            <button type="button" class="pb-player-poster" (click)="playing.set(true)" aria-label="Play the video">
+              @if (thumbUrl(i, 640); as src) { <img [src]="src" alt="" /> }
+              <span class="pb-play big" aria-hidden="true">▶</span>
+            </button>
+          }
+        </div>
+
+        <dl class="pb-facts">
+          <div><dt>Goes out</dt><dd>{{ i.scheduledAt ? when(i.scheduledAt) + ' (' + rel(i.scheduledAt) + ')' : 'No time yet' }}</dd></div>
+          <div><dt>How</dt><dd>{{ modeLabel(i.effectiveMode) }}@if (i.mode !== i.effectiveMode) { <small> (only public videos can be released by YouTube)</small> }</dd></div>
+          @if (i.dueAt && i.state === 'Waiting') { <div><dt>Upload starts</dt><dd>{{ when(i.dueAt) }}</dd></div> }
+          <div><dt>Project</dt><dd>{{ i.projectName || '—' }}{{ i.durationSeconds ? ' · ' + clock(i.durationSeconds) : '' }}{{ i.isVertical ? ' · vertical' : '' }}</dd></div>
+          <div><dt>Thumbnail</dt><dd>{{ i.hasCustomThumbnail ? (i.thumbnailFrameAt != null ? 'Frame at ' + clock(i.thumbnailFrameAt) : 'Uploaded picture') : 'YouTube picks one' }}</dd></div>
+          @if (i.attempts > 0) { <div><dt>Attempts</dt><dd>{{ i.attempts }}</dd></div> }
+          @if (i.videoUrl) {
+            <div><dt>On YouTube</dt><dd><a [href]="i.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> ·
+              <a [href]="i.studioUrl" target="_blank" rel="noopener noreferrer">Open in Studio ↗</a></dd></div>
+          }
+        </dl>
+        @if (i.error && i.state !== 'Cancelled') { <p class="pb-err">✕ {{ i.error }}</p> }
+        @if (i.warning) { <p class="pb-warn">⚠ {{ i.warning }}</p> }
+
+        @if (i.canEdit && form(); as f) {
+          <form class="pb-form" (submit)="$event.preventDefault(); save()">
+            <label>Goes out at
+              <input type="datetime-local" [ngModel]="f.scheduledLocal" (ngModelChange)="patch('scheduledLocal', $event)" name="scheduledLocal" />
+            </label>
+            @if (slotIdeas().length) {
+              <div class="pb-chips" aria-label="Suggested times">
+                <span class="pb-chips-l">✨ Good times:</span>
+                @for (s of slotIdeas(); track s.at) {
+                  <button type="button" class="pb-chip-btn" (click)="pickSlot(s)" [title]="s.reason">{{ when(s.at) }}</button>
+                }
+              </div>
+            }
+            <div class="pb-form-row">
+              <label>Channel
+                <select [ngModel]="f.channelId" (ngModelChange)="patch('channelId', $event); loadSlots()" name="channelId">
+                  @for (c of channels(); track c.channelId) { <option [value]="c.channelId">{{ c.channelTitle }}</option> }
+                  @if (!channelOf(f.channelId)) { <option [value]="f.channelId">{{ i.channelTitle }} (not connected)</option> }
+                </select>
+              </label>
+              <label>Visibility
+                <select [ngModel]="f.privacy" (ngModelChange)="patch('privacy', $event)" name="privacy">
+                  <option value="public">Public</option>
+                  <option value="unlisted">Unlisted</option>
+                  <option value="private">Private</option>
+                </select>
+              </label>
+            </div>
+            <label>How the time is kept
+              <select [ngModel]="formModeLocked() ? 'UploadAtTime' : f.mode" (ngModelChange)="patch('mode', $event)" name="mode" [disabled]="formModeLocked()">
+                <option value="ReleaseOnYouTube">{{ modeLabels.ReleaseOnYouTube }}</option>
+                <option value="UploadAtTime">{{ modeLabels.UploadAtTime }}</option>
+              </select>
+              <small class="pb-muted">@if (formModeLocked()) { Only a public video can be released by YouTube; this one uploads at the time. }
+                @else if (f.mode === 'ReleaseOnYouTube') { Uploads {{ board()?.releaseLeadMinutes }} min early as private, so it is processed when YouTube makes it public. }
+                @else { The upload starts at the time; YouTube may need a few minutes to process HD. }</small>
+            </label>
+            <label>Title <small class="pb-muted">{{ f.title.length }}/100</small>
+              <input type="text" [ngModel]="f.title" (ngModelChange)="patch('title', $event)" name="title" maxlength="100" required />
+            </label>
+            <label>Description
+              <textarea rows="6" [ngModel]="f.description" (ngModelChange)="patch('description', $event)" name="description"></textarea>
+            </label>
+            <label>Tags <small class="pb-muted">comma-separated · {{ formTags().length }}</small>
+              <input type="text" [ngModel]="f.tagsText" (ngModelChange)="patch('tagsText', $event)" name="tags" />
+            </label>
+            <label>Category
+              <select [ngModel]="f.categoryId" (ngModelChange)="patch('categoryId', $event)" name="categoryId">
+                @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+              </select>
+            </label>
+            <div class="pb-chips" aria-label="Suggested categories">
+              <button type="button" class="pb-chip-btn ghost" (click)="suggestCategory()" title="Suggest from the title, tags and description">✨ Suggest</button>
+              @for (s of categoryIdeas(); track s.categoryId) {
+                <button type="button" class="pb-chip-btn" [class.on]="s.categoryId === f.categoryId" [attr.data-confidence]="s.confidence"
+                        (click)="patch('categoryId', s.categoryId)" [title]="s.reason">{{ s.name }}</button>
+              }
+            </div>
+            @if (categoryIdeas()[0]; as best) { <small class="pb-muted">Best match: {{ best.name }} — {{ best.reason }}</small> }
+            <fieldset class="pb-inline">
+              <label><input type="radio" name="kids" [checked]="!f.madeForKids" (change)="patch('madeForKids', false)" /> Not made for kids</label>
+              <label><input type="radio" name="kids" [checked]="f.madeForKids" (change)="patch('madeForKids', true)" /> Made for kids</label>
+              <label><input type="checkbox" [ngModel]="f.notifySubscribers" (ngModelChange)="patch('notifySubscribers', $event)" name="notify" /> Notify subscribers</label>
+            </fieldset>
+            <label>First comment
+              <textarea rows="2" [ngModel]="f.firstComment" (ngModelChange)="patch('firstComment', $event)" name="firstComment" placeholder="Posted once the video is up (optional)"></textarea>
+            </label>
+            <label>Note for the board <small class="pb-muted">only you see this</small>
+              <input type="text" [ngModel]="f.notes" (ngModelChange)="patch('notes', $event)" name="notes" maxlength="500" />
+            </label>
+            @if (i.hasCustomThumbnail) {
+              <label class="pb-inline-one"><input type="checkbox" [ngModel]="f.removeThumbnail" (ngModelChange)="patch('removeThumbnail', $event)" name="removeThumb" /> Drop the custom thumbnail (YouTube picks one)</label>
+            }
+            @if (formError()) { <p class="pb-err" role="alert">{{ formError() }}</p> }
+          </form>
+        } @else if (!i.canEdit) {
+          <p class="pb-muted">{{ i.state === 'Uploading' ? 'Uploading - details are locked until it finishes.' : 'On YouTube - change its details in YouTube Studio.' }}</p>
+          <details class="pb-readonly"><summary>Details sent</summary>
+            <p><strong>{{ i.title }}</strong></p>
+            <pre>{{ i.description }}</pre>
+            <p class="pb-muted">{{ i.tags.join(', ') }}</p>
+          </details>
+        }
+      </div>
+      <footer class="pb-drawer-foot">
+        @if (i.canEdit && form()) {
+          <button type="button" class="secondary" (click)="closeDrawer()">Close</button>
+          @if (i.state === 'Waiting') { <button type="button" class="secondary" (click)="hold(i)" [disabled]="saving()">⏸ Hold</button> }
+          <button type="button" class="secondary" (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+          @if (i.state !== 'Waiting') {
+            <button type="button" (click)="save(true)" [disabled]="saving()">Save &amp; schedule</button>
+          }
+          <button type="button" (click)="publishNow(i)" [disabled]="saving() || busyId() === i.id">🚀 Publish now</button>
+        } @else {
+          @if (i.state === 'Uploading') { <button type="button" class="secondary" (click)="cancel(i)">Stop upload</button> }
+          <button type="button" (click)="closeDrawer()">Close</button>
+        }
+      </footer>
+    </aside>
+  }
+
+  <!-- Many renders onto the board at once. -->
+  @if (addOpen()) {
+    <div class="pb-modal-backdrop" (click)="addOpen.set(false)">
+      <div class="pb-modal" role="dialog" aria-modal="true" aria-label="Add videos to the board" (click)="$event.stopPropagation()">
+        <header class="pb-modal-head">
+          <h3>Add from exports</h3>
+          <button type="button" class="icon" (click)="addOpen.set(false)" aria-label="Close">✕</button>
+        </header>
+        <div class="pb-modal-body">
+          <section class="pb-pick">
+            <div class="pb-pick-tools">
+              <input type="search" placeholder="Search renders or projects…" [ngModel]="candidateQuery()" (ngModelChange)="candidateQuery.set($event)" aria-label="Search renders" />
+              <label class="pb-inline-one"><input type="checkbox" [ngModel]="showUsed()" (ngModelChange)="showUsed.set($event)" /> Show ones already on YouTube or the board</label>
+              <button type="button" class="link" (click)="pickAllShown()">Select all shown</button>
+            </div>
+            @if (candidatesLoading()) {
+              <p class="pb-muted">Loading your renders…</p>
+            } @else if (shownCandidates().length === 0) {
+              <p class="pb-muted">No finished renders waiting to be published. Render a video first, or tick "Show ones already…".</p>
+            } @else {
+              <ul class="pb-cands">
+                @for (c of shownCandidates(); track c.jobId) {
+                  <li>
+                    <label class="pb-cand" [class.on]="picked().has(c.jobId)">
+                      <input type="checkbox" [checked]="picked().has(c.jobId)" (change)="togglePick(c.jobId)" />
+                      @if (candidateThumb(c); as src) { <img [src]="src" alt="" loading="lazy" [class.vertical]="c.isVertical" /> }
+                      <span class="pb-cand-text">
+                        <strong [title]="c.name">{{ c.name }}</strong>
+                        <small>{{ c.projectName }} · {{ clock(c.durationSeconds) }}{{ c.isVertical ? ' · vertical' : '' }} · {{ when(c.createdAt) }}</small>
+                        @if (c.onYouTube) { <small class="pb-ok-text">already on YouTube</small> }
+                        @if (c.inQueue) { <small class="pb-brand-text">on the board</small> }
+                      </span>
+                    </label>
+                  </li>
+                }
+              </ul>
+            }
+          </section>
+
+          <section class="pb-settings">
+            <label>Channel
+              <select [ngModel]="bulkChannel()" (ngModelChange)="bulkChannel.set($event)">
+                @for (c of channels(); track c.channelId) { <option [value]="c.channelId">{{ c.channelTitle }}</option> }
+              </select>
+            </label>
+            <label>When
+              <select [ngModel]="bulkStrategy()" (ngModelChange)="bulkStrategy.set($event)">
+                <option value="Slots">✨ Suggested times (best hours, spaced out)</option>
+                <option value="Interval">Every few hours from a start time</option>
+                <option value="Hold">Hold - put on the board, schedule later</option>
+                <option value="Now">As soon as possible</option>
+              </select>
+            </label>
+            @if (bulkStrategy() === 'Interval') {
+              <div class="pb-form-row">
+                <label>First one at <input type="datetime-local" [ngModel]="bulkStartLocal()" (ngModelChange)="bulkStartLocal.set($event)" /></label>
+                <label>Every (hours) <input type="number" min="1" max="720" [ngModel]="bulkInterval()" (ngModelChange)="bulkInterval.set(+$event || 24)" /></label>
+              </div>
+            }
+            <div class="pb-form-row">
+              <label>Visibility
+                <select [ngModel]="bulkPrivacy()" (ngModelChange)="bulkPrivacy.set($event)">
+                  <option value="public">Public</option>
+                  <option value="unlisted">Unlisted</option>
+                  <option value="private">Private</option>
+                </select>
+              </label>
+              <label>Category
+                <select [ngModel]="bulkCategory()" (ngModelChange)="bulkCategory.set($event)">
+                  <option value="auto">✨ Auto - suggest per video</option>
+                  @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+                </select>
+              </label>
+            </div>
+            <label>How the time is kept
+              <select [ngModel]="bulkPrivacy() === 'public' ? bulkMode() : 'UploadAtTime'" (ngModelChange)="bulkMode.set($event)" [disabled]="bulkPrivacy() !== 'public'">
+                <option value="ReleaseOnYouTube">{{ modeLabels.ReleaseOnYouTube }}</option>
+                <option value="UploadAtTime">{{ modeLabels.UploadAtTime }}</option>
+              </select>
+            </label>
+            <label>Add to every title <small class="pb-muted">e.g. #shorts</small>
+              <input type="text" maxlength="40" [ngModel]="bulkSuffix()" (ngModelChange)="bulkSuffix.set($event)" />
+            </label>
+            <fieldset class="pb-inline">
+              <label><input type="radio" name="bkids" [checked]="!bulkKids()" (change)="bulkKids.set(false)" /> Not made for kids</label>
+              <label><input type="radio" name="bkids" [checked]="bulkKids()" (change)="bulkKids.set(true)" /> Made for kids</label>
+              <label><input type="checkbox" [ngModel]="bulkNotify()" (ngModelChange)="bulkNotify.set($event)" /> Notify subscribers</label>
+            </fieldset>
+            <p class="pb-muted">Each video gets its render's name as the title and its project's description and music credits, plus your channel's defaults.
+              Fine-tune any of them on the board afterwards.</p>
+
+            @if (bulkPlan().length) {
+              <h4>Plan ({{ bulkPlan().length }})</h4>
+              <ol class="pb-plan">
+                @for (p of bulkPlan(); track p.c.jobId) {
+                  <li><span class="pb-plan-when">{{ p.at ? when(p.at) : '—' }}</span> <span class="pb-plan-name">{{ p.c.name }}</span>
+                    @if (p.note) { <small class="pb-muted"> · {{ p.note }}</small> }</li>
+                }
+              </ol>
+            }
+
+            @if (bulkResult(); as r) {
+              <div class="pb-result">
+                <p>{{ r.started }} added · {{ r.skipped }} skipped · {{ r.failed }} failed</p>
+                <ul>
+                  @for (x of r.results; track x.jobId) {
+                    @if (!x.ok || x.skipped) { <li [class.pb-err]="!x.ok" [class.pb-muted]="x.skipped">{{ candidateName(x.jobId) }}: {{ x.message }}</li> }
+                  }
+                </ul>
+              </div>
+            }
+            @if (bulkError()) { <p class="pb-err" role="alert">{{ bulkError() }}</p> }
+          </section>
+        </div>
+        <footer class="pb-modal-foot">
+          <span class="pb-muted">{{ picked().size }} selected (up to 50)</span>
+          <button type="button" class="secondary" (click)="addOpen.set(false)">Cancel</button>
+          <button type="button" (click)="submitBulk()" [disabled]="bulkBusy() || picked().size === 0 || !bulkChannel()">
+            {{ bulkBusy() ? 'Adding…' : 'Add ' + picked().size + ' to the board' }}</button>
+        </footer>
+      </div>
+    </div>
+  }
+
+  @if (toast(); as t) {
+    <div class="pb-toast" [class.err]="t.kind === 'err'" role="status" aria-live="polite">{{ t.text }}</div>
+  }
+</div>

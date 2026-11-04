@@ -91,6 +91,9 @@ public static class MongoMappingRegistrar
             // App-assigned GUID - one record per video sent to the phone.
             MapWithLiteralId<PhoneHandoff>();
 
+            // App-assigned GUID - one record per video on the publishing board.
+            MapWithLiteralId<PublishQueueItem>();
+
             // The configuration path, e.g. "Render:Crf" - one value per key.
             MapWithLiteralId<WebSetting>();
 

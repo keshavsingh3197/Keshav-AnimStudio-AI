@@ -16,6 +16,8 @@ import { ApiService } from '../core/services/api.service';
 import { ContentCalendarService } from '../core/services/content-calendar.service';
 import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
+import { PublishQueueService } from '../core/services/publish-queue.service';
+import { CategorySuggestion, PublishQueueItem, PublishQueueMode, PublishSlot } from '../core/models/publish-queue.models';
 import { TopicPickerComponent } from './topic-picker.component';
 import { AuthService } from '../core/services/auth.service';
 
@@ -509,6 +511,21 @@ interface PublishPrefs {
                       </select>
                     </label>
                   </div>
+                  @if (!isMusic()) {
+                    <div class="yt-cat-ideas" aria-label="Suggested categories">
+                      <button type="button" class="yt-chip ghost" (click)="suggestCategory()" [disabled]="uploading() || suggestingCategory()"
+                              title="Suggest a category from the title, tags and description">{{ suggestingCategory() ? '…' : '✨ Suggest category' }}</button>
+                      @for (c of categoryIdeas(); track c.categoryId) {
+                        <button type="button" class="yt-chip" [class.on]="c.categoryId === categoryId()" [attr.data-confidence]="c.confidence"
+                                (click)="categoryId.set(c.categoryId)" [disabled]="uploading()" [title]="c.reason">{{ c.name }}</button>
+                      }
+                    </div>
+                    @if (categoryIdeas()[0]; as best) {
+                      @if (best.categoryId !== categoryId() && best.confidence !== 'weak') {
+                        <p class="yt-muted">Suggested: <strong>{{ best.name }}</strong> - {{ best.reason }}</p>
+                      }
+                    }
+                  }
                   @if (route() === 'phone') {
                     <p class="yt-muted">Scheduled is not available for a phone upload; set a time in the YouTube app instead.</p>
                   } @else if (scheduled()) {
@@ -767,7 +784,37 @@ interface PublishPrefs {
         @if (!loading() && status()?.configured) {
           <footer class="yt-foot">
             <div class="yt-foot-status">
-              @if (route() === 'phone' && handoff(); as h) {
+              @if (queued(); as q) {
+                <p class="ok">📋 On the publishing board{{ q.scheduledAt ? ' for ' + when(q.scheduledAt) + ' (' + timeZone + ')' : ', held until you schedule it' }}.
+                  <a routerLink="/youtube/queue" (click)="closed.emit()">Open the board</a></p>
+                <p class="yt-muted">{{ q.effectiveMode === 'ReleaseOnYouTube' && q.scheduledAt
+                  ? 'It uploads ahead as private; YouTube makes it public on time.'
+                  : 'The server uploads it at that time - you can close AnimStudio.' }}</p>
+              } @else if (queueing()) {
+                <div class="yt-queue">
+                  <div class="yt-queue-row">
+                    <label>Goes out at
+                      <input type="datetime-local" [ngModel]="queueAtLocal()" (ngModelChange)="queueAtLocal.set($event)" [disabled]="queueHold() || busy()" />
+                    </label>
+                    <label>How the time is kept
+                      <select [ngModel]="privacy() === 'public' ? queueMode() : 'UploadAtTime'" (ngModelChange)="queueMode.set($event)" [disabled]="privacy() !== 'public' || busy()">
+                        <option value="ReleaseOnYouTube">Upload ahead · YouTube releases on time</option>
+                        <option value="UploadAtTime">Upload at the time</option>
+                      </select>
+                    </label>
+                    <label class="inline"><input type="checkbox" [ngModel]="queueHold()" (ngModelChange)="queueHold.set($event)" [disabled]="busy()" /> Hold - no time yet</label>
+                  </div>
+                  @if (queueSlots().length && !queueHold()) {
+                    <div class="yt-queue-slots" aria-label="Suggested times">
+                      <span class="yt-muted">✨ Good times:</span>
+                      @for (s of queueSlots(); track s.at) {
+                        <button type="button" class="yt-chip" [class.on]="queueAtLocal() === localInput(s.at)" (click)="queueAtLocal.set(localInput(s.at))" [title]="s.reason">{{ when(s.at) }}</button>
+                      }
+                    </div>
+                  }
+                  <p class="yt-muted">Visibility once out: {{ privacy() }}. Your time ({{ timeZone }}). The server sends it - nothing needs to stay open.</p>
+                </div>
+              } @else if (route() === 'phone' && handoff(); as h) {
                 @switch (h.state) {
                   @case ('Sending') {
                     <div class="bar"><div [style.width.%]="h.percent"></div></div>
@@ -858,7 +905,13 @@ interface PublishPrefs {
               }
             </div>
             <div class="yt-actions">
-              @if (reviewing()) {
+              @if (queueing() && !queued()) {
+                <button type="button" class="secondary" (click)="queueing.set(false)" [disabled]="busy()">Back to edit</button>
+                <button type="button" (click)="addToQueue()" [disabled]="!canQueue()">{{ busy() ? 'Adding…' : queueHold() ? 'Add to the board (held)' : 'Confirm & add to queue' }}</button>
+              } @else if (queued()) {
+                <button type="button" class="secondary" (click)="queued.set(null); queueing.set(false)">Queue another</button>
+                <button type="button" (click)="closed.emit()">Close</button>
+              } @else if (reviewing()) {
                 <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
                 <button type="button" (click)="publish()" [disabled]="!canPublish()">
                   {{ busy() ? 'Starting…' : route() === 'phone' ? 'Confirm & send to Drive' : scheduled() ? 'Confirm & schedule' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
@@ -877,6 +930,10 @@ interface PublishPrefs {
                 <button type="button" (click)="closed.emit()">Close</button>
               } @else {
                 <button type="button" class="secondary" (click)="closed.emit()">{{ upload()?.state === 'Completed' ? 'Close' : 'Cancel' }}</button>
+                @if (canQueueHere()) {
+                  <button type="button" class="secondary" (click)="startQueue()" [disabled]="!canQueue()"
+                          title="Put it on the publishing board to go out at a time you pick">📋 Add to queue…</button>
+                }
                 <button type="button" (click)="review()" [disabled]="!canPublish()">
                   @if (route() === 'phone') { {{ handoff()?.state === 'Applied' ? 'Send another to phone…' : 'Review & send to phone…' }} }
                   @else { {{ upload()?.state === 'Completed' ? 'Publish again…' : scheduled() ? 'Review & schedule…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }} }
@@ -954,6 +1011,18 @@ interface PublishPrefs {
     /* Send to phone */
     .yt-route .yt-dest-icon { font-size: 1rem; }
     .yt-phone { margin-bottom: .9rem; }
+    /* Publishing board: queue panel and suggestion chips */
+    .yt-queue { display: flex; flex-direction: column; gap: .4rem; }
+    .yt-queue-row { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: flex-end; }
+    .yt-queue-row label:not(.inline) { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; }
+    .yt-queue-slots, .yt-cat-ideas { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin-top: .4rem; }
+    .yt-chip { font-size: .74rem; padding: .18rem .55rem; border-radius: 999px; background: rgba(148, 163, 184, .1);
+      color: inherit; border: 1px solid rgba(148, 163, 184, .22); box-shadow: none; }
+    .yt-chip.on { border-color: var(--brand, #6c8cff); background: rgba(108, 140, 255, .14); }
+    .yt-chip.ghost { background: transparent; }
+    .yt-chip[data-confidence='strong']::after { content: ' ●'; color: #22d36b; }
+    .yt-chip[data-confidence='good']::after { content: ' ●'; color: #f59e0b; }
+
     /* Scheduled upload and calendar post */
     .yt-schedule, .yt-plan { display: flex; flex-direction: column; gap: .25rem; margin-top: .6rem; }
     .yt-schedule input.invalid { border-color: #f87171; }
@@ -1553,6 +1622,115 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly canPublish = computed(() => !this.busy() && !this.suggesting() && !this.uploading() && !this.sendingToDrive()
     && this.problems().length === 0);
 
+  // --- publishing board ---
+
+  private readonly queueApi = inject(PublishQueueService);
+  /** Choosing when it goes out; the details above are what goes on the board. */
+  readonly queueing = signal(false);
+  /** What was put on the board, once it is there. */
+  readonly queued = signal<PublishQueueItem | null>(null);
+  readonly queueAtLocal = signal('');
+  readonly queueMode = signal<PublishQueueMode>('ReleaseOnYouTube');
+  readonly queueHold = signal(false);
+  readonly queueSlots = signal<PublishSlot[]>([]);
+  /** A render uploaded from here can be queued; a song's visualizer is swept too soon, a phone upload is the user's own. */
+  readonly canQueueHere = computed(() => !this.isRelease() && this.route() === 'direct' && !this.uploading());
+  /** The board keeps its own time, so YouTube's own schedule doesn't have to be valid for it. */
+  readonly canQueue = computed(() => !this.busy() && !this.suggesting() && !this.uploading()
+    && this.problems().every((p) => p.field === 'publishAt'));
+
+  readonly categoryIdeas = signal<CategorySuggestion[]>([]);
+  readonly suggestingCategory = signal(false);
+
+  localInput(iso: string): string {
+    return toLocalInput(new Date(iso));
+  }
+
+  /** Opens the time picker, starting from the calendar post's time, the schedule picked above, or the best free slot. */
+  startQueue(): void {
+    if (!this.canQueue()) return;
+    this.error.set(null);
+    this.queueing.set(true);
+    const preset = this.selectedPlan()?.publishAt ?? this.scheduleDate()?.toISOString() ?? null;
+    if (preset && Date.parse(preset) > Date.now()) this.queueAtLocal.set(toLocalInput(new Date(preset)));
+    this.queueSlots.set([]);
+    this.queueApi.slots(this.channelId() || null, !!this.draft()?.video?.isVertical && (this.draft()?.video?.durationSeconds ?? 0) <= 180, 6).subscribe({
+      next: (slots) => {
+        this.queueSlots.set(slots);
+        if (!this.queueAtLocal() && slots[0]) this.queueAtLocal.set(toLocalInput(new Date(slots[0].at)));
+      },
+      error: () => this.queueSlots.set([]),
+    });
+  }
+
+  addToQueue(): void {
+    if (!this.canQueue()) return;
+    const at = this.queueHold() ? null : fromLocalInput(this.queueAtLocal());
+    if (!this.queueHold() && !at) {
+      this.error.set('Pick when it should go out, or tick Hold.');
+      return;
+    }
+    if (at && at.getTime() < Date.now() - 5 * 60_000) {
+      this.error.set('That time has passed. Pick a time from now on.');
+      return;
+    }
+
+    this.busy.set(true);
+    this.error.set(null);
+    this.serverErrors.set([]);
+    this.savePrefs();
+    this.queueApi.add(this.jobId(), {
+      channelId: this.channelId(),
+      metadata: {
+        title: this.title().trim(),
+        description: this.description().trim(),
+        tags: this.tags(),
+        categoryId: this.categoryId(),
+        privacy: this.privacy(),
+        madeForKids: this.madeForKids(),
+        notifySubscribers: this.notify(),
+        publishAt: null,
+      },
+      relatedVideoIds: this.relatedSelected().map((v) => v.videoId),
+      firstComment: this.firstComment().trim() || null,
+      thumbnail: this.thumbnailChoice(),
+      planItemId: this.selectedPlan()?.id ?? null,
+      scheduledAt: at ? at.toISOString() : null,
+      mode: this.privacy() === 'public' ? this.queueMode() : 'UploadAtTime',
+      hold: this.queueHold(),
+    }).subscribe({
+      next: (item) => {
+        this.queued.set(item);
+        this.busy.set(false);
+      },
+      error: (e: Error & { code?: string }) => {
+        this.error.set(e.message);
+        if (e.code === 'youtube-reconnect') this.markNeedsReconnect();
+        this.busy.set(false);
+      },
+    });
+  }
+
+  /** Categories the title, tags and description point at; one click applies a suggestion. */
+  suggestCategory(): void {
+    this.suggestingCategory.set(true);
+    this.queueApi.suggestCategory({
+      jobId: this.isRelease() ? null : this.jobId(),
+      title: this.title(),
+      description: this.description(),
+      tags: this.tags(),
+    }).subscribe({
+      next: (ideas) => {
+        this.categoryIdeas.set(ideas);
+        this.suggestingCategory.set(false);
+      },
+      error: () => {
+        this.categoryIdeas.set([]);
+        this.suggestingCategory.set(false);
+      },
+    });
+  }
+
   // --- send to phone ---
 
   /** Upload from here, or send to Drive for the YouTube app, where a Shorts sound is licensed. */
@@ -1711,6 +1889,7 @@ export class YouTubePublishDialogComponent implements OnInit {
           if (!isUploadFinished(latest)) this.poll(latest.uploadId);
         }
         this.loading.set(false);
+        if (!this.isMusic()) this.suggestCategory();
       },
       error: (e: Error) => {
         this.error.set(e.message);
@@ -1803,6 +1982,8 @@ export class YouTubePublishDialogComponent implements OnInit {
           this.firstComment.set(s.pinnedComment);
         }
         this.suggestedOnce.set(true);
+        // New words, maybe a new category.
+        if (!this.isMusic()) this.suggestCategory();
         const by = this.engines().find((e) => e.id === s.providerId)?.name ?? s.providerId;
         this.suggestNote.set(`Filled in by ${by}. Read it through and edit before publishing.`);
         this.suggesting.set(false);

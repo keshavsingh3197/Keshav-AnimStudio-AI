@@ -503,6 +503,21 @@ public sealed class SqlDatabaseInitializer(
             CREATE INDEX IX_PhoneHandoffs_State ON PhoneHandoffs (State, CreatedAt);
         END;
 
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PublishQueueItems')
+        BEGIN
+            CREATE TABLE PublishQueueItems (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                State INT NOT NULL,
+                DueAt DATETIME2 NULL,
+                CreatedAt DATETIME2 NOT NULL,
+                Version INT NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_PublishQueueItems_User ON PublishQueueItems (UserId, CreatedAt DESC);
+            CREATE INDEX IX_PublishQueueItems_Due ON PublishQueueItems (State, DueAt);
+        END;
+
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ContentTopics')
         BEGIN
             CREATE TABLE ContentTopics (

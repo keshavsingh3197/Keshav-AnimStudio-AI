@@ -48,6 +48,18 @@ public sealed class YouTubePublishOptions
     /// <summary>A handoff whose phone upload hasn't turned up after this long stops being looked for.</summary>
     public int PhoneHandoffExpireDays { get; set; } = 3;
 
+    /// <summary>
+    /// Publishing board: how often the scheduler looks for videos that are due and follows the
+    /// ones uploading. 0 stops automatic publishing; "Publish now" still works.
+    /// </summary>
+    public int QueueCheckSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// How long before its time a public video set to "YouTube releases it" starts uploading, so it
+    /// is processed when YouTube makes it public.
+    /// </summary>
+    public int QueueReleaseLeadMinutes { get; set; } = 120;
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)

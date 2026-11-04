@@ -141,6 +141,7 @@ public static class DependencyInjection
             services.AddScoped<IYouTubePublicationRepository, SqlYouTubePublicationRepository>();
             services.AddScoped<IGoogleDriveConnectionRepository, SqlGoogleDriveConnectionRepository>();
             services.AddScoped<IPhoneHandoffRepository, SqlPhoneHandoffRepository>();
+            services.AddScoped<IPublishQueueRepository, SqlPublishQueueRepository>();
             services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
             services.AddScoped<IStoryRunRepository, SqlStoryRunRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
@@ -184,6 +185,7 @@ public static class DependencyInjection
             services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
             services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
             services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
+            services.AddScoped<IPublishQueueRepository, MongoPublishQueueRepository>();
             services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
             services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
@@ -355,6 +357,10 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeVideoStatusClient>>()));
         services.AddScoped<YouTubePublicationService>();
         services.AddHostedService<YouTubeHealthMonitor>();
+
+        // Publishing board: renders queued with their details and a time, pushed to YouTube when due.
+        services.AddScoped<PublishQueueService>();
+        services.AddHostedService<PublishQueueScheduler>();
 
         // Content calendar: topics plan their posts ahead, uploads (from the phone too) are
         // linked to them, and the planned publish time is checked - and set - on YouTube.

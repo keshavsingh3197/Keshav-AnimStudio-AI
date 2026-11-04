@@ -199,6 +199,15 @@ export const routes: Routes = [
   },
 
   {
+    path: 'youtube/queue',
+    title: 'Publishing board - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
+    loadComponent: () =>
+      import('./features/youtube/publish-board.component')
+        .then((m) => m.PublishBoardComponent),
+  },
+
+  {
     path: 'youtube/checkup',
     title: 'Video details checkup - AnimStudio AI',
     canActivate: [sensitiveFeatureGuard],
