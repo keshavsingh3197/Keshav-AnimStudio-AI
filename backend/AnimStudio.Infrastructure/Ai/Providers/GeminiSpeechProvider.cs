@@ -43,9 +43,12 @@ public sealed class GeminiSpeechProvider(
     IOptionsMonitor<AiOptions> options,
     ILogger<GeminiSpeechProvider> logger,
     TimeProvider? clock = null)
-    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider
+    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider
 {
     private const string DefaultModel = "gemini-3.8-flash-tts";
+    private const string DefaultMusicModel = "lyria-3.5";
+    private const string InteractionsRevision = "2026-05-20";
+    private const int MaxMusicPromptLength = 2_000;
     private const int MaxAudioBytes = 24 * 1024 * 1024;
     private const int MaxTextLength = 5_000;
     private const int DefaultSampleRate = 24_000;
@@ -308,6 +311,85 @@ public sealed class GeminiSpeechProvider(
         catch (AiProviderException ex) when (ex.Code == "endpoint-or-model-not-found")
         {
             // Already gone - expired after its year, or deleted in AI Studio.
+        }
+    }
+
+    /// <summary>
+    /// <c>POST /interactions</c> with a Lyria model: the track comes back as base64 audio in the interaction's steps,
+    /// next to text describing its structure, which is not kept.
+    /// </summary>
+    public async Task<AiGeneratedMusic> GenerateMusicAsync(string prompt, string? model, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > MaxMusicPromptLength)
+            throw new AiProviderException("bad-request", "The music description is empty or too long.");
+
+        model = string.IsNullOrWhiteSpace(model) ? DefaultMusicModel : model.Trim();
+        if (!IsSafePathValue(model, allowSlashes: false, maxLength: 64))
+            throw new AiProviderException("bad-request", "That music model name can't be used.");
+
+        var request = JsonRequest(HttpMethod.Post, "interactions", new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["input"] = prompt
+        });
+        request.Headers.Add("Api-Revision", InteractionsRevision);
+
+        using var response = await SendForJsonAsync(request, ct).ConfigureAwait(false);
+        var data = FindAudio(response.RootElement, depth: 0)
+            ?? throw new AiProviderException("empty-response", $"'{Id.Value}' returned no music.");
+
+        byte[] audio;
+        try
+        {
+            audio = Convert.FromBase64String(data);
+        }
+        catch (FormatException ex)
+        {
+            throw new AiProviderException("malformed-response", $"'{Id.Value}' returned music that is not base64.", ex);
+        }
+
+        if (audio.Length > MaxAudioBytes)
+            throw new AiProviderException("response-too-large", $"'{Id.Value}' returned more than the {MaxAudioBytes} bytes allowed.");
+
+        var sniffed = AiAudioValidator.Sniff(audio);
+        if (sniffed is not (AiAudioValidator.Mp3 or AiAudioValidator.Wav))
+            throw new AiProviderException("malformed-response", $"'{Id.Value}' returned music in a format that can't be used.");
+
+        return new AiGeneratedMusic(audio, sniffed, model);
+    }
+
+    /// <summary>The first <c>{"type":"audio","data":"…"}</c> block, wherever the revision of the API nests it.</summary>
+    private static string? FindAudio(JsonElement element, int depth)
+    {
+        if (depth > 8) return null;
+
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+                    && type.GetString() == "audio"
+                    && element.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.String)
+                {
+                    return data.GetString();
+                }
+
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (FindAudio(property.Value, depth + 1) is { } found) return found;
+                }
+
+                return null;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (FindAudio(item, depth + 1) is { } found) return found;
+                }
+
+                return null;
+
+            default:
+                return null;
         }
     }
 

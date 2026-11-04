@@ -1252,4 +1252,175 @@ public sealed class StoryRunServiceTests
         Assert.Contains(foreign, world.Store.Keys);
         Assert.Null(world.Runs.Read(run.Id));
     }
+
+    // ------------------------------------------------------------------------------------------------ reviews
+
+    /// <summary>A run that built up to the given step and stopped there for the person to check it.</summary>
+    private static async Task<StoryRun> Reviewing(World world, string stageId)
+    {
+        var run = await world.Seed(StoryRunStatus.AwaitingReview);
+        await world.Stock(run);
+        foreach (var id in StoryStageIds.Building.TakeWhile(id => id != stageId).Append(stageId))
+            run.Stage(id).Status = StoryStageStatus.Completed;
+        run.Review = stageId;
+        world.Runs.Seed(run);
+        return run;
+    }
+
+    [Fact]
+    public async Task Approving_the_step_being_reviewed_records_it_and_sends_the_build_on()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var approved = await world.Service.ApproveReviewAsync(User, run.Id, StoryStageIds.Narration, CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.Building, approved.Status);
+        Assert.Null(approved.Review);
+        Assert.Equal(StorySamples.Now, approved.VoiceApprovedAtUtc);
+        Assert.Equal([run.Id], world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task A_step_that_is_not_waiting_cannot_be_approved()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() =>
+            world.Service.ApproveReviewAsync(User, run.Id, StoryStageIds.Music, CancellationToken.None));
+
+        Assert.Equal("review-not-waiting", error.Code);
+        Assert.Empty(world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task Retaking_chosen_scenes_takes_only_those_again_and_rebuilds_from_the_voice()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var redone = await world.Service.RedoNarrationAsync(User, run.Id, new StoryVoiceRedo([2]), CancellationToken.None);
+
+        Assert.Equal([0, 1, 0], redone.Script!.Scenes.Take(3).Select(s => s.AudioTake));
+        Assert.Equal(StoryRunStatus.Building, redone.Status);
+        Assert.Equal(StoryStageStatus.Pending, redone.Stage(StoryStageIds.Narration).Status);
+        Assert.Equal(StoryStageStatus.Completed, redone.Stage(StoryStageIds.Visuals).Status);
+        Assert.Null(redone.VoiceApprovedAtUtc);
+        Assert.Equal([run.Id], world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task A_new_delivery_speaks_every_scene_again_without_counting_retakes()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var redone = await world.Service.RedoNarrationAsync(User, run.Id, new StoryVoiceRedo(null, SpeechRate: 0.9), CancellationToken.None);
+
+        Assert.Equal(0.9, redone.Options.SpeechRate);
+        Assert.All(redone.Script!.Scenes, s => Assert.Equal(0, s.AudioTake));
+    }
+
+    [Fact]
+    public async Task Asking_for_new_music_throws_the_old_track_away_and_asks_for_a_different_take()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Music);
+        run.Music = new StoryMusicPick { Provider = MusicStage.ComposedProvider, StorageKey = StoryObjectKeys.Music(run.Id) };
+        await world.Store.SaveAsync(run.Music.StorageKey, new MemoryStream(FakeMusic.Mp3Bytes()), "audio/mpeg");
+        world.Runs.Seed(run);
+
+        var redone = await world.Service.RedoMusicAsync(User, run.Id, new StoryMusicRedo(Prompt: "Soft bansuri over a tanpura drone."), CancellationToken.None);
+
+        Assert.Null(redone.Music);
+        Assert.DoesNotContain(StoryObjectKeys.Music(run.Id), world.Store.Keys);
+        Assert.Equal(1, redone.MusicTake);
+        Assert.Equal("Soft bansuri over a tanpura drone.", redone.Options.MusicPrompt);
+        Assert.Equal(StoryStageStatus.Pending, redone.Stage(StoryStageIds.Music).Status);
+        Assert.Equal(StoryStageStatus.Completed, redone.Stage(StoryStageIds.Narration).Status);
+        Assert.StartsWith("Soft bansuri over a tanpura drone. Take 2:", MusicStage.Brief(redone, redone.Script!).Prompt);
+        Assert.Equal("Soft bansuri over a tanpura drone.", MusicStage.Brief(redone, redone.Script!, forComposer: false).Prompt);
+    }
+
+    [Fact]
+    public async Task A_track_attached_after_the_build_is_kept_and_waits_to_be_approved()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Render);
+
+        var attached = await world.Service.AttachMusicAsync(User, run.Id, FakeMusic.Mp3Bytes(), @"C:\music\my track.mp3", CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.AwaitingReview, attached.Status);
+        Assert.Equal(StoryStageIds.Music, attached.Review);
+        Assert.Equal(MusicStage.UploadedProvider, attached.Music!.Provider);
+        Assert.Equal("my track.mp3", attached.Music.Title);
+        Assert.Equal(StoryStageStatus.Pending, attached.Stage(StoryStageIds.Assemble).Status);
+        Assert.Contains(attached.Music.StorageKey, world.Store.Keys);
+    }
+
+    [Fact]
+    public async Task A_file_that_is_not_audio_is_refused_as_music()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Music);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() =>
+            world.Service.AttachMusicAsync(User, run.Id, StoryTestData.Png(), "cover.mp3", CancellationToken.None));
+
+        Assert.Equal("music-invalid", error.Code);
+    }
+
+    [Fact]
+    public async Task A_look_set_by_hand_is_pinned_and_rebuilds_from_the_project_keeping_voice_and_music()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Render);
+
+        var redone = await world.Service.RedoLookAsync(User, run.Id, new StoryLookRedo(false, StoryLookStyle.Cinematic, 0.15,
+            [new StorySceneLookEdit(2, "PanUp", "CircleOpen", 0.8)]), CancellationToken.None);
+
+        var scene = redone.Script!.Scenes[1];
+        Assert.True(scene.LookPinned);
+        Assert.Equal("PanUp", scene.Effect);
+        Assert.Equal("CircleOpen", scene.Transition);
+        Assert.Equal(StoryLookStyle.Cinematic, redone.Options.LookStyle);
+        Assert.Equal(0.15, redone.Options.MusicVolume);
+        Assert.Equal(StoryStageStatus.Pending, redone.Stage(StoryStageIds.Assemble).Status);
+        Assert.Equal(StoryStageStatus.Completed, redone.Stage(StoryStageIds.Music).Status);
+        Assert.Null(redone.RenderJobId);
+    }
+
+    [Fact]
+    public async Task A_look_with_an_unknown_name_is_refused_and_changes_nothing()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Render);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.RedoLookAsync(User, run.Id,
+            new StoryLookRedo(true, null, null, [new StorySceneLookEdit(1, "ZoomIn", null, null), new StorySceneLookEdit(2, "Spin", null, null)]),
+            CancellationToken.None));
+
+        Assert.Equal("look-invalid", error.Code);
+        var saved = world.Runs.Read(run.Id)!;
+        Assert.False(saved.Script!.Scenes[0].LookPinned);
+        Assert.Equal(0, saved.LookTake);
+        Assert.Equal(StoryRunStatus.AwaitingReview, saved.Status);
+    }
+
+    [Fact]
+    public async Task Changing_a_picture_while_a_step_waits_sends_the_story_back_to_the_build()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+        run.VoiceApprovedAtUtc = StorySamples.Now;
+        world.Runs.Seed(run);
+
+        var removed = await world.Service.RemoveImageAsync(User, run.Id, 1, CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.ScriptReady, removed.Status);
+        Assert.Null(removed.Review);
+        Assert.Null(removed.VoiceApprovedAtUtc);
+        Assert.All(StoryStageIds.Building, id => Assert.Equal(StoryStageStatus.Pending, removed.Stage(id).Status));
+    }
 }

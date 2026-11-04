@@ -35,7 +35,7 @@ public sealed class VisualsStage(
 
         var useEngine = run.Options.Visuals == StoryVisualMode.Auto;
         var failedInARow = 0;
-        int attached = 0, generated = 0, plain = 0;
+        int attached = 0, generated = 0, plain = 0, clips = 0;
 
         for (var i = 0; i < script.Scenes.Count; i++)
         {
@@ -48,6 +48,15 @@ public sealed class VisualsStage(
                 if (scene.ImageSource == "upload") attached++;
                 else if (scene.ImageSource == "placeholder") plain++;
                 else generated++;
+                continue;
+            }
+
+            // The person's own clip plays here, so the picture is only a fallback and not worth an image request.
+            if (StoryObjectKeys.Owns(run.Id, scene.VideoKey))
+            {
+                await KeepPlainAsync(run, scene, vertical, ct).ConfigureAwait(false);
+                clips++;
+                await context.Save().ConfigureAwait(false);
                 continue;
             }
 
@@ -84,6 +93,7 @@ public sealed class VisualsStage(
 
         var parts = new List<string>();
         if (attached > 0) parts.Add($"{attached} of yours");
+        if (clips > 0) parts.Add($"{clips} moving clip{(clips == 1 ? string.Empty : "s")}");
         if (generated > 0) parts.Add($"{generated} generated");
         if (plain > 0) parts.Add($"{plain} plain");
         return StoryStageOutcome.Completed($"Pictures ready: {string.Join(", ", parts)}.");

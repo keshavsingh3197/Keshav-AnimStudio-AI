@@ -81,6 +81,26 @@ public class SceneGraphBuilderTests
     }
 
     [Fact]
+    public void A_moving_clip_background_is_looped_to_the_scene_and_fills_the_canvas_without_zoompan()
+    {
+        var plan = Plan(new AnimationSettings(BackgroundEffect.ZoomIn)) with
+        {
+            BackgroundRelativePath = "in/clip.mp4",
+            BackgroundIsVideo = true
+        };
+
+        var result = NewBuilder().BuildScene(plan);
+
+        var args = result.Inputs[0].PreInputArguments;
+        Assert.Equal(["-stream_loop", "-1", "-t"], args.Take(3));
+        Assert.Equal(12.0, double.Parse(args[3], CultureInfo.InvariantCulture), 3);
+        Assert.DoesNotContain("zoompan", result.FilterComplex);
+        Assert.Contains("scale=1920:1080:force_original_aspect_ratio=increase", result.FilterComplex);
+        Assert.Contains("crop=1920:1080", result.FilterComplex);
+        Assert.Contains("format=yuv444p[bg]", result.FilterComplex);
+    }
+
+    [Fact]
     public void Supersamples_the_background_then_composites_in_4_4_4()
     {
         // Overlay defaults to yuv420 blending, which fringes sprite edges in colour.

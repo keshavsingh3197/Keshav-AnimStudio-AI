@@ -378,7 +378,7 @@ public static class BuiltInPrompts
         new()
         {
             TemplateKey = StoryScript,
-            Version = 2,
+            Version = 3,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
@@ -420,6 +420,7 @@ public static class BuiltInPrompts
                 - "basis": "text" when a text says it, "tradition" when it is handed down, "reflection" for your own hook, moral or blessing.
                 - "sources": the citations, for scenes whose basis is "text".
                 - "imagePrompt": English. A concrete, respectful picture of the scene: who is there, where, doing what, and the light. Never ask for letters, words or logos in the picture.
+                - "videoPrompt": English, for an 8-second video clip of the same moment: the same scene in motion - what moves (a flame flickers, cloth stirs, a hand rises) and one slow camera move (a gentle push in, a slow pan). No dialogue, no letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one of devotional, joyful, solemn, epic, serene.
                 - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything.
@@ -471,6 +472,7 @@ public static class BuiltInPrompts
                                                     "note": { "type": "string", "maxLength": 240 }
                                                   } } },
                           "imagePrompt": { "type": "string", "maxLength": 800 },
+                          "videoPrompt": { "type": "string", "maxLength": 800 },
                           "imageKeywords": { "type": "array", "maxItems": 12,
                                              "items": { "type": "string", "maxLength": 40 } },
                           "mood": { "type": "string", "maxLength": 30 },

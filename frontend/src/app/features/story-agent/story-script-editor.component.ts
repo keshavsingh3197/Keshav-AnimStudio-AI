@@ -17,8 +17,11 @@ import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import {
+  CLIP_ACCEPT,
   PICTURE_ACCEPT,
   basisLabel,
+  clipPrompts,
+  clipProblem,
   checkBadge,
   clock,
   copyText,
@@ -50,6 +53,7 @@ interface DraftScene {
   basis: StoryBasis;
   sources: DraftSource[];
   imagePrompt: string;
+  videoPrompt: string;
   imageKeywords: string[];
   mood: string | null;
 }
@@ -92,6 +96,7 @@ export class StoryScriptEditorComponent {
   readonly runChange = output<StoryRun>();
 
   readonly accept = PICTURE_ACCEPT;
+  readonly clipAccept = CLIP_ACCEPT;
   readonly basisChoices: { id: StoryBasis; label: string }[] = [
     { id: 'Text', label: 'From the text' },
     { id: 'Tradition', label: 'Tradition' },
@@ -114,6 +119,7 @@ export class StoryScriptEditorComponent {
   readonly locked = computed(() => this.run().working);
   readonly vertical = computed(() => this.run().brief.format === 'Vertical');
   readonly byNumber = computed(() => new Map((this.run().script?.scenes ?? []).map((scene) => [scene.number, scene])));
+  readonly withClip = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasVideo).length);
   readonly withPicture = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasImage && scene.imageSource !== 'placeholder').length);
   readonly canAdd = computed(() => this.draft().length < MAX_SCENES);
   readonly canRemove = computed(() => this.draft().length > MIN_SCENES);
@@ -175,6 +181,7 @@ export class StoryScriptEditorComponent {
         server: source,
       })),
       imagePrompt: scene.imagePrompt ?? '',
+      videoPrompt: scene.videoPrompt ?? '',
       imageKeywords: [...scene.imageKeywords],
       mood: scene.mood,
     };
@@ -223,7 +230,7 @@ export class StoryScriptEditorComponent {
     if (!this.canAdd()) return;
     const scene: DraftScene = {
       key: ++this.nextKey, number: 0, headline: '', narration: '', english: '', basis: 'Reflection',
-      sources: [], imagePrompt: '', imageKeywords: [], mood: null,
+      sources: [], imagePrompt: '', videoPrompt: '', imageKeywords: [], mood: null,
     };
     this.draft.update((list) => [...list.slice(0, after + 1), scene, ...list.slice(after + 1)]);
     this.touch();
@@ -305,6 +312,7 @@ export class StoryScriptEditorComponent {
         .filter((source) => source.text.trim())
         .map((source) => ({ text: source.text.trim(), ref: source.ref.trim(), note: source.note.trim() || null })),
       imagePrompt: draft.imagePrompt.trim() || null,
+      videoPrompt: draft.videoPrompt.trim() || null,
       imageKeywords: draft.imageKeywords,
       mood: draft.mood,
     });
@@ -444,6 +452,97 @@ export class StoryScriptEditorComponent {
     if (files.length > 0) void this.attachMany(files);
   }
 
+  // ------------------------------------------------------------------------------------------------ moving clips
+
+  hasClip(number: number): boolean {
+    return this.byNumber().get(number)?.hasVideo ?? false;
+  }
+
+  clipName(number: number): string {
+    return this.byNumber().get(number)?.videoName ?? '';
+  }
+
+  async attachClip(scene: DraftScene, file: File | undefined): Promise<void> {
+    if (!file || scene.number === 0) return;
+    const problem = clipProblem(file);
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+
+    this.sending.set(scene.number);
+    try {
+      await this.uploadClip(scene.number, file);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That clip could not be added.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  async detachClip(scene: DraftScene): Promise<void> {
+    if (scene.number === 0) return;
+    this.sending.set(scene.number);
+    try {
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.removeVideo(this.run().id, scene.number)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That clip could not be removed.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  /** Every clip at once, matched to scenes the same way as pictures: 01.mp4 to scene 1, otherwise in file-name order. */
+  async attachManyClips(files: File[]): Promise<void> {
+    const refused = files.map(clipProblem).find((problem) => problem !== null);
+    if (refused) {
+      this.error.set(refused);
+      return;
+    }
+
+    const scenes = this.draft();
+    const { byNumber, slots } = matchPictures(files.map((file) => file.name), scenes.length);
+    const plan = files
+      .map((file, at) => ({ file, position: slots[at] }))
+      .filter((item) => item.position >= 0 && scenes[item.position].number > 0)
+      .sort((a, b) => a.position - b.position);
+
+    this.sending.set(0);
+    let added = 0;
+    try {
+      for (const item of plan) {
+        await this.uploadClip(scenes[item.position].number, item.file);
+        added++;
+      }
+      const skipped = files.length - plan.length;
+      const where = byNumber ? 'by the number in each file name' : 'in file-name order';
+      this.status.showNotice(`Added ${added} clip${added === 1 ? '' : 's'} ${where}.${skipped > 0 ? ` ${skipped} had no scene to go to, so they were left out.` : ''}`);
+    } catch (failure: unknown) {
+      this.error.set(`${failure instanceof ApiFailure ? failure.message : 'A clip could not be added.'}${added > 0 ? ` (${added} were added before it.)` : ''}`);
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  private async uploadClip(number: number, file: File): Promise<void> {
+    const updated = await this.enqueue(() => firstValueFrom(this.stories.attachVideo(this.run().id, number, file)));
+    this.runChange.emit(updated);
+  }
+
+  onPickedClip(scene: DraftScene, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    void this.attachClip(scene, input.files?.[0]);
+    input.value = '';
+  }
+
+  onPickedManyClips(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (files.length > 0) void this.attachManyClips(files);
+  }
+
   /** Fetches the pictures the server has, one at a time, as they appear. A picture that will not load is not asked for again. */
   private async loadPictures(): Promise<void> {
     if (this.loadingPictures) return;
@@ -498,6 +597,34 @@ export class StoryScriptEditorComponent {
     await this.flash('all', text, 'The picture prompts are copied, numbered. Save each picture under its number, then add them all at once.');
   }
 
+  async copyClipPrompts(): Promise<void> {
+    const run = this.run();
+    const meta = this.meta();
+    const title = meta.title || run.title;
+    const text = clipPrompts(
+      meta.titleEnglish.trim() ? `${title} (${meta.titleEnglish.trim()})` : title,
+      meta.summary,
+      this.draft().map((scene) => ({
+        headline: scene.headline, videoPrompt: scene.videoPrompt, imagePrompt: scene.imagePrompt,
+        context: this.context(scene), seconds: this.seconds(scene),
+      })),
+      run.options.imageStyle,
+      this.vertical(),
+    );
+    await this.flash('clips', text, 'The video clip prompts are copied, numbered. Save each clip under its number (01.mp4 …), then add them all at once.');
+  }
+
+  async copyClipPrompt(scene: DraftScene, index: number): Promise<void> {
+    const style = this.run().options.imageStyle?.trim();
+    const parts = [
+      scene.imagePrompt.trim() ? `Shot: ${scene.imagePrompt.trim()}` : '',
+      `Motion: ${scene.videoPrompt.trim() || 'a gentle, slow push in; light and cloth move softly'}`,
+      style ? `Look: ${style}` : '',
+      `8 seconds, ${this.vertical() ? '9:16 vertical' : '16:9 wide'}, no speech, no words or letters. Save as ${this.fileName(index)}.mp4`,
+    ];
+    await this.flash(`v${scene.key}`, parts.filter(Boolean).join('\n\n'), `Scene ${index + 1}'s clip prompt is copied.`);
+  }
+
   async copyPrompt(scene: DraftScene, index: number): Promise<void> {
     const style = this.run().options.imageStyle?.trim();
     const context = this.context(scene);
@@ -539,7 +666,7 @@ function signatureOf(script: StoryScript | null): string {
   return JSON.stringify([
     script.title, script.titleEnglish, script.summary, script.musicQuery, script.writtenBy,
     script.scenes.map((scene) => [
-      scene.number, scene.headline, scene.narration, scene.english, scene.basis, scene.imagePrompt,
+      scene.number, scene.headline, scene.narration, scene.english, scene.basis, scene.imagePrompt, scene.videoPrompt ?? null,
       scene.sources.map((source) => [source.textId, source.ref, source.note, source.check]),
     ]),
   ]);

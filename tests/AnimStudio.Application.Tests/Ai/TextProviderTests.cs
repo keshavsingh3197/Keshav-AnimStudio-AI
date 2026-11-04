@@ -255,6 +255,21 @@ public class OpenAiCompatibleTextProviderTests
         Assert.Single(handler.Requests);
     }
 
+    [Fact]
+    public async Task An_endpoint_that_refuses_the_seed_is_retried_without_it()
+    {
+        var (provider, handler, _) = Build();
+        handler.Respond(HttpStatusCode.BadRequest, """{"error":{"code":"invalid_argument"}}""");
+        handler.RespondJson(Completion("a fresh script"));
+
+        var result = await provider.CompleteAsync(Request() with { Seed = 3 }, CancellationToken.None);
+
+        Assert.Equal("a fresh script", result.Text);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Sent(0).GetProperty("seed").GetInt64());
+        Assert.False(handler.Sent(1).TryGetProperty("seed", out _));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.Unauthorized, "credential-rejected")]
     [InlineData(HttpStatusCode.Forbidden, "credential-rejected")]

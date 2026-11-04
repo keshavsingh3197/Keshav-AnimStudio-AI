@@ -46,6 +46,28 @@ public class StoryScriptParserTests
     }
 
     [Fact]
+    public void A_scene_keeps_its_video_prompt_for_a_clip_made_in_flow_or_veo()
+    {
+        const string json = """
+            { "scenes": [
+              { "narration": "एक।", "imagePrompt": "A lamp at dusk", "videoPrompt": "The flame flickers; a slow push in" },
+              { "narration": "दो।" } ] }
+            """;
+
+        var scenes = StoryScriptParser.Parse(json, StorySamples.Brief(), null, "x", StorySamples.Now, false).Script.Scenes;
+
+        Assert.Equal("The flame flickers; a slow push in", scenes[0].VideoPrompt);
+        Assert.Null(scenes[1].VideoPrompt);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p', (byte)'m', (byte)'p', (byte)'4', (byte)'2' }, true)]
+    [InlineData(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1 }, false)]
+    [InlineData(new byte[] { 0, 0, 0, 0x18, (byte)'f', (byte)'t' }, false)]
+    public void Only_an_iso_media_file_is_taken_as_a_clip(byte[] content, bool expected) =>
+        Assert.Equal(expected, StoryRunService.IsMp4(content));
+
+    [Fact]
     public void A_whole_division_is_shown_by_name_and_a_chapter_or_a_range_by_its_numbers()
     {
         const string json = """

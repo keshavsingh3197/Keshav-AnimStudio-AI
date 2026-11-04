@@ -7,9 +7,14 @@ import { ApiResponse } from '../models/api.models';
 import {
   CreateStoryRunBody,
   EditStoryScriptBody,
+  REVIEW_STEP,
+  RedoLookBody,
+  RedoMusicBody,
+  RedoNarrationBody,
   StoryAgentOptions,
   StoryBuildOptionsBody,
   StoryCaptionsSent,
+  StoryReviewStage,
   StoryRun,
   StoryRunSummary,
   StoryWriterMode,
@@ -74,6 +79,16 @@ export class StoryAgentService {
     return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/image`));
   }
 
+  attachVideo(id: string, scene: number, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/video`, form));
+  }
+
+  removeVideo(id: string, scene: number): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/video`));
+  }
+
   /** Fetched through HttpClient, not an <img src>, so the request carries the same identity as every other call. */
   sceneImage(id: string, scene: number): Observable<Blob> {
     return this.http.get(`${this.run(id)}/scenes/${scene}/image`, { responseType: 'blob' });
@@ -100,6 +115,40 @@ export class StoryAgentService {
   /** Approves the script and starts making the video. Options sent here replace the ones the story started with. */
   build(id: string, options?: StoryBuildOptionsBody): Observable<StoryRun> {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/build`, options ?? {}));
+  }
+
+  /** "This is good, go on": approves the step the build is waiting on. The music's level can come with it. */
+  approveReview(id: string, stage: StoryReviewStage, musicVolume?: number): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/review/${REVIEW_STEP[stage]}/approve`,
+      musicVolume === undefined ? {} : { musicVolume }));
+  }
+
+  redoNarration(id: string, body: RedoNarrationBody): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/narration/redo`, body));
+  }
+
+  redoMusic(id: string, body: RedoMusicBody): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/music/redo`, body));
+  }
+
+  /** The person's own track (MP3 or WAV), made in Google's music tool from the brief shown, say. */
+  attachMusic(id: string, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/music`, form));
+  }
+
+  redoLook(id: string, body: RedoLookBody): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/look/redo`, body));
+  }
+
+  /** A scene's narration, through HttpClient like a picture, so it carries the caller's identity. */
+  sceneAudio(id: string, scene: number): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/scenes/${scene}/audio`, { responseType: 'blob' });
+  }
+
+  musicFile(id: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/music`, { responseType: 'blob' });
   }
 
   retry(id: string): Observable<StoryRun> {

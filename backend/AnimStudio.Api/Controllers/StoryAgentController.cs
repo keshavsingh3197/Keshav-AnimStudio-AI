@@ -36,6 +36,8 @@ public sealed class StoryAgentController(
     StoryCaptionPublisher captions) : ControllerBase
 {
     private const long MaxImageRequestBytes = VisualsStage.MaxImageBytes + 64 * 1024;
+    private const long MaxVideoRequestBytes = StoryRunService.MaxVideoBytes + 64 * 1024;
+    private const long MaxMusicRequestBytes = StoryRunService.MaxMusicBytes + 64 * 1024;
 
     // Bodies are refused by size before they are read. A non-ASCII character can arrive as a six-byte \uXXXX escape,
     // so the biggest bodies are bounded at six bytes for every character the service would accept.
@@ -161,6 +163,33 @@ public sealed class StoryAgentController(
     public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RemoveImage(string id, int number, CancellationToken ct) =>
         await DetailAsync(await stories.RemoveImageAsync(currentUser.UserId, id, number, ct), ct);
 
+    /// <summary>Multipart: <c>file</c> is an MP4 clip (from Google Flow, Veo or a phone), played in place of the scene's picture.</summary>
+    [HttpPut("runs/{id}/scenes/{number:int}/video")]
+    [RequestSizeLimit(MaxVideoRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxVideoRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> AttachVideo(
+        string id, int number, IFormFile? file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "video-required", "Choose a clip for the scene.", "file");
+        if (file.Length > StoryRunService.MaxVideoBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "video-too-large", $"A clip can be at most {StoryRunService.MaxVideoBytes / 1024 / 1024} MB.", "file");
+
+        byte[] bytes;
+        await using (var input = file.OpenReadStream())
+        using (var buffer = new MemoryStream())
+        {
+            await input.CopyToAsync(buffer, ct);
+            bytes = buffer.ToArray();
+        }
+
+        return await DetailAsync(await stories.AttachVideoAsync(currentUser.UserId, id, number, bytes, file.FileName, ct), ct);
+    }
+
+    [HttpDelete("runs/{id}/scenes/{number:int}/video")]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RemoveVideo(string id, int number, CancellationToken ct) =>
+        await DetailAsync(await stories.RemoveVideoAsync(currentUser.UserId, id, number, ct), ct);
+
     /// <summary>
     /// A scene's picture, for the page to show. It is read through the run - not by a key the caller names - so only the
     /// run's own owner gets it, and only a file that belongs to the run.
@@ -200,6 +229,79 @@ public sealed class StoryAgentController(
     [HttpPost("runs/{id}/cancel")]
     public async Task<ActionResult<ApiResponse<StoryRunResponse>>> Cancel(string id, CancellationToken ct) =>
         await DetailAsync(await stories.CancelAsync(currentUser.UserId, id, ct), ct);
+
+    // ------------------------------------------------------------------------------------------------ reviewing what was made
+
+    /// <summary>
+    /// "This is good, go on": approves the step the build is waiting on - <c>voice</c>, <c>music</c> or <c>video</c> - and
+    /// lets the build carry on from it.
+    /// </summary>
+    [HttpPost("runs/{id}/review/{step}/approve")]
+    [RequestSizeLimit(MaxSmallRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> ApproveReview(
+        string id, string step, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ApproveStoryReviewRequest? request,
+        CancellationToken ct) =>
+        await DetailAsync(await stories.ApproveReviewAsync(currentUser.UserId, id, ReviewStage(step), ct, request?.MusicVolume), ct);
+
+    /// <summary>Makes the narration again: chosen scenes as new takes, or all of it in a changed voice, delivery or speed.</summary>
+    [HttpPost("runs/{id}/narration/redo")]
+    [RequestSizeLimit(MaxSmallRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RedoNarration(
+        string id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RedoStoryNarrationRequest? request, CancellationToken ct) =>
+        await DetailAsync(await stories.RedoNarrationAsync(currentUser.UserId, id, (request ?? new()).ToRedo(), ct), ct);
+
+    /// <summary>Makes the music again from a new brief, style or source, or takes it away.</summary>
+    [HttpPost("runs/{id}/music/redo")]
+    [RequestSizeLimit(MaxBriefRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RedoMusic(
+        string id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RedoStoryMusicRequest? request, CancellationToken ct) =>
+        await DetailAsync(await stories.RedoMusicAsync(currentUser.UserId, id, (request ?? new()).ToRedo(), ct), ct);
+
+    /// <summary>Multipart: <c>file</c> is an MP3 or WAV the person made or chose. What it is is decided from its bytes.</summary>
+    [HttpPut("runs/{id}/music")]
+    [RequestSizeLimit(MaxMusicRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxMusicRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> AttachMusic(string id, IFormFile? file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "music-required", "Choose a music file.", "file");
+        if (file.Length > StoryRunService.MaxMusicBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "music-too-large", $"A music file can be at most {StoryRunService.MaxMusicBytes / 1024 / 1024} MB.", "file");
+
+        byte[] bytes;
+        await using (var input = file.OpenReadStream())
+        using (var buffer = new MemoryStream())
+        {
+            await input.CopyToAsync(buffer, ct);
+            bytes = buffer.ToArray();
+        }
+
+        return await DetailAsync(await stories.AttachMusicAsync(currentUser.UserId, id, bytes, file.FileName, ct), ct);
+    }
+
+    /// <summary>Builds the video again with a new automatic look, another style, or effects and transitions set by hand.</summary>
+    [HttpPost("runs/{id}/look/redo")]
+    [RequestSizeLimit(MaxBriefRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RedoLook(
+        string id, [FromBody] RedoStoryLookRequest request, CancellationToken ct) =>
+        await DetailAsync(await stories.RedoLookAsync(currentUser.UserId, id, request.ToRedo(), ct), ct);
+
+    /// <summary>A scene's narration, to listen to before approving it. Read through the run, like a scene's picture.</summary>
+    [HttpGet("runs/{id}/scenes/{number:int}/audio")]
+    public async Task<IActionResult> Narration(string id, int number, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        var key = run.Script?.Scenes.FirstOrDefault(s => s.Number == number)?.AudioKey;
+        return await OwnedFileAsync(run, key, "audio-not-found", "That scene has no narration yet.", ct);
+    }
+
+    /// <summary>The background track, to listen to before approving it.</summary>
+    [HttpGet("runs/{id}/music")]
+    public async Task<IActionResult> Music(string id, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        return await OwnedFileAsync(run, run.Music?.StorageKey, "music-not-found", "This story has no music yet.", ct);
+    }
 
     /// <summary>Deletes the run and the files it made. The project and render it produced are the person's, and stay.</summary>
     [HttpDelete("runs/{id}")]
@@ -316,12 +418,37 @@ public sealed class StoryAgentController(
         return ownProject ? response : response with { ProjectId = null };
     }
 
-    /// <summary>The kind of a stored picture, from the extension the server itself gave the key when it saved the file.</summary>
+    /// <summary>The kind of a stored file, from the extension the server itself gave the key when it saved the file.</summary>
     private static string ContentTypeOf(string key) => Path.GetExtension(key).ToLowerInvariant() switch
     {
         ".png" => "image/png",
         ".jpg" or ".jpeg" => "image/jpeg",
         ".webp" => "image/webp",
+        ".wav" => "audio/wav",
+        ".mp3" => "audio/mpeg",
         _ => "application/octet-stream"
     };
+
+    /// <summary>The step a review URL names; anything else is refused before the service sees it.</summary>
+    private static string ReviewStage(string step) => step switch
+    {
+        "voice" => StoryStageIds.Narration,
+        "music" => StoryStageIds.Music,
+        "video" => StoryStageIds.Render,
+        _ => throw new StoryRunException(StoryRunErrorKind.NotFound, "review-not-found", "There is no such step to approve.")
+    };
+
+    /// <summary>A file the run's document points at, served only when the key is the run's own; never kept by the browser.</summary>
+    private async Task<IActionResult> OwnedFileAsync(StoryRun run, string? key, string code, string message, CancellationToken ct)
+    {
+        if (!StoryObjectKeys.Owns(run.Id, key))
+            throw new StoryRunException(StoryRunErrorKind.NotFound, code, message);
+
+        var stream = await store.OpenAsync(key!, ct)
+            ?? throw new StoryRunException(StoryRunErrorKind.NotFound, code, message);
+
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(stream, ContentTypeOf(key!));
+    }
 }

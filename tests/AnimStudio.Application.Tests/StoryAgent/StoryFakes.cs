@@ -171,7 +171,7 @@ internal sealed class FakePrompts : IPromptLibrary
 }
 
 /// <summary>Reports which capabilities exist; the providers behind them do nothing.</summary>
-internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0) : IAiProviderRegistry
+internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0, IReadOnlyList<ISpeechAiProvider>? extraSpeech = null) : IAiProviderRegistry
 {
     public IReadOnlyList<ITextAiProvider> TextChain() => [.. Enumerable.Range(0, text).Select(i => new ScriptedTextProvider($"stub-text-{i}", _ => string.Empty))];
 
@@ -179,7 +179,8 @@ internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0) 
 
     public IReadOnlyList<IImageAiProvider> ImageChain() => [.. Enumerable.Range(0, image).Select(i => new ScriptedImageProvider($"stub-image-{i}", []))];
 
-    public IReadOnlyList<ISpeechAiProvider> SpeechChain() => [.. Enumerable.Range(0, speech).Select(i => (ISpeechAiProvider)new StubSpeech($"stub-speech-{i}"))];
+    public IReadOnlyList<ISpeechAiProvider> SpeechChain() =>
+        [.. Enumerable.Range(0, speech).Select(i => (ISpeechAiProvider)new StubSpeech($"stub-speech-{i}")), .. extraSpeech ?? []];
 
     public IReadOnlyList<ITranscriptionProvider> TranscriptionChain() => [];
 
@@ -287,7 +288,9 @@ internal sealed class InMemoryVoices : IVoiceProfileRepository
 internal static class StoryTestData
 {
     /// <summary>A run with its stages and a script, in the given status, owned by <paramref name="userId"/>.</summary>
-    public static StoryRun Run(StoryRunStatus status = StoryRunStatus.Researching, string userId = "user-1", bool withScript = false)
+    /// <param name="reviewsApproved">The voice, music and video were already approved, so a build runs straight through.</param>
+    public static StoryRun Run(StoryRunStatus status = StoryRunStatus.Researching, string userId = "user-1", bool withScript = false,
+        bool reviewsApproved = false)
     {
         var run = new StoryRun
         {
@@ -307,6 +310,11 @@ internal static class StoryTestData
             run.Research = StorySamples.Research();
             run.Script = StoryScriptParser.Parse(StorySamples.ReplyJson, run.Brief, run.Research, "test", StorySamples.Now, tolerant: false).Script;
             foreach (var id in StoryStageIds.Planning) run.Stage(id).Status = StoryStageStatus.Completed;
+        }
+
+        if (reviewsApproved)
+        {
+            foreach (var id in StoryStageIds.Reviewed) run.SetApproval(id, StorySamples.Now);
         }
 
         return run;

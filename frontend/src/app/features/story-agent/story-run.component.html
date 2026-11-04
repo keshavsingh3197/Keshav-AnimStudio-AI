@@ -21,6 +21,7 @@
         <p class="muted sr-sub">
           <span class="pill" [class]="tone(r.status)">{{ statusLabel[r.status] }}</span>
           @if (approved() && !r.working && r.status === 'ScriptReady') { <span class="pill ok">Script approved</span> }
+          @if (r.status === 'AwaitingReview' && r.review) { <span class="pill warn">{{ reviewLabel[r.review] }}</span> }
           @if (r.publications.length > 0) {
             @let latest = videoState(r.publications[0]);
             <span class="pill" [class]="latest.tone">▶ {{ latest.label }}</span>
@@ -320,7 +321,8 @@
           <section class="card sr-build" aria-labelledby="sr-build-title">
             <h3 id="sr-build-title">{{ r.status === 'Completed' ? 'Make it again' : 'Make the video' }}</h3>
             <p class="muted">
-              Pictures, narration, music, the project and the render happen one after another. You can leave this page; the story keeps
+              Pictures, narration, music, the project and the render happen one after another. The build stops after the voice, the
+              music and the render for you to listen or watch, and approve or ask again. You can leave this page; the story keeps
               being made, and it stays on your storyboard.
             </p>
             @if (!approved()) {
@@ -340,6 +342,16 @@
         } @else if (r.working) {
           <div class="card empty sr-center sr-wait">
             <span class="spinner" role="status" aria-label="Working"></span> The video is being made. Follow it on the Overview tab.
+          </div>
+        }
+      }
+
+      <!-- ================================================================== the voice and the music -->
+      @if (selected() === 'review') {
+        <app-story-review [run]="r" [caps]="caps()" part="sound" (runChange)="take($event)" />
+        @if (r.working) {
+          <div class="card empty sr-center sr-wait">
+            <span class="spinner" role="status" aria-label="Working"></span> Being made. What is ready to listen to appears here.
           </div>
         }
       }
@@ -403,6 +415,11 @@
             }
           </div>
         </section>
+
+        <!-- The look of the video: approve it, or ask for it again -->
+        @if (r.script && (r.review === 'render' || r.render?.downloadable)) {
+          <app-story-review [run]="r" [caps]="caps()" part="look" (runChange)="take($event)" />
+        }
 
         <!-- YouTube -->
         <section class="card sr-yt" aria-labelledby="sr-yt-title">

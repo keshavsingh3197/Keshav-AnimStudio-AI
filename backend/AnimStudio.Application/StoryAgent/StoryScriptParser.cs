@@ -177,6 +177,7 @@ public static class StoryScriptParser
             scene.Headline = AiOutputSanitizer.ToSafeLine(scene.Headline, 160) ?? Derive(scene.Narration);
             scene.English = AiOutputSanitizer.ToSafeLine(scene.English, 1600);
             scene.ImagePrompt = AiOutputSanitizer.ToSafeLine(scene.ImagePrompt, 800);
+            scene.VideoPrompt = AiOutputSanitizer.ToSafeLine(scene.VideoPrompt, 800);
             scene.Mood = AiOutputSanitizer.ToSafeLine(scene.Mood, 30)?.ToLowerInvariant();
             scene.ImageKeywords = [.. scene.ImageKeywords
                 .Select(k => AiOutputSanitizer.ToSafeLine(k, 40)).OfType<string>().Take(8)];
@@ -319,6 +320,7 @@ public static class StoryScriptParser
             Headline = AiOutputSanitizer.ToSafeLine(Text(element, "headline"), 160) ?? string.Empty,
             English = AiOutputSanitizer.ToSafeLine(Text(element, "english"), 1600),
             ImagePrompt = AiOutputSanitizer.ToSafeLine(Text(element, "imagePrompt"), 800),
+            VideoPrompt = AiOutputSanitizer.ToSafeLine(Text(element, "videoPrompt"), 800),
             Mood = AiOutputSanitizer.ToSafeLine(Text(element, "mood"), 30)
         };
 

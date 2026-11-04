@@ -294,6 +294,46 @@ public class GeminiSpeechProviderTests
     }
 
     [Fact]
+    public async Task Composing_music_posts_an_interaction_and_returns_the_mp3_from_its_steps()
+    {
+        var (provider, handler) = Build();
+        var mp3 = AnimStudio.Application.Tests.StoryAgent.FakeMusic.Mp3Bytes();
+        handler.RespondJson($$"""
+            { "id": "i1", "steps": [
+                { "type": "model_output", "content": [
+                    { "type": "text", "text": "[Intro] ..." },
+                    { "type": "audio", "mime_type": "audio/mpeg", "data": "{{Convert.ToBase64String(mp3)}}" } ] } ] }
+            """);
+
+        var music = await provider.GenerateMusicAsync("Instrumental sitar, no vocals.", null, CancellationToken.None);
+
+        Assert.Equal(mp3, music.Content);
+        Assert.Equal(AiAudioValidator.Mp3, music.MimeType);
+        Assert.Equal("lyria-3.5", music.Model);
+        var request = handler.Requests[0];
+        Assert.Equal(BaseUrl + "interactions", request.RequestUri!.ToString());
+        Assert.Equal("2026-05-20", request.Headers.GetValues("Api-Revision").Single());
+        var sent = handler.Sent();
+        Assert.Equal("lyria-3.5", sent.GetProperty("model").GetString());
+        Assert.Equal("Instrumental sitar, no vocals.", sent.GetProperty("input").GetString());
+    }
+
+    [Fact]
+    public async Task Music_that_is_missing_or_not_audio_is_refused()
+    {
+        var (provider, handler) = Build();
+        handler.RespondJson("""{ "steps": [ { "type": "model_output", "content": [ { "type": "text", "text": "x" } ] } ] }""");
+
+        var ex = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.GenerateMusicAsync("Instrumental.", "lyria-3-clip-preview", CancellationToken.None));
+        Assert.Equal("empty-response", ex.Code);
+
+        var bad = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.GenerateMusicAsync("Instrumental.", "../evil", CancellationToken.None));
+        Assert.Equal("bad-request", bad.Code);
+    }
+
+    [Fact]
     public async Task Replicating_a_voice_posts_the_sample_and_the_consent_and_returns_the_id()
     {
         var (provider, handler) = Build();

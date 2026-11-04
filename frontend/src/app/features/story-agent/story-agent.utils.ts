@@ -2,6 +2,7 @@ import {
   CitationStatus,
   StoryBasis,
   StoryPublication,
+  StoryReviewStage,
   StoryRunStatus,
   StoryScene,
   StorySource,
@@ -16,10 +17,10 @@ export const STAGE_INFO: Record<StoryStageId, { label: string; hint: string }> =
   research: { label: 'Search the Granths', hint: 'Finds the chapters the story comes from' },
   script: { label: 'Write the script', hint: 'Grounded in what was found, every source checked' },
   visuals: { label: 'Pictures', hint: 'Yours, AI-made, or a plain background' },
-  narration: { label: 'Narration', hint: 'The voice, line by line' },
-  music: { label: 'Music', hint: 'A soft Creative Commons track, credited' },
-  assemble: { label: 'Build the project', hint: 'Scenes, subtitles and sound in one project' },
-  render: { label: 'Render the video', hint: 'The finished MP4' },
+  narration: { label: 'Narration', hint: 'The voice, line by line; you listen and approve it' },
+  music: { label: 'Music', hint: 'Composed for the story, or a credited track; you listen and approve it' },
+  assemble: { label: 'Build the project', hint: 'Scenes, effects, transitions, subtitles and sound in one project' },
+  render: { label: 'Render the video', hint: 'The finished MP4; you watch and approve it' },
   kit: { label: 'YouTube details', hint: 'Title, description, tags, chapters' },
 };
 
@@ -32,6 +33,14 @@ export const STATUS_LABEL: Record<StoryRunStatus, string> = {
   Completed: 'Done',
   Failed: 'Stopped with a problem',
   Cancelled: 'Stopped',
+  AwaitingReview: 'Waiting for your review',
+};
+
+/** What a review step is waiting for, in the person's words. */
+export const REVIEW_LABEL: Record<StoryReviewStage, string> = {
+  narration: 'Listen to the voice',
+  music: 'Listen to the music',
+  render: 'Watch the video',
 };
 
 export function statusTone(status: StoryRunStatus): Tone {
@@ -40,6 +49,7 @@ export function statusTone(status: StoryRunStatus): Tone {
     case 'Failed': return 'err';
     case 'Cancelled': return 'warn';
     case 'ScriptReady':
+    case 'AwaitingReview':
     case 'AwaitingScript': return 'warn';
     default: return 'brand';
   }
@@ -223,6 +233,66 @@ export function pictureProblem(file: File): string | null {
     return `"${file.name}" is over ${PICTURE_MAX_BYTES / 1024 / 1024} MB. Export it smaller.`;
   }
   return null;
+}
+
+/** What the clip upload accepts: MP4, which Google Flow, Veo and phones save (`StoryRunService.MaxVideoBytes`). */
+export const CLIP_ACCEPT = 'video/mp4,.mp4';
+export const CLIP_MAX_BYTES = 100 * 1024 * 1024;
+/** How long one generated clip is (Veo and Flow make 8 seconds); a longer scene loops it. */
+export const CLIP_SECONDS = 8;
+
+/** Why a file cannot be used as a scene's moving clip, or null when it can. */
+export function clipProblem(file: File): string | null {
+  if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name)) return `"${file.name}" is not an MP4 video.`;
+  if (file.size > CLIP_MAX_BYTES) return `"${file.name}" is over ${CLIP_MAX_BYTES / 1024 / 1024} MB. Export it smaller.`;
+  return null;
+}
+
+/** What a video prompt is sent with, scene by scene. */
+export interface ClipPromptScene {
+  headline: string;
+  videoPrompt: string | null;
+  /** The picture prompt, which says what is in the shot when the video prompt only says how it moves. */
+  imagePrompt: string | null;
+  context: string | null;
+  seconds: number;
+}
+
+/**
+ * The clip prompts for pasting into a video tool (Google Flow or Veo), numbered like the pictures. Each clip is
+ * {@link CLIP_SECONDS} seconds; a scene longer than that loops its clip, so the prompt asks for a shot that loops
+ * gently, and says when a scene is long enough to be worth a second clip instead.
+ */
+export function clipPrompts(
+  title: string,
+  summary: string | null,
+  scenes: readonly ClipPromptScene[],
+  style: string | null,
+  vertical: boolean,
+): string {
+  const shot = scenes.filter((scene) => scene.videoPrompt?.trim() || scene.imagePrompt?.trim());
+  const lines = [`Video clip prompts for "${title}" - ${shot.length} clips of ${CLIP_SECONDS} seconds, ${vertical ? '9:16 vertical (portrait)' : '16:9 wide (landscape)'}`];
+  if (summary?.trim()) lines.push(`The story: ${summary.trim()}`);
+  if (style?.trim()) lines.push(`Look of every clip: ${style.trim()}`);
+  lines.push(
+    'Keep each character looking the same in every clip. Slow, calm motion; no speech, no music, no words, letters or watermarks.',
+    'Tip: in Google Flow, start each clip from that scene\'s picture (Frames to Video) so the clips match the pictures.',
+    'Save each clip with its number as the file name (01.mp4, 02.mp4 …) so they go onto the right scenes by themselves.',
+    '',
+  );
+  scenes.forEach((scene, index) => {
+    const motion = scene.videoPrompt?.trim();
+    const picture = scene.imagePrompt?.trim();
+    if (!motion && !picture) return;
+    const file = pictureFileName(index, scenes.length);
+    const loops = scene.seconds > CLIP_SECONDS + 1 ? ` - the scene runs ${Math.round(scene.seconds)}s, so the clip loops; make it calm` : '';
+    lines.push(`${file} - file name: ${file}.mp4${scene.headline ? ` - ${scene.headline}` : ''}${loops}`);
+    const context = scene.context?.replace(/\s+/g, ' ').trim();
+    if (context) lines.push(`What happens: ${context.length > CONTEXT_CHARS ? `${context.slice(0, CONTEXT_CHARS - 1).trimEnd()}…` : context}`);
+    if (picture) lines.push(`Shot: ${picture}`);
+    lines.push(`Motion: ${motion || 'a gentle, slow push in; light and cloth move softly'}`, '');
+  });
+  return lines.join('\n').trimEnd();
 }
 
 /** The longest reply the server reads (`StoryRunService.MaxScriptReplyChars`). */

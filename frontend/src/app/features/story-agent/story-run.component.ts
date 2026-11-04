@@ -22,8 +22,10 @@ import { StoryAgentService } from '../../core/services/story-agent.service';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 import { StoryKitComponent } from './story-kit.component';
 import { StoryOptionsComponent } from './story-options.component';
+import { StoryReviewComponent } from './story-review.component';
 import { StoryScriptEditorComponent } from './story-script-editor.component';
 import {
+  REVIEW_LABEL,
   STAGE_INFO,
   STATUS_LABEL,
   clock,
@@ -46,13 +48,14 @@ const RETRY_MAX_MS = 10_000;
 type Action = 'cancel' | 'retry' | 'delete' | 'build' | 'rewrite' | 'paste' | 'approve';
 
 /** The story page's tabs, in the order a story goes through them. */
-export type StoryTab = 'overview' | 'script' | 'pictures' | 'build' | 'publish';
+export type StoryTab = 'overview' | 'script' | 'pictures' | 'build' | 'review' | 'publish';
 
 const TABS: { id: StoryTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'script', label: 'Script' },
   { id: 'pictures', label: 'Pictures' },
   { id: 'build', label: 'Build' },
+  { id: 'review', label: 'Voice & music' },
   { id: 'publish', label: 'Video & YouTube' },
 ];
 
@@ -70,7 +73,10 @@ type TabState = 'done' | 'now' | 'locked' | 'todo';
  */
 @Component({
   selector: 'app-story-run',
-  imports: [RouterLink, FormsModule, DecimalPipe, StoryScriptEditorComponent, StoryOptionsComponent, StoryKitComponent, YouTubePublishDialogComponent],
+  imports: [
+    RouterLink, FormsModule, DecimalPipe, StoryScriptEditorComponent, StoryOptionsComponent, StoryKitComponent, StoryReviewComponent,
+    YouTubePublishDialogComponent,
+  ],
   templateUrl: './story-run.component.html',
   styleUrls: ['./story-run.component.css'],
 })
@@ -126,6 +132,7 @@ export class StoryRunComponent {
 
   readonly info = STAGE_INFO;
   readonly statusLabel = STATUS_LABEL;
+  readonly reviewLabel = REVIEW_LABEL;
   readonly mark = stageMark;
   readonly tone = statusTone;
   readonly ago = timeAgo;
@@ -155,19 +162,25 @@ export class StoryRunComponent {
     const run = this.run();
     if (!run) return [];
     const hasScript = !!run.script;
+    const waiting = run.status === 'AwaitingReview' ? run.review ?? null : null;
     const states: Record<StoryTab, TabState> = {
       overview: run.working || run.status === 'Failed' ? 'now' : 'todo',
       script: run.scriptApprovedAtUtc ? 'done' : run.status === 'AwaitingScript' || run.status === 'ScriptReady' ? 'now' : 'todo',
       pictures: !hasScript ? 'locked' : this.pictured() === this.sceneCount() ? 'done' : run.scriptApprovedAtUtc && run.status === 'ScriptReady' ? 'now' : 'todo',
       build: !hasScript || run.status === 'AwaitingScript' ? 'locked' : run.status === 'Completed' ? 'done' : run.status === 'Building' ? 'now' : 'todo',
-      publish: !run.projectId && !run.render ? 'locked' : run.publications.length > 0 ? 'done' : run.status === 'Completed' ? 'now' : 'todo',
+      review: !this.soundStarted(run) ? 'locked'
+        : waiting === 'narration' || waiting === 'music' ? 'now'
+        : run.voiceApprovedAtUtc && (run.musicApprovedAtUtc || !run.options.music) ? 'done' : 'todo',
+      publish: !run.projectId && !run.render ? 'locked' : run.publications.length > 0 ? 'done'
+        : run.status === 'Completed' || waiting === 'render' ? 'now' : 'todo',
     };
     const notes: Record<StoryTab, string> = {
       overview: run.working ? `${this.overall(run)}%` : '',
       script: run.scriptApprovedAtUtc ? 'Approved' : hasScript ? 'To approve' : '',
       pictures: hasScript ? `${this.pictured()}/${this.sceneCount()}` : '',
       build: run.status === 'Building' ? 'Making' : '',
-      publish: run.publications.length > 0 ? `${run.publications.length} on YouTube` : '',
+      review: waiting === 'narration' || waiting === 'music' ? 'Listen' : '',
+      publish: waiting === 'render' ? 'Watch' : run.publications.length > 0 ? `${run.publications.length} on YouTube` : '',
     };
     return TABS.map((tab, index) => ({ ...tab, step: index, state: states[tab.id], note: notes[tab.id] }));
   });
@@ -182,6 +195,12 @@ export class StoryRunComponent {
         return run.scriptApprovedAtUtc
           ? { text: 'The script is approved. Add your pictures, or leave them to the AI, then build the video.', tab: 'pictures', action: 'Add the pictures' }
           : { text: 'The script is written. Read it, fix anything, and approve it to move on.', tab: 'script', action: 'Read and approve' };
+      case 'AwaitingReview':
+        switch (run.review) {
+          case 'narration': return { text: 'The voice is ready. Listen to each scene, then approve it or ask for any scene again.', tab: 'review', action: 'Listen to the voice' };
+          case 'music': return { text: 'The music is ready. Listen to it with the voice, then approve it, ask for another, or add your own.', tab: 'review', action: 'Listen to the music' };
+          default: return { text: 'The video is rendered. Watch it, then approve it or ask for a new look.', tab: 'publish', action: 'Watch the video' };
+        }
       case 'Completed':
         return run.publications.length > 0
           ? { text: 'The video is on YouTube. Check its subtitles and details there.', tab: 'publish', action: 'See it' }
@@ -289,7 +308,10 @@ export class StoryRunComponent {
       const asked = TABS.find((tab) => tab.id === this.tab())?.id;
       this.selected.set(asked && this.tabs().find((tab) => tab.id === asked)?.state !== 'locked' ? asked : this.defaultTab(run));
     } else if (before.status !== run.status) {
-      if (run.status === 'Building' || run.status === 'Failed') this.go('overview');
+      if (run.status === 'Failed') this.go('overview');
+      // A redo asked for from a review tab is followed there; a build started elsewhere is followed on the overview.
+      else if (run.status === 'Building' && this.selected() !== 'review' && this.selected() !== 'publish') this.go('overview');
+      else if (run.status === 'AwaitingReview') this.go(run.review === 'render' ? 'publish' : 'review');
       else if (run.status === 'Completed' && before.status === 'Building') this.go('publish');
       else if (run.status === 'ScriptReady' || run.status === 'AwaitingScript') this.go('script');
     }
@@ -297,6 +319,7 @@ export class StoryRunComponent {
     if (run.status === 'AwaitingScript' && this.prompt() === null && this.promptError() === null && this.promptFor !== run.id) this.loadPrompt(run.id);
     if (run.status !== 'AwaitingScript') this.promptError.set(null);
     if (before?.status === 'Building' && run.status === 'Completed') this.status.showNotice(`"${run.title}" is ready.`);
+    if (before?.status === 'Building' && run.status === 'AwaitingReview' && run.review) this.status.showNotice(`${REVIEW_LABEL[run.review]}: it is ready for you.`);
     this.schedule();
   }
 
@@ -304,6 +327,7 @@ export class StoryRunComponent {
     switch (run.status) {
       case 'AwaitingScript': return 'script';
       case 'ScriptReady': return run.scriptApprovedAtUtc ? 'pictures' : 'script';
+      case 'AwaitingReview': return run.review === 'render' ? 'publish' : 'review';
       case 'Completed': return 'publish';
       default: return 'overview';
     }
@@ -591,6 +615,11 @@ export class StoryRunComponent {
   localUrl(jobId: string): string | null {
     const local = this.localVideo();
     return local && local.jobId === jobId ? local.url : null;
+  }
+
+  /** The narration step has begun at least once, so there is (or soon will be) something to listen to. */
+  private soundStarted(run: StoryRun): boolean {
+    return run.stages.some((s) => (s.id === 'narration' || s.id === 'music') && s.status !== 'Pending') || !!run.music;
   }
 
   /** A progress figure for the whole story, as the list shows it. */

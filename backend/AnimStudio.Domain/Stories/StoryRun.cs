@@ -20,7 +20,13 @@ public enum StoryRunStatus
 
     Completed = 5,
     Failed = 6,
-    Cancelled = 7
+    Cancelled = 7,
+
+    /// <summary>
+    /// The build stopped for the person to check what a step made - the voice, the music or the video - before it goes on.
+    /// <see cref="StoryRun.Review"/> says which.
+    /// </summary>
+    AwaitingReview = 8
 }
 
 public enum StoryStageStatus { Pending = 0, Running = 1, Completed = 2, Skipped = 3, Failed = 4 }
@@ -45,6 +51,9 @@ public static class StoryStageIds
 
     /// <summary>The stages that run after the user presses Build.</summary>
     public static readonly IReadOnlyList<string> Building = [Visuals, Narration, Music, Assemble, Render, Kit];
+
+    /// <summary>The stages whose result the person hears or watches and approves before the build goes on.</summary>
+    public static readonly IReadOnlyList<string> Reviewed = [Narration, Music, Render];
 }
 
 /// <summary>One stage of a run: what it is doing, how far it has got, and why it stopped if it did.</summary>
@@ -99,6 +108,24 @@ public sealed class StoryRun
     /// </summary>
     public DateTime? ScriptApprovedAtUtc { get; set; }
 
+    /// <summary>While <see cref="Status"/> is <see cref="StoryRunStatus.AwaitingReview"/>: the stage waiting to be approved.</summary>
+    public string? Review { get; set; }
+
+    /// <summary>When the person approved the voice. Remaking any of it takes the approval back.</summary>
+    public DateTime? VoiceApprovedAtUtc { get; set; }
+
+    /// <summary>When the person approved the background music (or having none).</summary>
+    public DateTime? MusicApprovedAtUtc { get; set; }
+
+    /// <summary>When the person approved the rendered video, its effects and transitions.</summary>
+    public DateTime? VideoApprovedAtUtc { get; set; }
+
+    /// <summary>How many times the music was asked for again, so a new take is asked for a different arrangement.</summary>
+    public int MusicTake { get; set; }
+
+    /// <summary>How many times a new look was asked for; varies the effects and transitions chosen automatically.</summary>
+    public int LookTake { get; set; }
+
     /// <summary>The subtitle tracks sent to YouTube, so the same language is not added to the same video twice.</summary>
     public List<StoryCaptionUpload> CaptionUploads { get; set; } = [];
 
@@ -144,6 +171,25 @@ public sealed class StoryRun
     /// <summary>True while a worker is researching, writing or building for this run.</summary>
     public bool IsWorking => Array.IndexOf(WorkingStatuses, Status) >= 0;
 
+    /// <summary>When the result of a reviewed stage was approved; null when it was not, or the stage is not reviewed.</summary>
+    public DateTime? ApprovedAt(string stageId) => stageId switch
+    {
+        StoryStageIds.Narration => VoiceApprovedAtUtc,
+        StoryStageIds.Music => MusicApprovedAtUtc,
+        StoryStageIds.Render => VideoApprovedAtUtc,
+        _ => null
+    };
+
+    public void SetApproval(string stageId, DateTime? at)
+    {
+        switch (stageId)
+        {
+            case StoryStageIds.Narration: VoiceApprovedAtUtc = at; break;
+            case StoryStageIds.Music: MusicApprovedAtUtc = at; break;
+            case StoryStageIds.Render: VideoApprovedAtUtc = at; break;
+        }
+    }
+
     public StoryStageState Stage(string id) =>
         Stages.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))
         ?? throw new InvalidOperationException($"The run has no '{id}' stage.");
@@ -183,6 +229,15 @@ public sealed class StoryMusicPick
 
     public string Attribution { get; set; } = string.Empty;
 
-    /// <summary>Object-store key of the downloaded MP3 under the run's folder.</summary>
+    /// <summary>Object-store key of the track (MP3, or WAV for a composed or uploaded one) under the run's folder.</summary>
     public string StorageKey { get; set; } = string.Empty;
+
+    /// <summary><c>audio/mpeg</c> or <c>audio/wav</c>.</summary>
+    public string ContentType { get; set; } = "audio/mpeg";
+
+    /// <summary>For a composed track: the brief the composer was given, so the person can read it, change it and ask again.</summary>
+    public string? Prompt { get; set; }
+
+    /// <summary>For a composed track: the length it was asked for, in seconds.</summary>
+    public int? Seconds { get; set; }
 }

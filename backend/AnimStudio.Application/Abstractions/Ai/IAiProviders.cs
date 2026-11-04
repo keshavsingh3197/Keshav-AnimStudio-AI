@@ -93,6 +93,21 @@ public interface IVoiceReplicatingSpeechProvider : ISpeechAiProvider
     Task DeleteReplicatedVoiceAsync(string voiceId, CancellationToken ct);
 }
 
+/// <summary>
+/// A hosted engine on the same Google key that also composes music from a description (Lyria), so a story's background
+/// track is made for it rather than searched for.
+/// </summary>
+public interface IMusicGeneratingProvider : IAiProvider
+{
+    /// <summary>
+    /// A track from <paramref name="prompt"/> with <paramref name="model"/> (the engine's default when null).
+    /// Returns MP3 or WAV bytes, checked to be one of them.
+    /// </summary>
+    Task<AiGeneratedMusic> GenerateMusicAsync(string prompt, string? model, CancellationToken ct);
+}
+
+public sealed record AiGeneratedMusic(byte[] Content, string MimeType, string Model);
+
 public interface ITranscriptionProvider : IAiProvider
 {
     Task<AiTranscriptionResult> TranscribeAsync(AiTranscriptionRequest request, CancellationToken ct);

@@ -51,12 +51,30 @@ public sealed class AssembleStage(
             var mime = AiImageValidator.Sniff(image)
                 ?? throw new StoryStageException("picture-invalid", $"The picture for scene {scene.Number} is not a PNG, JPEG or WebP.");
             var audio = await ReadAsync(run, scene.AudioKey, ct).ConfigureAwait(false);
+            var clip = await ReadAsync(run, scene.VideoKey, ct).ConfigureAwait(false);
 
             scenes.Add(new StoryBundleScene(
                 scene.Number, image, mime, ImageNote(scene),
                 audio, audio is null ? null : $"Narration in {scene.AudioSource}",
                 audio is not null && scene.AudioSeconds is > 0 ? scene.AudioSeconds.Value : scene.EstimatedSeconds,
-                scene.Pauses));
+                scene.Pauses)
+            {
+                Video = clip,
+                VideoNote = clip is null ? null : "A moving clip the person attached to the Story Agent."
+            });
+        }
+
+        // How each scene moves and cuts to the next, chosen from its mood unless the person set it; kept on the scene so
+        // the page can show it, and so a new look can be asked for against it.
+        var looks = StoryLook.Plan(script.Scenes, [.. scenes.Select(s => s.DurationSeconds)], run.Brief.Format, run.Options.LookStyle, run.LookTake);
+        for (var i = 0; i < scenes.Count; i++)
+        {
+            scenes[i] = scenes[i] with { Look = looks[i] };
+            var scene = script.Scenes[i];
+            scene.Effect = looks[i].Effect.ToString();
+            scene.EffectIntensity = looks[i].Intensity;
+            scene.Transition = looks[i].Transition.ToString();
+            scene.TransitionSeconds = looks[i].TransitionSeconds;
         }
 
         var music = await ReadMusicAsync(run, ct).ConfigureAwait(false);
@@ -102,7 +120,8 @@ public sealed class AssembleStage(
         if (bytes is null) return null;
 
         var license = Enum.TryParse<LicenseClass>(pick.LicenseClass, out var parsed) ? parsed : LicenseClass.Unknown;
-        return new StoryBundleMusic(bytes, pick.Attribution, pick.PageUrl, license);
+        return new StoryBundleMusic(bytes, pick.Attribution, pick.PageUrl, license,
+            pick.ContentType == AiAudioValidator.Wav ? AiAudioValidator.Wav : AiAudioValidator.Mp3);
     }
 
     private async Task<Project> EnsureProjectAsync(StoryRun run, string name, CancellationToken ct)

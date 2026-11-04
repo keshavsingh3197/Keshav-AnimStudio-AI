@@ -121,10 +121,11 @@ public sealed partial class StoryNarrator(
         var model = engine is not null && !string.IsNullOrWhiteSpace(options.SpeechModel) ? options.SpeechModel.Trim() : null;
         var style = SupportsStyle(engine) && !string.IsNullOrWhiteSpace(options.SpeechStyle) ? options.SpeechStyle.Trim() : null;
 
-        // A voice for each character, from an engine that can speak a dialogue; elsewhere the narrator reads every line.
-        var cast = options.CastVoices && SpeaksDialogue(engine) && run.Script?.Cast is { Count: > 0 } members
+        // A voice for each character from the engine's voices in the story's language. Not with a voice made on this
+        // machine (theirs, tuned or converted), and not from an engine whose voices are unknown here: the narrator reads.
+        var cast = options.CastVoices && run.Script?.Cast is { Count: > 0 } members
             && (profile is null || replicated is not null)
-            ? StoryVoiceCasting.Assign(members, voiceId)
+            ? StoryVoiceCasting.Assign(members, voiceId, engine, run.Brief.Language) is { Count: > 0 } assigned ? assigned : null
             : null;
 
         return new NarrationPlan(options.Narration, voiceId, engine, rate, profile,
@@ -143,11 +144,15 @@ public sealed partial class StoryNarrator(
     private static bool UsesCast(NarrationPlan plan, StoryScene scene) =>
         plan.Cast is { Count: > 0 } cast && scene.Lines.Any(l => cast.ContainsKey(l.Speaker));
 
-    /// <summary>As <see cref="Fingerprint(NarrationPlan, string)"/>, and who says which line when characters speak.</summary>
+    /// <summary>
+    /// As <see cref="Fingerprint(NarrationPlan, string)"/>, with who says which line when characters speak, and the take
+    /// when the person asked for the scene again (only then, so narration made before retakes existed is still found).
+    /// </summary>
     public static string Fingerprint(NarrationPlan plan, StoryScene scene) =>
-        UsesCast(plan, scene)
-            ? Fingerprint(plan, scene.Narration + "\ncast:" + string.Join('\n', scene.Lines.Select(l => $"{VoiceOf(plan, l) ?? "-"}|{l.Text}")))
-            : Fingerprint(plan, scene.Narration);
+        Fingerprint(plan, (UsesCast(plan, scene)
+                ? scene.Narration + "\ncast:" + string.Join('\n', scene.Lines.Select(l => $"{VoiceOf(plan, l) ?? "-"}|{l.Text}"))
+                : scene.Narration)
+            + (scene.AudioTake > 0 ? $"\ntake:{scene.AudioTake}" : string.Empty));
 
     /// <summary>The character's voice, or null for the narrator's.</summary>
     private static string? VoiceOf(NarrationPlan plan, StoryLine line) =>
@@ -166,22 +171,25 @@ public sealed partial class StoryNarrator(
             + (plan.ReplicatedVoiceId is null ? string.Empty : $"\nreplicated:{plan.ReplicatedVoiceId}"))[..16];
 
     /// <summary>A scene: in the narrator's voice, or with each character's lines in their own voice.</summary>
+    /// <remarks>A retake (<see cref="StoryScene.AudioTake"/>) asks the engine afresh rather than reusing its earlier answer.</remarks>
     public async Task<StoryNarration> SpeakAsync(NarrationPlan plan, StoryScene scene, string userId, CancellationToken ct)
     {
-        if (!UsesCast(plan, scene)) return await SpeakAsync(plan, scene.Narration, userId, ct).ConfigureAwait(false);
+        var fresh = scene.AudioTake > 0;
+        if (!UsesCast(plan, scene)) return await SpeakAsync(plan, scene.Narration, userId, ct, fresh).ConfigureAwait(false);
 
         if (!finisher.IsAvailable)
             throw new StoryStageException("ffmpeg-missing", "ffmpeg isn't available on this server, so narration can't be finished.");
 
         var parts = new List<byte[]>();
-        foreach (var chunk in Dialogue(plan, scene.Lines))
+        foreach (var chunk in Dialogue(plan, scene.Lines, SpeaksDialogue(plan.Engine) ? 2 : 1))
         {
             var outcome = await ai.SpeechAsync(chunk with
             {
                 Rate = plan.Rate,
                 ProviderId = plan.Engine,
                 Model = plan.Model,
-                Style = plan.Style
+                Style = plan.Style,
+                BypassCache = fresh
             }, new AiCallContext(null, userId), ct).ConfigureAwait(false);
             Check(outcome, plan);
 
@@ -198,16 +206,16 @@ public sealed partial class StoryNarrator(
     }
 
     /// <summary>
-    /// The scene's lines as requests of at most two voices each, in order: one voice is a plain line, two a dialogue
-    /// the engine speaks in one call.
+    /// The scene's lines as requests of at most <paramref name="maxVoices"/> voices each, in order: one voice is a plain
+    /// line, two a dialogue the engine speaks in one call.
     /// </summary>
-    private static IEnumerable<AiSpeechRequest> Dialogue(NarrationPlan plan, IReadOnlyList<StoryLine> lines)
+    private static IEnumerable<AiSpeechRequest> Dialogue(NarrationPlan plan, IReadOnlyList<StoryLine> lines, int maxVoices)
     {
         var chunk = new List<(string? Voice, string Text)>();
         foreach (var line in lines)
         {
             var voice = VoiceOf(plan, line);
-            if (chunk.Select(t => t.Voice).Append(voice).Distinct().Count() > 2)
+            if (chunk.Select(t => t.Voice).Append(voice).Distinct().Count() > maxVoices)
             {
                 yield return Request(plan, chunk);
                 chunk = [];
@@ -241,7 +249,7 @@ public sealed partial class StoryNarrator(
         };
     }
 
-    public async Task<StoryNarration> SpeakAsync(NarrationPlan plan, string text, string userId, CancellationToken ct)
+    public async Task<StoryNarration> SpeakAsync(NarrationPlan plan, string text, string userId, CancellationToken ct, bool fresh = false)
     {
         if (!finisher.IsAvailable)
             throw new StoryStageException("ffmpeg-missing", "ffmpeg isn't available on this server, so narration can't be finished.");
@@ -262,7 +270,7 @@ public sealed partial class StoryNarrator(
         AiOutcome<AiSpeechResult>? outcome = null;
         if (tunedVoice is not null)
         {
-            outcome = await SynthesizeAsync(plan, text, tunedVoice, userId, MyVoiceTuning.LanguageOf(plan.VoiceId), ct).ConfigureAwait(false);
+            outcome = await SynthesizeAsync(plan, text, tunedVoice, userId, MyVoiceTuning.LanguageOf(plan.VoiceId), fresh, ct).ConfigureAwait(false);
             if (!outcome.IsSuccess && voiceRenderer.CanReVoice)
             {
                 // The engine lost the voice or is down: the converter can still make the line.
@@ -272,7 +280,7 @@ public sealed partial class StoryNarrator(
             }
         }
 
-        outcome ??= await SynthesizeAsync(plan, text, plan.VoiceId, userId, null, ct).ConfigureAwait(false);
+        outcome ??= await SynthesizeAsync(plan, text, plan.VoiceId, userId, null, fresh, ct).ConfigureAwait(false);
         Check(outcome, plan);
 
         var content = outcome.Value!.Content;
@@ -287,7 +295,7 @@ public sealed partial class StoryNarrator(
     }
 
     private Task<AiOutcome<AiSpeechResult>> SynthesizeAsync(
-        NarrationPlan plan, string text, string voiceId, string userId, string? language, CancellationToken ct) =>
+        NarrationPlan plan, string text, string voiceId, string userId, string? language, bool fresh, CancellationToken ct) =>
         ai.SpeechAsync(new AiSpeechRequest
         {
             Text = text,
@@ -297,6 +305,7 @@ public sealed partial class StoryNarrator(
             ProviderId = plan.Engine,
             Model = plan.Model,
             Style = plan.Style,
+            BypassCache = fresh,
             ReplicatedVoiceId = voiceId == plan.VoiceId ? plan.ReplicatedVoiceId : null
         }, new AiCallContext(null, userId), ct);
 

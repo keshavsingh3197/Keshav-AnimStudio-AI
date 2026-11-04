@@ -51,6 +51,25 @@ public class StoryBundleBuilderTests
     }
 
     [Fact]
+    public void A_scene_with_a_moving_clip_plays_it_without_ken_burns_and_keeps_the_picture_as_an_asset()
+    {
+        var script = StorySamples.Script();
+        var media = SceneMedia(script);
+        media[1] = media[1] with { Video = Encoding.ASCII.GetBytes("\0\0\0\u0018ftypmp42") };
+
+        var output = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions(), "Story", media, null);
+        var data = WorkbookReader.Read(output.Bundle.Workbook);
+
+        Assert.Empty(data.Errors);
+        var clipScene = data.Scenes[1];
+        Assert.Equal("media/clip-s02.mp4", clipScene.Text("Background"));
+        Assert.Equal("None", clipScene.Text("Effect"));
+        Assert.Equal(AssetKind.Video, output.Bundle.Media["media/clip-s02.mp4"].Kind);
+        Assert.Contains(output.Bundle.Media.Keys, k => k.StartsWith("media/img-s02", StringComparison.Ordinal));
+        Assert.NotEqual("None", data.Scenes[0].Text("Effect"));
+    }
+
+    [Fact]
     public void A_vertical_video_gets_a_vertical_canvas()
     {
         var data = WorkbookReader.Read(Build(format: StoryFormat.Vertical).Bundle.Workbook);

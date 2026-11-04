@@ -19,9 +19,19 @@ public sealed record StoryBundleScene(
     byte[]? Audio,
     string? AudioNote,
     double DurationSeconds,
-    IReadOnlyList<StoryPause> Pauses);
+    IReadOnlyList<StoryPause> Pauses)
+{
+    /// <summary>A moving clip (MP4) that plays instead of the picture, looped if the scene runs longer.</summary>
+    public byte[]? Video { get; init; }
 
-public sealed record StoryBundleMusic(byte[] Content, string Attribution, string? SourceUrl, LicenseClass License);
+    public string? VideoNote { get; init; }
+
+    /// <summary>How the scene moves and cuts to the next; null for the builder's plain default.</summary>
+    public StorySceneLook? Look { get; init; }
+}
+
+/// <param name="ContentType"><c>audio/mpeg</c> or <c>audio/wav</c>.</param>
+public sealed record StoryBundleMusic(byte[] Content, string Attribution, string? SourceUrl, LicenseClass License, string ContentType = "audio/mpeg");
 
 /// <summary>The bundle, and where each scene lands on the finished video's timeline.</summary>
 /// <param name="SceneStarts">Start of each scene in seconds, with the overlap of the transitions taken out.</param>
@@ -69,7 +79,11 @@ public static class StoryBundleBuilder
         var dialogueTable = Table(WorkbookSchema.Dialogue);
         var assetTable = Table(WorkbookSchema.Assets);
 
-        var musicPath = music is null ? string.Empty : AddMedia(media, "music", ".mp3", music.Content, "audio/mpeg", AssetKind.Audio);
+        var musicPath = music is null
+            ? string.Empty
+            : music.ContentType == "audio/wav"
+                ? AddMedia(media, "music", ".wav", music.Content, "audio/wav", AssetKind.Audio)
+                : AddMedia(media, "music", ".mp3", music.Content, "audio/mpeg", AssetKind.Audio);
         if (music is not null)
         {
             assetTable.Add(Row(WorkbookSchema.Assets,
@@ -104,6 +118,19 @@ public static class StoryBundleBuilder
                 ("Name", $"img-{key}"), ("File", imagePath), ("Kind", nameof(AssetKind.Image)),
                 ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(scene.ImageNote, 500))));
 
+            // A clip already moves, so it plays as it is; the picture stays in the project as the fallback.
+            var backgroundPath = imagePath;
+            var effect = scene.Look?.Effect ?? EffectCycle[i % EffectCycle.Length];
+            var intensity = scene.Look?.Intensity ?? EffectIntensity;
+            if (scene.Video is { Length: > 0 })
+            {
+                backgroundPath = AddMedia(media, $"clip-{key}", ".mp4", scene.Video, "video/mp4", AssetKind.Video);
+                assetTable.Add(Row(WorkbookSchema.Assets,
+                    ("Name", $"clip-{key}"), ("File", backgroundPath), ("Kind", nameof(AssetKind.Video)),
+                    ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(scene.VideoNote, 500))));
+                effect = BackgroundEffect.None;
+            }
+
             var audioPath = string.Empty;
             if (scene.Audio is { Length: > 0 })
             {
@@ -114,19 +141,20 @@ public static class StoryBundleBuilder
             }
 
             var seconds = Math.Max(0.5, scene.DurationSeconds);
-            var transition = last ? 0.0 : TransitionSeconds;
+            var kind = last ? SceneTransition.None : scene.Look?.Transition ?? SceneTransition.Fade;
+            var transition = kind == SceneTransition.None ? 0.0 : scene.Look?.TransitionSeconds ?? TransitionSeconds;
             durationFrames.Add(Math.Max(1, (int)Math.Round(seconds * FramesPerSecond)));
-            transitionFrames.Add(last ? 0 : (int)Math.Round(transition * FramesPerSecond));
+            transitionFrames.Add((int)Math.Round(transition * FramesPerSecond));
 
             sceneTable.Add(Row(WorkbookSchema.Scenes,
                 ("SceneNumber", scene.Number.ToString(CultureInfo.InvariantCulture)),
                 ("Title", Truncate(story.Headline, 200)),
                 ("Description", Truncate(SceneDescription(story), 2000)),
                 ("DurationSeconds", seconds.ToString("0.00", CultureInfo.InvariantCulture)),
-                ("Background", imagePath),
-                ("Effect", EffectCycle[i % EffectCycle.Length].ToString()),
-                ("Intensity", EffectIntensity.ToString("0.00", CultureInfo.InvariantCulture)),
-                ("Transition", last ? nameof(SceneTransition.None) : nameof(SceneTransition.Fade)),
+                ("Background", backgroundPath),
+                ("Effect", effect.ToString()),
+                ("Intensity", intensity.ToString("0.000", CultureInfo.InvariantCulture)),
+                ("Transition", kind.ToString()),
                 ("TransitionSeconds", transition.ToString("0.00", CultureInfo.InvariantCulture)),
                 ("Audio", audioPath)));
 

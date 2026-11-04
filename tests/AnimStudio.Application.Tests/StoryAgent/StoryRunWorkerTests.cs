@@ -88,7 +88,7 @@ public sealed class StoryRunWorkerTests : IAsyncLifetime
     public async Task Runs_a_previous_process_was_in_the_middle_of_are_picked_up_at_start()
     {
         var worker = Start();
-        var interrupted = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var interrupted = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         interrupted.Stage(StoryStageIds.Visuals).Status = StoryStageStatus.Running;
         var waiting = StoryTestData.Run(StoryRunStatus.ScriptReady, withScript: true);
         _runs.Seed(interrupted);
@@ -202,6 +202,8 @@ public sealed class StoryRunWorkerTests : IAsyncLifetime
         await Eventually(() => _runs.Read(run.Id)!.Status == StoryRunStatus.ScriptReady, "the first pass to finish");
         var saved = _runs.Read(run.Id)!;
         saved.Status = StoryRunStatus.Building;
+        // Reviews are not what this is about: approved ahead, so the second pass runs to the end.
+        foreach (var id in StoryStageIds.Reviewed) saved.SetApproval(id, StorySamples.Now);
         _runs.Seed(saved);
         worker.Enqueue(run.Id);
 

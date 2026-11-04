@@ -31,7 +31,7 @@
               [title]="c.imageEngine ? 'An image engine can draw pictures.' : 'No image engine is on: attach your own pictures.'">
           {{ c.imageEngine ? '✓ AI pictures' : 'Your pictures' }}
         </span>
-        <span class="pill" [class.ok]="c.music" [class.warn]="!c.music">{{ c.music ? '✓ Music' : 'No music' }}</span>
+        <span class="pill" [class.ok]="c.music || c.musicComposer" [class.warn]="!c.music && !c.musicComposer">{{ c.musicComposer ? '✓ Google music' : c.music ? '✓ Music' : 'No music' }}</span>
         <span class="pill" [class.ok]="c.renderer" [class.warn]="!c.renderer">{{ c.renderer ? '✓ Render' : 'No renderer' }}</span>
       </div>
     }

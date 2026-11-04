@@ -40,6 +40,7 @@ function columnOf(run: StoryRunSummary, now: number): ColumnId {
     case 'ScriptReady':
       return run.scriptApprovedAtUtc ? 'approved' : 'script';
     case 'Building':
+    case 'AwaitingReview':
       return 'making';
     case 'Failed':
     case 'Cancelled':
@@ -98,7 +99,8 @@ export class StoryBoardComponent {
     const size = (id: ColumnId) => columns.find((c) => c.id === id)!.runs.length;
     return {
       total: this.filtered().length,
-      waiting: (this.filtered().filter((r) => r.status === 'AwaitingScript' || (r.status === 'ScriptReady' && !r.scriptApprovedAtUtc)).length) + size('ready'),
+      waiting: (this.filtered().filter((r) => r.status === 'AwaitingScript' || r.status === 'AwaitingReview'
+        || (r.status === 'ScriptReady' && !r.scriptApprovedAtUtc)).length) + size('ready'),
       making: size('making'),
       scheduled: size('scheduled'),
       published: size('published'),

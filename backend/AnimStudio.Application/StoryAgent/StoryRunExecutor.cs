@@ -77,6 +77,18 @@ public sealed class StoryRunExecutor(
                 ct.ThrowIfCancellationRequested();
 
                 var sequence = run.Status == StoryRunStatus.Building ? StoryStageIds.Building : StoryStageIds.Planning;
+
+                // A step whose result the person checks: the build waits for them before anything is made from it.
+                if (run.Status == StoryRunStatus.Building &&
+                    sequence.TakeWhile(id => IsDone(run.Stage(id))).FirstOrDefault(id => NeedsReview(run, id)) is { } review)
+                {
+                    run.Status = StoryRunStatus.AwaitingReview;
+                    run.Review = review;
+                    await SaveAsync(true).ConfigureAwait(false);
+                    logger.LogInformation("Story run {RunId} is waiting for the {Stage} to be reviewed.", run.Id, review);
+                    return;
+                }
+
                 var nextId = sequence.FirstOrDefault(id => !IsDone(run.Stage(id)));
 
                 if (nextId is null)
@@ -166,6 +178,19 @@ public sealed class StoryRunExecutor(
 
     private static bool IsDone(StoryStageState state) =>
         state.Status is StoryStageStatus.Completed or StoryStageStatus.Skipped;
+
+    /// <summary>
+    /// The stage made something the person should hear or watch, and they have not said yes to it. A step that made
+    /// nothing because it was switched off is not asked about; music that could not be made is, so they can add their own.
+    /// </summary>
+    internal static bool NeedsReview(StoryRun run, string stageId)
+    {
+        if (run.Options.AutoApprove || !StoryStageIds.Reviewed.Contains(stageId) || run.ApprovedAt(stageId) is not null) return false;
+
+        var state = run.Stage(stageId);
+        return state.Status == StoryStageStatus.Completed
+            || (state.Status == StoryStageStatus.Skipped && stageId == StoryStageIds.Music && state.Code != "music-off");
+    }
 
     private void Begin(StoryRun run, StoryStageState state, string id)
     {

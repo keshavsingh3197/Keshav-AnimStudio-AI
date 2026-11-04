@@ -46,7 +46,7 @@
     <div class="se-bar">
       <div class="se-bar-info">
         <strong>{{ draft().length }} scenes</strong>
-        <span class="muted">· about {{ totalLabel() }} · {{ withPicture() }} of {{ s.scenes.length }} with a picture</span>
+        <span class="muted">· about {{ totalLabel() }} · {{ withPicture() }} of {{ s.scenes.length }} with a picture@if (withClip() > 0) { · {{ withClip() }} with a moving clip }</span>
         @if (run().brief.targetSeconds; as target) {
           <span class="muted">· you asked for about {{ target / 60 | number: '1.0-1' }} min</span>
         }
@@ -62,6 +62,15 @@
             Add all pictures…
           </button>
           <input #bulk type="file" multiple hidden [accept]="accept" (change)="onPickedMany($event)" />
+          <button type="button" class="secondary small" (click)="copyClipPrompts()"
+                  title="Copies an 8-second video prompt for every scene, numbered, to paste into Google Flow or Veo">
+            {{ copied() === 'clips' ? '✓ Copied' : 'Copy all video prompts' }}
+          </button>
+          <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="bulkClips.click()"
+                  title="Choose all the MP4 clips at once. Files named 01, 02 … go onto those scenes. A clip plays instead of the picture.">
+            Add all clips…
+          </button>
+          <input #bulkClips type="file" multiple hidden [accept]="clipAccept" (change)="onPickedManyClips($event)" />
         </div>
       }
     </div>
@@ -71,6 +80,7 @@
         <li><strong>Copy all picture prompts.</strong> Each one is numbered and says what happens in its scene, after a line about the whole story.</li>
         <li><strong>Make the pictures</strong> in Google Flow or any image tool, and save each one under its number: <span class="mono">01.png</span>, <span class="mono">02.png</span> …</li>
         <li><strong>Add all pictures</strong> in one go. Each file goes onto the scene with its number. A scene you leave empty gets an AI picture, or a plain background.</li>
+        <li class="muted"><strong>Optional, moving clips:</strong> copy all video prompts, make 8-second clips in Google Flow or Veo (start from the scene's picture so they match), save them as <span class="mono">01.mp4</span> … and add them all. A scene with a clip plays it, looped if the narration is longer; the others keep their picture.</li>
       </ol>
       @if (dirty()) {
         <p class="notice se-note">Save your script changes first, so the scene numbers match the prompts.</p>
@@ -245,6 +255,37 @@
                   {{ copied() === 's' + scene.key ? '✓ Copied' : 'Copy this prompt' }}
                 </button>
               </div>
+
+              <details class="se-clip" [open]="hasClip(scene.number)">
+                <summary>
+                  Moving clip
+                  @if (hasClip(scene.number)) {
+                    <span class="pill ok" [title]="clipName(scene.number)">▶ {{ clipName(scene.number) || 'Attached' }}</span>
+                  } @else {
+                    <span class="muted">(optional, 8 s from Flow or Veo)</span>
+                  }
+                </summary>
+                @if (scene.number > 0) {
+                  <div class="row se-art-actions">
+                    <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="pickClip.click()">
+                      {{ hasClip(scene.number) ? 'Replace clip' : 'Add clip (MP4)' }}
+                    </button>
+                    @if (hasClip(scene.number)) {
+                      <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="detachClip(scene)">Remove clip</button>
+                    }
+                    <input #pickClip type="file" hidden [accept]="clipAccept" (change)="onPickedClip(scene, $event)" />
+                  </div>
+                }
+                <div class="se-field">
+                  <label [for]="'se-vid-' + scene.key">Video prompt <span class="muted">(how the shot moves)</span></label>
+                  <textarea [id]="'se-vid-' + scene.key" rows="3" maxlength="800" [ngModel]="scene.videoPrompt"
+                            (ngModelChange)="scene.videoPrompt = $event; touch()"
+                            placeholder="e.g. the flame flickers, a slow push in"></textarea>
+                  <button type="button" class="link small se-copy" (click)="copyClipPrompt(scene, i)">
+                    {{ copied() === 'v' + scene.key ? '✓ Copied' : 'Copy video prompt' }}
+                  </button>
+                </div>
+              </details>
             </article>
           }
         </div>

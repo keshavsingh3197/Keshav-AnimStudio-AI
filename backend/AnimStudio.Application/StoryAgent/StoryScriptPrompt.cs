@@ -150,7 +150,7 @@ public static class StoryScriptPrompt
             {
               "headline": "...", "narration": "...", "english": "...", "basis": "text",
               "sources": [ { "text": "bhagavata-purana", "ref": "10.59", "note": "..." } ],
-              "imagePrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
+              "imagePrompt": "...", "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
               "lines": [ { "speaker": "narrator", "text": "..." }, { "speaker": "...", "text": "..." } ]
             }
           ]

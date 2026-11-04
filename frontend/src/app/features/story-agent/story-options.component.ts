@@ -81,8 +81,8 @@ export class StoryOptionsComponent {
   /** The speech engines that are on, in the configured order. */
   readonly engines = signal<VoiceoverEngine[]>([]);
   readonly currentEngine = computed(() => this.engines().find((e) => e.id === this.value().speechEngine) ?? null);
-  /** Gemini speaks a narrator and a character in one call, so only there does each character get a voice. */
-  readonly castAvailable = computed(() => !!this.currentEngine()?.supportsStyle);
+  /** Each character gets a voice from the engine's voices in the story's language; Piper's models are not cast. */
+  readonly castAvailable = computed(() => this.value().speechEngine !== 'piper-local');
   readonly styleSuggestions = STYLE_SUGGESTIONS;
   readonly maxStyleChars = MAX_STYLE_CHARS;
   /** The engine whose voices are listed, so a slow answer for an earlier pick is dropped. */

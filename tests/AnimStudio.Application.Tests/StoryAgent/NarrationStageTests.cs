@@ -664,15 +664,56 @@ public sealed class NarrationStageTests
         Assert.Contains("character voice", outcome.Message);
     }
 
-    [Theory]
-    [InlineData("kokoro", true)]
-    [InlineData(KnownAiProviders.GeminiTts, false)]
-    public async Task Without_gemini_or_with_casting_off_the_narrator_reads_every_line(string engine, bool castVoices)
+    [Fact]
+    public async Task With_kokoro_each_character_gets_a_voice_in_the_story_language_one_voice_to_a_call()
     {
         var world = Build();
-        var run = DialogueRun(engine);
-        run.Options.CastVoices = castVoices;
-        if (engine == "kokoro") run.Options.VoiceId = "hf_alpha";
+        var run = DialogueRun("kokoro");
+        run.Brief.Language = "hi";
+        run.Options.VoiceId = "hm_omega";
+
+        var outcome = await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        var voices = run.Script!.Cast.ToDictionary(c => c.Name, c => c.VoiceId);
+        Assert.Equal("hm_psi", voices["राम"]);
+        Assert.StartsWith("hf_", voices["सीता"]);
+
+        // Kokoro speaks one voice at a time: narrator, Ram, narrator, Sita - four plain calls, no dialogue.
+        var scene = world.Ai.SpeechCalls.Take(4).ToList();
+        Assert.All(scene, c => Assert.Null(c.Speakers));
+        Assert.Equal(["hm_omega", "hm_psi", "hm_omega", voices["सीता"]], scene.Select(c => c.VoiceId));
+        Assert.Equal(["राम ने कहा,", "चलो।", "सीता बोलीं,", "हाँ।"], scene.Select(c => c.Text));
+    }
+
+    [Theory]
+    [InlineData("kokoro", "en", "af_heart", "am_michael")]
+    [InlineData("kokoro", "en", "bm_george", "bm_daniel")]
+    [InlineData(KnownAiProviders.OpenAiTts, "hi", "alloy", "onyx")]
+    public void Casting_keeps_to_the_engines_voices_and_the_story_language(string engine, string language, string narrator, string male)
+    {
+        var cast = new[] { new StoryCastMember { Name = "a", Gender = "male", Age = "adult" } };
+
+        var voices = StoryVoiceCasting.Assign(cast, narrator, engine, language)!;
+
+        Assert.Equal(male, voices["a"]);
+    }
+
+    [Fact]
+    public void An_engine_whose_voices_are_unknown_gets_no_cast()
+    {
+        var cast = new[] { new StoryCastMember { Name = "a", Gender = "male", Age = "adult" } };
+
+        Assert.Null(StoryVoiceCasting.Assign(cast, "hi_IN-pratham-medium", KnownAiProviders.PiperLocal, "hi"));
+    }
+
+    [Fact]
+    public async Task With_casting_off_the_narrator_reads_every_line()
+    {
+        var world = Build();
+        var run = DialogueRun("kokoro");
+        run.Options.CastVoices = false;
+        run.Options.VoiceId = "hf_alpha";
 
         await world.Stage.RunAsync(Context(run), CancellationToken.None);
 

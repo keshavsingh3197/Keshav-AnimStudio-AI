@@ -1,0 +1,364 @@
+@let r = run();
+@let waiting = review();
+
+@if (error(); as problem) {
+  <div class="notice error" role="alert">{{ problem }}</div>
+}
+
+<!-- Plays the scenes one after another (and the music under them); hidden, the controls are the buttons. -->
+@if (sequenceSrc(); as src) {
+  <audio class="rv-hidden" [src]="src" autoplay (ended)="next()" (error)="stopAll()"></audio>
+}
+@if (bedSrc(); as src) {
+  <audio #bed class="rv-hidden" [src]="src" autoplay loop [volume]="volume()"></audio>
+}
+
+@if (part() === 'sound') {
+  <!-- ================================================================== the voice -->
+  <section class="card rv-section" aria-labelledby="rv-voice-title" [class.rv-now]="waiting === 'narration'">
+    <div class="rv-head">
+      <div>
+        <h3 id="rv-voice-title">The voice</h3>
+        <p class="muted rv-lede">
+          @if (r.options.narration === 'None') {
+            This story has subtitles only. Turn narration on in the Build tab to give it a voice.
+          } @else if (voiced().length === 0) {
+            The narration is made after the pictures. It appears here to listen to as soon as it is ready.
+          } @else {
+            Listen to each scene. Tick any you want spoken again (a new take of the same words), or change the voice for all of them.
+          }
+        </p>
+      </div>
+      @if (r.voiceApprovedAtUtc) {
+        <span class="pill ok">✓ Approved {{ ago(r.voiceApprovedAtUtc) }}</span>
+      } @else if (waiting === 'narration') {
+        <span class="pill warn">Waiting for you</span>
+      }
+    </div>
+
+    @if (voiced().length > 0) {
+      <div class="row rv-play">
+        @if (sequence(); as at) {
+          <button type="button" class="secondary small" (click)="stopAll()">■ Stop</button>
+          <span class="muted">Playing scene {{ voiced()[at.index].number }} of {{ voiced().length }}{{ at.withMusic ? ', with the music' : '' }}…</span>
+        } @else {
+          <button type="button" class="secondary small" (click)="playAll(false)">▶ Play every scene</button>
+          @if (r.music) {
+            <button type="button" class="secondary small" (click)="playAll(true)" title="The voice with the music under it, at the level set below">▶ With the music</button>
+          }
+        }
+      </div>
+
+      <ol class="rv-scenes">
+        @for (scene of scenes(); track scene.number) {
+          <li class="rv-scene" [class.rv-playing]="sequence() && voiced()[sequence()!.index]?.number === scene.number">
+            <div class="rv-scene-head">
+              <strong>{{ scene.number }}. {{ scene.headline }}</strong>
+              <span class="muted">
+                @if (scene.audioSeconds) { {{ scene.audioSeconds | number: '1.0-1' }} s }
+                @if (scene.audioTake) { · take {{ scene.audioTake + 1 }} }
+              </span>
+            </div>
+            <p class="rv-words" [attr.lang]="r.brief.language">{{ scene.narration }}</p>
+            @if (scene.hasAudio) {
+              <div class="row rv-scene-actions">
+                @if (audio()[sceneKey(scene)]; as src) {
+                  <audio controls preload="auto" [src]="src" [attr.aria-label]="'Narration of scene ' + scene.number"></audio>
+                } @else {
+                  <button type="button" class="secondary small" [disabled]="loadingAudio() === sceneKey(scene)" (click)="listen(scene)">
+                    @if (loadingAudio() === sceneKey(scene)) { <span class="spinner" aria-hidden="true"></span> }
+                    ▶ Listen
+                  </button>
+                }
+                @if (!r.working) {
+                  <label class="switch rv-retake">
+                    <input type="checkbox" [checked]="retake().has(scene.number)" (change)="toggleRetake(scene.number, checked($event))" />
+                    <span>Take this scene again</span>
+                  </label>
+                }
+              </div>
+            } @else {
+              <span class="muted">No narration yet.</span>
+            }
+          </li>
+        }
+      </ol>
+
+      @if (!r.working && r.options.narration === 'Stock') {
+        <details class="rv-change">
+          <summary>Change the voice for every scene</summary>
+          <div class="rv-grid">
+            @if (voices().length > 0) {
+              <div class="rv-field">
+                <label for="rv-voice">Narrator voice</label>
+                <select id="rv-voice" (change)="voiceId.set(text($event) || null)">
+                  <option value="" [selected]="!voiceId()">The engine's default</option>
+                  @for (voice of voices(); track voice.id) {
+                    <option [value]="voice.id" [selected]="voice.id === voiceId()">{{ voiceLabel(voice) }}</option>
+                  }
+                </select>
+              </div>
+            }
+            <div class="rv-field">
+              <label for="rv-rate">Speed <span class="muted">{{ rate() | number: '1.2-2' }}×</span></label>
+              <input id="rv-rate" type="range" min="0.7" max="1.3" step="0.05" [value]="rate()" (input)="rate.set(numeric($event))" />
+            </div>
+            @if (speaksStyle()) {
+              <div class="rv-field rv-wide">
+                <label for="rv-delivery">Delivery <span class="muted">(how the lines are spoken)</span></label>
+                <input id="rv-delivery" type="text" [attr.maxlength]="maxStyleChars" [value]="delivery()" (input)="setDelivery(text($event))"
+                       placeholder="Warm, unhurried storyteller" />
+                <div class="rv-chips" role="group" aria-label="Delivery suggestions">
+                  @for (s of deliverySuggestions; track s) {
+                    <button type="button" class="rv-chip" [class.rv-chip-on]="delivery() === s" (click)="setDelivery(s)">{{ s }}</button>
+                  }
+                </div>
+              </div>
+            }
+            @if ((r.script?.cast?.length ?? 0) > 0) {
+              <label class="switch rv-wide">
+                <input type="checkbox" [checked]="castVoices()" (change)="castVoices.set(checked($event))" />
+                <span>A voice for each character <span class="muted">(chosen automatically)</span></span>
+              </label>
+            }
+          </div>
+        </details>
+      }
+
+      @if (!r.working) {
+        <div class="rv-actions">
+          @if (waiting === 'narration') {
+            <button type="button" [disabled]="busy() !== null" (click)="approve('narration')">
+              @if (busy() === 'approve') { <span class="spinner" aria-hidden="true"></span> }
+              ✓ Approve the voice
+            </button>
+          }
+          <button type="button" class="secondary" [disabled]="busy() !== null" (click)="redoVoice()">
+            @if (busy() === 'voice') { <span class="spinner" aria-hidden="true"></span> }
+            @if (voiceChanged()) {
+              ↻ Speak every scene again in this voice
+            } @else if (retake().size > 0) {
+              ↻ Take {{ retake().size }} scene{{ retake().size === 1 ? '' : 's' }} again
+            } @else {
+              ↻ Take every scene again
+            }
+          </button>
+          @if (r.voiceApprovedAtUtc || r.status === 'Completed') {
+            <span class="muted">Making the voice again builds the video again with it.</span>
+          }
+        </div>
+      }
+    }
+  </section>
+
+  <!-- ================================================================== the music -->
+  <section class="card rv-section" aria-labelledby="rv-music-title" [class.rv-now]="waiting === 'music'">
+    <div class="rv-head">
+      <div>
+        <h3 id="rv-music-title">The music</h3>
+        <p class="muted rv-lede">
+          @if (musicOff()) {
+            The video has no background music. Compose some or add your own below to change that.
+          } @else if (r.music) {
+            Listen to it on its own, and with the voice at the level you want. Ask for another, change the brief, or use your own.
+          } @else if (musicMissing()) {
+            No music could be made here. Make it in Google's music tool with the brief below, then add the file.
+          } @else {
+            The music is made after the voice. It appears here to listen to as soon as it is ready.
+          }
+        </p>
+      </div>
+      @if (r.musicApprovedAtUtc) {
+        <span class="pill ok">✓ Approved {{ ago(r.musicApprovedAtUtc) }}</span>
+      } @else if (waiting === 'music') {
+        <span class="pill warn">Waiting for you</span>
+      }
+    </div>
+
+    @if (r.music; as m) {
+      <div class="rv-track">
+        <div class="rv-track-text">
+          <strong>{{ m.title }}</strong>
+          <span class="muted">
+            {{ m.artist }}
+            @if (m.source === 'composed') { · composed for this story }
+            @if (m.source === 'upload') { · your own file }
+            @if (m.seconds) { · asked for {{ m.seconds }} s }
+            @if (m.licenseCode && m.source === 'catalogue') { · {{ m.licenseCode }} }
+          </span>
+        </div>
+        @if (audio()[musicKey()]; as src) {
+          <audio controls preload="auto" [src]="src" aria-label="The background music"></audio>
+        } @else {
+          <button type="button" class="secondary small" [disabled]="loadingAudio() === musicKey()" (click)="listenMusic()">
+            @if (loadingAudio() === musicKey()) { <span class="spinner" aria-hidden="true"></span> }
+            ▶ Listen
+          </button>
+        }
+      </div>
+    }
+
+    @if (!r.working && r.script) {
+      <div class="rv-field">
+        <label for="rv-volume">Level under the voice <span class="muted">{{ volume() * 100 | number: '1.0-0' }}%</span></label>
+        <input id="rv-volume" type="range" min="0.05" max="0.5" step="0.01" [value]="volume()" (input)="setVolume(numeric($event))" />
+        <span class="muted rv-note">Play every scene "With the music" above to judge it by ear; the level is used when the video is built.</span>
+      </div>
+
+      <details class="rv-change" [open]="musicMissing() || musicOff()">
+        <summary>The brief for the music <span class="muted">· about {{ briefSeconds() }} s, the length of the narration</span></summary>
+        <div class="rv-chips" role="group" aria-label="Music suggestions">
+          @for (s of musicSuggestions; track s) {
+            <button type="button" class="rv-chip" (click)="useSuggestion(s)">{{ s }}</button>
+          }
+        </div>
+        <textarea rows="5" class="rv-brief" aria-label="The brief for the music" [attr.maxlength]="maxBriefChars" [value]="brief()"
+                  (input)="setBrief(text($event))"></textarea>
+        <div class="row rv-brief-meta">
+          <span class="muted">{{ brief().length }} / {{ maxBriefChars }}</span>
+          <button type="button" class="secondary small" (click)="copyBrief()">{{ copied() ? '✓ Copied' : 'Copy the brief' }}</button>
+          <a [href]="googleMusicTool" target="_blank" rel="noopener noreferrer">Open Google's music tool ↗</a>
+        </div>
+        @if (!composer()) {
+          <p class="notice rv-note">
+            Composing here needs Google Gemini set up in Settings. Until then: copy the brief, make a track about {{ briefSeconds() }} s long in
+            Google's music tool (or any other), download it, and add it with "Use my own track".
+          </p>
+        }
+      </details>
+
+      <div class="rv-actions">
+        @if (waiting === 'music') {
+          <button type="button" [disabled]="busy() !== null" (click)="approve('music')">
+            @if (busy() === 'approve') { <span class="spinner" aria-hidden="true"></span> }
+            ✓ {{ r.music ? 'Approve the music' : 'Go on without music' }}
+          </button>
+        }
+        @if (composer()) {
+          <button type="button" class="secondary" [disabled]="busy() !== null || !brief().trim()" (click)="compose()">
+            @if (busy() === 'music') { <span class="spinner" aria-hidden="true"></span> }
+            ↻ {{ r.music?.source === 'composed' ? 'Compose again' : 'Compose with Google Lyria' }}
+          </button>
+        }
+        @if (caps()?.music) {
+          <button type="button" class="secondary" [disabled]="busy() !== null" (click)="searchMusic()">Find a royalty-free track</button>
+        }
+        <label class="rv-upload secondary" [class.rv-disabled]="busy() !== null">
+          <input type="file" accept="audio/mpeg,audio/wav,.mp3,.wav" [disabled]="busy() !== null" (change)="upload($event)" />
+          @if (busy() === 'upload') { <span class="spinner" aria-hidden="true"></span> }
+          ⬆ Use my own track
+        </label>
+        @if (r.music) {
+          <button type="button" class="secondary" [disabled]="busy() !== null" (click)="noMusic()">No music</button>
+        }
+      </div>
+    }
+  </section>
+}
+
+@if (part() === 'look') {
+  <!-- ================================================================== the look -->
+  <section class="card rv-section" aria-labelledby="rv-look-title" [class.rv-now]="waiting === 'render'">
+    <div class="rv-head">
+      <div>
+        <h3 id="rv-look-title">Effects and transitions</h3>
+        <p class="muted rv-lede">
+          Each scene's motion and the cut into the next were chosen from its mood. Watch the video above; if something feels off, ask
+          for a new look, change the style, or set a scene yourself, and the video is made again.
+        </p>
+      </div>
+      @if (r.videoApprovedAtUtc) {
+        <span class="pill ok">✓ Approved {{ ago(r.videoApprovedAtUtc) }}</span>
+      } @else if (waiting === 'render') {
+        <span class="pill warn">Waiting for you</span>
+      }
+    </div>
+
+    <div class="rv-styles" role="radiogroup" aria-label="The feel of the effects">
+      @for (s of lookStyles; track s.id) {
+        <button type="button" role="radio" class="rv-style" [class.rv-style-on]="lookStyle() === s.id" [attr.aria-checked]="lookStyle() === s.id"
+                [disabled]="r.working" (click)="lookStyle.set(s.id)">
+          <strong>{{ s.label }}</strong>
+          <span class="muted">{{ s.hint }}</span>
+        </button>
+      }
+    </div>
+
+    <div class="rv-table-wrap">
+      <table class="rv-table">
+        <thead>
+          <tr><th scope="col">Scene</th><th scope="col">Motion</th><th scope="col">Into the next</th><th scope="col"><span class="sr-only">Who chose</span></th></tr>
+        </thead>
+        <tbody>
+          @for (scene of scenes(); track scene.number; let last = $last) {
+            <tr>
+              <th scope="row"><span class="rv-num">{{ scene.number }}</span> {{ scene.headline }} @if (scene.mood) { <span class="muted">· {{ scene.mood }}</span> }</th>
+              <td>
+                @if (scene.hasVideo) {
+                  <span class="muted">Moving clip</span>
+                } @else {
+                  <select [attr.aria-label]="'Motion of scene ' + scene.number" [disabled]="r.working"
+                          (change)="editLook(scene, { effect: $any(text($event)) })">
+                    @for (e of effects; track e) {
+                      <option [value]="e" [selected]="effectOf(scene) === e">{{ effectLabel[e] }}</option>
+                    }
+                  </select>
+                }
+              </td>
+              <td>
+                @if (last) {
+                  <span class="muted">The end</span>
+                } @else {
+                  <div class="row rv-cut">
+                    <select [attr.aria-label]="'Transition after scene ' + scene.number" [disabled]="r.working"
+                            (change)="editLook(scene, { transition: $any(text($event)) })">
+                      @for (t of transitions; track t) {
+                        <option [value]="t" [selected]="transitionOf(scene) === t">{{ transitionLabel[t] }}</option>
+                      }
+                    </select>
+                    @if (transitionOf(scene) !== 'None') {
+                      <input type="number" min="0.2" max="1.5" step="0.1" class="rv-seconds" [attr.aria-label]="'Seconds of the transition after scene ' + scene.number"
+                             [value]="secondsOf(scene)" [disabled]="r.working" (change)="editLook(scene, { transitionSeconds: numeric($event) })" />
+                      <span class="muted">s</span>
+                    }
+                  </div>
+                }
+              </td>
+              <td>
+                @if (pinned(scene)) {
+                  <button type="button" class="secondary small" [disabled]="r.working" (click)="automatic(scene)" title="Let the build choose this scene again">Set by you · auto</button>
+                } @else {
+                  <span class="muted">auto</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    @if (!r.working) {
+      <div class="rv-field">
+        <label for="rv-look-volume">Music level <span class="muted">{{ volume() * 100 | number: '1.0-0' }}%</span></label>
+        <input id="rv-look-volume" type="range" min="0" max="0.5" step="0.01" [value]="volume()" (input)="setVolume(numeric($event))" />
+      </div>
+
+      <div class="rv-actions">
+        @if (waiting === 'render') {
+          <button type="button" [disabled]="busy() !== null" (click)="approve('render')">
+            @if (busy() === 'approve') { <span class="spinner" aria-hidden="true"></span> }
+            ✓ Approve the video
+          </button>
+        }
+        <button type="button" class="secondary" [disabled]="busy() !== null" (click)="newLook()" title="A fresh automatic choice for every scene you did not set">
+          @if (busy() === 'look') { <span class="spinner" aria-hidden="true"></span> }
+          ↻ New look
+        </button>
+        @if (lookEdited() || lookStyle() !== (r.options.lookStyle ?? 'Auto') || volume() !== r.options.musicVolume) {
+          <button type="button" class="secondary" [disabled]="busy() !== null" (click)="applyLook()">Make it again with my changes</button>
+        }
+        <span class="muted">The voice and music are kept; only the video is made again.</span>
+      </div>
+    }
+  </section>
+}

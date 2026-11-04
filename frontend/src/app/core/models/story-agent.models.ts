@@ -11,7 +11,28 @@ export type StoryRunStatus =
   | 'Building'
   | 'Completed'
   | 'Failed'
-  | 'Cancelled';
+  | 'Cancelled'
+  /** The build stopped for the person to check the voice, the music or the video; `review` says which. */
+  | 'AwaitingReview';
+
+/** The steps the person hears or watches before the build goes on, by the id of the stage that made them. */
+export type StoryReviewStage = 'narration' | 'music' | 'render';
+
+/** How a review step is named in its URL. */
+export const REVIEW_STEP: Record<StoryReviewStage, 'voice' | 'music' | 'video'> = { narration: 'voice', music: 'music', render: 'video' };
+
+/** The feel of the motion and the cuts picked for each scene. */
+export type StoryLookStyle = 'Auto' | 'Gentle' | 'Cinematic' | 'Lively';
+
+/** The picture's motion; the renderer's own names. */
+export const STORY_EFFECTS = ['None', 'ZoomIn', 'ZoomOut', 'PanLeft', 'PanRight', 'PanUp', 'PanDown'] as const;
+export type StoryEffect = (typeof STORY_EFFECTS)[number];
+
+/** The cut into the next scene; the renderer's own names. */
+export const STORY_TRANSITIONS = [
+  'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight', 'SlideLeft', 'SlideRight', 'SlideUp', 'SlideDown', 'CircleOpen', 'CircleClose', 'ZoomIn',
+] as const;
+export type StoryTransition = (typeof STORY_TRANSITIONS)[number];
 
 export type StoryStageStatus = 'Pending' | 'Running' | 'Completed' | 'Skipped' | 'Failed';
 export type StoryWriterMode = 'Auto' | 'Manual' | 'BuiltIn';
@@ -66,6 +87,8 @@ export interface StoryAgentOptions {
   renderer: boolean;
   audioFinishing: boolean;
   maxActiveRuns: number;
+  /** Google's Lyria can compose a track for the story (Gemini speech is set up). */
+  musicComposer?: boolean;
   packs: StoryPack[];
   topics: StoryTopic[];
   myVoices: StoryMyVoice[];
@@ -113,6 +136,19 @@ export interface StoryScene {
   audioSeconds: number | null;
   /** Who says which words of the narration; empty when the narrator reads it all. */
   lines?: StoryLine[];
+  /** The same moment as an 8-second moving shot, for Google Flow or Veo. */
+  videoPrompt?: string | null;
+  /** A moving clip is attached and plays instead of the picture. */
+  hasVideo?: boolean;
+  videoName?: string | null;
+  /** How many times the narration was taken again. */
+  audioTake?: number;
+  /** The motion and the cut into the next scene the last build used; null before a build. */
+  effect?: StoryEffect | null;
+  transition?: StoryTransition | null;
+  transitionSeconds?: number | null;
+  /** The person set the effect and transition; a new look leaves them. */
+  lookPinned?: boolean;
 }
 
 export interface StoryLine {
@@ -177,6 +213,17 @@ export interface StoryMusic {
   licenseCode: string;
   licenseUrl: string | null;
   attribution: string;
+  /** Composed with Google Lyria, the person's own file, or a catalogue track. */
+  source?: 'composed' | 'upload' | 'catalogue';
+  /** For a composed track: the brief it was composed from, and the length asked for. */
+  prompt?: string | null;
+  seconds?: number | null;
+}
+
+/** What the composer would be asked for now, and how long the track should be. */
+export interface StoryMusicBrief {
+  prompt: string;
+  seconds: number;
 }
 
 export interface StoryRender {
@@ -217,6 +264,8 @@ export interface StoryBrief {
   packId: string | null;
 }
 
+export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
+
 export interface StoryBuildOptions {
   narration: StoryNarrationMode;
   voiceProfileId: string | null;
@@ -226,17 +275,23 @@ export interface StoryBuildOptions {
   speechModel?: string | null;
   /** How the lines are delivered, for an engine that supportsStyle (Gemini). */
   speechStyle?: string | null;
-  /** With an engine that supportsStyle (Gemini), each character speaks in a voice of their own. */
+  /** Each character speaks in a voice of their own, from the engine's voices in the story's language. */
   castVoices?: boolean;
   speechRate: number;
   closestToMyVoice: boolean;
   visuals: StoryVisualMode;
   imageStyle: string | null;
   music: boolean;
+  /** Composed with Google Lyria, a searched royalty-free track, or Auto (composed when Google is set up). */
+  musicSource?: StoryMusicSource;
   uploadsAreAiMade: boolean;
   musicQuery: string | null;
   musicVolume: number;
+  /** The whole brief for the composer, as the person wrote it; null builds one from the script. */
+  musicPrompt?: string | null;
+  lookStyle?: StoryLookStyle;
   renderWhenReady: boolean;
+  /** Skips every review: the script, the voice, the music and the video. */
   autoApprove: boolean;
 }
 
@@ -311,6 +366,46 @@ export interface StoryRun {
   subtitles: StorySubtitle[];
   /** Newest first. */
   publications: StoryPublication[];
+  /** While the status is AwaitingReview: the step waiting to be approved. */
+  review?: StoryReviewStage | null;
+  voiceApprovedAtUtc?: string | null;
+  musicApprovedAtUtc?: string | null;
+  videoApprovedAtUtc?: string | null;
+  /** The composer's brief and length, to read, edit, or paste into Google's own music tool. */
+  musicBrief?: StoryMusicBrief | null;
+}
+
+/** Take scenes again, or speak them all again in a changed voice. */
+export interface RedoNarrationBody {
+  scenes?: number[];
+  voiceId?: string | null;
+  speechStyle?: string | null;
+  speechRate?: number;
+  castVoices?: boolean;
+}
+
+export interface RedoMusicBody {
+  prompt?: string | null;
+  style?: string | null;
+  source?: StoryMusicSource;
+  volume?: number;
+  off?: boolean;
+}
+
+export interface EditSceneLookBody {
+  number: number;
+  effect?: StoryEffect;
+  transition?: StoryTransition;
+  transitionSeconds?: number;
+  /** Hand the scene back to the automatic choice. */
+  auto?: boolean;
+}
+
+export interface RedoLookBody {
+  newLook: boolean;
+  style?: StoryLookStyle;
+  musicVolume?: number;
+  scenes?: EditSceneLookBody[];
 }
 
 /** A run in the list and on the storyboard: enough to draw a card, place it in its column and open it. */
@@ -370,6 +465,7 @@ export interface EditStorySceneBody {
   basis: string;
   sources: EditStorySourceBody[];
   imagePrompt: string | null;
+  videoPrompt?: string | null;
   imageKeywords: string[];
   mood: string | null;
 }

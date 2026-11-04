@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Stories;
 
@@ -62,12 +63,18 @@ public sealed record StoryBuildOptionsRequest
     public string? ImageStyle { get; init; }
 
     public bool Music { get; init; } = true;
+    public StoryMusicSource MusicSource { get; init; } = StoryMusicSource.Auto;
     public bool UploadsAreAiMade { get; init; } = true;
 
     [StringLength(80)]
     public string? MusicQuery { get; init; }
 
     public double MusicVolume { get; init; } = 0.2;
+
+    [StringLength(MusicStage.MaxPromptChars, ErrorMessage = "The music brief can be up to 1500 characters.")]
+    public string? MusicPrompt { get; init; }
+
+    public StoryLookStyle LookStyle { get; init; } = StoryLookStyle.Auto;
     public bool RenderWhenReady { get; init; } = true;
     public bool AutoApprove { get; init; }
 
@@ -85,12 +92,79 @@ public sealed record StoryBuildOptionsRequest
         Visuals = Visuals,
         ImageStyle = ImageStyle,
         Music = Music,
+        MusicSource = MusicSource,
         UploadsAreAiMade = UploadsAreAiMade,
         MusicQuery = MusicQuery,
         MusicVolume = MusicVolume,
+        MusicPrompt = MusicPrompt,
+        LookStyle = LookStyle,
         RenderWhenReady = RenderWhenReady,
         AutoApprove = AutoApprove
     };
+}
+
+/// <summary>Approving a step; with the music, the level the person chose while listening.</summary>
+public sealed record ApproveStoryReviewRequest
+{
+    [Range(0.0, 1.0)] public double? MusicVolume { get; init; }
+}
+
+/// <summary>Scenes to take again as they are, and/or a changed voice for all of them. Nulls keep what the story has.</summary>
+public sealed record RedoStoryNarrationRequest
+{
+    [MaxLength(StoryScriptParser.MaxScenes)]
+    public List<int>? Scenes { get; init; }
+
+    [StringLength(64)] public string? VoiceId { get; init; }
+    [StringLength(300)] public string? SpeechStyle { get; init; }
+    [Range(0.5, 2.0)] public double? SpeechRate { get; init; }
+    public bool? CastVoices { get; init; }
+
+    public StoryVoiceRedo ToRedo() => new(Scenes, VoiceId, SpeechStyle, SpeechRate, CastVoices);
+}
+
+/// <summary>A new brief, style or source for the music, or none at all. Nulls keep what the story has.</summary>
+public sealed record RedoStoryMusicRequest
+{
+    [StringLength(MusicStage.MaxPromptChars, ErrorMessage = "The music brief can be up to 1500 characters.")]
+    public string? Prompt { get; init; }
+
+    [StringLength(80)] public string? Style { get; init; }
+    public StoryMusicSource? Source { get; init; }
+    [Range(0.0, 1.0)] public double? Volume { get; init; }
+    public bool Off { get; init; }
+
+    public StoryMusicRedo ToRedo() => new(Prompt, Style, Source, Volume, Off);
+}
+
+public sealed record EditStorySceneLookRequest
+{
+    public int Number { get; init; }
+
+    /// <summary>A <c>BackgroundEffect</c> name, e.g. <c>ZoomIn</c>.</summary>
+    [StringLength(32)] public string? Effect { get; init; }
+
+    /// <summary>A <c>SceneTransition</c> name, e.g. <c>Fade</c>.</summary>
+    [StringLength(32)] public string? Transition { get; init; }
+
+    [Range(0.2, 1.5)] public double? TransitionSeconds { get; init; }
+
+    /// <summary>Hand the scene back to the automatic choice.</summary>
+    public bool Auto { get; init; }
+}
+
+/// <summary>A fresh automatic look, another style, a music level, or scenes set by hand.</summary>
+public sealed record RedoStoryLookRequest
+{
+    public bool NewLook { get; init; }
+    public StoryLookStyle? Style { get; init; }
+    [Range(0.0, 1.0)] public double? MusicVolume { get; init; }
+
+    [MaxLength(StoryScriptParser.MaxScenes)]
+    public List<EditStorySceneLookRequest>? Scenes { get; init; }
+
+    public StoryLookRedo ToRedo() => new(NewLook, Style, MusicVolume,
+        [.. (Scenes ?? []).Select(s => new StorySceneLookEdit(s.Number, s.Effect, s.Transition, s.TransitionSeconds, s.Auto))]);
 }
 
 /// <summary>The reply a chat wrote, pasted as it came.</summary>
@@ -130,6 +204,7 @@ public sealed record EditStorySceneRequest
 
     [MaxLength(8)] public List<EditStorySourceRequest>? Sources { get; init; }
     [StringLength(800)] public string? ImagePrompt { get; init; }
+    [StringLength(800)] public string? VideoPrompt { get; init; }
     [MaxLength(8)] public List<string>? ImageKeywords { get; init; }
     [StringLength(30)] public string? Mood { get; init; }
 }
@@ -148,7 +223,7 @@ public sealed record EditStoryScriptRequest
         [.. (Scenes ?? []).Select(s => new StorySceneEdit(
             s.Number, s.Headline, s.Narration, s.English, s.Basis,
             [.. (s.Sources ?? []).Select(x => new StorySourceEdit(x.Text, x.Ref, x.Note))],
-            s.ImagePrompt, s.ImageKeywords, s.Mood))]);
+            s.ImagePrompt, s.ImageKeywords, s.Mood, s.VideoPrompt))]);
 }
 
 /// <summary>Which of a story's YouTube videos gets its subtitles, and in which languages (none: every one it has).</summary>
@@ -179,7 +254,8 @@ public sealed record StoryAgentOptionsResponse(
     int MaxActiveRuns,
     IReadOnlyList<StoryPackResponse> Packs,
     IReadOnlyList<StoryTopicSummaryResponse> Topics,
-    IReadOnlyList<MyVoiceResponse> MyVoices);
+    IReadOnlyList<MyVoiceResponse> MyVoices,
+    bool MusicComposer = false);
 
 public sealed record StoryStageResponse(
     string Id, StoryStageStatus Status, int Progress, string? Message, string? Code, DateTime? StartedAtUtc, DateTime? CompletedAtUtc);
@@ -204,7 +280,15 @@ public sealed record StorySceneResponse(
     string? ImageName,
     bool HasAudio,
     double? AudioSeconds,
-    IReadOnlyList<StoryLineResponse> Lines);
+    IReadOnlyList<StoryLineResponse> Lines,
+    string? VideoPrompt = null,
+    bool HasVideo = false,
+    string? VideoName = null,
+    int AudioTake = 0,
+    string? Effect = null,
+    string? Transition = null,
+    double? TransitionSeconds = null,
+    bool LookPinned = false);
 
 /// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
 public sealed record StoryLineResponse(string Speaker, string Text);
@@ -236,7 +320,17 @@ public sealed record StoryResearchResponse(
     IReadOnlyList<string> Warnings,
     DateTime RetrievedAtUtc);
 
-public sealed record StoryMusicResponse(string Title, string Artist, string? PageUrl, string LicenseCode, string? LicenseUrl, string Attribution);
+/// <param name="Source"><c>composed</c> (Google Lyria), <c>upload</c> (the person's own) or <c>catalogue</c>.</param>
+/// <param name="Prompt">For a composed track, the brief it was composed from.</param>
+public sealed record StoryMusicResponse(
+    string Title, string Artist, string? PageUrl, string LicenseCode, string? LicenseUrl, string Attribution,
+    string Source = "catalogue", string? Prompt = null, int? Seconds = null);
+
+/// <summary>
+/// What the composer would be asked for now, and how long the track should be: to read before composing, to edit, or to
+/// paste into Google's own music tool when Lyria is not set up here.
+/// </summary>
+public sealed record StoryMusicBriefResponse(string Prompt, int Seconds);
 
 public sealed record StoryRenderResponse(string JobId, RenderJobStatus Status, int Progress, string? Message, bool Downloadable);
 
@@ -260,7 +354,8 @@ public sealed record StoryBriefResponse(
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
-    bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true);
+    bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
+    StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -311,7 +406,12 @@ public sealed record StoryRunResponse(
     DateTime UpdatedAtUtc,
     DateTime? ScriptApprovedAtUtc,
     IReadOnlyList<StorySubtitleResponse> Subtitles,
-    IReadOnlyList<StoryPublicationResponse> Publications);
+    IReadOnlyList<StoryPublicationResponse> Publications,
+    string? Review = null,
+    DateTime? VoiceApprovedAtUtc = null,
+    DateTime? MusicApprovedAtUtc = null,
+    DateTime? VideoApprovedAtUtc = null,
+    StoryMusicBriefResponse? MusicBrief = null);
 
 /// <summary>A run in the list and on the storyboard: enough to draw a card, place it in its column and open it.</summary>
 /// <param name="CoverScene">The first scene with a picture of its own, for the card; null when there is none yet.</param>
@@ -353,7 +453,8 @@ public static class StoryAgentMapper
         caps.Enabled, caps.TextModel, caps.SpeechEngine, caps.ImageEngine, caps.Music, caps.Renderer, caps.AudioFinishing, caps.MaxActiveRuns,
         [.. caps.Packs.Select(p => new StoryPackResponse(p.Id, p.Title, p.TitleEnglish, p.Description, p.Language, p.TargetSeconds))],
         [.. GranthTopics.All.Select(t => new StoryTopicSummaryResponse(t.Id, t.Name, t.Hindi, t.Summary))],
-        [.. caps.MyVoices.Select(Controllers.MyVoicesController.ToResponse)]);
+        [.. caps.MyVoices.Select(Controllers.MyVoicesController.ToResponse)],
+        caps.MusicComposer);
 
     public static StoryRunSummaryResponse ToSummary(StoryRun run) => ToSummary(run, []);
 
@@ -368,6 +469,12 @@ public static class StoryAgentMapper
             StoryRunStatus.Completed => "Done.",
             StoryRunStatus.ScriptReady => "Script ready to read.",
             StoryRunStatus.AwaitingScript => "Waiting for the script.",
+            StoryRunStatus.AwaitingReview => run.Review switch
+            {
+                StoryStageIds.Narration => "Listen to the voice and approve it.",
+                StoryStageIds.Music => "Listen to the music and approve it.",
+                _ => "Watch the video and approve it."
+            },
             _ => running?.Message
         };
 
@@ -403,14 +510,36 @@ public static class StoryAgentMapper
             job.Status == RenderJobStatus.Failed ? job.ErrorMessage ?? job.Message : job.Message,
             (job.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings) && !string.IsNullOrEmpty(job.OutputStorageKey)),
         run.Kit is null ? null : ToResponse(run.Kit),
-        run.Music is null ? null : new StoryMusicResponse(run.Music.Title, run.Music.Artist, run.Music.PageUrl, run.Music.LicenseCode, run.Music.LicenseUrl, run.Music.Attribution),
+        run.Music is null ? null : ToResponse(run.Music),
         run.ErrorCode,
         run.ErrorMessage,
         run.CreatedAtUtc,
         run.UpdatedAtUtc,
         run.ScriptApprovedAtUtc,
         [.. StoryCaptions.Tracks(run).Select(t => new StorySubtitleResponse(t.Language, t.Label, t.Source, t.Cues))],
-        [.. publications.OrderByDescending(p => p.PublishedAtUtc).Select(p => ToResponse(run, p))]);
+        [.. publications.OrderByDescending(p => p.PublishedAtUtc).Select(p => ToResponse(run, p))],
+        run.Status == StoryRunStatus.AwaitingReview ? run.Review : null,
+        run.VoiceApprovedAtUtc,
+        run.MusicApprovedAtUtc,
+        run.VideoApprovedAtUtc,
+        run.Script is null ? null : MusicBrief(run, run.Script));
+
+    private static StoryMusicResponse ToResponse(StoryMusicPick m) => new(
+        m.Title, m.Artist, m.PageUrl, m.LicenseCode, m.LicenseUrl, m.Attribution,
+        m.Provider switch
+        {
+            MusicStage.ComposedProvider => "composed",
+            MusicStage.UploadedProvider => "upload",
+            _ => "catalogue"
+        },
+        m.Prompt, m.Seconds);
+
+    private static StoryMusicBriefResponse MusicBrief(StoryRun run, StoryScript script)
+    {
+        // Without the take note: that is for the composer, not something the person should copy elsewhere.
+        var (prompt, seconds) = MusicStage.Brief(run, script, forComposer: false);
+        return new StoryMusicBriefResponse(prompt, seconds);
+    }
 
     public static StoryCaptionResultResponse ToResponse(StoryCaptionResult r) => new(r.Language, r.Label, r.Outcome, r.Message);
 
@@ -422,7 +551,8 @@ public static class StoryAgentMapper
 
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
-        o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices);
+        o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
+        o.MusicPrompt, o.LookStyle);
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],
@@ -438,7 +568,9 @@ public static class StoryAgentMapper
             scene.ImagePrompt, scene.ImageKeywords, scene.Mood, scene.EstimatedSeconds,
             StoryObjectKeys.Owns(runId, scene.ImageKey), scene.ImageSource, scene.ImageName,
             StoryObjectKeys.Owns(runId, scene.AudioKey), scene.AudioSeconds,
-            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))]))],
+            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))],
+            scene.VideoPrompt, StoryObjectKeys.Owns(runId, scene.VideoKey), scene.VideoName,
+            scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned))],
         s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
         [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))]);
 

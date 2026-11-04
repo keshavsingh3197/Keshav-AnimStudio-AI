@@ -115,3 +115,7 @@ fieldset.se-fields:disabled { opacity: .72; }
   .se-tools { order: 4; margin-left: auto; }
   .se-basis { grid-template-columns: minmax(0, 1fr); }
 }
+
+.se-clip { margin-top: 0.5rem; border-top: 1px dashed var(--border, #ddd); padding-top: 0.4rem; }
+.se-clip > summary { cursor: pointer; font-size: 0.85rem; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.se-clip .pill { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

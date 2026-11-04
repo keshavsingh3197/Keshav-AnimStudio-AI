@@ -107,22 +107,59 @@ public sealed class StoryBuildOptions
 
     public bool Music { get; set; } = true;
 
+    /// <summary>Where the background track comes from.</summary>
+    public StoryMusicSource MusicSource { get; set; } = StoryMusicSource.Auto;
+
     /// <summary>
     /// True when the pictures the user attaches were made with an AI image tool (Google Flow, for one), so the
     /// credits and the reminder to tick YouTube's AI disclosure say the right thing.
     /// </summary>
     public bool UploadsAreAiMade { get; set; } = true;
 
-    /// <summary>What to search the music catalogue for; empty uses the script's own suggestion.</summary>
+    /// <summary>What to search the music catalogue for, or the style to compose in; empty uses the script's own suggestion.</summary>
     public string? MusicQuery { get; set; }
 
     public double MusicVolume { get; set; } = 0.2;
+
+    /// <summary>The whole brief for the composer, written or edited by the person; empty builds one from the script.</summary>
+    public string? MusicPrompt { get; set; }
+
+    /// <summary>The feel of the effects and transitions chosen for each scene.</summary>
+    public StoryLookStyle LookStyle { get; set; } = StoryLookStyle.Auto;
 
     /// <summary>Queue the render as soon as the project is built.</summary>
     public bool RenderWhenReady { get; set; } = true;
 
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
+}
+
+public enum StoryMusicSource
+{
+    /// <summary>Composed for the story with Google's Lyria when Gemini speech is set up, otherwise searched.</summary>
+    Auto = 0,
+
+    /// <summary>Composed for the story with Google's Lyria.</summary>
+    Generate = 1,
+
+    /// <summary>A royalty-free track from the music catalogue.</summary>
+    Search = 2
+}
+
+/// <summary>The feel of the motion and the cuts the build picks for each scene.</summary>
+public enum StoryLookStyle
+{
+    /// <summary>Picked from each scene's mood: slow pushes for calm, faster moves and cuts for drama.</summary>
+    Auto = 0,
+
+    /// <summary>Slow, small moves and soft crossfades throughout. Suits devotional and reflective stories.</summary>
+    Gentle = 1,
+
+    /// <summary>Deliberate pushes and pulls, longer dissolves, a reveal at the turning points.</summary>
+    Cinematic = 2,
+
+    /// <summary>Quicker moves and slides, for a Short that has to hold attention.</summary>
+    Lively = 3
 }
 
 public enum StorySourceConfidence
@@ -257,6 +294,12 @@ public sealed class StoryScene
     /// <summary>What the picture shows, in English, for an image model.</summary>
     public string? ImagePrompt { get; set; }
 
+    /// <summary>
+    /// The same moment as a short moving shot (about 8 seconds), in English, for a video model such as Google Flow or
+    /// Veo: what moves and how the camera goes. The person makes the clip there and attaches it.
+    /// </summary>
+    public string? VideoPrompt { get; set; }
+
     public List<string> ImageKeywords { get; set; } = [];
     public string? Mood { get; set; }
 
@@ -273,6 +316,11 @@ public sealed class StoryScene
 
     public string? ImageName { get; set; }
 
+    /// <summary>Object-store key of a moving clip the person attached; when there is one it plays instead of the picture.</summary>
+    public string? VideoKey { get; set; }
+
+    public string? VideoName { get; set; }
+
     public string? AudioKey { get; set; }
     public string? AudioName { get; set; }
     public string? AudioSource { get; set; }
@@ -282,6 +330,25 @@ public sealed class StoryScene
 
     /// <summary>The silent stretches in the narration, used to line subtitles up with the voice.</summary>
     public List<StoryPause> Pauses { get; set; } = [];
+
+    /// <summary>How many times the person asked for this scene's narration again. A new take is a new file, spoken afresh.</summary>
+    public int AudioTake { get; set; }
+
+    // --- how the scene moves and leads into the next ---------------------------------------
+
+    /// <summary>The picture's motion (a <c>BackgroundEffect</c> name). Chosen automatically unless <see cref="LookPinned"/>.</summary>
+    public string? Effect { get; set; }
+
+    /// <summary>How much it moves: the zoom or the pan travel as a fraction of the frame.</summary>
+    public double? EffectIntensity { get; set; }
+
+    /// <summary>The cut into the next scene (a <c>SceneTransition</c> name); none after the last.</summary>
+    public string? Transition { get; set; }
+
+    public double? TransitionSeconds { get; set; }
+
+    /// <summary>The person chose this scene's effect and transition themselves, so a new look leaves them as they are.</summary>
+    public bool LookPinned { get; set; }
 }
 
 /// <summary>Part of a scene's narration and who says it.</summary>
