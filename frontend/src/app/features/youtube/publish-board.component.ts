@@ -1,4 +1,6 @@
-import { Component, DestroyRef, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
+
+import { csvCell } from './csv';
+import { YtNavComponent } from './yt-nav.component';import { Component, DestroyRef, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -54,7 +56,7 @@ interface EditForm {
 @Component({
   selector: 'app-publish-board',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, RouterLink],
+  imports: [YtNavComponent, FormsModule, NgTemplateOutlet, RouterLink],
   templateUrl: './publish-board.component.html',
   styleUrl: './publish-board.component.css',
 })
@@ -336,6 +338,19 @@ export class PublishBoardComponent implements OnInit {
   }
 
   // --- labels ---
+
+  /** Downloads what the board currently shows (after filters) as a spreadsheet. */
+  exportCsv(): void {
+    const head = ['Title', 'State', 'Scheduled', 'Channel', 'Category', 'Privacy', 'Project'];
+    const rows = this.filtered().map((i) => [i.title, i.state, i.scheduledAt, i.channelTitle, i.categoryName, i.privacy, i.projectName]);
+    const csv = [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'publishing-schedule.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   dayLabel(d: Date): string {
     const today = new Date(this.now());

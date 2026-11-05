@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 
+import { YtNavComponent } from './yt-nav.component';
+
 import {
   YouTubeChannelOverview, YouTubeDashboard, YouTubePublication, YouTubeUpload, YouTubeVideoStats,
   isUploadFinished, needsAttention,
@@ -72,7 +74,7 @@ function loadPrefs(): Prefs {
  */
 @Component({
   selector: 'app-youtube-dashboard',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, YtNavComponent],
   templateUrl: './youtube-dashboard.component.html',
   styleUrl: './youtube-dashboard.component.css',
 })

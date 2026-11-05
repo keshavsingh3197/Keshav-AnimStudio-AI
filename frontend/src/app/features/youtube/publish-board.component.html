@@ -11,9 +11,12 @@
     <div class="pb-head-actions">
       <a routerLink="/youtube" class="pill">📊 YouTube dashboard</a>
       <button type="button" class="secondary" (click)="load()" [disabled]="loading()">🔄 Refresh</button>
+      <button type="button" class="secondary" (click)="exportCsv()" [disabled]="!board()" title="Download the filtered list as CSV">&#11015; Export CSV</button>
       <button type="button" (click)="openAdd()">＋ Add from exports</button>
     </div>
   </header>
+
+  <app-yt-nav />
 
   @if (!configured()) {
     <div class="pb-banner warn" role="status">YouTube publishing isn't set up on this server, so nothing on the board will go out. Ask an admin to add the Google sign-in keys.</div>

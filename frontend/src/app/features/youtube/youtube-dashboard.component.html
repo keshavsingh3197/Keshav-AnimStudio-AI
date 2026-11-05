@@ -16,22 +16,6 @@
     </div>
 
     <div class="yt-head-actions">
-      <a routerLink="/youtube/queue" class="yt-btn-checkup" title="Videos queued for YouTube and when each one goes out">
-        🗓️ Publishing board
-      </a>
-      @if (channels().length > 0) {
-        <a routerLink="/youtube/analysis" class="yt-btn-checkup" title="What your recent videos' numbers say, and a plan for what to make next">
-          📈 Channel analysis &amp; plan
-        </a>
-      }
-      @if (channels().length > 0) {
-        <a routerLink="/youtube/checkup" class="yt-btn-checkup" title="Audit and fix missing descriptions, tags, playlists, and audience with AI">
-          🩺 Video Details Checkup
-        </a>
-      }
-      <a routerLink="/youtube/details" class="yt-btn-checkup" title="Paste video IDs or links: captions, music, chapters and fresh SEO for each">
-        🔎 Details from IDs
-      </a>
       <button type="button" class="yt-btn-secondary" (click)="load(true)" [disabled]="refreshing() || loading()">
         <span class="yt-btn-icon" [class.spinning]="refreshing()">↻</span>
         {{ refreshing() ? 'Refreshing…' : 'Refresh Numbers' }}
@@ -43,6 +27,8 @@
       }
     </div>
   </header>
+
+  <app-yt-nav />
 
   @if (auth.isAnonymous()) {
     <div class="yt-empty-card yt-auth-card">

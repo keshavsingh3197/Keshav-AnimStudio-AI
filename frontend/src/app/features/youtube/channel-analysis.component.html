@@ -1,25 +1,31 @@
 <section class="page ca">
-  <div class="page-head ca-head">
-    <div>
-      <a routerLink="/youtube" class="ca-back">← YouTube</a>
-      <h2>Channel analysis &amp; plan</h2>
-      <p class="muted">
-        How your recent videos are doing for their age, what that shows, and what to make next. What was found is kept, so
-        opening this page costs nothing; refresh to read new numbers from YouTube.
+  <header class="ca-head">
+    <div class="ca-head-text">
+      <p class="ca-eyebrow"><span class="ca-badge" aria-hidden="true">▶</span> YouTube Studio Hub</p>
+      <h1>Channel analysis &amp; plan</h1>
+      <p class="ca-sub">
+        How your recent videos are doing for their age, what that shows, and what to make next. Results are kept, so
+        opening this page costs nothing — refresh to read new numbers from YouTube.
       </p>
     </div>
-  </div>
+  </header>
+
+  <app-yt-nav />
 
   @if (error(); as problem) {
     <div class="notice error" role="alert">{{ problem }}</div>
   }
 
   @if (channels() === null) {
-    <div class="empty ca-center"><span class="spinner" role="status" aria-label="Loading"></span> Loading…</div>
+    <div class="ca-skeleton" role="status" aria-label="Loading">
+      <div class="ca-sk ca-sk-wide"></div>
+      <div class="ca-sk-row"><div class="ca-sk"></div><div class="ca-sk"></div><div class="ca-sk"></div><div class="ca-sk"></div></div>
+    </div>
   } @else if ((channels() ?? []).length === 0) {
     <div class="card empty ca-center">
+      <div class="ca-empty-icon" aria-hidden="true">📺</div>
       <p>No YouTube channel is connected.</p>
-      <a routerLink="/youtube">Connect a channel</a>
+      <a routerLink="/youtube" class="ca-btn">Connect a channel</a>
     </div>
   } @else {
     @if ((channels() ?? []).length > 1) {
@@ -27,6 +33,7 @@
         @for (c of channels(); track c.channelId) {
           <button type="button" role="tab" [attr.aria-selected]="c.channelId === current()?.channelId"
                   [class.active]="c.channelId === current()?.channelId" (click)="select(c.channelId)">
+            @if (c.thumbnailUrl) { <img [src]="c.thumbnailUrl" alt="" width="20" height="20" referrerpolicy="no-referrer" /> }
             {{ c.channelTitle }}
           </button>
         }
@@ -35,18 +42,18 @@
 
     @if (current(); as c) {
       <!-- The channel and its numbers -->
-      <div class="card ca-channel">
+      <div class="ca-channel">
         <div class="ca-channel-id">
-          @if (c.thumbnailUrl) { <img [src]="c.thumbnailUrl" alt="" width="48" height="48" referrerpolicy="no-referrer" /> }
+          @if (c.thumbnailUrl) { <img [src]="c.thumbnailUrl" alt="" width="56" height="56" referrerpolicy="no-referrer" /> }
           <div>
-            <h3>{{ c.channelTitle }}</h3>
-            <p class="muted">
-              @if (c.fetchedAtUtc) { Numbers read {{ c.fetchedAtUtc | date: 'medium' }}. } @else { Not analysed yet. }
-              @if (c.nextRefreshAtUtc) { Can be read again at {{ c.nextRefreshAtUtc | date: 'shortTime' }}. }
+            <h2>{{ c.channelTitle }}</h2>
+            <p class="ca-meta">
+              @if (c.fetchedAtUtc) { <span class="ca-dot ok"></span> Numbers read {{ c.fetchedAtUtc | date: 'medium' }} } @else { <span class="ca-dot"></span> Not analysed yet }
+              @if (c.nextRefreshAtUtc) { · can be read again at {{ c.nextRefreshAtUtc | date: 'shortTime' }} }
             </p>
           </div>
         </div>
-        <button type="button" [disabled]="busy() !== null || !c.canRefresh" (click)="refresh()">
+        <button type="button" class="ca-btn" [disabled]="busy() !== null || !c.canRefresh" (click)="refresh()">
           @if (busy() === 'refresh') { <span class="spinner" aria-hidden="true"></span> }
           {{ c.fetchedAtUtc ? '↻ Refresh numbers' : '📈 Analyse this channel' }}
         </button>
@@ -61,118 +68,198 @@
 
       @if (c.insights; as i) {
         <div class="ca-tiles" role="list" aria-label="At a glance">
-          <div class="ca-tile" role="listitem"><strong>{{ c.subscribers === null ? 'hidden' : (c.subscribers | number) }}</strong><span>subscribers</span></div>
-          <div class="ca-tile" role="listitem"><strong>{{ i.publicVideos }}</strong><span>public videos analysed</span></div>
-          <div class="ca-tile" role="listitem"><strong>{{ i.medianViewsPerDay | number: '1.0-1' }}</strong><span>views a day, typical video</span></div>
-          <div class="ca-tile" role="listitem"><strong>{{ i.engagement === null ? '–' : (i.engagement | number: '1.0-2') + '%' }}</strong><span>likes + comments per view</span></div>
-          <div class="ca-tile" role="listitem"><strong>{{ i.daysBetweenUploads === null ? '–' : (i.daysBetweenUploads | number: '1.0-1') }}</strong><span>days between uploads</span></div>
-          <div class="ca-tile" role="listitem"><strong>{{ i.daysSinceLastUpload ?? '–' }}</strong><span>days since the last</span></div>
+          <div class="ca-tile" role="listitem"><span class="ca-tile-i" aria-hidden="true">👥</span><strong>{{ c.subscribers === null ? 'hidden' : (c.subscribers | number) }}</strong><span>subscribers</span></div>
+          <div class="ca-tile" role="listitem"><span class="ca-tile-i" aria-hidden="true">🎬</span><strong>{{ i.publicVideos }}</strong><span>public videos analysed</span></div>
+          <div class="ca-tile" role="listitem"><span class="ca-tile-i" aria-hidden="true">👁️</span><strong>{{ i.medianViewsPerDay | number: '1.0-1' }}</strong><span>views a day, typical video</span></div>
+          <div class="ca-tile" role="listitem"><span class="ca-tile-i" aria-hidden="true">💬</span><strong>{{ i.engagement === null ? '–' : (i.engagement | number: '1.0-2') + '%' }}</strong><span>likes + comments per view</span></div>
+          <div class="ca-tile" role="listitem"><span class="ca-tile-i" aria-hidden="true">📅</span><strong>{{ i.daysBetweenUploads === null ? '–' : (i.daysBetweenUploads | number: '1.0-1') }}</strong><span>days between uploads</span></div>
+          <div class="ca-tile" role="listitem"><span class="ca-tile-i" aria-hidden="true">⏱️</span><strong>{{ i.daysSinceLastUpload ?? '–' }}</strong><span>days since the last</span></div>
         </div>
 
-        @if (bars(); as b) {
-          <div class="card ca-compare" aria-label="Shorts against longer videos">
-            <h4>Shorts against longer videos (typical views a day)</h4>
-            <div class="ca-bar-row">
-              <span>Shorts ({{ i.shorts }})</span>
-              <div class="ca-bar"><div class="ca-bar-fill ca-bar-short" [style.width.%]="b.shorts"></div></div>
-              <strong>{{ i.shortsMedianViewsPerDay | number: '1.0-1' }}</strong>
-            </div>
-            <div class="ca-bar-row">
-              <span>Longer ({{ i.longVideos }})</span>
-              <div class="ca-bar"><div class="ca-bar-fill" [style.width.%]="b.long"></div></div>
-              <strong>{{ i.longMedianViewsPerDay | number: '1.0-1' }}</strong>
-            </div>
-            @if (i.bestWeekday) { <p class="muted">Best day to publish so far: <strong>{{ i.bestWeekday }}</strong>.</p> }
-          </div>
-        }
+        <div class="ca-grid">
+          @if (bars(); as b) {
+            <section class="ca-card" aria-label="Shorts against longer videos">
+              <h3>Shorts vs longer videos</h3>
+              <p class="ca-hint">Typical views a day</p>
+              <div class="ca-bar-row">
+                <span>Shorts <small>({{ i.shorts }})</small></span>
+                <div class="ca-bar"><div class="ca-bar-fill ca-bar-short" [style.width.%]="b.shorts"></div></div>
+                <strong>{{ i.shortsMedianViewsPerDay | number: '1.0-1' }}</strong>
+              </div>
+              <div class="ca-bar-row">
+                <span>Longer <small>({{ i.longVideos }})</small></span>
+                <div class="ca-bar"><div class="ca-bar-fill" [style.width.%]="b.long"></div></div>
+                <strong>{{ i.longMedianViewsPerDay | number: '1.0-1' }}</strong>
+              </div>
+              @if (i.bestWeekday) { <p class="ca-hint ca-best">Best day to publish so far: <strong>{{ i.bestWeekday }}</strong></p> }
+            </section>
+          }
+
+          @if (weekdays(); as w) {
+            <section class="ca-card" aria-label="Views by publishing day">
+              <h3>By publishing day</h3>
+              <p class="ca-hint">Typical views a day for uploads on each weekday</p>
+              <div class="ca-days">
+                @for (d of w; track d.label) {
+                  <div class="ca-day" [class.best]="d.best" [title]="d.count + ' uploads, ' + (d.median | number: '1.0-1') + ' views a day'">
+                    <em>{{ d.count === 0 ? '' : (d.median | number: '1.0-0') }}</em>
+                    <div class="ca-day-bar"><div class="ca-day-fill" [style.height.%]="d.pct"></div></div>
+                    <span>{{ d.label }}</span><small>{{ d.count }} {{ d.count === 1 ? 'video' : 'videos' }}</small>
+                  </div>
+                }
+              </div>
+            </section>
+          }
+
+          @if (trend(); as tr) {
+            <section class="ca-card ca-card-wide" aria-label="Recent uploads trend">
+              <div class="ca-trend-head">
+                <div>
+                  <h3>Recent uploads: views a day</h3>
+                  <p class="ca-hint">Each bar is one upload (newest on the right). Tap a bar to see that video. The dashed line is your typical video ({{ tr.median | number: '1.0-1' }} a day).</p>
+                </div>
+                <div class="ca-legend" aria-hidden="true">
+                  <span><i class="ca-sw ca-sw-long"></i> Video</span>
+                  <span><i class="ca-sw ca-sw-short"></i> Short</span>
+                </div>
+              </div>
+              <div class="ca-trend-wrap">
+                <span class="ca-axis ca-axis-top">{{ tr.max | number: '1.0-0' }}</span>
+                <span class="ca-axis ca-axis-bottom">0</span>
+                <div class="ca-trend" role="group" aria-label="Uploads">
+                  @if (tr.median > 0) { <div class="ca-median" [style.bottom.%]="tr.medianPct" aria-hidden="true"></div> }
+                  @for (t of tr.bars; track t.video.videoId) {
+                    <button type="button" class="ca-trend-bar" [class.short]="t.video.isShort" [class.on]="t.video.videoId === pickedId()"
+                            [style.height.%]="t.pct" [attr.aria-pressed]="t.video.videoId === pickedId()"
+                            [attr.aria-label]="t.video.title + ', ' + (t.video.viewsPerDay | number: '1.0-1') + ' views a day'"
+                            [title]="t.video.title + ' · ' + (t.video.viewsPerDay | number: '1.0-1') + ' a day'" (click)="pick(t.video.videoId)"></button>
+                  }
+                </div>
+              </div>
+              <div class="ca-trend-dates"><span>{{ tr.from | date: 'mediumDate' }}</span><span>{{ tr.to | date: 'mediumDate' }}</span></div>
+
+              @if (pickedVideo(); as pv) {
+                <div class="ca-pick" role="region" aria-live="polite" aria-label="Selected upload">
+                  @if (pv.thumbnailUrl) { <img class="ca-pick-thumb" [src]="pv.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> }
+                  <div class="ca-pick-main">
+                    <a [href]="pv.url" target="_blank" rel="noopener noreferrer" class="ca-pick-title">{{ pv.title }}</a>
+                    <span class="ca-hint">
+                      {{ pv.publishedAtUtc | date: 'medium' }} · {{ pv.isShort ? 'Short' : 'Video' }} · {{ length(pv.durationSeconds) }}
+                    </span>
+                    <div class="ca-pick-stats">
+                      <div><strong>{{ pv.views === null ? '–' : (pv.views | number) }}</strong><span>views</span></div>
+                      <div><strong>{{ pv.viewsPerDay | number: '1.0-1' }}</strong><span>views a day</span></div>
+                      <div><strong>{{ pv.likes === null ? '–' : (pv.likes | number) }}</strong><span>likes</span></div>
+                      <div><strong>{{ pv.comments === null ? '–' : (pv.comments | number) }}</strong><span>comments</span></div>
+                      <div><strong>{{ pv.engagement === null ? '–' : (pv.engagement | number: '1.0-2') + '%' }}</strong><span>engagement</span></div>
+                      @if (pickedVsTypical(); as d) {
+                        <div [class.up]="d > 0" [class.down]="d < 0"><strong>{{ d > 0 ? '+' : '' }}{{ d }}%</strong><span>vs typical</span></div>
+                      }
+                    </div>
+                    <div class="ca-pick-actions">
+                      <a [href]="pv.url" target="_blank" rel="noopener noreferrer" class="ca-ghost">Open on YouTube ↗</a>
+                      <button type="button" class="ca-ghost" (click)="findInTable(pv)">Show in table</button>
+                      <button type="button" class="ca-ghost" (click)="followUp(pv)">Make a Part 2</button>
+                      <button type="button" class="ca-ghost" (click)="pickedId.set(null)">Close</button>
+                    </div>
+                  </div>
+                </div>
+              }
+            </section>
+          }
+        </div>
 
         @if (i.findings.length > 0) {
-          <section class="card" aria-labelledby="ca-findings">
+          <section class="ca-card" aria-labelledby="ca-findings">
             <h3 id="ca-findings">What the numbers show</h3>
             <ul class="ca-findings">
               @for (f of i.findings; track $index) {
-                <li [class]="'ca-f-' + f.kind"><span aria-hidden="true">{{ f.kind === 'good' ? '✅' : f.kind === 'warn' ? '⚠️' : 'ℹ️' }}</span> {{ f.text }}</li>
+                <li [class]="'ca-f ca-f-' + f.kind"><span aria-hidden="true">{{ f.kind === 'good' ? '✅' : f.kind === 'warn' ? '⚠️' : 'ℹ️' }}</span> <span>{{ f.text }}</span></li>
               }
             </ul>
           </section>
         }
 
         <!-- The plan -->
-        <section class="card ca-plan" aria-labelledby="ca-plan-title">
-          <h3 id="ca-plan-title">Your plan</h3>
+        <section class="ca-card ca-plan" aria-labelledby="ca-plan-title">
+          <div class="ca-plan-head">
+            <h3 id="ca-plan-title">✨ Your plan</h3>
+            @if (c.report) { <button type="button" class="ca-ghost" (click)="copyPlan()">{{ copied() ? '✓ Copied' : '📋 Copy plan' }}</button> }
+          </div>
           <div class="ca-goal">
             <label for="ca-goal">Your goal (optional)</label>
-            <input id="ca-goal" type="text" maxlength="300" placeholder="e.g. reach 5,000 subscribers, grow Shorts, get more comments"
-                   [value]="goal()" (input)="goal.set(text($event))" />
-            <div class="ca-goal-actions">
-              <button type="button" [disabled]="busy() !== null || i.publicVideos === 0" (click)="makePlan(false)">
+            <div class="ca-goal-row">
+              <input id="ca-goal" type="text" maxlength="300" placeholder="e.g. reach 5,000 subscribers, grow Shorts, get more comments"
+                     [value]="goal()" (input)="goal.set(text($event))" />
+              <button type="button" class="ca-btn" [disabled]="busy() !== null || i.publicVideos === 0" (click)="makePlan(false)">
                 @if (busy() === 'plan') { <span class="spinner" aria-hidden="true"></span> }
-                {{ c.report ? 'Update my plan' : '✨ Make my plan' }}
+                {{ c.report ? 'Update my plan' : 'Make my plan' }}
               </button>
               @if (c.report) {
-                <button type="button" class="secondary" [disabled]="busy() !== null" (click)="makePlan(true)"
+                <button type="button" class="ca-ghost" [disabled]="busy() !== null" (click)="makePlan(true)"
                         title="Ask the text model again even though the numbers have not changed">
                   @if (busy() === 'fresh') { <span class="spinner" aria-hidden="true"></span> }
                   Think again
                 </button>
               }
             </div>
-            <p class="muted ca-note">With the same numbers and goal, the kept plan is shown again without asking the model.</p>
+            <p class="ca-hint">With the same numbers and goal, the kept plan is shown again without asking the model.</p>
           </div>
 
           @if (c.report; as rep) {
-            <p class="ca-summary">{{ rep.summary }}</p>
-            <p class="muted ca-note">
-              {{ rep.by === 'built-in' ? 'Made from the numbers by fixed rules (no text model is on).' : 'Written by ' + rep.by + '.' }}
-              {{ rep.createdAtUtc | date: 'medium' }}
-            </p>
+            <div class="ca-summary">
+              <p>{{ rep.summary }}</p>
+              <span class="ca-hint">
+                {{ rep.by === 'built-in' ? 'Made from the numbers by fixed rules (no text model is on).' : 'Written by ' + rep.by + '.' }}
+                {{ rep.createdAtUtc | date: 'medium' }}
+              </span>
+            </div>
 
             <div class="ca-two">
               @if (rep.whatWorks.length > 0) {
-                <div>
-                  <h4>What works</h4>
+                <div class="ca-panel ca-panel-good">
+                  <h4>👍 What works</h4>
                   <ul>@for (w of rep.whatWorks; track $index) { <li>{{ w }}</li> }</ul>
                 </div>
               }
               @if (rep.whatToFix.length > 0) {
-                <div>
-                  <h4>What to fix</h4>
+                <div class="ca-panel ca-panel-warn">
+                  <h4>🔧 What to fix</h4>
                   <ul>@for (w of rep.whatToFix; track $index) { <li>{{ w }}</li> }</ul>
                 </div>
               }
             </div>
 
             @if (rep.suggestions.length > 0) {
-              <h4>Do next</h4>
+              <h4 class="ca-sub-h">Do next</h4>
               <ol class="ca-suggestions">
                 @for (s of rep.suggestions; track $index) {
-                  <li>
-                    <span class="pill" [class.warn]="s.priority === 'high'" [class.ok]="s.priority === 'low'">{{ s.priority }}</span>
-                    <strong>{{ s.title }}</strong>
-                    @if (s.detail) { <p class="muted">{{ s.detail }}</p> }
+                  <li [attr.data-priority]="s.priority">
+                    <span class="ca-prio">{{ s.priority }}</span>
+                    <div><strong>{{ s.title }}</strong>@if (s.detail) { <p>{{ s.detail }}</p> }</div>
                   </li>
                 }
               </ol>
             }
 
             @if (rep.plan.length > 0) {
-              <h4>The next two weeks</h4>
+              <h4 class="ca-sub-h">The next two weeks</h4>
               <ol class="ca-steps">
                 @for (p of rep.plan; track $index) {
-                  <li>@if (p.when) { <span class="ca-when">{{ p.when }}</span> } {{ p.action }}</li>
+                  <li>@if (p.when) { <span class="ca-when">{{ p.when }}</span> }<span>{{ p.action }}</span></li>
                 }
               </ol>
             }
 
             @if (rep.ideas.length > 0) {
-              <h4>Video ideas</h4>
+              <h4 class="ca-sub-h">Video ideas</h4>
               <ul class="ca-ideas">
                 @for (idea of rep.ideas; track $index) {
                   <li class="ca-idea">
-                    <span class="pill">{{ idea.format === 'short' ? 'Short' : 'Video' }}</span>
+                    <span class="ca-tag" [class.short]="idea.format === 'short'">{{ idea.format === 'short' ? 'Short' : 'Video' }}</span>
                     <strong>{{ idea.title }}</strong>
-                    @if (idea.why) { <p class="muted">{{ idea.why }}</p> }
-                    <button type="button" class="secondary small" (click)="makeStory(idea)">Make this story →</button>
+                    @if (idea.why) { <p>{{ idea.why }}</p> }
+                    <button type="button" class="ca-ghost" (click)="makeStory(idea)">Make this story →</button>
                   </li>
                 }
               </ul>
@@ -183,28 +270,32 @@
         <!-- Best and weakest -->
         <div class="ca-two">
           @if (i.top.length > 0) {
-            <section class="card" aria-labelledby="ca-top">
-              <h3 id="ca-top">Doing best for their age</h3>
+            <section class="ca-card" aria-labelledby="ca-top">
+              <h3 id="ca-top">🔥 Doing best for their age</h3>
               <ol class="ca-rank">
                 @for (v of i.top; track v.videoId) {
                   <li>
-                    <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
-                    <span class="muted">{{ v.viewsPerDay | number: '1.0-1' }} views a day · {{ v.views | number }} views{{ v.isShort ? ' · Short' : '' }}</span>
-                    <button type="button" class="secondary small" (click)="followUp(v)">Make a Part 2</button>
+                    <div class="ca-rank-main">
+                      <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
+                      <span class="ca-hint">{{ v.viewsPerDay | number: '1.0-1' }} views a day · {{ v.views | number }} views{{ v.isShort ? ' · Short' : '' }}</span>
+                    </div>
+                    <button type="button" class="ca-ghost" (click)="followUp(v)">Part 2</button>
                   </li>
                 }
               </ol>
             </section>
           }
           @if (i.low.length > 0) {
-            <section class="card" aria-labelledby="ca-low">
-              <h3 id="ca-low">Needs a look</h3>
-              <p class="muted ca-note">Check these in YouTube Studio: the title and thumbnail (click-through) and where viewers leave (retention).</p>
+            <section class="ca-card" aria-labelledby="ca-low">
+              <h3 id="ca-low">🔍 Needs a look</h3>
+              <p class="ca-hint">Check these in YouTube Studio: the title and thumbnail (click-through) and where viewers leave (retention).</p>
               <ol class="ca-rank">
                 @for (v of i.low; track v.videoId) {
                   <li>
-                    <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
-                    <span class="muted">{{ v.viewsPerDay | number: '1.0-1' }} views a day · {{ v.views | number }} views</span>
+                    <div class="ca-rank-main">
+                      <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
+                      <span class="ca-hint">{{ v.viewsPerDay | number: '1.0-1' }} views a day · {{ v.views | number }} views</span>
+                    </div>
                   </li>
                 }
               </ol>
@@ -213,47 +304,96 @@
         </div>
 
         <!-- Every video -->
-        <section class="card" aria-labelledby="ca-all">
+        <section class="ca-card" aria-labelledby="ca-all">
           <div class="ca-all-head">
-            <h3 id="ca-all">Recent uploads ({{ c.videos.length }})</h3>
-            <div class="ca-filter" role="group" aria-label="Show">
-              <button type="button" [class.active]="filter() === 'all'" (click)="filter.set('all')">All</button>
-              <button type="button" [class.active]="filter() === 'short'" (click)="filter.set('short')">Shorts</button>
-              <button type="button" [class.active]="filter() === 'long'" (click)="filter.set('long')">Longer</button>
+            <h3 id="ca-all">Uploads <small>{{ totals().count }}{{ totals().count === c.videos.length ? '' : ' of ' + c.videos.length }}</small></h3>
+            <div class="ca-tools">
+              <div class="ca-filter" role="group" aria-label="Show">
+                <button type="button" [class.active]="filter() === 'all'" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">All</button>
+                <button type="button" [class.active]="filter() === 'short'" [attr.aria-pressed]="filter() === 'short'" (click)="setFilter('short')">Shorts</button>
+                <button type="button" [class.active]="filter() === 'long'" [attr.aria-pressed]="filter() === 'long'" (click)="setFilter('long')">Longer</button>
+              </div>
+              <input type="search" class="ca-search" placeholder="Search titles…" aria-label="Search titles" [value]="query()" (input)="setQuery(text($event))" />
+              <button type="button" class="ca-ghost" (click)="exportCsv()" [disabled]="videos().length === 0" title="Download every video in this list, not just this page">⬇ CSV</button>
             </div>
           </div>
+          <p class="ca-hint">All {{ totals().count }} in this list: {{ totals().views | number }} views · {{ totals().likes | number }} likes · {{ totals().comments | number }} comments</p>
+
           <div class="ca-table-wrap">
             <table class="ca-table">
               <thead>
-                <tr><th scope="col">Video</th><th scope="col">Published</th><th scope="col">Length</th><th scope="col">Views</th><th scope="col">A day</th><th scope="col">Likes + comments</th></tr>
+                <tr>
+                  <th scope="col" class="ca-c-video">Video</th>
+                  <th scope="col" class="ca-c-date" [attr.aria-sort]="sortKey() === 'date' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('date')">Published{{ arrow('date') }}</button></th>
+                  <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'length' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('length')">Length{{ arrow('length') }}</button></th>
+                  <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'views' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('views')">Views{{ arrow('views') }}</button></th>
+                  <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'perDay' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('perDay')">Views / day{{ arrow('perDay') }}</button></th>
+                  <th scope="col" class="ca-num">Likes</th>
+                  <th scope="col" class="ca-num">Comments</th>
+                  <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'engagement' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('engagement')">Engagement{{ arrow('engagement') }}</button></th>
+                </tr>
               </thead>
               <tbody>
-                @for (v of videos(); track v.videoId) {
+                @for (v of pageItems(); track v.videoId) {
                   <tr [class.ca-private]="v.privacy !== 'public'">
-                    <td>
-                      <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
-                      @if (v.privacy !== 'public') { <span class="pill">{{ v.privacy ?? 'unknown' }}</span> }
-                      @if (v.isShort) { <span class="pill">Short</span> }
+                    <td class="ca-c-video">
+                      <div class="ca-vid">
+                        @if (v.thumbnailUrl) { <img class="ca-thumb" [src]="v.thumbnailUrl" alt="" width="64" height="36" loading="lazy" referrerpolicy="no-referrer" /> }
+                        <div class="ca-vid-text">
+                          <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
+                          <div class="ca-chips">
+                            @if (rating(v); as r) {
+                              <span [class]="'ca-chip ca-chip-' + r">{{ r === 'hit' ? '🔥 Hit' : r === 'low' ? '↓ Low' : 'Typical' }}</span>
+                            }
+                            @if (v.isShort) { <span class="ca-chip">Short</span> }
+                            @if (v.privacy !== 'public') { <span class="ca-chip">{{ v.privacy ?? 'unknown' }}</span> }
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td>{{ v.publishedAtUtc ? (v.publishedAtUtc | date: 'mediumDate') : 'scheduled' }}</td>
-                    <td>{{ length(v.durationSeconds) }}</td>
-                    <td>{{ v.views === null ? '–' : (v.views | number) }}</td>
-                    <td>{{ v.viewsPerDay | number: '1.0-1' }}</td>
-                    <td>{{ v.engagement === null ? '–' : (v.engagement | number: '1.0-2') + '%' }}</td>
+                    <td class="ca-c-date" data-label="Published">{{ v.publishedAtUtc ? (v.publishedAtUtc | date: 'mediumDate') : 'scheduled' }}</td>
+                    <td class="ca-num" data-label="Length">{{ length(v.durationSeconds) }}</td>
+                    <td class="ca-num" data-label="Views">{{ v.views === null ? '–' : (v.views | number) }}</td>
+                    <td class="ca-num" data-label="Views / day">{{ v.viewsPerDay | number: '1.0-1' }}</td>
+                    <td class="ca-num" data-label="Likes">{{ v.likes === null ? '–' : (v.likes | number) }}</td>
+                    <td class="ca-num" data-label="Comments">{{ v.comments === null ? '–' : (v.comments | number) }}</td>
+                    <td class="ca-num" data-label="Engagement">{{ v.engagement === null ? '–' : (v.engagement | number: '1.0-2') + '%' }}</td>
                   </tr>
+                } @empty {
+                  <tr class="ca-empty-row"><td colspan="8" class="ca-none">No videos match.</td></tr>
                 }
               </tbody>
             </table>
           </div>
+
+          @if (range().total > 0) {
+            <nav class="ca-pager" aria-label="Pages">
+              <span class="ca-hint ca-range">Showing {{ range().from }}–{{ range().to }} of {{ range().total }}</span>
+              <div class="ca-pages">
+                <button type="button" class="ca-ghost" [disabled]="pageIndex() === 0" (click)="goTo(pageIndex() - 1)" aria-label="Previous page">‹ Prev</button>
+                @for (p of pageButtons(); track $index) {
+                  @if (p === null) { <span class="ca-gap" aria-hidden="true">…</span> }
+                  @else { <button type="button" class="ca-page" [class.active]="p === pageIndex()" [attr.aria-current]="p === pageIndex() ? 'page' : null" (click)="goTo(p)">{{ p + 1 }}</button> }
+                }
+                <button type="button" class="ca-ghost" [disabled]="pageIndex() >= pageCount() - 1" (click)="goTo(pageIndex() + 1)" aria-label="Next page">Next ›</button>
+              </div>
+              <label class="ca-size">Rows
+                <select [value]="pageSize()" (change)="setPageSize(text($event))" aria-label="Rows per page">
+                  @for (n of pageSizes; track n) { <option [value]="n" [selected]="n === pageSize()">{{ n }}</option> }
+                </select>
+              </label>
+            </nav>
+          }
         </section>
       } @else if (!c.fetchedAtUtc) {
         <div class="card empty ca-center">
+          <div class="ca-empty-icon" aria-hidden="true">📈</div>
           <p>Press <strong>Analyse this channel</strong> to read its recent videos from YouTube.</p>
           <p class="muted">It reads up to the 100 newest uploads with their views, likes and comments, and keeps them here.</p>
         </div>
       }
 
-      <p class="muted ca-note">
+      <p class="ca-hint ca-foot">
         The numbers come from the YouTube Data API: views, likes, comments, lengths and dates. Watch time, retention and
         click-through are only in YouTube Studio's Analytics, so the advice points you there for those.
       </p>
