@@ -1,17 +1,19 @@
 <div class="pb-page studio-wide-page">
   <header class="pb-head">
     <div class="pb-head-left">
-      <div class="studio-icon-badge" aria-hidden="true">🗓️</div>
-      <div>
-        <h2>Publishing board</h2>
-        <p class="muted">Every video waiting to go to YouTube, and when. The server sends each one on time — or uploads it ahead
-          and lets YouTube release it on the dot — so you can close this page. Times are yours ({{ timeZone }}).</p>
-      </div>
+      <p class="pb-eyebrow">
+        <span class="pb-logo-badge" aria-hidden="true">▶</span>
+        <span>YouTube Studio Hub</span>
+      </p>
+      <h1>Publishing board</h1>
+      <p class="pb-subhead">Every video waiting to go to YouTube, and when. The server sends each one on time — or uploads it ahead
+        and lets YouTube release it on the dot — so you can close this page. Times are yours ({{ timeZone }}).</p>
     </div>
     <div class="pb-head-actions">
-      <a routerLink="/youtube" class="pill">📊 YouTube dashboard</a>
-      <button type="button" class="secondary" (click)="load()" [disabled]="loading()">🔄 Refresh</button>
-      <button type="button" class="secondary" (click)="exportCsv()" [disabled]="!board()" title="Download the filtered list as CSV">&#11015; Export CSV</button>
+      <button type="button" class="secondary" (click)="load()" [disabled]="loading()">
+        <span aria-hidden="true">↻</span> {{ loading() ? 'Refreshing…' : 'Refresh' }}
+      </button>
+      <button type="button" class="secondary" (click)="exportCsv()" [disabled]="!board()" title="Download the filtered list as CSV">⬇ Export CSV</button>
       <button type="button" (click)="openAdd()">＋ Add from exports</button>
     </div>
   </header>
@@ -73,22 +75,38 @@
         <button type="button" role="tab" [class.on]="view() === 'columns'" [attr.aria-selected]="view() === 'columns'" (click)="view.set('columns')">▥ Board</button>
         <button type="button" role="tab" [class.on]="view() === 'week'" [attr.aria-selected]="view() === 'week'" (click)="view.set('week')">📅 Week</button>
       </div>
-      @if (view() === 'timeline') {
-        <select [ngModel]="filter()" (ngModelChange)="filter.set($event)" aria-label="Show">
-          <option value="upcoming">Coming up</option>
-          <option value="today">Due today</option>
-          <option value="attention">Needs attention</option>
-          <option value="uploading">Uploading</option>
-          <option value="held">Held</option>
-          <option value="published">Published</option>
-          <option value="all">Everything</option>
-        </select>
-      }
-      <select [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Channel">
-        <option value="">All channels</option>
-        @for (c of channels(); track c.channelId) { <option [value]="c.channelId">{{ c.channelTitle }}</option> }
-      </select>
-      <input type="search" class="pb-search" placeholder="Search titles, projects, tags…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Search" />
+      <div class="pb-toolbar-right">
+        @if (view() === 'timeline') {
+          <div class="pb-select-wrap">
+            <select class="pb-select" [ngModel]="filter()" (ngModelChange)="filter.set($event)" aria-label="Show">
+              <option value="upcoming">Coming up</option>
+              <option value="today">Due today</option>
+              <option value="attention">Needs attention</option>
+              <option value="uploading">Uploading</option>
+              <option value="held">Held</option>
+              <option value="published">Published</option>
+              <option value="all">Everything</option>
+            </select>
+            <span class="pb-chevron" aria-hidden="true">▾</span>
+          </div>
+        }
+        <div class="pb-select-wrap">
+          <select class="pb-select" [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Channel">
+            <option value="">All channels</option>
+            @for (c of channels(); track c.channelId) { <option [value]="c.channelId">{{ c.channelTitle }}</option> }
+          </select>
+          <span class="pb-chevron" aria-hidden="true">▾</span>
+        </div>
+        <div class="pb-search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pb-search-icon" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input type="search" class="pb-search" placeholder="Search titles, projects, tags…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Search" />
+          @if (search()) {
+            <button type="button" class="pb-search-clear" (click)="search.set('')" aria-label="Clear search">✕</button>
+          }
+        </div>
+      </div>
     </div>
 
     <!-- The card, shared by every view. -->

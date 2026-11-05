@@ -19,6 +19,7 @@ import {
 } from './checkup-draft';
 import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
 import { csvCell } from './csv';
+import { YtNavComponent } from './yt-nav.component';
 
 /** The issues the page counts and filters by, in the order they're shown. */
 const ISSUE_LABELS: readonly { code: string; label: string }[] = [
@@ -111,7 +112,7 @@ function loadViewMode(): ViewMode {
  */
 @Component({
   selector: 'app-youtube-checkup',
-  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent],
+  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent, YtNavComponent],
   templateUrl: './youtube-checkup.component.html',
   styleUrl: './youtube-checkup.component.css',
 })
