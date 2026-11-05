@@ -5,12 +5,21 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
+  ContinueStoryBody,
   CreateStoryRunBody,
   EditStoryScriptBody,
+  REVIEW_STEP,
+  RedoLookBody,
+  RedoMusicBody,
+  RedoNarrationBody,
   StoryAgentOptions,
+  StoryBudgetReport,
   StoryBuildOptionsBody,
+  StoryCaptionsSent,
+  StoryReviewStage,
   StoryRun,
   StoryRunSummary,
+  StorySeries,
   StoryWriterMode,
 } from '../models/story-agent.models';
 
@@ -54,6 +63,11 @@ export class StoryAgentService {
     return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/script`, body));
   }
 
+  /** "Go with this script." Nothing is made yet; changing the words later takes the approval back. */
+  approve(id: string): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/approve`, {}));
+  }
+
   rewrite(id: string, writer?: StoryWriterMode): Observable<StoryRun> {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/rewrite`, writer ? { writer } : {}));
   }
@@ -66,6 +80,16 @@ export class StoryAgentService {
 
   removeImage(id: string, scene: number): Observable<StoryRun> {
     return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/image`));
+  }
+
+  attachVideo(id: string, scene: number, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/video`, form));
+  }
+
+  removeVideo(id: string, scene: number): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/video`));
   }
 
   /** Fetched through HttpClient, not an <img src>, so the request carries the same identity as every other call. */
@@ -81,9 +105,87 @@ export class StoryAgentService {
     return this.http.get(`${environment.apiUrl}/api/render-jobs/${encodeURIComponent(jobId)}/download`, { responseType: 'blob' });
   }
 
+  /** One subtitle track as an SRT file (UTF-8). Fetched through HttpClient so it carries the caller's identity. */
+  subtitleFile(id: string, language: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/subtitles/${encodeURIComponent(language)}`, { responseType: 'blob' });
+  }
+
+  /** Adds the story's subtitles to one of its YouTube videos; no languages means every one the story has. */
+  sendSubtitles(id: string, videoId: string, languages?: string[]): Observable<StoryCaptionsSent> {
+    return this.unwrap(this.http.post<ApiResponse<StoryCaptionsSent>>(`${this.run(id)}/subtitles/youtube`, { videoId, languages }));
+  }
+
   /** Approves the script and starts making the video. Options sent here replace the ones the story started with. */
   build(id: string, options?: StoryBuildOptionsBody): Observable<StoryRun> {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/build`, options ?? {}));
+  }
+
+  /** What a build with these options would use of today's paid Google limits. Starts nothing. */
+  budget(id: string, options?: StoryBuildOptionsBody): Observable<StoryBudgetReport> {
+    return this.unwrap(this.http.post<ApiResponse<StoryBudgetReport>>(`${this.run(id)}/budget`, options ?? {}));
+  }
+
+  /** "This is good, go on": approves the step the build is waiting on. The music's level can come with it. */
+  approveReview(id: string, stage: StoryReviewStage, musicVolume?: number): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/review/${REVIEW_STEP[stage]}/approve`,
+      musicVolume === undefined ? {} : { musicVolume }));
+  }
+
+  redoNarration(id: string, body: RedoNarrationBody): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/narration/redo`, body));
+  }
+
+  redoMusic(id: string, body: RedoMusicBody): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/music/redo`, body));
+  }
+
+  /** The person's own track (MP3 or WAV), made in Google's music tool from the brief shown, say. */
+  attachMusic(id: string, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/music`, form));
+  }
+
+  redoLook(id: string, body: RedoLookBody): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/look/redo`, body));
+  }
+
+  /** Makes the video play at another speed: a copy of the render, with its subtitles and chapters retimed to it. */
+  changeSpeed(id: string, speed: number): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/speed`, { speed }));
+  }
+
+  /** A scene's narration, through HttpClient like a picture, so it carries the caller's identity. */
+  sceneAudio(id: string, scene: number): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/scenes/${scene}/audio`, { responseType: 'blob' });
+  }
+
+  musicFile(id: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/music`, { responseType: 'blob' });
+  }
+
+  /** Every story that was continued, as series with their parts in order. */
+  series(): Observable<StorySeries[]> {
+    return this.unwrap(this.http.get<ApiResponse<StorySeries[]>>(`${this.base}/series`));
+  }
+
+  oneSeries(id: string): Observable<StorySeries> {
+    return this.unwrap(this.http.get<ApiResponse<StorySeries>>(`${this.base}/series/${encodeURIComponent(id)}`));
+  }
+
+  /** Ideas for the next part: the kept ones cost nothing; fresh asks the text model for new ones. */
+  suggestNextParts(id: string, fresh = false): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/next-parts`, { fresh }));
+  }
+
+  /** Starts the next part of the story. The answer is the new part. */
+  continueStory(id: string, body: ContinueStoryBody = {}): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/continue`, body));
+  }
+
+  /** How far the series goes on by itself from this part; null stops it. */
+  setSeriesAuto(id: string, upTo: number | null): Observable<StoryRun> {
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/series/auto`, { upTo }));
   }
 
   retry(id: string): Observable<StoryRun> {

@@ -24,6 +24,20 @@
 
 .sa-field input[lang="hi"] { font-size: 1rem; }
 
+/* ---- genre ------------------------------------------------------------------- */
+.sa-genres { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .5rem; }
+.sa-genre {
+  position: relative; display: flex; align-items: center; gap: .5rem; padding: .6rem .7rem; margin: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--ov-1);
+  font-size: .86rem; font-weight: 650; line-height: 1.3; color: var(--text-dim);
+}
+.sa-genre:hover { border-color: var(--border-bright); color: var(--text); }
+.sa-genre.selected { border-color: var(--brand); background: var(--brand-subtle); color: var(--text); }
+.sa-genre:focus-within { outline: 2px solid var(--brand); outline-offset: 1px; }
+.sa-genre input { position: absolute; opacity: 0; pointer-events: none; }
+.sa-genre-icon { font-size: 1.2rem; flex: 0 0 auto; }
+.sa-genre-name { min-width: 0; overflow-wrap: anywhere; }
+
 /* ---- ideas ------------------------------------------------------------------- */
 .sa-topics { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .sa-topic {
@@ -77,3 +91,7 @@
   .seg { width: 100%; }
   .seg > label { flex: 1 1 auto; justify-content: center; text-align: center; }
 }
+
+.sa-list-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+.sa-board-link { font-size: .86rem; font-weight: 650; text-decoration: none; }
+.sa-list-links { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }

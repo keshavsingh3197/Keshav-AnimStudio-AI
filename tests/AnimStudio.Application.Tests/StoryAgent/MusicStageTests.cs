@@ -1,9 +1,12 @@
+using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Music;
 using AnimStudio.Application.Abstractions.StoryAgent;
+using AnimStudio.Application.Ai;
 using AnimStudio.Application.Music;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Tests.Ai;
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Stories;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,11 +21,87 @@ public sealed class MusicStageTests
         Save = () => Task.CompletedTask
     };
 
-    private static (MusicStage Stage, FakeMusic Music, InMemoryObjectStore Store) Make()
+    private sealed class FakeComposer : ISpeechAiProvider, IMusicGeneratingProvider
+    {
+        public AiProviderId Id { get; } = AiProviderId.Parse("gemini-tts");
+        public AiCapability Capability => AiCapability.Speech;
+        public bool IsConfigured => true;
+        public Func<string, byte[]> Compose { get; set; } = _ => FakeMusic.Mp3Bytes();
+        public List<(string Prompt, string? Model)> Calls { get; } = [];
+
+        public Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct) => Task.FromResult(AiProviderHealth.Healthy);
+        public Task<IReadOnlyList<AiVoice>> ListVoicesAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<AiVoice>>([]);
+        public Task<AiSpeechResult> SynthesizeAsync(AiSpeechRequest request, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<AiGeneratedMusic> GenerateMusicAsync(string prompt, string? model, CancellationToken ct)
+        {
+            Calls.Add((prompt, model));
+            return Task.FromResult(new AiGeneratedMusic(Compose(model!), "audio/mpeg", model!));
+        }
+    }
+
+    private static (MusicStage Stage, FakeMusic Music, InMemoryObjectStore Store) Make(FakeComposer? composer = null)
     {
         var music = new FakeMusic();
         var store = new InMemoryObjectStore();
-        return (new MusicStage(music, store, NullLogger<MusicStage>.Instance), music, store);
+        var registry = new StubRegistry(extraSpeech: composer is null ? null : [composer]);
+        return (new MusicStage(music, store, registry, NullLogger<MusicStage>.Instance), music, store);
+    }
+
+    [Fact]
+    public async Task With_google_set_up_the_music_is_composed_for_the_story_instrumental_and_credited()
+    {
+        var composer = new FakeComposer();
+        var (stage, music, store) = Make(composer);
+        var run = BuildingRun();
+        run.Script!.MusicQuery = "sitar flute devotional";
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.Empty(music.Searches);
+        var (prompt, model) = Assert.Single(composer.Calls);
+        Assert.Equal("lyria-3.5", model);
+        Assert.Contains("sitar flute devotional", prompt);
+        Assert.Contains("no vocals", prompt);
+        Assert.Equal(MusicStage.ComposedProvider, run.Music!.Provider);
+        Assert.Contains("Lyria", run.Music.Attribution);
+        Assert.Equal([StoryObjectKeys.Music(run.Id)], store.Keys);
+
+        // A second pass keeps it.
+        await stage.RunAsync(Context(run), CancellationToken.None);
+        Assert.Single(composer.Calls);
+    }
+
+    [Fact]
+    public async Task A_model_that_fails_falls_back_to_the_clip_model_then_to_the_catalogue()
+    {
+        var composer = new FakeComposer { Compose = _ => throw new AiProviderException("endpoint-or-model-not-found", "x") };
+        var (stage, music, _) = Make(composer);
+        music.Search = _ => Page(FakeMusic.Track("1"));
+        var run = BuildingRun();
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.Equal(["lyria-3.5", "lyria-3-clip-preview"], composer.Calls.Select(c => c.Model));
+        Assert.Equal("jamendo", run.Music!.Provider);
+        Assert.Contains(run.Warnings, w => w.Contains("Lyria", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Asking_for_a_search_never_composes()
+    {
+        var composer = new FakeComposer();
+        var (stage, music, _) = Make(composer);
+        music.Search = _ => Page(FakeMusic.Track("1"));
+        var run = BuildingRun();
+        run.Options.MusicSource = StoryMusicSource.Search;
+
+        await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Empty(composer.Calls);
+        Assert.Equal("jamendo", run.Music!.Provider);
     }
 
     private static StoryRun BuildingRun()

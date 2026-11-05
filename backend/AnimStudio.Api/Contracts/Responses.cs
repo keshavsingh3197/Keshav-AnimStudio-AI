@@ -335,16 +335,19 @@ public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable 
 public sealed record VoiceoverVoicesResponse(
     bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
     IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable,
-    IReadOnlyList<VoiceoverEngineResponse>? Engines = null);
+    IReadOnlyList<VoiceoverEngineResponse>? Engines = null,
+    string? ReplicationEngine = null);
 
 /// <summary>
 /// A speech engine that is on and answering, in the configured order. <see cref="Models"/> is
 /// empty for an engine with nothing to choose; <see cref="Model"/> is the one used by default.
+/// <see cref="SupportsStyle"/>: it takes a delivery instruction ("warm and unhurried") with a line.
 /// </summary>
 public sealed record VoiceoverEngineResponse(
-    string Id, string Name, bool RunsLocally, string? Model, IReadOnlyList<VoiceoverModelResponse> Models);
+    string Id, string Name, bool RunsLocally, string? Model, IReadOnlyList<VoiceoverModelResponse> Models,
+    bool SupportsStyle = false);
 
-public sealed record VoiceoverModelResponse(string Id, string Label);
+public sealed record VoiceoverModelResponse(string Id, string Label, string? Detail = null, bool Recommended = false);
 
 /// <summary>What was heard in a dictated script, one line per spoken phrase.</summary>
 public sealed record VoiceScriptDictationResponse(IReadOnlyList<string> Lines);
@@ -355,11 +358,15 @@ public sealed record VoiceScriptPolishResponse(string Script, string? ProviderId
 /// <summary>
 /// A voice the user added from their own sample. The sample itself is never sent back.
 /// <paramref name="Tuned"/>: the speech engine has a voice tuned from it, which speaks English lines directly.
+/// <paramref name="GoogleEngine"/>: the hosted engine that has a copy replicated from it (sent with their
+/// spoken consent), whose lines it can then speak; null when the voice is on this machine only.
 /// </summary>
 public sealed record MyVoiceResponse(
-    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc, bool Tuned);
+    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc, bool Tuned,
+    string? GoogleEngine = null, DateTime? GoogleConsentAtUtc = null);
 
-public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);
+public sealed record VoiceoverVoiceResponse(
+    string Id, string Name, string? LanguageCode, string? Gender, string? Group = null);
 
 /// <summary>
 /// What is said in an audio or video asset. <paramref name="Language"/> is what the recognizer

@@ -1,4 +1,4 @@
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Component, DestroyRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -7,34 +7,84 @@ import { firstValueFrom, lastValueFrom } from 'rxjs';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   StoryAgentOptions,
+  StoryBudgetReport,
   StoryBuildOptions,
+  StoryCaptionResult,
+  StoryPublication,
   StoryRun,
   StoryStage,
   StoryWriterMode,
 } from '../../core/models/story-agent.models';
+import { YouTubePrefill, YouTubeUpload } from '../../core/models/youtube.models';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
+import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
+import { StoryContinueComponent } from './story-continue.component';
 import { StoryKitComponent } from './story-kit.component';
 import { StoryOptionsComponent } from './story-options.component';
+import { StoryReviewComponent } from './story-review.component';
 import { StoryScriptEditorComponent } from './story-script-editor.component';
-import { STAGE_INFO, STATUS_LABEL, clock, copyText, isTerminal, replyProblem, stageMark, statusTone, timeAgo } from './story-agent.utils';
+import {
+  REVIEW_LABEL,
+  STAGE_INFO,
+  STATUS_LABEL,
+  clock,
+  copyText,
+  fileNameOf,
+  isTerminal,
+  publicationState,
+  replyProblem,
+  saveBlob,
+  stageMark,
+  statusTone,
+  timeAgo,
+  whenLabel,
+} from './story-agent.utils';
 
 /** How often a story being made is asked about, and how long to wait after a failed ask. */
 const POLL_MS = 2000;
 const RETRY_MAX_MS = 10_000;
 
-type Action = 'cancel' | 'retry' | 'delete' | 'build' | 'rewrite' | 'paste';
+/** The speeds offered for the video, as multiples of the pace it was built at. */
+const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+
+/** Two speeds are the same once rounded the way the server stores them (to 0.05). */
+const sameSpeed = (a: number, b: number): boolean => Math.abs(a - b) < 0.001;
+
+type Action = 'cancel' | 'retry' | 'delete' | 'build' | 'rewrite' | 'paste' | 'approve' | 'speed';
+
+/** The story page's tabs, in the order a story goes through them. */
+export type StoryTab = 'overview' | 'script' | 'pictures' | 'build' | 'review' | 'publish';
+
+const TABS: { id: StoryTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'script', label: 'Script' },
+  { id: 'pictures', label: 'Pictures' },
+  { id: 'build', label: 'Build' },
+  { id: 'review', label: 'Voice & music' },
+  { id: 'publish', label: 'Video & YouTube' },
+];
+
+/** How a tab reads in the bar: finished, the one that needs the person now, not reachable yet, or neither. */
+type TabState = 'done' | 'now' | 'locked' | 'todo';
 
 /**
- * One story, from the first search to the finished video. It follows a story being made by asking the server about it
- * every couple of seconds, and shows whatever the story needs from the person next: a script to paste, a script to read
- * and illustrate, or - once it is done - the video and the details to upload it with.
+ * One story, from the first search to the video on YouTube, as tabs a person moves through: what is happening, the
+ * script to read and approve, the pictures, the build, and the finished video with its subtitles and YouTube details.
+ * It follows a story being made by asking the server about it every couple of seconds.
+ *
+ * Everything the person does is saved on the server as they do it, so leaving and coming back - from the storyboard,
+ * or days later - opens the story where it was. The one thing held only on the page is script text typed and not yet
+ * saved, and leaving with that asks first.
  */
 @Component({
   selector: 'app-story-run',
-  imports: [RouterLink, FormsModule, DecimalPipe, StoryScriptEditorComponent, StoryOptionsComponent, StoryKitComponent],
+  imports: [
+    RouterLink, FormsModule, DecimalPipe, NgTemplateOutlet, StoryScriptEditorComponent, StoryOptionsComponent, StoryKitComponent, StoryReviewComponent,
+    YouTubePublishDialogComponent, StoryContinueComponent,
+  ],
   templateUrl: './story-run.component.html',
   styleUrls: ['./story-run.component.css'],
 })
@@ -47,6 +97,8 @@ export class StoryRunComponent {
 
   /** `/story-agent/:runId` - route parameters arrive as inputs. */
   readonly runId = input.required<string>();
+  /** `?tab=` - which tab to open on; otherwise the one the story needs next. */
+  readonly tab = input<string | undefined>(undefined);
 
   readonly run = signal<StoryRun | null>(null);
   readonly caps = signal<StoryAgentOptions | null>(null);
@@ -56,6 +108,7 @@ export class StoryRunComponent {
   readonly offline = signal(false);
   readonly busy = signal<Action | null>(null);
   readonly actionError = signal<string | null>(null);
+  readonly selected = signal<StoryTab>('overview');
 
   /**
    * Someone who is not signed in is a guest, and a <video> or a download link cannot send the header that says so. For
@@ -65,6 +118,23 @@ export class StoryRunComponent {
   readonly localVideo = signal<{ jobId: string; url: string } | null>(null);
   readonly videoBusy = signal<'watch' | 'save' | null>(null);
   readonly videoError = signal<string | null>(null);
+  /**
+   * The video's speed. {@link fileSpeed} is the speed the file was made at - what is downloaded and sent to YouTube, with
+   * subtitles timed to it. A speed picked here plays at once as a preview; applying it makes the file at that speed.
+   */
+  readonly speeds = SPEEDS;
+  readonly fileSpeed = computed(() => this.run()?.render?.speed ?? 1);
+  private readonly pickedSpeed = signal<number | null>(null);
+  readonly speed = computed(() => this.pickedSpeed() ?? this.fileSpeed());
+  /** A speed is being previewed that the file is not yet made at. */
+  readonly speedPending = computed(() => !sameSpeed(this.speed(), this.fileSpeed()));
+  /** How long the video will run at the previewed speed, in seconds; null when the length is not known. */
+  readonly speedSeconds = computed(() => {
+    const seconds = this.run()?.render?.seconds ?? 0;
+    return seconds > 0 ? (seconds * this.fileSpeed()) / this.speed() : null;
+  });
+  /** The player's sound is off (muted, or its volume at zero) - the usual reason a finished video seems silent. */
+  readonly videoSilent = signal(false);
 
   /** The prompt for writing the script by hand, once the search has finished. */
   readonly prompt = signal<string | null>(null);
@@ -76,14 +146,24 @@ export class StoryRunComponent {
   /** The choices for building, editable on this page until Build is pressed. */
   readonly buildOptions = signal<StoryBuildOptions | null>(null);
 
+  /** Publishing: the dialog, whether the subtitles follow the video up, and what sending them last said. */
+  readonly publishing = signal(false);
+  readonly autoCaptions = signal(true);
+  readonly captionBusy = signal<string | null>(null);
+  readonly captionResults = signal<{ videoId: string; results: StoryCaptionResult[] } | null>(null);
+  readonly subtitleBusy = signal<string | null>(null);
+
   readonly editor = viewChild(StoryScriptEditorComponent);
 
   readonly info = STAGE_INFO;
   readonly statusLabel = STATUS_LABEL;
+  readonly reviewLabel = REVIEW_LABEL;
   readonly mark = stageMark;
   readonly tone = statusTone;
   readonly ago = timeAgo;
   readonly clock = clock;
+  readonly when = whenLabel;
+  readonly videoState = publicationState;
 
   readonly terminal = computed(() => {
     const run = this.run();
@@ -93,10 +173,72 @@ export class StoryRunComponent {
     const run = this.run();
     return !!run?.script && !run.working && run.status !== 'AwaitingScript';
   });
+  readonly approved = computed(() => !!this.run()?.scriptApprovedAtUtc);
   readonly warnings = computed(() => this.run()?.warnings ?? []);
   readonly language = computed(() => this.run()?.brief.language ?? 'hi');
   /** The stage that failed, so the notice can say which step to blame. */
   readonly failedStage = computed<StoryStage | null>(() => this.run()?.stages.find((stage) => stage.status === 'Failed') ?? null);
+
+  /** Scenes with a picture of their own (not the plain background a build falls back to). */
+  readonly pictured = computed(() => (this.run()?.script?.scenes ?? []).filter((s) => s.hasImage && s.imageSource !== 'placeholder').length);
+  readonly sceneCount = computed(() => this.run()?.script?.scenes.length ?? 0);
+
+  readonly tabs = computed(() => {
+    const run = this.run();
+    if (!run) return [];
+    const hasScript = !!run.script;
+    const waiting = run.status === 'AwaitingReview' ? run.review ?? null : null;
+    const states: Record<StoryTab, TabState> = {
+      overview: run.working || run.status === 'Failed' ? 'now' : 'todo',
+      script: run.scriptApprovedAtUtc ? 'done' : run.status === 'AwaitingScript' || run.status === 'ScriptReady' ? 'now' : 'todo',
+      pictures: !hasScript ? 'locked' : this.pictured() === this.sceneCount() ? 'done' : run.scriptApprovedAtUtc && run.status === 'ScriptReady' ? 'now' : 'todo',
+      build: !hasScript || run.status === 'AwaitingScript' ? 'locked' : run.status === 'Completed' ? 'done' : run.status === 'Building' ? 'now' : 'todo',
+      review: !this.soundStarted(run) ? 'locked'
+        : waiting === 'narration' || waiting === 'music' ? 'now'
+        : run.voiceApprovedAtUtc && (run.musicApprovedAtUtc || !run.options.music) ? 'done' : 'todo',
+      publish: !run.projectId && !run.render ? 'locked' : run.publications.length > 0 ? 'done'
+        : run.status === 'Completed' || waiting === 'render' ? 'now' : 'todo',
+    };
+    const notes: Record<StoryTab, string> = {
+      overview: run.working ? `${this.overall(run)}%` : '',
+      script: run.scriptApprovedAtUtc ? 'Approved' : hasScript ? 'To approve' : '',
+      pictures: hasScript ? `${this.pictured()}/${this.sceneCount()}` : '',
+      build: run.status === 'Building' ? 'Making' : '',
+      review: waiting === 'narration' || waiting === 'music' ? 'Listen' : '',
+      publish: waiting === 'render' ? 'Watch' : run.publications.length > 0 ? `${run.publications.length} on YouTube` : '',
+    };
+    return TABS.map((tab, index) => ({ ...tab, step: index, state: states[tab.id], note: notes[tab.id] }));
+  });
+
+  /** What the story needs from the person next, for the Overview tab. */
+  readonly next = computed<{ text: string; tab: StoryTab; action: string } | null>(() => {
+    const run = this.run();
+    if (!run) return null;
+    switch (run.status) {
+      case 'AwaitingScript': return { text: 'The search is done. Get the script written in any chat and paste it back.', tab: 'script', action: 'Write the script' };
+      case 'ScriptReady':
+        return run.scriptApprovedAtUtc
+          ? { text: 'The script is approved. Add your pictures, or leave them to the AI, then build the video.', tab: 'pictures', action: 'Add the pictures' }
+          : { text: 'The script is written. Read it, fix anything, and approve it to move on.', tab: 'script', action: 'Read and approve' };
+      case 'AwaitingReview':
+        switch (run.review) {
+          case 'narration': return { text: 'The voice is ready. Listen to each scene, then approve it or ask for any scene again.', tab: 'review', action: 'Listen to the voice' };
+          case 'music': return { text: 'The music is ready. Listen to it with the voice, then approve it, ask for another, or add your own.', tab: 'review', action: 'Listen to the music' };
+          default: return { text: 'The video is rendered. Watch it, then approve it or ask for a new look.', tab: 'publish', action: 'Watch the video' };
+        }
+      case 'Completed':
+        return run.publications.length > 0
+          ? { text: 'The video is on YouTube. Check its subtitles and details there.', tab: 'publish', action: 'See it' }
+          : { text: 'The video is ready. Watch it once, then publish it to YouTube with its subtitles.', tab: 'publish', action: 'Watch and publish' };
+      default: return null;
+    }
+  });
+
+  /** The story's own YouTube details, for the publish dialog to open with. */
+  readonly prefill = computed<YouTubePrefill | null>(() => {
+    const kit = this.run()?.kit;
+    return kit ? { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment } : null;
+  });
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
@@ -136,6 +278,8 @@ export class StoryRunComponent {
     this.replyError.set(null);
     this.actionError.set(null);
     this.buildOptions.set(null);
+    this.publishing.set(false);
+    this.captionResults.set(null);
     this.failures = 0;
 
     if (!this.caps()) {
@@ -184,10 +328,34 @@ export class StoryRunComponent {
       this.buildOptions.set({ ...run.options });
     }
 
+    // The first look opens the tab asked for, or the one the story needs; a change of step moves on with it.
+    if (before === null) {
+      const asked = TABS.find((tab) => tab.id === this.tab())?.id;
+      this.selected.set(asked && this.tabs().find((tab) => tab.id === asked)?.state !== 'locked' ? asked : this.defaultTab(run));
+    } else if (before.status !== run.status) {
+      if (run.status === 'Failed') this.go('overview');
+      // A redo asked for from a review tab is followed there; a build started elsewhere is followed on the overview.
+      else if (run.status === 'Building' && this.selected() !== 'review' && this.selected() !== 'publish') this.go('overview');
+      else if (run.status === 'AwaitingReview') this.go(run.review === 'render' ? 'publish' : 'review');
+      else if (run.status === 'Completed' && before.status === 'Building') this.go('publish');
+      else if (run.status === 'ScriptReady' || run.status === 'AwaitingScript') this.go('script');
+    }
+
     if (run.status === 'AwaitingScript' && this.prompt() === null && this.promptError() === null && this.promptFor !== run.id) this.loadPrompt(run.id);
     if (run.status !== 'AwaitingScript') this.promptError.set(null);
     if (before?.status === 'Building' && run.status === 'Completed') this.status.showNotice(`"${run.title}" is ready.`);
+    if (before?.status === 'Building' && run.status === 'AwaitingReview' && run.review) this.status.showNotice(`${REVIEW_LABEL[run.review]}: it is ready for you.`);
     this.schedule();
+  }
+
+  private defaultTab(run: StoryRun): StoryTab {
+    switch (run.status) {
+      case 'AwaitingScript': return 'script';
+      case 'ScriptReady': return run.scriptApprovedAtUtc ? 'pictures' : 'script';
+      case 'AwaitingReview': return run.review === 'render' ? 'publish' : 'review';
+      case 'Completed': return 'publish';
+      default: return 'overview';
+    }
   }
 
   private schedule(): void {
@@ -201,6 +369,32 @@ export class StoryRunComponent {
   private stopPolling(): void {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
+  }
+
+  // ------------------------------------------------------------------------------------------------ tabs
+
+  /** Opens a tab and puts it in the address, so a reload or a shared link opens the same one. */
+  go(tab: StoryTab): void {
+    if (this.tabs().find((t) => t.id === tab)?.state === 'locked') return;
+    this.selected.set(tab);
+    void this.router.navigate([], { queryParams: { tab }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  /** Arrow keys move along the tab bar, as a tab list should. */
+  onTabKey(event: KeyboardEvent, index: number): void {
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const open = this.tabs().filter((tab) => tab.state !== 'locked');
+    const at = open.findIndex((tab) => tab.id === this.tabs()[index].id);
+    const target = open[(at + step + open.length) % open.length];
+    this.go(target.id);
+    document.getElementById(`sr-tab-${target.id}`)?.focus();
+  }
+
+  /** Asked by the route before leaving: script text typed and not saved would be lost. */
+  canLeave(): boolean {
+    return !this.editor()?.dirty() || confirm('You have script changes that are not saved. Leave without saving them?');
   }
 
   // ------------------------------------------------------------------------------------------------ what the person does
@@ -236,25 +430,139 @@ export class StoryRunComponent {
   async remove(): Promise<void> {
     const run = this.run();
     if (!run) return;
-    const kept = run.projectId ? ' The project and video it made are kept.' : '';
+    const kept = run.projectId ? ' The project and video it made are kept, and so is anything on YouTube.' : '';
     if (!confirm(`Delete "${run.title}", with its script, pictures and narration?${kept}`)) return;
     const deleted = await this.act('delete', async () => {
       this.stopPolling();
       await firstValueFrom(this.stories.delete(run.id));
     });
-    if (deleted) await this.router.navigate(['/story-agent']);
-    else this.schedule();
+    if (deleted) {
+      this.editor()?.reset();
+      await this.router.navigate(['/story-agent']);
+    } else {
+      this.schedule();
+    }
   }
 
-  /** Saves what was typed in the script, then starts making the video. */
+  /** Saves what was typed, then marks the script approved and moves on to the pictures. */
+  async approve(): Promise<void> {
+    const run = this.run();
+    if (!run) return;
+    const editor = this.editor();
+    if (editor && !(await editor.save())) {
+      this.status.showError('The script has something to fix before it can be approved. See the note above the save bar.');
+      return;
+    }
+    if (await this.act('approve', () => firstValueFrom(this.stories.approve(run.id)))) {
+      this.status.showNotice('Script approved and saved.');
+      this.go('pictures');
+    }
+  }
+
+  /** Saves what was typed in the script, then starts making the video. Pressing Build approves the script too. */
   async build(): Promise<void> {
     const run = this.run();
     const options = this.buildOptions();
     if (!run || !options) return;
 
     const editor = this.editor();
-    if (editor && !(await editor.save())) return;
-    await this.act('build', () => firstValueFrom(this.stories.build(run.id, options)));
+    if (editor && !(await editor.save())) {
+      this.go('script');
+      return;
+    }
+    // A build that would pass the warning share of a paid Google daily limit asks first; a failed check never blocks.
+    let report: StoryBudgetReport | null = null;
+    try {
+      report = await firstValueFrom(this.stories.budget(run.id, options));
+    } catch {
+      report = null;
+    }
+    if (report && report.status !== 'ok' && report.lines.some((l) => l.status !== 'ok')) {
+      this.budgetWarning.set({ report, options });
+      return;
+    }
+    await this.startBuild(options);
+  }
+
+  /** The limits a build is about to pass, waiting for the person's answer. */
+  readonly budgetWarning = signal<{ report: StoryBudgetReport; options: StoryBuildOptions } | null>(null);
+  readonly budgetBusy = signal(false);
+
+  budgetLines(report: StoryBudgetReport) {
+    return report.lines.filter((l) => l.status !== 'ok');
+  }
+
+  budgetReset(report: StoryBudgetReport): string {
+    return new Date(report.resetsAtUtc).toLocaleString();
+  }
+
+  /** True when a flagged line is one of Google's own limits, so its reset time is worth showing. */
+  budgetHasGoogle(report: StoryBudgetReport): boolean {
+    return this.budgetLines(report).some((l) => l.kind === 'google');
+  }
+
+  /** "Proceed anyway", "Proceed with the alternatives" (the free one for each flagged limit) or cancel. */
+  async answerBudget(choice: 'anyway' | 'without' | 'cancel'): Promise<void> {
+    const pending = this.budgetWarning();
+    if (!pending || choice === 'cancel') {
+      this.budgetWarning.set(null);
+      return;
+    }
+    if (choice === 'anyway') {
+      this.budgetWarning.set(null);
+      await this.startBuild(pending.options);
+      return;
+    }
+    this.budgetBusy.set(true);
+    try {
+      const options = await this.withoutPaid(pending.report, pending.options);
+      this.buildOptions.set(options);
+      this.budgetWarning.set(null);
+      await this.startBuild(options);
+    } finally {
+      this.budgetBusy.set(false);
+    }
+  }
+
+  private async startBuild(options: StoryBuildOptions): Promise<void> {
+    const run = this.run();
+    if (!run) return;
+    if (await this.act('build', () => firstValueFrom(this.stories.build(run.id, options)))) this.go('overview');
+  }
+
+  /**
+   * The same options with the flagged parts swapped for free ones: a speech limit moves narration to the first engine
+   * running on this machine (or subtitles only when there is none), a music limit uses a royalty-free track, and an image
+   * engine's cap keeps the person's own pictures and gives the other scenes plain backgrounds.
+   */
+  private async withoutPaid(report: StoryBudgetReport, options: StoryBuildOptions): Promise<StoryBuildOptions> {
+    const flagged = this.budgetLines(report);
+    const music = flagged.some((l) => l.area === 'music');
+    const speech = flagged.some((l) => l.area === 'speech');
+    const images = flagged.some((l) => l.area === 'image');
+    const next: StoryBuildOptions = { ...options };
+    if (music) next.musicSource = 'Search';
+    if (images) {
+      next.visuals = 'UploadsOnly';
+      this.status.showNotice('No pictures will be generated: scenes without a picture of yours get a plain background.');
+    }
+    if (speech) {
+      let local: string | null = null;
+      try {
+        const voices = await firstValueFrom(this.api.voiceoverVoices());
+        local = voices.engines?.find((e) => e.runsLocally)?.id ?? null;
+      } catch {
+        local = null;
+      }
+      if (local) {
+        Object.assign(next, { speechEngine: local, voiceId: null, speechModel: null, castVoices: false });
+        if (next.narration === 'MyVoice') next.narration = 'Stock';
+      } else {
+        next.narration = 'None';
+      }
+      this.status.showNotice(local ? `Narration will use ${local}, which runs on this machine.` : 'No free voice is set up, so the video will have subtitles only.');
+    }
+    return next;
   }
 
   async rewrite(writer: StoryWriterMode): Promise<void> {
@@ -319,6 +627,71 @@ export class StoryRunComponent {
     this.take(run);
   }
 
+  // ------------------------------------------------------------------------------------------------ YouTube and subtitles
+
+  openPublish(): void {
+    if (!this.signedIn()) {
+      this.auth.openAuthModal();
+      return;
+    }
+    this.publishing.set(true);
+  }
+
+  /** The upload finished: show the new video, and send the subtitles after it when that was asked for. */
+  async onPublished(upload: YouTubeUpload): Promise<void> {
+    const run = this.run();
+    if (!run) return;
+    try {
+      this.take(await firstValueFrom(this.stories.get(run.id)));
+    } catch {
+      // The next look at the page shows it; the upload itself is done either way.
+    }
+    if (this.autoCaptions() && upload.videoId && (this.run()?.subtitles.length ?? 0) > 0) {
+      await this.sendCaptions(upload.videoId);
+    }
+  }
+
+  /** Adds the story's subtitles (every language it has, unless one is named) to one of its YouTube videos. */
+  async sendCaptions(videoId: string, language?: string): Promise<void> {
+    const run = this.run();
+    if (!run || this.captionBusy() !== null) return;
+    this.captionBusy.set(videoId);
+    this.captionResults.set(null);
+    try {
+      const sent = await firstValueFrom(this.stories.sendSubtitles(run.id, videoId, language ? [language] : undefined));
+      this.take(sent.run);
+      this.captionResults.set({ videoId, results: sent.results });
+      const added = sent.results.filter((r) => r.outcome === 'added').map((r) => r.label);
+      if (added.length > 0) this.status.showNotice(`${added.join(' and ')} subtitles added on YouTube.`);
+    } catch (failure: unknown) {
+      this.captionResults.set({
+        videoId,
+        results: [{ language: language ?? '', label: 'Subtitles', outcome: 'failed', message: failure instanceof ApiFailure ? failure.message : 'The subtitles could not be sent.' }],
+      });
+    } finally {
+      this.captionBusy.set(null);
+    }
+  }
+
+  /** The languages this story has that a video does not have yet. */
+  missingCaptions(video: StoryPublication): string[] {
+    return (this.run()?.subtitles ?? []).map((s) => s.language).filter((language) => !video.captions.includes(language));
+  }
+
+  async downloadSubtitles(language: string): Promise<void> {
+    const run = this.run();
+    if (!run || this.subtitleBusy() !== null) return;
+    this.subtitleBusy.set(language);
+    try {
+      const blob = await lastValueFrom(this.stories.subtitleFile(run.id, language));
+      saveBlob(blob, `${fileNameOf(run.script?.titleEnglish || run.title)}.${language}.srt`);
+    } catch (failure: unknown) {
+      this.status.showError(failure instanceof ApiFailure ? failure.message : 'The subtitles could not be downloaded.');
+    } finally {
+      this.subtitleBusy.set(null);
+    }
+  }
+
   // ------------------------------------------------------------------------------------------------ links
 
   previewUrl(jobId: string): string {
@@ -336,22 +709,60 @@ export class StoryRunComponent {
     this.videoError.set(null);
     try {
       const blob = await lastValueFrom(this.stories.renderFile(jobId));
-      const url = URL.createObjectURL(blob);
       if (save) {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${this.fileName(this.run()?.title ?? '')}.mp4`;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        saveBlob(blob, `${fileNameOf(this.run()?.title ?? '')}.mp4`);
       } else {
         this.dropLocalVideo();
-        this.localVideo.set({ jobId, url });
+        this.localVideo.set({ jobId, url: URL.createObjectURL(blob) });
       }
     } catch (failure: unknown) {
       this.videoError.set(failure instanceof ApiFailure ? failure.message : 'The video could not be loaded.');
     } finally {
       this.videoBusy.set(null);
     }
+  }
+
+  // ------------------------------------------------------------------------------------------------ the player
+
+  /**
+   * Starts the player with its sound on, previewing any speed picked but not yet applied. A viewer who muted the player
+   * once and forgot hears nothing on the next video, so the sound is put back on each load.
+   */
+  onVideoReady(video: HTMLVideoElement): void {
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
+    video.preservesPitch = true;
+    video.playbackRate = this.speed() / this.fileSpeed();
+    this.onVolume(video);
+  }
+
+  /** Follows speed changes made from the player's own menu too, so the buttons always show the true speed. */
+  onRate(video: HTMLVideoElement): void {
+    const speed = Math.round(video.playbackRate * this.fileSpeed() * 100) / 100;
+    if (!sameSpeed(speed, this.speed())) this.pickedSpeed.set(sameSpeed(speed, this.fileSpeed()) ? null : speed);
+  }
+
+  onVolume(video: HTMLVideoElement): void {
+    this.videoSilent.set(video.muted || video.volume === 0);
+  }
+
+  unmute(video: HTMLVideoElement): void {
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
+  }
+
+  /** Previews a speed in the player; the file is changed only by {@link applySpeed}. */
+  setSpeed(speed: number, video: HTMLVideoElement): void {
+    this.pickedSpeed.set(sameSpeed(speed, this.fileSpeed()) ? null : speed);
+    video.playbackRate = speed / this.fileSpeed();
+  }
+
+  /** Makes the video at the previewed speed: the download, YouTube and the subtitles then all use it. */
+  async applySpeed(): Promise<void> {
+    const run = this.run();
+    if (!run || !this.speedPending()) return;
+    const speed = this.speed();
+    if (await this.act('speed', () => firstValueFrom(this.stories.changeSpeed(run.id, speed)))) this.pickedSpeed.set(null);
   }
 
   private dropLocalVideo(): void {
@@ -366,9 +777,9 @@ export class StoryRunComponent {
     return local && local.jobId === jobId ? local.url : null;
   }
 
-  /** A title as a file name: no characters Windows refuses, and not so long that it is cut off by the folder. */
-  private fileName(title: string): string {
-    return title.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 60) || 'story';
+  /** The narration step has begun at least once, so there is (or soon will be) something to listen to. */
+  private soundStarted(run: StoryRun): boolean {
+    return run.stages.some((s) => (s.id === 'narration' || s.id === 'music') && s.status !== 'Pending') || !!run.music;
   }
 
   /** A progress figure for the whole story, as the list shows it. */

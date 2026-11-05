@@ -29,7 +29,8 @@ public sealed class KitStage(IAiSettingsRepository settings) : IStoryStage
             || (run.Options.UploadsAreAiMade && script.Scenes.Any(s => s.ImageSource == "upload"));
 
         run.Kit = StoryKitBuilder.Build(script, run.Brief, run.Research,
-            new StoryKitFacts(starts, total, aiPictures, run.Options.Narration, run.Music, branding));
+            new StoryKitFacts(starts, total, aiPictures, run.Options.Narration, run.Music, branding), StoryGenres.Of(run));
+        if (run.Series is { Part: > 1 } series) StoryKitBuilder.AddSeries(run.Kit, series, run.Brief.Language);
 
         return StoryStageOutcome.Completed("The YouTube title, description, tags, chapters and comments are ready.");
     }

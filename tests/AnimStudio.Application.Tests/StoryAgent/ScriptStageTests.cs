@@ -109,7 +109,7 @@ public sealed class ScriptStageTests
         var request = Assert.Single(ai.TextCalls);
         Assert.Equal("SYSTEM RULES", request.SystemPrompt);
         Assert.StartsWith("WRITE:", request.Prompt);
-        Assert.NotNull(request.JsonSchema);
+        Assert.Null(request.JsonSchema);
         Assert.Equal(BuiltInPrompts.StoryScript, request.PromptTemplateKey);
         Assert.InRange(request.MaxOutputTokens, 6_000, 16_000);
         Assert.False(request.BypassCache);
@@ -162,7 +162,7 @@ public sealed class ScriptStageTests
 
         Assert.Equal(StoryStageResult.Paused, outcome.Result);
         Assert.Single(ai.TextCalls);
-        Assert.Contains("The text model is busy.", run.Warnings);
+        Assert.Contains("The text model is busy. (rate-limited)", run.Warnings);
     }
 
     [Fact]

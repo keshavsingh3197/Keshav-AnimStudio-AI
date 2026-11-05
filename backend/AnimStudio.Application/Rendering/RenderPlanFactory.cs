@@ -48,6 +48,8 @@ public static class RenderPlanFactory
             Canvas = canvas,
             Duration = scene.Duration,
             BackgroundRelativePath = background,
+            BackgroundIsVideo = context.AssetsById.TryGetValue(scene.BackgroundAssetId!, out var backdrop)
+                && backdrop.Kind == AssetKind.Video,
             BackgroundAnimation = scene.Animation,
             Sprites = sprites,
             AudioRelativePath = audioPath,

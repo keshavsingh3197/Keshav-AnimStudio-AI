@@ -55,6 +55,9 @@ public sealed class YouTubePublication
 
     public DateTime PublishedAt { get; set; }
 
+    /// <summary>When YouTube makes a scheduled (private) upload public, in UTC; null for one that was not scheduled.</summary>
+    public DateTime? PublishAt { get; set; }
+
     // --- health, refreshed from videos.list ---
     public YouTubeVideoHealth Health { get; set; } = YouTubeVideoHealth.Unknown;
     public string? UploadStatus { get; set; }

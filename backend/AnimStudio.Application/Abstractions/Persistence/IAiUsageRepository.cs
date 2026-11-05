@@ -27,7 +27,16 @@ public interface IAiUsageRepository
 
     Task<IReadOnlyList<AiUsageDailyTotal>> SummarizeAsync(
         string fromDayBucket, string toDayBucket, CancellationToken ct);
+
+    /// <summary>
+    /// Requests that reached a provider since <paramref name="sinceUtc"/>, per provider and model, for limits a provider
+    /// sets per model (Google's requests per day). Billable as in <see cref="CountBillableRequestsAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<AiModelRequestCount>> CountBillableRequestsByModelAsync(DateTime sinceUtc, CancellationToken ct);
 }
+
+/// <param name="Model">The model the call named; null when it used the provider's configured default.</param>
+public sealed record AiModelRequestCount(string ProviderId, string? Model, long Requests);
 
 public interface IAiCredentialRepository
 {

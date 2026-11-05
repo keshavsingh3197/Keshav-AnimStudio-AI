@@ -102,6 +102,17 @@ public sealed class MongoIndexInitializer(
                     .Ascending(h => h.State).Ascending(h => h.CreatedAt)),
             ], ct).ConfigureAwait(false);
 
+            // The publishing board lists an owner's items newest first; the scheduler looks for
+            // waiting items by due time.
+            var queue = mongo.GetCollection<PublishQueueItem>(MongoCollections.PublishQueue);
+            await queue.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<PublishQueueItem>(Builders<PublishQueueItem>.IndexKeys
+                    .Ascending(i => i.UserId).Descending(i => i.CreatedAt)),
+                new CreateIndexModel<PublishQueueItem>(Builders<PublishQueueItem>.IndexKeys
+                    .Ascending(i => i.State).Ascending(i => i.DueAt)),
+            ], ct).ConfigureAwait(false);
+
             // A user's Drives (personal and per channel) are listed together.
             var drives = mongo.GetCollection<GoogleDriveConnection>(MongoCollections.GoogleDriveConnections);
             await drives.Indexes.CreateOneAsync(
@@ -122,6 +133,12 @@ public sealed class MongoIndexInitializer(
                 new CreateIndexModel<StoryRun>(Builders<StoryRun>.IndexKeys
                     .Ascending(r => r.Status).Ascending(r => r.UpdatedAtUtc))
             ], ct).ConfigureAwait(false);
+
+            // A person's analysis of one channel.
+            var analyses = mongo.GetCollection<YouTubeChannelAnalysis>(MongoCollections.YouTubeChannelAnalyses);
+            await analyses.Indexes.CreateOneAsync(
+                new CreateIndexModel<YouTubeChannelAnalysis>(Builders<YouTubeChannelAnalysis>.IndexKeys
+                    .Ascending(a => a.UserId).Ascending(a => a.ChannelId)), cancellationToken: ct).ConfigureAwait(false);
 
             // The calendar lists one owner's posts by date and one topic's posts for planning;
             // the sync walks a date window across everyone.
@@ -195,7 +212,7 @@ public sealed class MongoIndexInitializer(
 
             logger.LogInformation("Mongo indexes verified.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             // A database that is unreachable at startup must not stop the app from booting;
             // the failure will surface on the first request instead, with a clearer message.

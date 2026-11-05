@@ -142,6 +142,7 @@ public sealed class StoryRunWorker(
                     using var scope = scopes.CreateScope();
                     await scope.ServiceProvider.GetRequiredService<StoryRunExecutor>()
                         .ExecuteAsync(runId, pass.Cancel.Token, stop).ConfigureAwait(false);
+                    await ContinueSeriesAsync(scope.ServiceProvider, runId, stop).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -163,6 +164,22 @@ public sealed class StoryRunWorker(
         catch (OperationCanceledException)
         {
             // Shutting down.
+        }
+    }
+
+    /// <summary>
+    /// A finished part of a series set to go on by itself starts the next one. Never fails the pass: the part is finished
+    /// whatever happens here, and the service notes on it why the next did not start.
+    /// </summary>
+    private async Task ContinueSeriesAsync(IServiceProvider services, string runId, CancellationToken stop)
+    {
+        try
+        {
+            await services.GetRequiredService<StorySeriesService>().ContinueIfDueAsync(runId, stop).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Story run {RunId}: the next part of its series could not be started.", runId);
         }
     }
 

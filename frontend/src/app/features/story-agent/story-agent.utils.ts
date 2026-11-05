@@ -1,6 +1,8 @@
 import {
   CitationStatus,
   StoryBasis,
+  StoryPublication,
+  StoryReviewStage,
   StoryRunStatus,
   StoryScene,
   StorySource,
@@ -15,10 +17,10 @@ export const STAGE_INFO: Record<StoryStageId, { label: string; hint: string }> =
   research: { label: 'Search the Granths', hint: 'Finds the chapters the story comes from' },
   script: { label: 'Write the script', hint: 'Grounded in what was found, every source checked' },
   visuals: { label: 'Pictures', hint: 'Yours, AI-made, or a plain background' },
-  narration: { label: 'Narration', hint: 'The voice, line by line' },
-  music: { label: 'Music', hint: 'A soft Creative Commons track, credited' },
-  assemble: { label: 'Build the project', hint: 'Scenes, subtitles and sound in one project' },
-  render: { label: 'Render the video', hint: 'The finished MP4' },
+  narration: { label: 'Narration', hint: 'The voice, line by line; you listen and approve it' },
+  music: { label: 'Music', hint: 'Composed for the story, or a credited track; you listen and approve it' },
+  assemble: { label: 'Build the project', hint: 'Scenes, effects, transitions, subtitles and sound in one project' },
+  render: { label: 'Render the video', hint: 'The finished MP4; you watch and approve it' },
   kit: { label: 'YouTube details', hint: 'Title, description, tags, chapters' },
 };
 
@@ -31,6 +33,14 @@ export const STATUS_LABEL: Record<StoryRunStatus, string> = {
   Completed: 'Done',
   Failed: 'Stopped with a problem',
   Cancelled: 'Stopped',
+  AwaitingReview: 'Waiting for your review',
+};
+
+/** What a review step is waiting for, in the person's words. */
+export const REVIEW_LABEL: Record<StoryReviewStage, string> = {
+  narration: 'Listen to the voice',
+  music: 'Listen to the music',
+  render: 'Watch the video',
 };
 
 export function statusTone(status: StoryRunStatus): Tone {
@@ -39,6 +49,7 @@ export function statusTone(status: StoryRunStatus): Tone {
     case 'Failed': return 'err';
     case 'Cancelled': return 'warn';
     case 'ScriptReady':
+    case 'AwaitingReview':
     case 'AwaitingScript': return 'warn';
     default: return 'brand';
   }
@@ -120,21 +131,78 @@ export function checkBadge(source: StorySource): { text: string; tone: Tone; tit
   }
 }
 
-/** The picture prompts, numbered, for pasting into an image tool (Google Flow, for one). */
+/** The file name a scene's picture should be saved as, so a whole set can be added in one go: 01, 02 … 12. */
+export function pictureFileName(index: number, count: number): string {
+  return String(index + 1).padStart(Math.max(2, String(count).length), '0');
+}
+
+/** The longest bit of story put next to each picture prompt; enough to say what happens, short enough to paste. */
+const CONTEXT_CHARS = 240;
+
+/** What a picture prompt is sent with, scene by scene. */
+export interface PromptScene {
+  headline: string;
+  imagePrompt: string | null;
+  /** The English meaning (or, for an English story, the narration): what happens in the scene. */
+  context: string | null;
+}
+
+/**
+ * The picture prompts for pasting into an image tool (Google Flow, for one). Each comes with its file number and what
+ * happens in the scene, and the set opens with the story itself, so the tool draws one story rather than twelve
+ * unrelated pictures - and so the saved files can be put back on their scenes by number.
+ */
 export function picturePrompts(
   title: string,
-  scenes: readonly Pick<StoryScene, 'headline' | 'imagePrompt'>[],
+  summary: string | null,
+  scenes: readonly PromptScene[],
   style: string | null,
   vertical: boolean,
 ): string {
-  const lines = [`Picture prompts for "${title}" - ${vertical ? '9:16 vertical' : '16:9 wide'}`];
+  const drawn = scenes.filter((scene) => scene.imagePrompt?.trim());
+  const lines = [`Picture prompts for "${title}" - ${drawn.length} pictures, ${vertical ? '9:16 vertical (portrait)' : '16:9 wide (landscape)'}`];
+  if (summary?.trim()) lines.push(`The story: ${summary.trim()}`);
   if (style?.trim()) lines.push(`Style for every picture: ${style.trim()}`);
-  lines.push('');
+  lines.push(
+    'Keep each character looking the same in every picture. No words, letters or watermarks in the pictures.',
+    'Save each picture with its number as the file name (01.png, 02.png …) so they go onto the right scenes by themselves.',
+    '',
+  );
   scenes.forEach((scene, index) => {
     const prompt = scene.imagePrompt?.trim();
-    if (prompt) lines.push(`${index + 1}. ${scene.headline ? `[${scene.headline}] ` : ''}${prompt}`);
+    if (!prompt) return;
+    const file = pictureFileName(index, scenes.length);
+    lines.push(`${file} - file name: ${file}.png${scene.headline ? ` - ${scene.headline}` : ''}`);
+    const context = scene.context?.replace(/\s+/g, ' ').trim();
+    if (context) lines.push(`What happens: ${context.length > CONTEXT_CHARS ? `${context.slice(0, CONTEXT_CHARS - 1).trimEnd()}…` : context}`);
+    lines.push(`Picture: ${prompt}`, '');
   });
-  return lines.join('\n');
+  return lines.join('\n').trimEnd();
+}
+
+/** The scene number a picture's file name gives - "01.png", "scene-7.jpg", "Flow 03 final.png" - or null when it has none. */
+export function sceneNumberOf(fileName: string): number | null {
+  const stem = fileName.replace(/\.[^.]*$/, '');
+  const match = /\d+/.exec(stem);
+  if (!match) return null;
+  const number = Number.parseInt(match[0], 10);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
+/**
+ * Which scene each picture goes to: by the number in its file name when every file has a different one that fits the
+ * story (so 03.png lands on scene 3 whatever order the files were picked in), otherwise in file-name order.
+ * Returns scene positions (0-based), one per file, or -1 for a file there is no scene left for.
+ */
+export function matchPictures(names: readonly string[], sceneCount: number): { byNumber: boolean; slots: number[] } {
+  const numbers = names.map(sceneNumberOf);
+  const fits = numbers.every((n) => n !== null && n >= 1 && n <= sceneCount) && new Set(numbers).size === numbers.length;
+  if (fits) return { byNumber: true, slots: numbers.map((n) => n! - 1) };
+
+  const order = names.map((name, at) => ({ name, at })).sort((a, b) => naturalCompare(a.name, b.name));
+  const slots = new Array<number>(names.length).fill(-1);
+  order.forEach((item, position) => (slots[item.at] = position < sceneCount ? position : -1));
+  return { byNumber: false, slots };
 }
 
 /** Sorts "Flow (2).png" before "Flow (10).png", as a person would. */
@@ -167,6 +235,66 @@ export function pictureProblem(file: File): string | null {
   return null;
 }
 
+/** What the clip upload accepts: MP4, which Google Flow and phones save (`StoryRunService.MaxVideoBytes`). */
+export const CLIP_ACCEPT = 'video/mp4,.mp4';
+export const CLIP_MAX_BYTES = 100 * 1024 * 1024;
+/** How long one generated clip is (Google Flow makes 8 seconds); a longer scene loops it. */
+export const CLIP_SECONDS = 8;
+
+/** Why a file cannot be used as a scene's moving clip, or null when it can. */
+export function clipProblem(file: File): string | null {
+  if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name)) return `"${file.name}" is not an MP4 video.`;
+  if (file.size > CLIP_MAX_BYTES) return `"${file.name}" is over ${CLIP_MAX_BYTES / 1024 / 1024} MB. Export it smaller.`;
+  return null;
+}
+
+/** What a video prompt is sent with, scene by scene. */
+export interface ClipPromptScene {
+  headline: string;
+  videoPrompt: string | null;
+  /** The picture prompt, which says what is in the shot when the video prompt only says how it moves. */
+  imagePrompt: string | null;
+  context: string | null;
+  seconds: number;
+}
+
+/**
+ * The clip prompts for pasting into a video tool (Google Flow), numbered like the pictures. Each clip is
+ * {@link CLIP_SECONDS} seconds; a scene longer than that loops its clip, so the prompt asks for a shot that loops
+ * gently, and says when a scene is long enough to be worth a second clip instead.
+ */
+export function clipPrompts(
+  title: string,
+  summary: string | null,
+  scenes: readonly ClipPromptScene[],
+  style: string | null,
+  vertical: boolean,
+): string {
+  const shot = scenes.filter((scene) => scene.videoPrompt?.trim() || scene.imagePrompt?.trim());
+  const lines = [`Video clip prompts for "${title}" - ${shot.length} clips of ${CLIP_SECONDS} seconds, ${vertical ? '9:16 vertical (portrait)' : '16:9 wide (landscape)'}`];
+  if (summary?.trim()) lines.push(`The story: ${summary.trim()}`);
+  if (style?.trim()) lines.push(`Look of every clip: ${style.trim()}`);
+  lines.push(
+    'Keep each character looking the same in every clip. Slow, calm motion; no speech, no music, no words, letters or watermarks.',
+    'Tip: in Google Flow, start each clip from that scene\'s picture (Frames to Video) so the clips match the pictures.',
+    'Save each clip with its number as the file name (01.mp4, 02.mp4 …) so they go onto the right scenes by themselves.',
+    '',
+  );
+  scenes.forEach((scene, index) => {
+    const motion = scene.videoPrompt?.trim();
+    const picture = scene.imagePrompt?.trim();
+    if (!motion && !picture) return;
+    const file = pictureFileName(index, scenes.length);
+    const loops = scene.seconds > CLIP_SECONDS + 1 ? ` - the scene runs ${Math.round(scene.seconds)}s, so the clip loops; make it calm` : '';
+    lines.push(`${file} - file name: ${file}.mp4${scene.headline ? ` - ${scene.headline}` : ''}${loops}`);
+    const context = scene.context?.replace(/\s+/g, ' ').trim();
+    if (context) lines.push(`What happens: ${context.length > CONTEXT_CHARS ? `${context.slice(0, CONTEXT_CHARS - 1).trimEnd()}…` : context}`);
+    if (picture) lines.push(`Shot: ${picture}`);
+    lines.push(`Motion: ${motion || 'a gentle, slow push in; light and cloth move softly'}`, '');
+  });
+  return lines.join('\n').trimEnd();
+}
+
 /** The longest reply the server reads (`StoryRunService.MaxScriptReplyChars`). */
 export const REPLY_MAX_CHARS = 120_000;
 
@@ -174,4 +302,46 @@ export const REPLY_MAX_CHARS = 120_000;
 export function replyProblem(reply: string): string | null {
   if (reply.length <= REPLY_MAX_CHARS) return null;
   return `That is ${reply.length.toLocaleString('en-US')} characters, far more than any script (${REPLY_MAX_CHARS.toLocaleString('en-US')} at most). Paste only the JSON object the chat wrote.`;
+}
+
+// ------------------------------------------------------------------------------------------------ YouTube
+
+export type PublicationState = 'scheduled' | 'public' | 'unlisted' | 'private' | 'processing' | 'issue' | 'removed';
+
+/** Where a story's YouTube video stands, in a word and a colour. A scheduled video counts as public once its time has passed. */
+export function publicationState(video: StoryPublication, now: number = Date.now()): { state: PublicationState; label: string; tone: Tone } {
+  if (video.health === 'Removed') return { state: 'removed', label: 'Removed from YouTube', tone: 'err' };
+  if (video.health === 'Issue') return { state: 'issue', label: 'Needs attention', tone: 'err' };
+
+  const at = video.publishAtUtc ? Date.parse(video.publishAtUtc) : Number.NaN;
+  const privacy = (video.privacyStatus ?? video.privacy).toLowerCase();
+  if (privacy === 'private' && at > now) return { state: 'scheduled', label: `Scheduled · ${whenLabel(video.publishAtUtc!)}`, tone: 'brand' };
+  if (privacy === 'public' || (privacy === 'private' && at <= now)) {
+    return video.health === 'Processing' ? { state: 'processing', label: 'Public · processing', tone: 'warn' } : { state: 'public', label: 'Public', tone: 'ok' };
+  }
+  if (privacy === 'unlisted') return { state: 'unlisted', label: 'Unlisted', tone: 'warn' };
+  return { state: 'private', label: 'Private', tone: 'warn' };
+}
+
+/** "Tue 4 Nov, 18:00" in the viewer's own time zone. */
+export function whenLabel(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Saves a blob as a file in the browser's downloads. */
+export function saveBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** A title as a file name: no characters Windows refuses, and not so long that it is cut off by the folder. */
+export function fileNameOf(title: string, fallback = 'story'): string {
+  return title.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 60) || fallback;
 }

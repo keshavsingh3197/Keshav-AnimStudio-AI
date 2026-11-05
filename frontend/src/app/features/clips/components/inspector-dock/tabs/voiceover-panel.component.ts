@@ -21,9 +21,50 @@ const FAVORITES_KEY = 'animstudio_vo_favorites';
 const RATE_KEY = 'animstudio_vo_rate';
 const ENGINE_KEY = 'animstudio_vo_engine';
 const MODEL_KEY_PREFIX = 'animstudio_vo_model_';
+const STYLE_KEY = 'animstudio_vo_style';
+
+/** Must match VoiceoverController.MaxStyleChars. */
+const MAX_STYLE_CHARS = 300;
+
+/** Ready-made delivery instructions for an engine that takes one; any other phrase works too. */
+const STYLE_SUGGESTIONS = [
+  'Warm, unhurried storyteller', 'Cheerful and friendly', 'Calm and soothing', 'Excited and energetic',
+  'Serious news anchor', 'Whispered, mysterious', 'Gentle bedtime story for children',
+];
+
+/** "hi-IN" as "Hindi (India)"; the code itself where the browser can't name it. */
+const LANGUAGE_NAMES = (() => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' });
+  } catch {
+    return null;
+  }
+})();
 
 /** A picker value naming one of the user's own voices rather than a built-in one. */
 const MY_PREFIX = 'my:';
+
+/**
+ * Google's consent statement, read aloud by the voice's owner before Google replicates it. Google checks the words,
+ * so each must stay exactly as Google publishes it (aistudio.google.com/docs/voice-replication).
+ */
+const GOOGLE_CONSENT_STATEMENTS: { locale: string; label: string; text: string }[] = [
+  { locale: 'hi-IN', label: 'Hindi', text: 'मैं इस आवाज का मालिक हूं और मैं सिंथेटिक आवाज मॉडल बनाने के लिए Google को इस आवाज का उपयोग करने की सहमति देता हूं' },
+  { locale: 'en-IN', label: 'English (India)', text: 'I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.' },
+  { locale: 'en-US', label: 'English (US)', text: 'I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.' },
+  { locale: 'en-GB', label: 'English (UK)', text: 'I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.' },
+  { locale: 'bn-IN', label: 'Bengali', text: 'আমি এই ভয়েসের মালিক এবং আমি একটি সিন্থেটিক ভয়েস মডেল তৈরি করতে এই ভয়েস ব্যবহার করে Google-এর সাথে সম্মতি দিচ্ছি।' },
+  { locale: 'gu-IN', label: 'Gujarati', text: 'હું આ વોઈસનો માલિક છું અને સિન્થેટિક વોઈસ મોડલ બનાવવા માટે આ વોઈસનો ઉપયોગ કરીને google ને હું સંમતિ આપું છું' },
+  { locale: 'kn-IN', label: 'Kannada', text: 'ನಾನು ಈ ಧ್ವನಿಯ ಮಾಲಿಕ ಮತ್ತು ಸಂಶ್ಲೇಷಿತ ಧ್ವನಿ ಮಾದರಿಯನ್ನು ರಚಿಸಲು ಈ ಧ್ವನಿಯನ್ನು ಬಳಸಿಕೊಂಡುಗೂಗಲ್ ಗೆ ನಾನು ಸಮ್ಮತಿಸುತ್ತೇನೆ.' },
+  { locale: 'ml-IN', label: 'Malayalam', text: 'ഈ ശബ്ദത്തിന്റെ ഉടമ ഞാനാണ്, ഒരു സിന്തറ്റിക് വോയ്സ് മോഡൽ സൃഷ്ടിക്കാൻ ഈ ശബ്ദം ഉപയോഗിക്കുന്നതിന് ഞാൻ Google-ന് സമ്മതം നൽകുന്നു.' },
+  { locale: 'mr-IN', label: 'Marathi', text: 'मी या आवाजाचा मालक आहे आणि सिंथेटिक व्हॉइस मॉडेल तयार करण्यासाठी हा आवाज वापरण्यासाठी मी Google ला संमती देतो' },
+  { locale: 'ta-IN', label: 'Tamil', text: 'நான் இந்த குரலின் உரிமையாளர் மற்றும் செயற்கை குரல் மாதிரியை உருவாக்க இந்த குரலை பயன்படுத்த குகல்க்கு நான் ஒப்புக்கொள்கிறேன்.' },
+  { locale: 'te-IN', label: 'Telugu', text: 'నేను ఈ వాయిస్ యజమానిని మరియు సింతటిక్ వాయిస్ మోడల్ ని రూపొందించడానికి ఈ వాయిస్ ని ఉపయోగించడానికి googleకి నేను సమ్మతిస్తున్నాను.' },
+];
+
+/** Must match MyVoicesController / MyVoiceReplication: the consent recording's longest, and the shortest sample Google takes. */
+const MAX_CONSENT_SECONDS = 30;
+const MIN_GOOGLE_SAMPLE_SECONDS = 10;
 
 /** Must match MyVoicesController: the sample size cap and the shortest usable sample. */
 const MAX_SAMPLE_BYTES = 25 * 1024 * 1024;
@@ -168,8 +209,13 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   /** One of the engine's offered models ('' for its configured one). */
   readonly model = signal('');
   readonly currentEngine = computed(() => this.engines().find((e) => e.id === this.engine()) ?? null);
-  /** Takes and fitted speeds hold only for the engine and model they were made with. */
-  readonly engineKey = computed(() => `${this.engine()}|${this.model()}`);
+  /** How the lines are delivered, as typed; sent only to an engine that takes it. */
+  readonly deliveryStyle = signal('');
+  readonly activeStyle = computed(() => this.currentEngine()?.supportsStyle ? this.deliveryStyle().trim() : '');
+  readonly styleSuggestions = STYLE_SUGGESTIONS;
+  readonly maxStyleChars = MAX_STYLE_CHARS;
+  /** Takes and fitted speeds hold only for the engine, model and delivery they were made with. */
+  readonly engineKey = computed(() => `${this.engine()}|${this.model()}|${this.activeStyle()}`);
   readonly myVoices = signal<MyVoice[]>([]);
   readonly myVoicesAvailable = signal(false);
   readonly favorites = signal<string[]>([]);
@@ -267,6 +313,28 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   readonly cleaning = signal(false);
   private recorder: MediaRecorder | null = null;
   private recordTimer: ReturnType<typeof setInterval> | null = null;
+
+  // --- sending one of the user's voices to Google, so Gemini TTS speaks in it
+  /** The engine a voice can be sent to; null when Gemini TTS is not set up. */
+  readonly replicationEngine = signal<string | null>(null);
+  readonly replicationEngineName = computed(
+    () => this.engines().find((e) => e.id === this.replicationEngine())?.name ?? 'Google Gemini TTS');
+  readonly googleOpen = signal(false);
+  readonly googleStatements = GOOGLE_CONSENT_STATEMENTS;
+  readonly googleLocale = signal('hi-IN');
+  readonly googleStatement = computed(
+    () => GOOGLE_CONSENT_STATEMENTS.find((s) => s.locale === this.googleLocale())?.text ?? GOOGLE_CONSENT_STATEMENTS[0].text);
+  readonly googleClip = signal<PendingSample | null>(null);
+  readonly googleRecording = signal(false);
+  readonly googleStarting = signal(false);
+  readonly googleRecordSeconds = signal(0);
+  readonly googleAgree = signal(false);
+  readonly sendingGoogle = signal(false);
+  readonly googleError = signal('');
+  readonly maxConsentSeconds = MAX_CONSENT_SECONDS;
+  readonly minGoogleSampleSeconds = MIN_GOOGLE_SAMPLE_SECONDS;
+  private googleRecorder: WavRecorder | null = null;
+  private googleTimer: ReturnType<typeof setInterval> | null = null;
 
   /** The script as written: plain lines, lines with cues, or JSON (see voice-script.ts). */
   readonly parsed = computed(() => parseVoiceScript(this.script()));
@@ -519,6 +587,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     if (this.hasTimings()) this.placement.set('script');
     const savedRate = Number(this.readStorage(RATE_KEY));
     if (savedRate >= 0.5 && savedRate <= 2) this.rate.set(savedRate);
+    this.deliveryStyle.set((this.readStorage(STYLE_KEY) ?? '').slice(0, MAX_STYLE_CHARS));
     this.favorites.set(this.readFavorites());
     this.loadVoices(this.readStorage(ENGINE_KEY) ?? '');
   }
@@ -540,6 +609,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
         this.model.set(this.pickModel());
         this.myVoices.set(res.myVoices ?? []);
         this.myVoicesAvailable.set(res.myVoicesAvailable ?? false);
+        this.replicationEngine.set(res.replicationEngine ?? null);
         if (!this.isKnown(this.selection())) this.selection.set(this.pickDefaultSelection());
         if (this.addingVoice() && !this.voices().some((v) => v.id === this.newVoiceBase())) {
           this.newVoiceBase.set(this.pickFrom(PREFERRED_VOICES[this.language()]) ?? this.voices()[0]?.id ?? '');
@@ -564,6 +634,11 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     this.writeStorage(MODEL_KEY_PREFIX + this.engine(), model);
   }
 
+  onStyleChange(style: string): void {
+    this.deliveryStyle.set(style.slice(0, MAX_STYLE_CHARS));
+    this.writeStorage(STYLE_KEY, this.deliveryStyle());
+  }
+
   /** The model last used with this engine, if it still offers it; else its configured one. */
   private pickModel(): string {
     const engine = this.currentEngine();
@@ -578,6 +653,8 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     this.stopPreview();
     this.stopWithClips();
     this.stopRecording(true);
+    this.stopGoogleRecording(true);
+    this.discardGoogleClip();
     this.stopDictation(true);
     this.stopNarration(true);
     this.discardNarration();
@@ -1303,6 +1380,148 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     this.selection.set(this.pickDefaultSelection());
   }
 
+  // --- sending the picked voice to Google
+
+  openSendToGoogle(): void {
+    this.googleError.set('');
+    this.googleLocale.set(this.isHindi() ? 'hi-IN' : 'en-IN');
+    this.googleAgree.set(false);
+    this.discardGoogleClip();
+    this.googleOpen.set(true);
+  }
+
+  closeSendToGoogle(): void {
+    this.stopGoogleRecording(true);
+    this.discardGoogleClip();
+    this.googleOpen.set(false);
+  }
+
+  async startGoogleRecording(): Promise<void> {
+    if (this.googleRecorder || this.googleStarting()) return;
+    this.googleStarting.set(true);
+    try {
+      await this.beginGoogleRecording();
+    } finally {
+      this.googleStarting.set(false);
+    }
+  }
+
+  private async beginGoogleRecording(): Promise<void> {
+    this.googleError.set('');
+    this.discardGoogleClip();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch {
+      this.googleError.set('The microphone could not be opened. Allow microphone access for this site, or upload a recording instead.');
+      return;
+    }
+    if (!this.googleOpen()) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    let recorder: WavRecorder;
+    try {
+      recorder = new WavRecorder(stream);
+    } catch {
+      stream.getTracks().forEach((t) => t.stop());
+      this.googleError.set('This browser cannot record here. Upload a recording of the statement instead.');
+      return;
+    }
+    this.googleRecorder = recorder;
+    // Shown as recording only once sound is arriving, so the statement's first words aren't lost.
+    await Promise.race([recorder.ready, new Promise((r) => setTimeout(r, 3000))]);
+    if (this.googleRecorder !== recorder) return;
+    this.googleRecordSeconds.set(0);
+    this.googleRecording.set(true);
+    this.googleTimer = setInterval(() => {
+      this.googleRecordSeconds.update((s) => s + 1);
+      if (this.googleRecordSeconds() >= MAX_CONSENT_SECONDS) this.stopGoogleRecording();
+    }, 1000);
+  }
+
+  stopGoogleRecording(discard = false): void {
+    if (this.googleTimer) {
+      clearInterval(this.googleTimer);
+      this.googleTimer = null;
+    }
+    this.googleRecording.set(false);
+    const recorder = this.googleRecorder;
+    if (!recorder) return;
+    this.googleRecorder = null;
+    const wav = recorder.stop(discard);
+    if (discard) return;
+    if (wav) void this.setGoogleClip(wav, 'consent.wav');
+    else this.googleError.set('Nothing was recorded. Check the microphone, then try again.');
+  }
+
+  onConsentFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.googleError.set('');
+    if (file.size > 10 * 1024 * 1024) {
+      this.googleError.set('That file is over 10MB. The statement takes only a few seconds.');
+      return;
+    }
+    void this.setGoogleClip(file, file.name);
+  }
+
+  async sendToGoogle(): Promise<void> {
+    const voice = this.myVoice();
+    const clip = this.googleClip();
+    if (!voice || !clip || !this.googleAgree() || this.sendingGoogle()) return;
+
+    this.sendingGoogle.set(true);
+    this.googleError.set('');
+    try {
+      const updated = await firstValueFrom(this.api.sendMyVoiceToGoogle(voice.id, clip.blob, clip.fileName));
+      this.myVoices.update((v) => v.map((x) => x.id === updated.id ? updated : x));
+      this.closeSendToGoogle();
+    } catch (err: unknown) {
+      this.googleError.set(err instanceof Error ? err.message : 'Google could not make the voice.');
+    } finally {
+      this.sendingGoogle.set(false);
+    }
+  }
+
+  async removeFromGoogle(): Promise<void> {
+    const voice = this.myVoice();
+    if (!voice?.googleEngine) return;
+    if (!confirm(`Remove "${voice.name}" from Google? Google deletes its copy; the voice stays here and is made on this machine again.`)) return;
+    try {
+      const updated = await firstValueFrom(this.api.removeMyVoiceFromGoogle(voice.id));
+      this.myVoices.update((v) => v.map((x) => x.id === updated.id ? updated : x));
+    } catch (err: unknown) {
+      this.error.set(err instanceof Error ? err.message : 'The voice could not be removed from Google.');
+    }
+  }
+
+  useGoogleEngine(): void {
+    const engine = this.myVoice()?.googleEngine;
+    if (engine && this.engine() !== engine) this.onEngineChange(engine);
+  }
+
+  private async setGoogleClip(blob: Blob, fileName: string): Promise<void> {
+    this.discardGoogleClip();
+    const url = URL.createObjectURL(blob);
+    const seconds = await this.readDuration(url);
+    this.googleClip.set({ blob, fileName, url, seconds });
+    if (seconds !== undefined && (seconds < 2 || seconds > MAX_CONSENT_SECONDS)) {
+      this.googleError.set(`That's ${seconds.toFixed(1)}s. Read the statement once, in 2 to ${MAX_CONSENT_SECONDS} seconds.`);
+    }
+  }
+
+  private discardGoogleClip(): void {
+    const clip = this.googleClip();
+    if (clip) URL.revokeObjectURL(clip.url);
+    this.googleClip.set(null);
+  }
+
   labelFor(value: string): string {
     if (value.startsWith(MY_PREFIX)) {
       return this.myVoices().find((v) => MY_PREFIX + v.id === value)?.name ?? 'My voice';
@@ -1382,11 +1601,21 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   }
 
   private bodyFor(line: ScriptLine) {
-    // A line in the user's own voice is made on this machine; the server ignores an engine for it.
-    if (line.myVoice) return { text: line.text, voiceId: line.voiceId, rate: line.rate, myVoiceId: line.myVoice.id };
+    // A line in the user's own voice is made on this machine - unless they sent that voice to the
+    // engine picked, which then speaks it, with its model and delivery style.
+    if (line.myVoice) {
+      const onEngine = !!line.myVoice.googleEngine && line.myVoice.googleEngine === this.engine();
+      return {
+        text: line.text, voiceId: line.voiceId, rate: line.rate, myVoiceId: line.myVoice.id,
+        ...(onEngine ? {
+          engine: this.engine(), model: this.model() || undefined, style: this.activeStyle() || undefined,
+        } : {}),
+      };
+    }
     return {
       text: line.text, voiceId: line.voiceId, rate: line.rate,
       engine: this.engine() || undefined, model: this.model() || undefined,
+      style: this.activeStyle() || undefined,
     };
   }
 
@@ -1482,8 +1711,17 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       return { language: KOKORO_LANGUAGES[match[1]], label: `${name} (${match[2] === 'f' ? 'female' : 'male'})` };
     }
     const gender = v.gender ? ` (${v.gender.toLowerCase()})` : '';
-    const language = v.languageCode || 'Voices';
+    const language = v.group || this.languageName(v.languageCode) || 'Voices';
     return { language, label: `${v.name || v.id}${gender}` };
+  }
+
+  private languageName(code?: string | null): string | null {
+    if (!code) return null;
+    try {
+      return LANGUAGE_NAMES?.of(code) ?? code;
+    } catch {
+      return code;
+    }
   }
 
   /**
@@ -1585,30 +1823,82 @@ async function toWav(blob: Blob, sampleRate?: number): Promise<Blob> {
       const channel = audio.getChannelData(c);
       for (let i = 0; i < channel.length; i++) mono[i] += channel[i] / audio.numberOfChannels;
     }
-
-    const bytes = new DataView(new ArrayBuffer(44 + mono.length * 2));
-    const text = (offset: number, value: string) => {
-      for (let i = 0; i < value.length; i++) bytes.setUint8(offset + i, value.charCodeAt(i));
-    };
-    text(0, 'RIFF');
-    bytes.setUint32(4, 36 + mono.length * 2, true);
-    text(8, 'WAVE');
-    text(12, 'fmt ');
-    bytes.setUint32(16, 16, true);
-    bytes.setUint16(20, 1, true);
-    bytes.setUint16(22, 1, true);
-    bytes.setUint32(24, audio.sampleRate, true);
-    bytes.setUint32(28, audio.sampleRate * 2, true);
-    bytes.setUint16(32, 2, true);
-    bytes.setUint16(34, 16, true);
-    text(36, 'data');
-    bytes.setUint32(40, mono.length * 2, true);
-    for (let i = 0; i < mono.length; i++) {
-      const s = Math.max(-1, Math.min(1, mono[i]));
-      bytes.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
-    return new Blob([bytes.buffer], { type: 'audio/wav' });
+    return encodeWav(mono, audio.sampleRate);
   } finally {
     void context.close();
+  }
+}
+
+/** Mono samples in -1..1 as a 16-bit PCM WAV. */
+function encodeWav(mono: Float32Array, sampleRate: number): Blob {
+  const bytes = new DataView(new ArrayBuffer(44 + mono.length * 2));
+  const text = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i++) bytes.setUint8(offset + i, value.charCodeAt(i));
+  };
+  text(0, 'RIFF');
+  bytes.setUint32(4, 36 + mono.length * 2, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  bytes.setUint32(16, 16, true);
+  bytes.setUint16(20, 1, true);
+  bytes.setUint16(22, 1, true);
+  bytes.setUint32(24, sampleRate, true);
+  bytes.setUint32(28, sampleRate * 2, true);
+  bytes.setUint16(32, 2, true);
+  bytes.setUint16(34, 16, true);
+  text(36, 'data');
+  bytes.setUint32(40, mono.length * 2, true);
+  for (let i = 0; i < mono.length; i++) {
+    const s = Math.max(-1, Math.min(1, mono[i]));
+    bytes.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([bytes.buffer], { type: 'audio/wav' });
+}
+
+/**
+ * Records the microphone straight into WAV through Web Audio. Unlike MediaRecorder, nothing has to be decoded
+ * afterwards, which some browsers (VS Code's, for one) cannot do for their own WebM/Opus recordings.
+ */
+class WavRecorder {
+  private readonly chunks: Float32Array[] = [];
+  private readonly context = new AudioContext();
+  private readonly source: MediaStreamAudioSourceNode;
+  private readonly node: ScriptProcessorNode;
+  /** Settles once sound is coming in: the microphone takes a moment to start, and words said before that are lost. */
+  readonly ready: Promise<void>;
+
+  constructor(private readonly stream: MediaStream) {
+    this.source = this.context.createMediaStreamSource(stream);
+    // ScriptProcessorNode is deprecated but works everywhere without a separately served worklet module.
+    this.node = this.context.createScriptProcessor(4096, 1, 1);
+    let started: () => void = () => undefined;
+    this.ready = new Promise<void>((resolve) => { started = resolve; });
+    this.node.onaudioprocess = (e) => {
+      this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      started();
+    };
+    this.source.connect(this.node);
+    this.node.connect(this.context.destination);
+    void this.context.resume();
+  }
+
+  /** Stops the microphone; the take as WAV, or null when <paramref name="discard"/> or nothing was heard. */
+  stop(discard = false): Blob | null {
+    this.node.onaudioprocess = null;
+    this.node.disconnect();
+    this.source.disconnect();
+    this.stream.getTracks().forEach((t) => t.stop());
+    const rate = this.context.sampleRate;
+    void this.context.close();
+    if (discard) return null;
+    const length = this.chunks.reduce((n, c) => n + c.length, 0);
+    if (length === 0) return null;
+    const mono = new Float32Array(length);
+    let offset = 0;
+    for (const c of this.chunks) {
+      mono.set(c, offset);
+      offset += c.length;
+    }
+    return encodeWav(mono, rate);
   }
 }

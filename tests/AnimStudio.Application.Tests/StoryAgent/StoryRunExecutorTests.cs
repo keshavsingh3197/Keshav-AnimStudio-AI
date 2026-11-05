@@ -77,7 +77,7 @@ public sealed class StoryRunExecutorTests
                 });
             }
         });
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id);
@@ -110,7 +110,7 @@ public sealed class StoryRunExecutorTests
     {
         var (executor, runs, stages) = Make(s => s[StoryStageIds.Narration] = new ScriptedStage(StoryStageIds.Narration,
             (_, _) => throw new StoryStageException("no-speech-engine", "No speech engine is available.")));
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id);
@@ -131,7 +131,7 @@ public sealed class StoryRunExecutorTests
     {
         var (executor, runs, _) = Make(s => s[StoryStageIds.Visuals] = new ScriptedStage(StoryStageIds.Visuals,
             (_, _) => throw new InvalidOperationException("connection string Server=secret;Password=hunter2")));
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id);
@@ -148,7 +148,7 @@ public sealed class StoryRunExecutorTests
     {
         var (executor, runs, _) = Make(s => s[StoryStageIds.Music] = new ScriptedStage(StoryStageIds.Music,
             (_, _) => Task.FromResult(StoryStageOutcome.Skipped("music-off", "Background music is off."))));
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id);
@@ -165,7 +165,7 @@ public sealed class StoryRunExecutorTests
     public async Task Stages_that_finished_are_not_run_again_but_one_that_was_running_when_the_process_died_is()
     {
         var (executor, runs, stages) = Make();
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         run.Stage(StoryStageIds.Visuals).Status = StoryStageStatus.Completed;
         run.Stage(StoryStageIds.Narration).Status = StoryStageStatus.Completed;
         run.Stage(StoryStageIds.Music).Status = StoryStageStatus.Skipped;
@@ -207,7 +207,7 @@ public sealed class StoryRunExecutorTests
             await Task.Delay(Timeout.Infinite, ct);
             return StoryStageOutcome.Completed();
         }));
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id, userCancel: stop.Token);
@@ -230,7 +230,7 @@ public sealed class StoryRunExecutorTests
             await Task.Delay(Timeout.Infinite, ct);
             return StoryStageOutcome.Completed();
         }));
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id, shutdown: shutdown.Token);
@@ -255,7 +255,7 @@ public sealed class StoryRunExecutorTests
             return StoryStageOutcome.Completed("Pictures ready.");
         }));
         store = runs;
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id);
@@ -277,7 +277,7 @@ public sealed class StoryRunExecutorTests
             context.Run.SceneStarts = [0, 5.5, 11.2];
             return Task.FromResult(StoryStageOutcome.Completed());
         }));
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         runs.Seed(run);
 
         await Run(executor, run.Id);
@@ -291,7 +291,7 @@ public sealed class StoryRunExecutorTests
     public async Task A_retried_run_clears_the_earlier_error_when_its_stage_starts_again()
     {
         var (executor, runs, _) = Make();
-        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true, reviewsApproved: true);
         run.ErrorCode = "no-speech-engine";
         run.ErrorMessage = "No speech engine is available.";
         runs.Seed(run);

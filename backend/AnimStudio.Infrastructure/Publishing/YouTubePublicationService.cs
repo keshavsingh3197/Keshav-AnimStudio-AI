@@ -26,7 +26,9 @@ public sealed record YouTubePublicationStatus(
     string? ThumbnailUrl,
     DateTime? LastCheckedAt,
     /// <summary>The same video on music.youtube.com; set when it went up in the Music category.</summary>
-    string? MusicUrl = null);
+    string? MusicUrl = null,
+    /// <summary>When a scheduled upload goes public (UTC); null when it was not scheduled.</summary>
+    DateTime? PublishAt = null);
 
 /// <summary>
 /// The durable record of videos uploaded from the app: written automatically when an upload
@@ -45,7 +47,7 @@ public sealed class YouTubePublicationService(
     public async Task<YouTubePublication> RecordAsync(
         string userId, string projectId, string jobId, string channelId, string channelTitle,
         string videoId, string title, string privacy, IReadOnlyList<string> relatedVideoIds, CancellationToken ct,
-        string? categoryId = null)
+        string? categoryId = null, DateTime? publishAt = null)
     {
         var publication = new YouTubePublication
         {
@@ -61,6 +63,7 @@ public sealed class YouTubePublicationService(
             CategoryId = categoryId,
             RelatedVideoIds = [.. relatedVideoIds],
             PublishedAt = clock.GetUtcNow().UtcDateTime,
+            PublishAt = publishAt,
             // Freshly uploaded: YouTube is processing it until the first check says otherwise.
             Health = YouTubeVideoHealth.Processing
         };
@@ -183,5 +186,6 @@ public sealed class YouTubePublicationService(
         p.IssueMessage,
         p.ThumbnailUrl,
         p.LastCheckedAt is { } checkedAt ? DateTime.SpecifyKind(checkedAt, DateTimeKind.Utc) : null,
-        YouTubeRelatedVideos.MusicUrlFor(p.VideoId, p.CategoryId));
+        YouTubeRelatedVideos.MusicUrlFor(p.VideoId, p.CategoryId),
+        p.PublishAt is { } publishAt ? DateTime.SpecifyKind(publishAt, DateTimeKind.Utc) : null);
 }

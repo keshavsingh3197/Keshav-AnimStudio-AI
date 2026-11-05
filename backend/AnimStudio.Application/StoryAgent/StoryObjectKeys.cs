@@ -17,7 +17,14 @@ public static class StoryObjectKeys
     public static string Narration(string runId, int scene, string fingerprint) =>
         $"{Root(runId)}/narration/s{scene:00}-{fingerprint}.wav";
 
+    public static string Video(string runId, int scene) =>
+        $"{Root(runId)}/clips/s{scene:00}-{Guid.NewGuid().ToString("N")[..12]}.mp4";
+
     public static string Music(string runId) => $"{Root(runId)}/music.mp3";
+
+    /// <summary>The background track as an MP3 or a WAV, by its content type.</summary>
+    public static string Music(string runId, string contentType) =>
+        contentType == "audio/wav" ? $"{Root(runId)}/music.wav" : Music(runId);
 
     /// <summary>Every file the run's document points at.</summary>
     public static IReadOnlyList<string> All(StoryRun run)
@@ -27,6 +34,7 @@ public static class StoryObjectKeys
         {
             if (!string.IsNullOrEmpty(scene.ImageKey)) keys.Add(scene.ImageKey);
             if (!string.IsNullOrEmpty(scene.AudioKey)) keys.Add(scene.AudioKey);
+            if (!string.IsNullOrEmpty(scene.VideoKey)) keys.Add(scene.VideoKey);
         }
 
         if (!string.IsNullOrEmpty(run.Music?.StorageKey)) keys.Add(run.Music.StorageKey);

@@ -23,6 +23,16 @@ public enum StoryWriterMode
     BuiltIn = 2
 }
 
+/// <summary>Who tells the story in the script.</summary>
+public enum StoryVoicing
+{
+    /// <summary>A narrator tells it, and the characters speak a few lines of their own along the way.</summary>
+    Narrated = 0,
+
+    /// <summary>No narrator: the characters tell the whole story in their own lines, from the first scene to the last.</summary>
+    CharactersOnly = 1
+}
+
 public enum StoryNarrationMode
 {
     /// <summary>Subtitles only.</summary>
@@ -61,8 +71,17 @@ public sealed class StoryBrief
     public StoryFormat Format { get; set; } = StoryFormat.Wide;
     public StoryWriterMode Writer { get; set; } = StoryWriterMode.Auto;
 
+    /// <summary>Whether a narrator tells the story or only its characters speak. A built-in pack is always narrated.</summary>
+    public StoryVoicing Voicing { get; set; } = StoryVoicing.Narrated;
+
     /// <summary>The id of a built-in story pack, when <see cref="Writer"/> is <see cref="StoryWriterMode.BuiltIn"/>.</summary>
     public string? PackId { get; set; }
+
+    /// <summary>The <see cref="StoryGenre"/> the story is made in. Null on runs from before genres, which were devotional.</summary>
+    public string? GenreId { get; set; }
+
+    /// <summary>The genre's mode, copied here because the script parser and the prompt only see the brief.</summary>
+    public StoryGenreMode Mode { get; set; } = StoryGenreMode.Scripture;
 }
 
 /// <summary>How the video is made once the script is approved.</summary>
@@ -79,7 +98,20 @@ public sealed class StoryBuildOptions
     /// <summary>One named speech engine; null walks the configured chain.</summary>
     public string? SpeechEngine { get; set; }
 
+    /// <summary>One of <see cref="SpeechEngine"/>'s offered models; null for its configured one.</summary>
+    public string? SpeechModel { get; set; }
+
+    /// <summary>How the lines are delivered ("warm, unhurried storyteller"), for an engine that takes one.</summary>
+    public string? SpeechStyle { get; set; }
+
     public double SpeechRate { get; set; } = 1.0;
+
+    /// <summary>
+    /// Give each character of the script's cast a voice of their own (picked from the engine's voices by gender and
+    /// age), with the narrator in the chosen voice. Only an engine that can speak a dialogue does this; the others
+    /// read every line in the narrator's voice.
+    /// </summary>
+    public bool CastVoices { get; set; } = true;
 
     /// <summary>
     /// For my voice: convert every line with the AI voice converter even when a tuned voice exists.
@@ -94,22 +126,97 @@ public sealed class StoryBuildOptions
 
     public bool Music { get; set; } = true;
 
+    /// <summary>Where the background track comes from.</summary>
+    public StoryMusicSource MusicSource { get; set; } = StoryMusicSource.Auto;
+
     /// <summary>
     /// True when the pictures the user attaches were made with an AI image tool (Google Flow, for one), so the
     /// credits and the reminder to tick YouTube's AI disclosure say the right thing.
     /// </summary>
     public bool UploadsAreAiMade { get; set; } = true;
 
-    /// <summary>What to search the music catalogue for; empty uses the script's own suggestion.</summary>
+    /// <summary>What to search the music catalogue for, or the style to compose in; empty uses the script's own suggestion.</summary>
     public string? MusicQuery { get; set; }
 
     public double MusicVolume { get; set; } = 0.2;
 
+    /// <summary>The whole brief for the composer, written or edited by the person; empty builds one from the script.</summary>
+    public string? MusicPrompt { get; set; }
+
+    /// <summary>The feel of the effects and transitions chosen for each scene.</summary>
+    public StoryLookStyle LookStyle { get; set; } = StoryLookStyle.Auto;
+
     /// <summary>Queue the render as soon as the project is built.</summary>
     public bool RenderWhenReady { get; set; } = true;
 
+    /// <summary>
+    /// How fast the finished video plays: 1.25 makes it a fifth shorter, voice and music sped up with the pitch kept. The
+    /// project renders at its own pace and a copy at this speed becomes the story's video, so the download, YouTube and the
+    /// subtitles all get the same one.
+    /// </summary>
+    public double VideoSpeed { get; set; } = 1.0;
+
+    /// <summary>
+    /// Let the app choose <see cref="VideoSpeed"/>: once the narration exists its pace is measured, and a voice that came
+    /// out too slow or too fast is brought to a comfortable pace. Choosing a speed by hand turns this off.
+    /// </summary>
+    public bool AutoPace { get; set; }
+
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
+
+    /// <summary>
+    /// The look of the pictures and of the animation: a painting, a realistic film, a cartoon. Auto keeps the genre's
+    /// picture style.
+    /// </summary>
+    public StoryArtStyle ArtStyle { get; set; } = StoryArtStyle.Auto;
+}
+
+/// <summary>The look of a story's pictures and animation.</summary>
+public enum StoryArtStyle
+{
+    /// <summary>The genre's own picture style (a devotional painting for a scripture story).</summary>
+    Auto = 0,
+
+    /// <summary>Classical Indian painting: jewel colours, gold, ornament.</summary>
+    Painting = 1,
+
+    /// <summary>Like a film: real-looking people and places, natural light and motion.</summary>
+    Realistic = 2,
+
+    /// <summary>A hand-drawn 2D cartoon: bold outlines, flat bright colours, bouncy expressive acting.</summary>
+    Cartoon = 3,
+
+    /// <summary>A 3D animated feature: soft rounded characters, big expressive eyes, cinematic light.</summary>
+    Cartoon3D = 4
+}
+
+public enum StoryMusicSource
+{
+    /// <summary>Composed for the story with Google's Lyria when Gemini speech is set up, otherwise searched.</summary>
+    Auto = 0,
+
+    /// <summary>Composed for the story with Google's Lyria.</summary>
+    Generate = 1,
+
+    /// <summary>A royalty-free track from the music catalogue.</summary>
+    Search = 2
+}
+
+/// <summary>The feel of the motion and the cuts the build picks for each scene.</summary>
+public enum StoryLookStyle
+{
+    /// <summary>Picked from each scene's mood: slow pushes for calm, faster moves and cuts for drama.</summary>
+    Auto = 0,
+
+    /// <summary>Slow, small moves and soft crossfades throughout. Suits devotional and reflective stories.</summary>
+    Gentle = 1,
+
+    /// <summary>Deliberate pushes and pulls, longer dissolves, a reveal at the turning points.</summary>
+    Cinematic = 2,
+
+    /// <summary>Quicker moves and slides, for a Short that has to hold attention.</summary>
+    Lively = 3
 }
 
 public enum StorySourceConfidence
@@ -229,6 +336,12 @@ public sealed class StoryScene
     /// <summary>What the narrator says, in the script's language. Becomes the subtitles.</summary>
     public string Narration { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The narration split by who speaks it, in order, when a character speaks in the scene; empty when the narrator
+    /// says it all. The lines say the same words as <see cref="Narration"/>, which stays the subtitles.
+    /// </summary>
+    public List<StoryLine> Lines { get; set; } = [];
+
     /// <summary>The meaning in English, so the person can check a Hindi script without reading Hindi.</summary>
     public string? English { get; set; }
 
@@ -237,6 +350,12 @@ public sealed class StoryScene
 
     /// <summary>What the picture shows, in English, for an image model.</summary>
     public string? ImagePrompt { get; set; }
+
+    /// <summary>
+    /// The same moment as a short moving shot (about 8 seconds), in English, for a video model such as Google Flow or
+    /// Veo: what moves and how the camera goes. The person makes the clip there and attaches it.
+    /// </summary>
+    public string? VideoPrompt { get; set; }
 
     public List<string> ImageKeywords { get; set; } = [];
     public string? Mood { get; set; }
@@ -254,6 +373,26 @@ public sealed class StoryScene
 
     public string? ImageName { get; set; }
 
+    /// <summary>
+    /// Object-store key of the scene's moving clip, one the person attached. When there is one it plays instead of the
+    /// picture.
+    /// </summary>
+    public string? VideoKey { get; set; }
+
+    public string? VideoName { get; set; }
+
+    /// <summary>
+    /// Null or <c>upload</c> for a clip the person attached. Runs saved while the app could still generate clips may
+    /// name a video model here; such a clip is no longer played.
+    /// </summary>
+    public string? VideoSource { get; set; }
+
+    /// <summary>True when the clip is one the person attached rather than one the build made.</summary>
+    public bool HasAttachedClip => !string.IsNullOrEmpty(VideoKey) && VideoSource is null or StoryScene.AttachedClip;
+
+    /// <summary>What <see cref="VideoSource"/> says for a clip the person attached.</summary>
+    public const string AttachedClip = "upload";
+
     public string? AudioKey { get; set; }
     public string? AudioName { get; set; }
     public string? AudioSource { get; set; }
@@ -263,6 +402,53 @@ public sealed class StoryScene
 
     /// <summary>The silent stretches in the narration, used to line subtitles up with the voice.</summary>
     public List<StoryPause> Pauses { get; set; } = [];
+
+    /// <summary>How many times the person asked for this scene's narration again. A new take is a new file, spoken afresh.</summary>
+    public int AudioTake { get; set; }
+
+    // --- how the scene moves and leads into the next ---------------------------------------
+
+    /// <summary>The picture's motion (a <c>BackgroundEffect</c> name). Chosen automatically unless <see cref="LookPinned"/>.</summary>
+    public string? Effect { get; set; }
+
+    /// <summary>How much it moves: the zoom or the pan travel as a fraction of the frame.</summary>
+    public double? EffectIntensity { get; set; }
+
+    /// <summary>The cut into the next scene (a <c>SceneTransition</c> name); none after the last.</summary>
+    public string? Transition { get; set; }
+
+    public double? TransitionSeconds { get; set; }
+
+    /// <summary>The person chose this scene's effect and transition themselves, so a new look leaves them as they are.</summary>
+    public bool LookPinned { get; set; }
+}
+
+/// <summary>Part of a scene's narration and who says it.</summary>
+public sealed class StoryLine
+{
+    /// <summary><see cref="StoryCastMember.Narrator"/>, or the name of a member of the script's cast.</summary>
+    public string Speaker { get; set; } = StoryCastMember.Narrator;
+
+    public string Text { get; set; } = string.Empty;
+}
+
+/// <summary>A character who speaks in the story.</summary>
+public sealed class StoryCastMember
+{
+    /// <summary>The speaker of every line that is not a character's.</summary>
+    public const string Narrator = "narrator";
+
+    /// <summary>As the script names them, in its language.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary><c>male</c>, <c>female</c>, or null when it does not matter.</summary>
+    public string? Gender { get; set; }
+
+    /// <summary><c>child</c>, <c>young</c>, <c>adult</c> or <c>elder</c>; null for an adult.</summary>
+    public string? Age { get; set; }
+
+    /// <summary>The voice they were last given, so the person can see who speaks whom. Set when narration is made.</summary>
+    public string? VoiceId { get; set; }
 }
 
 /// <summary>A quiet stretch in a clip, in seconds from its start.</summary>
@@ -284,6 +470,9 @@ public sealed class StoryScript
     public string? MusicQuery { get; set; }
 
     public List<StoryScene> Scenes { get; set; } = [];
+
+    /// <summary>The characters who speak in the scenes' lines. Empty when the narrator tells it all.</summary>
+    public List<StoryCastMember> Cast { get; set; } = [];
 
     /// <summary>Things the writer wants checked before this is published.</summary>
     public List<string> ReviewNotes { get; set; } = [];

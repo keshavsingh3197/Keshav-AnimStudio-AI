@@ -96,6 +96,42 @@ public sealed class StoryRunServiceTests
         var saved = world.Runs.Read(run.Id)!;
         Assert.Equal(run.Title, saved.Title);
         Assert.Equal(StoryRunStatus.Researching, saved.Status);
+        Assert.Equal(StoryGenres.DefaultId, saved.Brief.GenreId);
+        Assert.Equal(StoryGenreMode.Scripture, saved.Brief.Mode);
+    }
+
+    [Fact]
+    public async Task A_genre_is_copied_onto_the_run_and_fills_in_what_the_person_left_at_its_default()
+    {
+        var world = new World();
+
+        var run = await world.Service.CreateAsync(User, Brief(tweak: b => { b.GenreId = "funny"; b.Language = ""; }),
+            new StoryBuildOptions { ImageStyle = "my own style" }, CancellationToken.None);
+
+        Assert.Equal("funny", run.Brief.GenreId);
+        Assert.Equal(StoryGenreMode.Creative, run.Brief.Mode);
+        Assert.Equal("funny", run.Genre!.Id);
+        Assert.Equal(StoryGenres.Funny().DefaultLanguage, run.Brief.Language);
+        Assert.Equal("my own style", run.Options.ImageStyle);
+        Assert.Equal(StoryLookStyle.Lively, run.Options.LookStyle);
+    }
+
+    [Fact]
+    public async Task An_unknown_genre_or_a_pack_from_another_genre_is_refused()
+    {
+        var world = new World();
+
+        var unknown = await Assert.ThrowsAsync<StoryRunException>(() =>
+            world.Service.CreateAsync(User, Brief(tweak: b => b.GenreId = "no-such-genre"), null, CancellationToken.None));
+        Assert.Equal("genre-invalid", unknown.Code);
+
+        var pack = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.CreateAsync(User, Brief(tweak: b =>
+        {
+            b.GenreId = "funny";
+            b.Writer = StoryWriterMode.BuiltIn;
+            b.PackId = StoryPacks.All[0].Id;
+        }), null, CancellationToken.None));
+        Assert.Equal("pack-invalid", pack.Code);
     }
 
     [Fact]
@@ -249,6 +285,64 @@ public sealed class StoryRunServiceTests
     }
 
     [Theory]
+    [InlineData(null, "gemini-3.8-flash-tts")]
+    [InlineData("gemini-tts", "../../files")]
+    [InlineData("gemini-tts", "gemini-3.8-flash")]
+    public async Task A_speech_model_the_engine_does_not_offer_is_refused(string? engine, string model)
+    {
+        var world = new World();
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.CreateAsync(User, Brief(),
+            new StoryBuildOptions { SpeechEngine = engine, SpeechModel = model }, CancellationToken.None));
+
+        Assert.Equal("model-invalid", error.Code);
+    }
+
+    [Fact]
+    public async Task A_gemini_model_and_style_are_kept_and_a_style_for_another_engine_is_dropped()
+    {
+        var world = new World();
+
+        var gemini = await world.Service.CreateAsync(User, Brief(), new StoryBuildOptions
+        {
+            SpeechEngine = "gemini-tts", SpeechModel = " gemini-3.8-flash-lite-tts ", SpeechStyle = "  Calm \r\n and warm  "
+        }, CancellationToken.None);
+        var kokoro = await world.Service.CreateAsync(User, Brief(), new StoryBuildOptions
+        {
+            SpeechEngine = "kokoro", SpeechStyle = "Calm"
+        }, CancellationToken.None);
+
+        Assert.Equal("gemini-3.8-flash-lite-tts", gemini.Options.SpeechModel);
+        Assert.Equal("Calm and warm", gemini.Options.SpeechStyle);
+        Assert.Null(kokoro.Options.SpeechStyle);
+    }
+
+    [Fact]
+    public async Task My_voice_keeps_a_gemini_style_only_when_the_voice_was_sent_to_gemini()
+    {
+        var world = new World();
+        world.Voices.Items[ProfileId] = new VoiceProfile
+        {
+            Id = ProfileId, UserId = User, Name = "Mine", BaseVoiceId = "hm_omega", StorageKey = "k",
+            GoogleVoiceId = "voice_r3pl1ca", GoogleVoiceProviderId = "gemini-tts"
+        };
+        var options = new StoryBuildOptions
+        {
+            Narration = StoryNarrationMode.MyVoice, VoiceProfileId = ProfileId,
+            SpeechEngine = "gemini-tts", SpeechModel = "gemini-3.8-flash-tts", SpeechStyle = "Calm"
+        };
+
+        var onGoogle = await world.Service.CreateAsync(User, Brief(), options, CancellationToken.None);
+        world.Voices.Items[ProfileId].GoogleVoiceId = null;
+        var local = await world.Service.CreateAsync(User, Brief("Another"), options, CancellationToken.None);
+
+        Assert.Equal("Calm", onGoogle.Options.SpeechStyle);
+        Assert.Equal("gemini-3.8-flash-tts", onGoogle.Options.SpeechModel);
+        Assert.Null(local.Options.SpeechStyle);
+        Assert.Null(local.Options.SpeechModel);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("vp_nope")]
     [InlineData(ProfileId)]
@@ -299,26 +393,33 @@ public sealed class StoryRunServiceTests
     }
 
     [Fact]
-    public async Task The_oldest_finished_runs_past_the_limit_are_deleted_with_their_files_and_working_ones_never_are()
+    public async Task The_oldest_failed_or_stopped_runs_past_the_limit_are_deleted_with_their_files_and_finished_or_working_ones_never_are()
     {
         var world = new World();
-        world.Options.MaxSavedRunsPerUser = 2;
+        world.Options.MaxSavedRunsPerUser = 1;
         world.Options.MaxActiveRunsPerUser = 9;
 
-        var oldest = await world.Seed(StoryRunStatus.Completed);
-        oldest.UpdatedAtUtc = StorySamples.Now.AddDays(-30);
-        var keys = await world.Stock(oldest);
-        var middle = await world.Seed(StoryRunStatus.Failed);
-        middle.UpdatedAtUtc = StorySamples.Now.AddDays(-20);
-        world.Runs.Seed(middle);
+        var finished = await world.Seed(StoryRunStatus.Completed);
+        finished.UpdatedAtUtc = StorySamples.Now.AddDays(-50);
+        var finishedKeys = await world.Stock(finished);
+        var failed = await world.Seed(StoryRunStatus.Failed);
+        failed.UpdatedAtUtc = StorySamples.Now.AddDays(-30);
+        var failedKeys = await world.Stock(failed);
+        var stopped = await world.Seed(StoryRunStatus.Cancelled);
+        stopped.UpdatedAtUtc = StorySamples.Now.AddDays(-20);
+        world.Runs.Seed(stopped);
         var working = await world.Seed(StoryRunStatus.Building);
         working.UpdatedAtUtc = StorySamples.Now.AddDays(-40);
         world.Runs.Seed(working);
 
         var fresh = await world.Service.CreateAsync(User, Brief(), null, CancellationToken.None);
 
-        Assert.Null(world.Runs.Read(oldest.Id));
-        Assert.All(keys, key => Assert.DoesNotContain(key, world.Store.Keys));
+        Assert.Null(world.Runs.Read(failed.Id));
+        Assert.Null(world.Runs.Read(stopped.Id));
+        Assert.All(failedKeys, key => Assert.DoesNotContain(key, world.Store.Keys));
+        // A finished story has a video and may be on YouTube: it stays, with its files, however old.
+        Assert.NotNull(world.Runs.Read(finished.Id));
+        Assert.All(finishedKeys, key => Assert.Contains(key, world.Store.Keys));
         Assert.NotNull(world.Runs.Read(working.Id));
         Assert.NotNull(world.Runs.Read(fresh.Id));
     }
@@ -342,6 +443,8 @@ public sealed class StoryRunServiceTests
             () => world.Service.ManualPromptAsync(User, id, token),
             () => world.Service.SubmitScriptAsync(User, id, StorySamples.ReplyJson, token),
             () => world.Service.UpdateScriptAsync(User, id, edit, token),
+            () => world.Service.ApproveScriptAsync(User, id, token),
+            () => world.Service.RecordCaptionsAsync(User, id, [new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "hi" }], token),
             () => world.Service.AttachImageAsync(User, id, 1, StoryTestData.Png(), "x.png", token),
             () => world.Service.RemoveImageAsync(User, id, 1, token),
             () => world.Service.RewriteAsync(User, id, null, token),
@@ -380,7 +483,7 @@ public sealed class StoryRunServiceTests
     public async Task The_list_is_the_persons_own_newest_first_and_limited()
     {
         var world = new World();
-        world.Options.MaxSavedRunsPerUser = 2;
+        world.Options.MaxListedRuns = 2;
         var a = await world.Seed(StoryRunStatus.Completed);
         a.UpdatedAtUtc = StorySamples.Now.AddDays(-3);
         world.Runs.Seed(a);
@@ -771,6 +874,67 @@ public sealed class StoryRunServiceTests
         Assert.NotNull(result.Script.Scenes[1].ImageKey);
     }
 
+    // ----------------------------------------------------------------------------------------------- approving
+
+    [Fact]
+    public async Task Approving_marks_the_script_and_saves_it_without_starting_anything()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+
+        var result = await world.Service.ApproveScriptAsync(User, run.Id, CancellationToken.None);
+
+        Assert.Equal(StorySamples.Now, result.ScriptApprovedAtUtc);
+        Assert.Equal(StoryRunStatus.ScriptReady, result.Status);
+        Assert.Equal(StorySamples.Now, world.Runs.Read(run.Id)!.ScriptApprovedAtUtc);
+        Assert.Empty(world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task Changing_the_words_takes_the_approval_back_and_a_picture_does_not()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+        await world.Service.ApproveScriptAsync(User, run.Id, CancellationToken.None);
+
+        var pictured = await world.Service.AttachImageAsync(User, run.Id, 1, StoryTestData.Png(), "1.png", CancellationToken.None);
+        Assert.NotNull(pictured.ScriptApprovedAtUtc);
+
+        var edited = await world.Service.UpdateScriptAsync(User, run.Id, Script(pictured, [.. pictured.Script!.Scenes.Select(s => Edit(s))]), CancellationToken.None);
+        Assert.Null(edited.ScriptApprovedAtUtc);
+        Assert.Null(world.Runs.Read(run.Id)!.ScriptApprovedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(StoryRunStatus.AwaitingScript, true)]
+    [InlineData(StoryRunStatus.Building, true)]
+    [InlineData(StoryRunStatus.Researching, false)]
+    public async Task There_is_nothing_to_approve_without_a_script_or_while_it_is_being_made(StoryRunStatus status, bool withScript)
+    {
+        var world = new World();
+        var run = await world.Seed(status, withScript);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.ApproveScriptAsync(User, run.Id, CancellationToken.None));
+
+        Assert.Equal(StoryRunErrorKind.Conflict, error.Kind);
+        Assert.Null(world.Runs.Read(run.Id)!.ScriptApprovedAtUtc);
+    }
+
+    [Fact]
+    public async Task Subtitles_sent_again_to_the_same_video_replace_the_old_note_of_them()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.Completed);
+
+        await world.Service.RecordCaptionsAsync(User, run.Id, [new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "hi", CaptionId = "old" }], CancellationToken.None);
+        var result = await world.Service.RecordCaptionsAsync(User, run.Id,
+            [new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "hi", CaptionId = "new" },
+             new StoryCaptionUpload { VideoId = "abcdefghijk", Language = "en", CaptionId = "en1" }], CancellationToken.None);
+
+        Assert.Equal(["new", "en1"], result.CaptionUploads.Select(c => c.CaptionId));
+        Assert.Equal(2, world.Runs.Read(run.Id)!.CaptionUploads.Count);
+    }
+
     // ----------------------------------------------------------------------------------------------- building
 
     [Fact]
@@ -782,6 +946,7 @@ public sealed class StoryRunServiceTests
         var result = await world.Service.BuildAsync(User, run.Id, new StoryBuildOptions { Narration = StoryNarrationMode.Stock, VoiceId = "hf_alpha", Music = false }, CancellationToken.None);
 
         Assert.Equal(StoryRunStatus.Building, result.Status);
+        Assert.Equal(StorySamples.Now, result.ScriptApprovedAtUtc);
         Assert.Equal("hf_alpha", result.Options.VoiceId);
         Assert.All(StoryStageIds.Building, id => Assert.Equal(StoryStageStatus.Pending, result.Stage(id).Status));
         Assert.All(StoryStageIds.Planning, id => Assert.Equal(StoryStageStatus.Completed, result.Stage(id).Status));
@@ -1122,5 +1287,176 @@ public sealed class StoryRunServiceTests
 
         Assert.Contains(foreign, world.Store.Keys);
         Assert.Null(world.Runs.Read(run.Id));
+    }
+
+    // ------------------------------------------------------------------------------------------------ reviews
+
+    /// <summary>A run that built up to the given step and stopped there for the person to check it.</summary>
+    private static async Task<StoryRun> Reviewing(World world, string stageId)
+    {
+        var run = await world.Seed(StoryRunStatus.AwaitingReview);
+        await world.Stock(run);
+        foreach (var id in StoryStageIds.Building.TakeWhile(id => id != stageId).Append(stageId))
+            run.Stage(id).Status = StoryStageStatus.Completed;
+        run.Review = stageId;
+        world.Runs.Seed(run);
+        return run;
+    }
+
+    [Fact]
+    public async Task Approving_the_step_being_reviewed_records_it_and_sends_the_build_on()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var approved = await world.Service.ApproveReviewAsync(User, run.Id, StoryStageIds.Narration, CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.Building, approved.Status);
+        Assert.Null(approved.Review);
+        Assert.Equal(StorySamples.Now, approved.VoiceApprovedAtUtc);
+        Assert.Equal([run.Id], world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task A_step_that_is_not_waiting_cannot_be_approved()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() =>
+            world.Service.ApproveReviewAsync(User, run.Id, StoryStageIds.Music, CancellationToken.None));
+
+        Assert.Equal("review-not-waiting", error.Code);
+        Assert.Empty(world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task Retaking_chosen_scenes_takes_only_those_again_and_rebuilds_from_the_voice()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var redone = await world.Service.RedoNarrationAsync(User, run.Id, new StoryVoiceRedo([2]), CancellationToken.None);
+
+        Assert.Equal([0, 1, 0], redone.Script!.Scenes.Take(3).Select(s => s.AudioTake));
+        Assert.Equal(StoryRunStatus.Building, redone.Status);
+        Assert.Equal(StoryStageStatus.Pending, redone.Stage(StoryStageIds.Narration).Status);
+        Assert.Equal(StoryStageStatus.Completed, redone.Stage(StoryStageIds.Visuals).Status);
+        Assert.Null(redone.VoiceApprovedAtUtc);
+        Assert.Equal([run.Id], world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task A_new_delivery_speaks_every_scene_again_without_counting_retakes()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+
+        var redone = await world.Service.RedoNarrationAsync(User, run.Id, new StoryVoiceRedo(null, SpeechRate: 0.9), CancellationToken.None);
+
+        Assert.Equal(0.9, redone.Options.SpeechRate);
+        Assert.All(redone.Script!.Scenes, s => Assert.Equal(0, s.AudioTake));
+    }
+
+    [Fact]
+    public async Task Asking_for_new_music_throws_the_old_track_away_and_asks_for_a_different_take()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Music);
+        run.Music = new StoryMusicPick { Provider = MusicStage.ComposedProvider, StorageKey = StoryObjectKeys.Music(run.Id) };
+        await world.Store.SaveAsync(run.Music.StorageKey, new MemoryStream(FakeMusic.Mp3Bytes()), "audio/mpeg");
+        world.Runs.Seed(run);
+
+        var redone = await world.Service.RedoMusicAsync(User, run.Id, new StoryMusicRedo(Prompt: "Soft bansuri over a tanpura drone."), CancellationToken.None);
+
+        Assert.Null(redone.Music);
+        Assert.DoesNotContain(StoryObjectKeys.Music(run.Id), world.Store.Keys);
+        Assert.Equal(1, redone.MusicTake);
+        Assert.Equal("Soft bansuri over a tanpura drone.", redone.Options.MusicPrompt);
+        Assert.Equal(StoryStageStatus.Pending, redone.Stage(StoryStageIds.Music).Status);
+        Assert.Equal(StoryStageStatus.Completed, redone.Stage(StoryStageIds.Narration).Status);
+        Assert.StartsWith("Soft bansuri over a tanpura drone. Take 2:", MusicStage.Brief(redone, redone.Script!).Prompt);
+        Assert.Equal("Soft bansuri over a tanpura drone.", MusicStage.Brief(redone, redone.Script!, forComposer: false).Prompt);
+    }
+
+    [Fact]
+    public async Task A_track_attached_after_the_build_is_kept_and_waits_to_be_approved()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Render);
+
+        var attached = await world.Service.AttachMusicAsync(User, run.Id, FakeMusic.Mp3Bytes(), @"C:\music\my track.mp3", CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.AwaitingReview, attached.Status);
+        Assert.Equal(StoryStageIds.Music, attached.Review);
+        Assert.Equal(MusicStage.UploadedProvider, attached.Music!.Provider);
+        Assert.Equal("my track.mp3", attached.Music.Title);
+        Assert.Equal(StoryStageStatus.Pending, attached.Stage(StoryStageIds.Assemble).Status);
+        Assert.Contains(attached.Music.StorageKey, world.Store.Keys);
+    }
+
+    [Fact]
+    public async Task A_file_that_is_not_audio_is_refused_as_music()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Music);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() =>
+            world.Service.AttachMusicAsync(User, run.Id, StoryTestData.Png(), "cover.mp3", CancellationToken.None));
+
+        Assert.Equal("music-invalid", error.Code);
+    }
+
+    [Fact]
+    public async Task A_look_set_by_hand_is_pinned_and_rebuilds_from_the_project_keeping_voice_and_music()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Render);
+
+        var redone = await world.Service.RedoLookAsync(User, run.Id, new StoryLookRedo(false, StoryLookStyle.Cinematic, 0.15,
+            [new StorySceneLookEdit(2, "PanUp", "CircleOpen", 0.8)]), CancellationToken.None);
+
+        var scene = redone.Script!.Scenes[1];
+        Assert.True(scene.LookPinned);
+        Assert.Equal("PanUp", scene.Effect);
+        Assert.Equal("CircleOpen", scene.Transition);
+        Assert.Equal(StoryLookStyle.Cinematic, redone.Options.LookStyle);
+        Assert.Equal(0.15, redone.Options.MusicVolume);
+        Assert.Equal(StoryStageStatus.Pending, redone.Stage(StoryStageIds.Assemble).Status);
+        Assert.Equal(StoryStageStatus.Completed, redone.Stage(StoryStageIds.Music).Status);
+        Assert.Null(redone.RenderJobId);
+    }
+
+    [Fact]
+    public async Task A_look_with_an_unknown_name_is_refused_and_changes_nothing()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Render);
+
+        var error = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.RedoLookAsync(User, run.Id,
+            new StoryLookRedo(true, null, null, [new StorySceneLookEdit(1, "ZoomIn", null, null), new StorySceneLookEdit(2, "Spin", null, null)]),
+            CancellationToken.None));
+
+        Assert.Equal("look-invalid", error.Code);
+        var saved = world.Runs.Read(run.Id)!;
+        Assert.False(saved.Script!.Scenes[0].LookPinned);
+        Assert.Equal(0, saved.LookTake);
+        Assert.Equal(StoryRunStatus.AwaitingReview, saved.Status);
+    }
+
+    [Fact]
+    public async Task Changing_a_picture_while_a_step_waits_sends_the_story_back_to_the_build()
+    {
+        var world = new World();
+        var run = await Reviewing(world, StoryStageIds.Narration);
+        run.VoiceApprovedAtUtc = StorySamples.Now;
+        world.Runs.Seed(run);
+
+        var removed = await world.Service.RemoveImageAsync(User, run.Id, 1, CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.ScriptReady, removed.Status);
+        Assert.Null(removed.Review);
+        Assert.Null(removed.VoiceApprovedAtUtc);
+        Assert.All(StoryStageIds.Building, id => Assert.Equal(StoryStageStatus.Pending, removed.Stage(id).Status));
     }
 }

@@ -11,9 +11,10 @@
       <div class="sb-studio-title-col">
         <h2>Story Agent</h2>
         <p class="muted sa-lede">
-          Give it a title. It searches the Granths, writes a script in which every source is checked, then makes the pictures,
-          narration and music, builds a project, renders the video and prepares the YouTube title, description and tags.
-          You read the script before anything is made, and nothing is published for you.
+          Pick a kind of story and give it a title. It writes the script - for a devotional story, from the Granths with every
+          source checked - then makes the pictures, narration and music, builds a project, renders the video and prepares the
+          YouTube title, description and tags. You read and approve the script before anything is made, and you choose when it
+          goes to YouTube.
         </p>
       </div>
     </div>
@@ -31,7 +32,7 @@
               [title]="c.imageEngine ? 'An image engine can draw pictures.' : 'No image engine is on: attach your own pictures.'">
           {{ c.imageEngine ? '✓ AI pictures' : 'Your pictures' }}
         </span>
-        <span class="pill" [class.ok]="c.music" [class.warn]="!c.music">{{ c.music ? '✓ Music' : 'No music' }}</span>
+        <span class="pill" [class.ok]="c.music || c.musicComposer" [class.warn]="!c.music && !c.musicComposer">{{ c.musicComposer ? '✓ Google music' : c.music ? '✓ Music' : 'No music' }}</span>
         <span class="pill" [class.ok]="c.renderer" [class.warn]="!c.renderer">{{ c.renderer ? '✓ Render' : 'No renderer' }}</span>
       </div>
     }
@@ -52,6 +53,28 @@
       <h3 id="sa-new-title" class="sa-step"><span>1</span> What is the story about?</h3>
 
       @if (caps(); as c) {
+        @if (genres().length > 0) {
+          <div class="sa-field">
+            <div class="sa-label" id="sa-genre-label">What kind of story?</div>
+            <div class="sa-genres" role="radiogroup" aria-labelledby="sa-genre-label">
+              @for (g of genres(); track g.id) {
+                <label class="sa-genre" [class.selected]="genre()?.id === g.id" [title]="g.description">
+                  <input type="radio" name="sa-genre" [checked]="genre()?.id === g.id" (change)="setGenre(g)" />
+                  <span class="sa-genre-icon" aria-hidden="true">{{ g.icon }}</span>
+                  <span class="sa-genre-name">{{ language() === 'hi' && g.nameHindi ? g.nameHindi : g.name }}</span>
+                </label>
+              }
+            </div>
+            @if (genre(); as g) {
+              <p class="sa-help">
+                {{ g.description }}
+                @if (g.mode === 'Scripture') { Researched in the Granths; every source is checked. }
+                @if (g.madeForKids) { Made for children. }
+              </p>
+            }
+          </div>
+        }
+
         <div class="sa-field">
           <div class="sa-label" id="sa-writer-label">Who writes the script?</div>
           <div class="seg" role="radiogroup" aria-labelledby="sa-writer-label">
@@ -63,7 +86,7 @@
               <input type="radio" name="sa-writer" [checked]="writer() === 'Manual'" (change)="setWriter('Manual')" />
               I'll paste it from a chat
             </label>
-            @if (c.packs.length > 0) {
+            @if (packs().length > 0) {
               <label [class.selected]="writer() === 'BuiltIn'">
                 <input type="radio" name="sa-writer" [checked]="writer() === 'BuiltIn'" (change)="setWriter('BuiltIn')" />
                 A built-in story
@@ -74,15 +97,15 @@
             @switch (writer()) {
               @case ('Auto') {
                 @if (c.textModel) {
-                  The text model set up on this server writes it, from what the search finds in the Granths.
+                  The text model set up on this server writes it{{ scripture() ? ', from what the search finds in the Granths' : ', in the style of the genre you picked' }}.
                 } @else {
                   No text model is turned on yet, so you will be given a prompt to paste into any chat, and paste its answer back.
                   That works the same way and needs no key.
                 }
               }
               @case ('Manual') {
-                You get a prompt - with what was found in the Granths already in it - to paste into any chat (ChatGPT, Gemini,
-                Claude…), and you paste the answer back. No key needed.
+                You get a prompt - with {{ scripture() ? 'what was found in the Granths' : "the genre's style guide" }} already in it - to paste
+                into any chat (ChatGPT, Gemini, Claude…), and you paste the answer back. No key needed.
               }
               @default {
                 A story that ships with the app, written and checked by hand. It needs no text model, so it works the first time.
@@ -93,7 +116,7 @@
 
         @if (writer() === 'BuiltIn') {
           <div class="sa-field" role="radiogroup" aria-label="Built-in stories">
-            @for (p of c.packs; track p.id) {
+            @for (p of packs(); track p.id) {
               <label class="sa-pack" [class.selected]="packId() === p.id">
                 <input type="radio" name="sa-pack" [checked]="packId() === p.id" (change)="packId.set(p.id)" />
                 <span class="sa-pack-body">
@@ -109,13 +132,13 @@
             <label for="sa-title">Title</label>
             <input id="sa-title" type="text" maxlength="160" autocomplete="off" [attr.lang]="language()" [value]="title()"
                    (input)="title.set(text($event))" (keydown.enter)="start()"
-                   placeholder="e.g. दीपावली क्यों मनाते हैं? · Why do we celebrate Diwali?" />
+                   [placeholder]="scripture() ? 'e.g. दीपावली क्यों मनाते हैं? · Why do we celebrate Diwali?' : 'e.g. The day the parrot answered the phone'" />
             <p class="sa-help">A title is enough. Add points to cover below if you want to steer it.</p>
           </div>
 
-          @if (c.topics.length > 0) {
+          @if (topics().length > 0) {
             <div class="sa-field">
-              <div class="sa-label">Ideas from the catalogue</div>
+              <div class="sa-label">Ideas from the {{ genre()?.name ?? 'catalogue' }} genre</div>
               <div class="sa-topics">
                 @for (topic of topics(); track topic.id) {
                   <button type="button" class="sa-topic" [title]="topic.summary" (click)="useTopic(topic)">
@@ -134,7 +157,7 @@
           <div class="sa-field">
             <label for="sa-notes">Points to cover <span class="muted">(optional)</span></label>
             <textarea id="sa-notes" rows="3" maxlength="2000" [value]="notes()" (input)="notes.set(text($event))"
-                      placeholder="e.g. Start with the churning of the ocean. Keep it simple for children. End with a blessing."></textarea>
+                      [placeholder]="scripture() ? 'e.g. Start with the churning of the ocean. Keep it simple for children. End with a blessing.' : 'e.g. A grandmother and her grandson. Keep the twist for the last scene.'"></textarea>
           </div>
 
           <div class="sa-row">
@@ -159,6 +182,23 @@
                 }
               </select>
             </div>
+          </div>
+
+          <div class="sa-field">
+            <div class="sa-label" id="sa-voicing-label">Who tells it</div>
+            <div class="seg" role="radiogroup" aria-labelledby="sa-voicing-label">
+              <label [class.selected]="voicing() === 'Narrated'">
+                <input type="radio" name="sa-voicing" [checked]="voicing() === 'Narrated'" (change)="voicing.set('Narrated')" />
+                A narrator · characters speak now and then
+              </label>
+              <label [class.selected]="voicing() === 'CharactersOnly'">
+                <input type="radio" name="sa-voicing" [checked]="voicing() === 'CharactersOnly'" (change)="voicing.set('CharactersOnly')" />
+                Characters only · no narrator
+              </label>
+            </div>
+            @if (voicing() === 'CharactersOnly') {
+              <p class="sa-help">Every line is spoken by a character, from the first scene. Keep "a voice for each character" on so they don't all sound alike.</p>
+            }
           </div>
         }
 
@@ -210,7 +250,13 @@
 
     <!-- ================================================================== the stories so far -->
     <section class="card sa-list" aria-labelledby="sa-list-title">
-      <h3 id="sa-list-title" class="sa-step"><span>2</span> Your stories</h3>
+      <div class="sa-list-head">
+        <h3 id="sa-list-title" class="sa-step"><span>2</span> Your stories</h3>
+        <span class="sa-list-links">
+          <a routerLink="/story-agent/series" class="sa-board-link">📚 Series</a>
+          <a routerLink="/story-agent/board" class="sa-board-link">▦ Open the storyboard</a>
+        </span>
+      </div>
 
       @if (listError(); as problem) {
         <div class="notice error" role="alert">{{ problem }}</div>
@@ -229,7 +275,11 @@
                   <div class="sa-run-meta">
                     <span class="pill" [class]="tone(run.status)">{{ label[run.status] }}</span>
                     <span class="muted">{{ ago(run.updatedAtUtc) }}</span>
-                    @if (run.hasKit) { <span class="muted">· YouTube details ready</span> }
+                    @if (run.publication) {
+                      <span class="muted">· ▶ on YouTube</span>
+                    } @else if (run.hasKit) {
+                      <span class="muted">· ready to publish</span>
+                    }
                   </div>
                   @if (run.working) {
                     <div class="bar" role="progressbar" aria-label="Progress" [attr.aria-valuenow]="run.progress" aria-valuemin="0" aria-valuemax="100">

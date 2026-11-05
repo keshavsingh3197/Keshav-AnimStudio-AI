@@ -91,6 +91,9 @@ public static class MongoMappingRegistrar
             // App-assigned GUID - one record per video sent to the phone.
             MapWithLiteralId<PhoneHandoff>();
 
+            // App-assigned GUID - one record per video on the publishing board.
+            MapWithLiteralId<PublishQueueItem>();
+
             // The configuration path, e.g. "Render:Crf" - one value per key.
             MapWithLiteralId<WebSetting>();
 
@@ -99,6 +102,12 @@ public static class MongoMappingRegistrar
 
             // "sr_{guid}" - one Story Agent run: a title becoming a video.
             MapWithLiteralId<StoryRun>();
+
+            // A slug such as "devotional" - one Story Agent genre and everything bundled with it.
+            MapWithLiteralId<StoryGenre>();
+
+            // "yca_{guid}" - the last analysis of one of a person's YouTube channels.
+            MapWithLiteralId<YouTubeChannelAnalysis>();
 
             // App-assigned GUIDs - the content calendar's topics, posts and saved links.
             MapWithLiteralId<ContentTopic>();

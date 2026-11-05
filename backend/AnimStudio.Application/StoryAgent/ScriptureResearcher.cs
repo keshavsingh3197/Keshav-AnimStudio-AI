@@ -37,12 +37,14 @@ public sealed class ScriptureResearcher(IScriptureSource source, TimeProvider cl
         "बारे", "हमारे", "इसका", "उसका", "इसके", "उसके", "लिए", "साथ", "सभी", "सारी", "पूरी", "होती", "होता", "होते"
     };
 
-    public async Task<StoryResearch> ResearchAsync(StoryBrief brief, Func<string, Task>? report = null, CancellationToken ct = default)
+    /// <param name="topics">The genre's curated topics; null for the catalogue that ships with the app.</param>
+    public async Task<StoryResearch> ResearchAsync(
+        StoryBrief brief, Func<string, Task>? report = null, CancellationToken ct = default, IReadOnlyList<GranthTopic>? topics = null)
     {
         var research = new StoryResearch { RetrievedAtUtc = clock.GetUtcNow().UtcDateTime };
         var text = $"{brief.Title} {brief.Notes}";
 
-        foreach (var topic in GranthTopics.Match(text))
+        foreach (var topic in GranthTopics.Match(text, topics ?? GranthTopics.All))
             research.Topics.Add(ToMatch(topic));
 
         if (research.Topics.Count == 0)
@@ -196,7 +198,7 @@ public sealed class ScriptureResearcher(IScriptureSource source, TimeProvider cl
             .OrderByDescending(w => w.Length)
     ];
 
-    private static StoryTopicMatch ToMatch(GranthTopic topic) => new()
+    internal static StoryTopicMatch ToMatch(GranthTopic topic) => new()
     {
         TopicId = topic.Id,
         Name = topic.Name,

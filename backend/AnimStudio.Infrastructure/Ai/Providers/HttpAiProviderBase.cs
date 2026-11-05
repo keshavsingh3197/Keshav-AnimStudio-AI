@@ -367,19 +367,31 @@ public abstract class HttpAiProviderBase : IAiProvider
                 root = error;
             }
 
+            // Google's details name the exact reason ("API_KEY_INVALID") under error.details[].reason: the most specific.
+            if (root.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var detail in details.EnumerateArray())
+                {
+                    if (detail.ValueKind == JsonValueKind.Object && detail.TryGetProperty("reason", out var reason)
+                        && reason.ValueKind == JsonValueKind.String && IsTokenShaped(reason.GetString()))
+                    {
+                        return reason.GetString();
+                    }
+                }
+            }
+
+            // A word ("INVALID_ARGUMENT", "model_not_found") says what to fix; a number is usually the HTTP status again
+            // (Google sends "code": 400 beside "status"), so a number is only the answer when there is no word.
+            string? number = null;
             foreach (var name in (string[])["code", "type", "status"])
             {
                 if (!root.TryGetProperty(name, out var value)) continue;
 
-                var text = value.ValueKind switch
-                {
-                    JsonValueKind.String => value.GetString(),
-                    JsonValueKind.Number => value.ToString(),
-                    _ => null
-                };
-
-                if (IsTokenShaped(text)) return text;
+                if (value.ValueKind == JsonValueKind.String && IsTokenShaped(value.GetString())) return value.GetString();
+                if (value.ValueKind == JsonValueKind.Number) number ??= value.ToString();
             }
+
+            if (IsTokenShaped(number)) return number;
         }
         catch (JsonException)
         {

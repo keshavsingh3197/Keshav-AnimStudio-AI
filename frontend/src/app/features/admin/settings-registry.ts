@@ -64,6 +64,11 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     keywords: ['groq', 'openrouter', 'ollama', 'lm studio', 'key', 'api key', 'model', 'order', 'chain', 'image', 'speech', 'tts', 'whisper'],
   },
   {
+    id: 'story-genres', group: 'AI', label: 'Story genres', icon: '📚', route: 'story-genres',
+    description: 'The kinds of story the Story Agent makes - devotional, funny, kids, bedtime - with each one\'s style, topics, Granth sources, defaults, tags and links.',
+    keywords: ['story', 'story agent', 'genre', 'genres', 'devotional', 'funny', 'comedy', 'kids', 'moral', 'bedtime', 'motivational', 'explainer', 'folk', 'topics', 'granth', 'sources', 'scripture', 'tags', 'hashtags', 'links', 'style guide', 'prompt'],
+  },
+  {
     id: 'usage', group: 'AI', label: 'AI usage', icon: '📊', route: 'usage',
     description: 'Requests and spend per provider over recent days.',
     keywords: ['cost', 'tokens', 'limit', 'quota', 'requests', 'daily'],

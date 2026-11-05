@@ -920,6 +920,9 @@ public sealed record VoiceoverRequest
 
     /// <summary>One of <see cref="Engine"/>'s offered models; null for its configured one.</summary>
     [StringLength(80)] public string? Model { get; init; }
+
+    /// <summary>How the line is delivered ("calm and warm"), for an engine that takes one; ignored for <see cref="MyVoiceId"/>.</summary>
+    [StringLength(300)] public string? Style { get; init; }
 }
 
 /// <summary>A voiceover script to rewrite so it reads aloud well. <see cref="Fresh"/> asks for a new take, not the cached one.</summary>

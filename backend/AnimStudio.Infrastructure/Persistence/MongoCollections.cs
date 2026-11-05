@@ -21,11 +21,14 @@ public static class MongoCollections
     public const string YouTubePublications = "youTubePublications";
     public const string GoogleDriveConnections = "googleDriveConnections";
     public const string PhoneHandoffs = "phoneHandoffs";
+    public const string PublishQueue = "publishQueue";
     public const string WebSettings = "webSettings";
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";
     public const string VoiceProfiles = "voiceProfiles";
     public const string StoryRuns = "storyRuns";
+    public const string StoryGenres = "storyGenres";
+    public const string YouTubeChannelAnalyses = "youTubeChannelAnalyses";
     public const string ContentTopics = "contentTopics";
     public const string ContentPlanItems = "contentPlanItems";
     public const string ContentSourceLinks = "contentSourceLinks";

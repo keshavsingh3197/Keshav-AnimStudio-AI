@@ -119,10 +119,26 @@ export const routes: Routes = [
   },
 
   {
+    path: 'story-agent/board',
+    title: 'Storyboard - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-board.component').then((m) => m.StoryBoardComponent),
+  },
+
+  {
+    path: 'story-agent/series',
+    title: 'Series - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-series.component').then((m) => m.StorySeriesComponent),
+  },
+
+  {
     path: 'story-agent/:runId',
     title: 'Story - AnimStudio AI',
     loadComponent: () =>
       import('./features/story-agent/story-run.component').then((m) => m.StoryRunComponent),
+    // Script text typed and not yet saved is asked about before the page is left.
+    canDeactivate: [(page: { canLeave(): boolean }) => page.canLeave()],
   },
 
   {
@@ -187,6 +203,24 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/youtube/youtube-dashboard.component')
         .then((m) => m.YouTubeDashboardComponent),
+  },
+
+  {
+    path: 'youtube/analysis',
+    title: 'Channel analysis - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
+    loadComponent: () =>
+      import('./features/youtube/channel-analysis.component')
+        .then((m) => m.ChannelAnalysisComponent),
+  },
+
+  {
+    path: 'youtube/queue',
+    title: 'Publishing board - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
+    loadComponent: () =>
+      import('./features/youtube/publish-board.component')
+        .then((m) => m.PublishBoardComponent),
   },
 
   {
@@ -341,6 +375,12 @@ export const routes: Routes = [
         title: 'Storage - AnimStudio AI',
         loadComponent: () =>
           import('./features/admin/admin-storage.component').then((m) => m.AdminStorageComponent),
+      },
+      {
+        path: 'story-genres',
+        title: 'Story genres - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-story-genres.component').then((m) => m.AdminStoryGenresComponent),
       },
       {
         path: 'usage',

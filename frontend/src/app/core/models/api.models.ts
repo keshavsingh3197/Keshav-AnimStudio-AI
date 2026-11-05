@@ -207,6 +207,8 @@ export interface VoiceoverVoice {
   name: string;
   languageCode?: string | null;
   gender?: string | null;
+  /** Where the picker files it when its language does not say, e.g. "Designed voices". */
+  group?: string | null;
 }
 
 /** GET /api/voiceover/voices: whether a voiceover can be made right now, and in which voices. */
@@ -221,6 +223,8 @@ export interface VoiceoverVoices {
   myVoicesAvailable?: boolean;
   /** Speech engines that are on, in the configured order. */
   engines?: VoiceoverEngine[];
+  /** The engine one of the user's voices can be sent to (Gemini TTS); null when none is set up. */
+  replicationEngine?: string | null;
 }
 
 /** A speech engine the voiceover panel can pick; `models` is empty when there is nothing to choose. */
@@ -230,7 +234,9 @@ export interface VoiceoverEngine {
   runsLocally: boolean;
   /** The model it uses unless another is picked. */
   model?: string | null;
-  models: { id: string; label: string }[];
+  models: { id: string; label: string; detail?: string | null; recommended?: boolean }[];
+  /** It takes a delivery instruction ("warm and unhurried") with each line. */
+  supportsStyle?: boolean;
 }
 
 /** What was heard in a dictated script, one line per spoken phrase. */
@@ -276,6 +282,9 @@ export interface MyVoice {
   createdAtUtc: string;
   /** Kokoro has a voice tuned from the sample, which speaks lines in any of its languages directly instead of re-voicing them. */
   tuned?: boolean;
+  /** The hosted engine (Gemini TTS) the voice was sent to with the owner's spoken consent, which then speaks it; null when it is on this machine only. */
+  googleEngine?: string | null;
+  googleConsentAtUtc?: string | null;
 }
 
 /** One script line for POST /api/projects/{id}/voiceover. Rate is 0.5-2.0. */
@@ -290,6 +299,8 @@ export interface VoiceoverBody {
   engine?: string;
   /** One of the engine's offered models. */
   model?: string;
+  /** How the line is delivered, for an engine that supportsStyle. */
+  style?: string;
 }
 
 export interface CharacterAppearance {
@@ -1378,6 +1389,18 @@ export interface AdminProvider {
 
   defaultBaseUrl: string | null;
   defaultModel: string | null;
+  /** Known models to pick from, best first; empty when only a typed name makes sense. */
+  models?: AdminModelChoice[];
+}
+
+/** A listed model and what it trades against its siblings. */
+export interface AdminModelChoice {
+  id: string;
+  label: string;
+  detail: string | null;
+  /** best | balanced | cheaper | cheapest | legacy */
+  tier: string | null;
+  recommended: boolean;
 }
 
 export interface AdminChain {

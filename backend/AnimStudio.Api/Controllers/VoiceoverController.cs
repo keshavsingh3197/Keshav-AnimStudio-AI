@@ -36,6 +36,7 @@ public sealed class VoiceoverController(
     IVoiceProfileRepository myVoices,
     IStudioVoiceRenderer voiceRenderer,
     MyVoiceTuning tuning,
+    MyVoiceReplication replication,
     IObjectStore store,
     IMediaProbeService probe,
     ICurrentUser currentUser,
@@ -51,6 +52,9 @@ public sealed class VoiceoverController(
 
     private const double MinRate = 0.5;
     private const double MaxRate = 2.0;
+
+    /// <summary>A delivery instruction is a phrase, not a script.</summary>
+    private const int MaxStyleChars = 300;
 
     /// <summary>Marks a library file as made here, so the same line is not saved twice.</summary>
     private const string VoiceoverSource = "voiceover";
@@ -96,7 +100,7 @@ public sealed class VoiceoverController(
                 listedBy = provider.Id.Value;
                 // Voices tuned from someone's sample are theirs, and reached only through their profile.
                 voices.AddRange(listed.Where(v => !MyVoiceTuning.IsTunedVoice(v.VoiceId)).Select(v =>
-                    new VoiceoverVoiceResponse(v.VoiceId, v.DisplayName, v.LanguageCode, v.Gender)));
+                    new VoiceoverVoiceResponse(v.VoiceId, v.DisplayName, v.LanguageCode, v.Gender, v.Group)));
                 if (voices.Count > 0) break;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -108,15 +112,17 @@ public sealed class VoiceoverController(
 
         var mine = (await myVoices.ListByUserAsync(currentUser.UserId, ct)).Select(MyVoicesController.ToResponse).ToList();
         var myVoicesAvailable = voiceRenderer.CanReVoice || tuning.CanTune;
+        var replicationEngine = replication.Replicator()?.Id.Value;
 
         // Configured but not one engine answered: say so now, rather than let every line
         // fail later with a generic "no provider could complete the request".
         if (status.Available && chain.Count > 0 && !answered)
             return Ok(ApiResponse<VoiceoverVoicesResponse>.Ok(new VoiceoverVoicesResponse(
-                false, chosen?.Id.Value ?? status.ProviderId, "Unreachable", voices, mine, myVoicesAvailable, engines)));
+                false, chosen?.Id.Value ?? status.ProviderId, "Unreachable", voices, mine, myVoicesAvailable, engines, replicationEngine)));
 
         return Ok(ApiResponse<VoiceoverVoicesResponse>.Ok(new VoiceoverVoicesResponse(
-            status.Available, listedBy ?? status.ProviderId, status.Reason.ToString(), voices, mine, myVoicesAvailable, engines)));
+            status.Available, listedBy ?? status.ProviderId, status.Reason.ToString(), voices, mine, myVoicesAvailable, engines,
+            replicationEngine)));
     }
 
     private VoiceoverEngineResponse EngineResponse(ISpeechAiProvider provider)
@@ -128,8 +134,13 @@ public sealed class VoiceoverController(
             descriptor?.DisplayName ?? provider.Id.Value,
             configured?.IsLocal ?? descriptor?.RunsLocally ?? false,
             configured?.Model ?? descriptor?.DefaultModel,
-            [.. (descriptor?.Models ?? []).Select(m => new VoiceoverModelResponse(m.Id, m.Label))]);
+            [.. (descriptor?.Models ?? []).Select(m => new VoiceoverModelResponse(m.Id, m.Label, m.Detail, m.Recommended))],
+            SupportsStyle(provider.Id.Value));
     }
+
+    /// <summary>Engines that take a delivery instruction with a line; the rest would ignore it.</summary>
+    private static bool SupportsStyle(string? engine) =>
+        engine is not null && KnownAiProviders.Find(engine)?.Family == AiProviderFamily.GeminiSpeech;
 
     /// <summary>
     /// Speaks one line and returns the audio without saving anything, so the script can be
@@ -219,7 +230,8 @@ public sealed class VoiceoverController(
     /// <summary>A checked request: what to say, in which voice, and - for a line in one of the user's voices - whose.</summary>
     private sealed record Line(
         ObjectResult? Failure, string? Text = null, string? VoiceId = null, double Rate = 1.0,
-        VoiceProfile? MyVoice = null, string? Fingerprint = null, string? Engine = null, string? Model = null);
+        VoiceProfile? MyVoice = null, string? Fingerprint = null, string? Engine = null, string? Model = null,
+        string? Style = null, string? ReplicatedVoiceId = null);
 
     private sealed record Spoken(
         ObjectResult? Failure, byte[]? Content = null, string? MimeType = null,
@@ -256,22 +268,33 @@ public sealed class VoiceoverController(
             }
         }
 
-        // A line in the user's own voice is made on this machine whatever engine is picked:
-        // the recording behind it is never sent to a hosted one.
-        string? engine = null, model = null;
-        if (mine is null)
+        // A line in the user's own voice is made on this machine whatever engine is picked -
+        // unless they sent that voice to the engine picked, with their consent; then it speaks it.
+        string? engine = null, model = null, replicated = null;
+        if (mine is null || MyVoiceReplication.VoiceFor(mine, body.Engine?.Trim()) is not null)
         {
             var choice = CheckEngine(body.Engine, body.Model);
             if (choice.Failure is not null) return new(choice.Failure);
             (engine, model) = (choice.Engine, choice.Model);
+            if (mine is not null) replicated = MyVoiceReplication.VoiceFor(mine, engine);
         }
+
+        // Sent only to an engine that takes it; elsewhere it would only split the cache.
+        var style = string.IsNullOrWhiteSpace(body.Style) ? null : body.Style.Trim();
+        if (style is not null && (style.Length > MaxStyleChars || style.Any(char.IsControl)))
+            return new(Fail(StatusCodes.Status400BadRequest, "style-invalid",
+                $"The delivery style must be one line of at most {MaxStyleChars} characters.", "style"));
+        if (!SupportsStyle(engine)) style = null;
 
         // The tuned voice is part of it: a line it spoke is not the line the converter made.
         // So is the engine and model: the same words in Kokoro's voice are not Piper's.
         var fingerprint = Sha256Hex(string.Join('\n',
             text, voiceId, rate.ToString("R", CultureInfo.InvariantCulture), mine?.Id, mine?.StorageKey, mine?.TunedVoiceId,
-            mine is null ? null : MyVoiceTuning.Revision, engine, model));
-        return new(null, text, voiceId, rate, mine, fingerprint, engine, model);
+            mine is null ? null : MyVoiceTuning.Revision, engine, model)
+            // Appended only when set, so lines saved before styles existed are still found.
+            + (style is null ? string.Empty : $"\nstyle:{style}")
+            + (replicated is null ? string.Empty : $"\nreplicated:{replicated}"));
+        return new(null, text, voiceId, rate, mine, fingerprint, engine, model, style, replicated);
     }
 
     /// <summary>
@@ -312,13 +335,15 @@ public sealed class VoiceoverController(
     /// </summary>
     private async Task<Spoken> SpeakAsync(string projectId, Line line, CancellationToken ct)
     {
-        var tunedVoice = line.MyVoice is { } mine ? await tuning.VoiceForAsync(mine, line.VoiceId!, ct) : null;
-        if (line.MyVoice is not null && tunedVoice is null && !voiceRenderer.CanReVoice)
+        // Their voice as Google replicated it: spoken there directly, nothing to tune or convert.
+        var onEngine = line.ReplicatedVoiceId is not null;
+        var tunedVoice = line.MyVoice is { } mine && !onEngine ? await tuning.VoiceForAsync(mine, line.VoiceId!, ct) : null;
+        if (line.MyVoice is not null && !onEngine && tunedVoice is null && !voiceRenderer.CanReVoice)
             return new(Fail(StatusCodes.Status503ServiceUnavailable, "my-voice-unavailable",
                 @"Your own voices need Kokoro with voice tuning (start it with scripts\setup-voiceover.ps1), " +
                 @"or the AI voice converter for any language (install it once with scripts\setup-voice-ai.ps1, then restart the API)."));
 
-        var reVoice = line.MyVoice is not null && tunedVoice is null;
+        var reVoice = line.MyVoice is not null && !onEngine && tunedVoice is null;
         AiOutcome<AiSpeechResult>? outcome = null;
         if (tunedVoice is not null)
         {
@@ -391,7 +416,9 @@ public sealed class VoiceoverController(
                 new AiSpeechRequest
                 {
                     Text = line.Text!, VoiceId = voiceId, Rate = line.Rate, LanguageCode = languageCode,
-                    ProviderId = line.Engine, Model = line.Model
+                    ProviderId = line.Engine, Model = line.Model, Style = line.Style,
+                    // Only on the line's own voice: a tuned voice is a different speaker.
+                    ReplicatedVoiceId = voiceId == line.VoiceId ? line.ReplicatedVoiceId : null
                 },
                 new AiCallContext(projectId, currentUser.UserId), ct);
         }

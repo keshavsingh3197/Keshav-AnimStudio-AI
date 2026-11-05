@@ -1,0 +1,32 @@
+.sc { display: flex; flex-direction: column; gap: .8rem; }
+.sc-head h3 { margin: 0 0 .25rem; }
+.sc-head p { margin: 0; line-height: 1.5; }
+
+.sc-next {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem;
+  padding: .6rem .8rem; border: 1px solid var(--brand); border-radius: var(--radius-sm); background: var(--ov-1);
+}
+.sc-open { font-weight: 600; }
+
+.sc-ideas { display: flex; flex-direction: column; gap: .5rem; }
+.sc-ideas-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .8rem; }
+.sc-ideas-head h4 { margin: 0; }
+.sc-by { font-size: .8rem; flex: 1; }
+
+.sc-idea-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.sc-idea {
+  display: flex; flex-direction: column; gap: .35rem; padding: .7rem .8rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--ov-1);
+}
+.sc-idea p { margin: 0; font-size: .84rem; line-height: 1.45; flex: 1; }
+.sc-idea button { align-self: flex-start; }
+.sc-hook { font-size: .84rem; font-style: italic; }
+
+.sc-own summary { cursor: pointer; font-weight: 600; }
+.sc-own[open] { display: flex; flex-direction: column; gap: .5rem; }
+.sc-field { display: flex; flex-direction: column; gap: .25rem; margin-top: .4rem; }
+.sc-field input, .sc-field textarea { width: 100%; box-sizing: border-box; }
+
+.sc-auto { display: flex; flex-direction: column; gap: .3rem; }
+.sc-auto select { max-width: 22rem; }
+.sc-note { margin: 0; font-size: .8rem; line-height: 1.45; }

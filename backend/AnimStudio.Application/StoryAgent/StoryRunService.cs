@@ -8,6 +8,7 @@ using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Voices;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.Voices;
 using Microsoft.Extensions.Logging;
@@ -36,7 +37,37 @@ public sealed record StorySceneEdit(
     IReadOnlyList<StorySourceEdit>? Sources,
     string? ImagePrompt,
     IReadOnlyList<string>? ImageKeywords,
-    string? Mood);
+    string? Mood,
+    string? VideoPrompt = null);
+
+/// <summary>
+/// Make the narration again. <paramref name="Scenes"/> are retaken as they are (a new take of the same words); a changed
+/// voice, delivery or speed speaks every scene again. Nulls keep what the run has.
+/// </summary>
+public sealed record StoryVoiceRedo(
+    IReadOnlyList<int>? Scenes,
+    string? VoiceId = null,
+    string? SpeechStyle = null,
+    double? SpeechRate = null,
+    bool? CastVoices = null);
+
+/// <summary>Make the background music again: from a new brief or style, from another source, or none at all. Nulls keep what the run has.</summary>
+public sealed record StoryMusicRedo(
+    string? Prompt = null,
+    string? Style = null,
+    StoryMusicSource? Source = null,
+    double? Volume = null,
+    bool Off = false);
+
+/// <summary>One scene's effect and transition as the person set them; <paramref name="Auto"/> hands it back to the automatic choice.</summary>
+public sealed record StorySceneLookEdit(int Number, string? Effect, string? Transition, double? TransitionSeconds, bool Auto = false);
+
+/// <summary>Build the video again with a different look: a fresh automatic pick, another style, or scenes set by hand.</summary>
+public sealed record StoryLookRedo(
+    bool NewLook,
+    StoryLookStyle? Style = null,
+    double? MusicVolume = null,
+    IReadOnlyList<StorySceneLookEdit>? Scenes = null);
 
 /// <summary>The script as the person edited it. Scenes carry the number they had, so what was made for them can be kept; files are never named by the client.</summary>
 public sealed record StoryScriptEdit(
@@ -57,7 +88,9 @@ public sealed record StoryAgentCapabilities(
     bool AudioFinishing,
     IReadOnlyList<StoryPack> Packs,
     IReadOnlyList<VoiceProfile> MyVoices,
-    int MaxActiveRuns);
+    int MaxActiveRuns,
+    bool MusicComposer = false,
+    IReadOnlyList<StoryGenre>? Genres = null);
 
 /// <summary>
 /// Everything a person can do to a Story Agent run: start one, give it a script, edit the script, attach pictures, press
@@ -79,7 +112,8 @@ public sealed partial class StoryRunService(
     IStoryAudioFinisher finisher,
     IOptionsMonitor<StoryAgentOptions> options,
     TimeProvider clock,
-    ILogger<StoryRunService> logger)
+    ILogger<StoryRunService> logger,
+    IStoryGenreCatalog? genres = null)
 {
     public const int MinTitleChars = 3;
     public const int MaxTitleChars = 160;
@@ -114,22 +148,27 @@ public sealed partial class StoryRunService(
             finisher.IsAvailable,
             StoryPacks.All,
             await voices.ListByUserAsync(userId, ct).ConfigureAwait(false),
-            options.CurrentValue.MaxActiveRunsPerUser);
+            options.CurrentValue.MaxActiveRunsPerUser,
+            registry.SpeechChain().OfType<IMusicGeneratingProvider>().Any(p => p.IsConfigured),
+            await ListGenresAsync(ct).ConfigureAwait(false));
 
     public async Task<IReadOnlyList<StoryRun>> ListAsync(string userId, CancellationToken ct) =>
-        await runs.ListByUserAsync(userId, options.CurrentValue.MaxSavedRunsPerUser, ct).ConfigureAwait(false);
+        await runs.ListByUserAsync(userId, Math.Max(options.CurrentValue.MaxListedRuns, 1), ct).ConfigureAwait(false);
 
     public Task<StoryRun> GetAsync(string userId, string id, CancellationToken ct) => OwnedAsync(userId, id, ct);
 
     // ------------------------------------------------------------------------------------------------ starting
 
-    public async Task<StoryRun> CreateAsync(string userId, StoryBrief brief, StoryBuildOptions? build, CancellationToken ct)
+    /// <param name="series">For a later part of a series: what its writer carries on from. Set by <see cref="StorySeriesService"/>.</param>
+    public async Task<StoryRun> CreateAsync(
+        string userId, StoryBrief brief, StoryBuildOptions? build, CancellationToken ct, StorySeriesLink? series = null)
     {
         var settings = options.CurrentValue;
         if (!settings.Enabled) throw new StoryRunException(StoryRunErrorKind.NotFound, "story-agent-off", "The Story Agent is switched off on this server.");
 
-        var checkedBrief = CheckBrief(brief);
-        var checkedOptions = await CheckOptionsAsync(userId, build ?? new StoryBuildOptions(), ct).ConfigureAwait(false);
+        var genre = await GenreAsync(brief.GenreId, ct).ConfigureAwait(false);
+        var checkedBrief = CheckBrief(brief, genre);
+        var checkedOptions = await CheckOptionsAsync(userId, WithGenreDefaults(build ?? new StoryBuildOptions(), genre), ct).ConfigureAwait(false);
 
         var working = await runs.CountWorkingByUserAsync(userId, ct).ConfigureAwait(false);
         if (working >= settings.MaxActiveRunsPerUser)
@@ -146,6 +185,8 @@ public sealed partial class StoryRunService(
             Title = checkedBrief.Title,
             Brief = checkedBrief,
             Options = checkedOptions,
+            Genre = genre,
+            Series = series,
             Status = StoryRunStatus.Researching,
             Stages = StoryRun.NewStages(),
             CreatedAtUtc = now,
@@ -154,7 +195,7 @@ public sealed partial class StoryRunService(
 
         await runs.UpsertAsync(run, ct).ConfigureAwait(false);
         queue.Enqueue(run.Id);
-        logger.LogInformation("Story run {RunId} started for a {Writer} script.", run.Id, run.Brief.Writer);
+        logger.LogInformation("Story run {RunId} started for a {Writer} script in the {Genre} genre.", run.Id, run.Brief.Writer, genre.Id);
 
         await PruneAsync(userId, run.Id, ct).ConfigureAwait(false);
         return run;
@@ -169,15 +210,16 @@ public sealed partial class StoryRunService(
         if (run.Research is null)
             throw new StoryRunException(StoryRunErrorKind.Conflict, "research-not-ready", "The search of the Granths is still running. The prompt is ready when it finishes.");
 
+        var (templateKey, variables) = StoryScriptPrompt.For(run);
         RenderedPrompt rendered;
         try
         {
-            rendered = await prompts.RenderAsync(BuiltInPrompts.StoryScript, StoryScriptPrompt.Variables(run.Brief, run.Research), ct).ConfigureAwait(false);
+            rendered = await prompts.RenderAsync(templateKey, variables, ct).ConfigureAwait(false);
         }
         catch (PromptTemplateException ex)
         {
-            logger.LogError("The story-script prompt could not be rendered: {Code}", ex.Code);
-            throw new StoryRunException(StoryRunErrorKind.Unavailable, "script-prompt-invalid", "The script prompt could not be prepared. If the story-script prompt template has been overridden, check it.");
+            logger.LogError("The {Template} prompt could not be rendered: {Code}", templateKey, ex.Code);
+            throw new StoryRunException(StoryRunErrorKind.Unavailable, "script-prompt-invalid", $"The script prompt could not be prepared. If the {templateKey} prompt template has been overridden, check it.");
         }
 
         return StoryScriptPrompt.ManualPrompt(rendered);
@@ -209,6 +251,7 @@ public sealed partial class StoryRunService(
         await DeleteScriptFilesAsync(run, ct).ConfigureAwait(false);
         run.Script = result.Script;
         run.ScriptWarnings = [.. result.Warnings];
+        run.ScriptApprovedAtUtc = null;
         MarkScriptStageDone(run, "The script was pasted in.");
         return await SettleAfterScriptAsync(run, ct).ConfigureAwait(false);
     }
@@ -227,6 +270,8 @@ public sealed partial class StoryRunService(
             Summary = AiOutputSanitizer.ToSafeLine(edit.Summary, 600),
             MusicQuery = AiOutputSanitizer.ToSafeLine(edit.MusicQuery, 80),
             ReviewNotes = current.ReviewNotes,
+            // The cast is the writer's; the editor changes words, and lines that no longer match them are dropped below.
+            Cast = current.Cast,
             WrittenBy = current.WrittenBy is { } author && !author.EndsWith("(edited)", StringComparison.Ordinal) ? $"{author} (edited)" : current.WrittenBy,
             CreatedAtUtc = current.CreatedAtUtc
         };
@@ -244,6 +289,7 @@ public sealed partial class StoryRunService(
                 Headline = AiOutputSanitizer.ToSafeLine(incoming.Headline, 160) ?? string.Empty,
                 English = AiOutputSanitizer.ToSafeLine(incoming.English, 1600),
                 ImagePrompt = AiOutputSanitizer.ToSafeLine(incoming.ImagePrompt, 800),
+                VideoPrompt = AiOutputSanitizer.ToSafeLine(incoming.VideoPrompt, 800),
                 Mood = AiOutputSanitizer.ToSafeLine(incoming.Mood, 30)?.ToLowerInvariant(),
                 ImageKeywords = [.. (incoming.ImageKeywords ?? []).Select(k => AiOutputSanitizer.ToSafeLine(k, 40)).OfType<string>().Take(8)],
                 Basis = incoming.Basis?.Trim().ToLowerInvariant() switch
@@ -267,11 +313,15 @@ public sealed partial class StoryRunService(
                 scene.ImageKey = old.ImageKey;
                 scene.ImageSource = old.ImageSource;
                 scene.ImageName = old.ImageName;
+                scene.VideoKey = old.VideoKey;
+                scene.VideoName = old.VideoName;
+                scene.VideoSource = old.VideoSource;
                 scene.AudioKey = old.AudioKey;
                 scene.AudioSeconds = old.AudioSeconds;
                 scene.AudioName = old.AudioName;
                 scene.AudioSource = old.AudioSource;
                 scene.Pauses = old.Pauses;
+                scene.Lines = old.Lines;
             }
 
             script.Scenes.Add(scene);
@@ -289,10 +339,51 @@ public sealed partial class StoryRunService(
 
         // Pictures and narration of scenes that were taken out go with them.
         foreach (var gone in before.Values.Where(s => !kept.Contains(s.Number)))
-            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey], ct).ConfigureAwait(false);
 
         run.Script = result.Script;
         run.ScriptWarnings = [.. result.Warnings];
+        // An approval was of the words as they were; changed words need reading again.
+        run.ScriptApprovedAtUtc = null;
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>
+    /// The person has read the script and wants to go with it. Nothing is made yet: this only marks the words as approved,
+    /// so the page moves on to the pictures and the build. Saved like every other change, so it is never lost.
+    /// </summary>
+    public async Task<StoryRun> ApproveScriptAsync(string userId, string id, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        RequireEditableScript(run);
+        if (run.Status == StoryRunStatus.AwaitingScript)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "approve-not-allowed", "Paste the script in before approving it.");
+
+        if (run.ScriptApprovedAtUtc is null)
+        {
+            run.ScriptApprovedAtUtc = clock.GetUtcNow().UtcDateTime;
+            await Save(run, ct).ConfigureAwait(false);
+            logger.LogInformation("Story run {RunId}: script approved.", run.Id);
+        }
+
+        return run;
+    }
+
+    /// <summary>
+    /// Notes subtitle tracks that were added to a YouTube video, so the same language is not sent to the same video twice.
+    /// Read again before writing, and refused while a worker has the run, as every other write is.
+    /// </summary>
+    public async Task<StoryRun> RecordCaptionsAsync(string userId, string id, IReadOnlyList<StoryCaptionUpload> added, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (added.Count == 0) return run;
+        if (run.IsWorking)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "story-busy", "The story is being made again. Add the subtitles once it is done.");
+
+        run.CaptionUploads.RemoveAll(old => added.Any(a => a.VideoId == old.VideoId && a.Language == old.Language));
+        run.CaptionUploads.AddRange(added);
         await Save(run, ct).ConfigureAwait(false);
         return run;
     }
@@ -316,6 +407,7 @@ public sealed partial class StoryRunService(
         scene.ImageKey = key;
         scene.ImageSource = "upload";
         scene.ImageName = SafeFileLabel(fileName) ?? $"Scene {scene.Number}";
+        ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;
     }
@@ -329,9 +421,55 @@ public sealed partial class StoryRunService(
         scene.ImageKey = null;
         scene.ImageSource = null;
         scene.ImageName = null;
+        ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;
     }
+
+    /// <summary>The largest moving clip a scene takes: an 8-second 1080p clip from Google Flow is well under this.</summary>
+    public const int MaxVideoBytes = 100 * 1024 * 1024;
+
+    /// <summary>Attaches a moving clip (MP4) to a scene; it plays in place of the picture, looped if the scene is longer.</summary>
+    public async Task<StoryRun> AttachVideoAsync(string userId, string id, int sceneNumber, byte[] video, string? fileName, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var scene = RequireScene(RequireEditableScript(run), sceneNumber);
+
+        if (video.Length > MaxVideoBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "video-too-large", $"A clip can be at most {MaxVideoBytes / 1024 / 1024} MB.", "video");
+        if (!IsMp4(video))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "video-invalid", "That is not an MP4 video.", "video");
+
+        var key = StoryObjectKeys.Video(run.Id, scene.Number);
+        await using (var content = new MemoryStream(video, writable: false))
+            await store.SaveAsync(key, content, "video/mp4", ct).ConfigureAwait(false);
+
+        await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
+        scene.VideoKey = key;
+        scene.VideoName = SafeFileLabel(fileName) ?? $"Scene {scene.Number} clip";
+        scene.VideoSource = StoryScene.AttachedClip;
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    public async Task<StoryRun> RemoveVideoAsync(string userId, string id, int sceneNumber, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var scene = RequireScene(RequireEditableScript(run), sceneNumber);
+
+        await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
+        scene.VideoKey = null;
+        scene.VideoName = null;
+        scene.VideoSource = null;
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>An ISO media file (MP4, or a QuickTime file of the same family) starts with a box whose type is <c>ftyp</c>.</summary>
+    public static bool IsMp4(ReadOnlySpan<byte> content) =>
+        content.Length >= 12 && content[4] == (byte)'f' && content[5] == (byte)'t' && content[6] == (byte)'y' && content[7] == (byte)'p';
 
     /// <summary>Throws the script away and asks again, with the same research. A rewrite is never answered from a cache.</summary>
     public async Task<StoryRun> RewriteAsync(string userId, string id, StoryWriterMode? writer, CancellationToken ct)
@@ -347,10 +485,13 @@ public sealed partial class StoryRunService(
 
         if (writer is { } chosen) run.Brief.Writer = chosen;
         run.Script = null;
+        run.ScriptApprovedAtUtc = null;
+        ClearReviews(run);
         run.ScriptWarnings = [];
         run.ScriptRevision++;
         run.Kit = null;
         run.RenderJobId = null;
+        run.SourceRenderJobId = null;
         run.ErrorCode = null;
         run.ErrorMessage = null;
         run.CancelRequested = false;
@@ -364,6 +505,20 @@ public sealed partial class StoryRunService(
 
     // ------------------------------------------------------------------------------------------------ building
 
+    /// <summary>
+    /// The run and the options a build would use, checked exactly as <see cref="BuildAsync"/> checks them, without
+    /// starting or saving anything - for the check of the day's AI limits before Build.
+    /// </summary>
+    public async Task<(StoryRun Run, StoryBuildOptions Options)> PreviewBuildAsync(
+        string userId, string id, StoryBuildOptions? build, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (run.Script is null)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "build-not-allowed", "There is no script to build yet.");
+
+        return (run, await CheckOptionsAsync(userId, build ?? run.Options, ct).ConfigureAwait(false));
+    }
+
     /// <summary>Approves the script and starts the build: pictures, narration, music, the project, the render and the YouTube kit.</summary>
     public async Task<StoryRun> BuildAsync(string userId, string id, StoryBuildOptions? build, CancellationToken ct)
     {
@@ -376,8 +531,12 @@ public sealed partial class StoryRunService(
         await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
 
         run.Options = checkedOptions;
+        // Pressing Build is saying yes to the script as it stands, and asks again about everything made from it.
+        run.ScriptApprovedAtUtc ??= clock.GetUtcNow().UtcDateTime;
+        ClearReviews(run);
         run.Kit = null;
         run.RenderJobId = null;
+        run.SourceRenderJobId = null;
         run.ErrorCode = null;
         run.ErrorMessage = null;
         run.CancelRequested = false;
@@ -411,10 +570,251 @@ public sealed partial class StoryRunService(
         run.ErrorCode = null;
         run.ErrorMessage = null;
         run.CancelRequested = false;
+        run.Review = null;
         run.Status = building ? StoryRunStatus.Building : StoryRunStatus.Researching;
 
         await Save(run, ct).ConfigureAwait(false);
         queue.Enqueue(run.Id);
+        return run;
+    }
+
+    // ------------------------------------------------------------------------------------------------ reviewing what was made
+
+    /// <summary>The person heard or watched what a step made and is happy with it: the build goes on from there.</summary>
+    /// <param name="musicVolume">With the music: the level the person settled on while listening, mixed in when the video is built.</param>
+    public async Task<StoryRun> ApproveReviewAsync(string userId, string id, string stageId, CancellationToken ct, double? musicVolume = null)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (run.Status != StoryRunStatus.AwaitingReview || !string.Equals(run.Review, stageId, StringComparison.Ordinal))
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "review-not-waiting", "That step is not waiting for your approval. Reload the page to see where the story is.");
+
+        await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
+        if (stageId == StoryStageIds.Music && musicVolume is { } volume && double.IsFinite(volume))
+            run.Options.MusicVolume = Math.Clamp(volume, 0.0, 1.0);
+        run.SetApproval(stageId, clock.GetUtcNow().UtcDateTime);
+        run.Review = null;
+        run.Status = StoryRunStatus.Building;
+
+        await Save(run, ct).ConfigureAwait(false);
+        queue.Enqueue(run.Id);
+        logger.LogInformation("Story run {RunId}: the {Stage} was approved.", run.Id, stageId);
+        return run;
+    }
+
+    /// <summary>
+    /// Makes the narration again: the named scenes as new takes, or every scene in a changed voice. The music is kept (it is
+    /// made again only if it was never approved), and the video is built again from the new voice.
+    /// </summary>
+    public async Task<StoryRun> RedoNarrationAsync(string userId, string id, StoryVoiceRedo redo, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireReviewable(run, StoryStageIds.Narration);
+        if (run.Options.Narration == StoryNarrationMode.None)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "narration-off", "This story has no narration. Turn it on in the build options and build again.");
+
+        // The options pass through the same checks as Build, so a voice or a style is never taken on trust.
+        var options = await CheckOptionsAsync(userId, run.Options, ct).ConfigureAwait(false);
+        if (redo.VoiceId is not null) options.VoiceId = string.IsNullOrWhiteSpace(redo.VoiceId) ? null : redo.VoiceId;
+        if (redo.SpeechStyle is not null) options.SpeechStyle = string.IsNullOrWhiteSpace(redo.SpeechStyle) ? null : redo.SpeechStyle;
+        if (redo.SpeechRate is { } rate) options.SpeechRate = rate;
+        if (redo.CastVoices is { } cast) options.CastVoices = cast;
+        options = await CheckOptionsAsync(userId, options, ct).ConfigureAwait(false);
+        Preflight(options);
+
+        var retake = (redo.Scenes ?? []).Distinct().ToHashSet();
+        if (retake.Count == 0 && SameVoice(run.Options, options))
+        {
+            // Nothing named and nothing changed: every scene is taken again.
+            retake = [.. script.Scenes.Select(s => s.Number)];
+        }
+
+        foreach (var number in retake) RequireScene(script, number).AudioTake++;
+
+        await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
+        run.Options = options;
+        run.VoiceApprovedAtUtc = null;
+        run.VideoApprovedAtUtc = null;
+        RestartFrom(run, StoryStageIds.Narration);
+
+        await Save(run, ct).ConfigureAwait(false);
+        queue.Enqueue(run.Id);
+        logger.LogInformation("Story run {RunId}: narration asked for again ({Scenes} scene takes).", run.Id, retake.Count);
+        return run;
+    }
+
+    /// <summary>Makes the background music again from a new brief, style or source - or takes it away.</summary>
+    public async Task<StoryRun> RedoMusicAsync(string userId, string id, StoryMusicRedo redo, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        RequireReviewable(run, StoryStageIds.Music);
+
+        var options = await CheckOptionsAsync(userId, run.Options, ct).ConfigureAwait(false);
+        options.Music = !redo.Off;
+        if (redo.Prompt is not null) options.MusicPrompt = redo.Prompt;
+        if (redo.Style is not null) options.MusicQuery = redo.Style;
+        if (redo.Source is { } source) options.MusicSource = source;
+        if (redo.Volume is { } volume) options.MusicVolume = volume;
+        options = await CheckOptionsAsync(userId, options, ct).ConfigureAwait(false);
+
+        await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
+        await DeleteFilesAsync(run, [run.Music?.StorageKey], ct).ConfigureAwait(false);
+        run.Music = null;
+        run.MusicTake++;
+        run.Options = options;
+        run.MusicApprovedAtUtc = null;
+        run.VideoApprovedAtUtc = null;
+        RestartFrom(run, StoryStageIds.Music);
+
+        await Save(run, ct).ConfigureAwait(false);
+        queue.Enqueue(run.Id);
+        logger.LogInformation("Story run {RunId}: music asked for again (take {Take}).", run.Id, run.MusicTake + 1);
+        return run;
+    }
+
+    /// <summary>The largest music file a person can attach: the same ceiling as any uploaded audio.</summary>
+    public const long MaxMusicBytes = MusicStage.MaxBytes;
+
+    /// <summary>
+    /// Uses a track the person made or chose themselves (from Google's music tool with the brief shown here, say). Before a
+    /// build it is simply kept; after one, the music is to be approved again and the video built again with it.
+    /// </summary>
+    public async Task<StoryRun> AttachMusicAsync(string userId, string id, byte[] audio, string? fileName, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (run.Script is null || run.IsWorking)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "music-locked", "Music can be added once the script is written and while nothing is being made.");
+        if (audio.Length > MaxMusicBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "music-too-large", $"A music file can be at most {MaxMusicBytes / 1024 / 1024} MB.", "file");
+
+        var type = AiAudioValidator.Sniff(audio);
+        if (type is not (AiAudioValidator.Mp3 or AiAudioValidator.Wav))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "music-invalid", "That is not an MP3 or WAV file.", "file");
+
+        await DeleteFilesAsync(run, [run.Music?.StorageKey], ct).ConfigureAwait(false);
+        var key = StoryObjectKeys.Music(run.Id, type);
+        await using (var content = new MemoryStream(audio, writable: false))
+            await store.SaveAsync(key, content, type, ct).ConfigureAwait(false);
+
+        var name = SafeFileLabel(fileName) ?? "My track";
+        run.Music = new StoryMusicPick
+        {
+            Provider = MusicStage.UploadedProvider,
+            TrackId = "upload",
+            Title = name,
+            Artist = "Added by you",
+            LicenseCode = "Own",
+            // The person vouches for it; the kit reminds them to credit it if its licence asks.
+            LicenseClass = "Unknown",
+            Attribution = string.Empty,
+            StorageKey = key,
+            ContentType = type
+        };
+        run.Options.Music = true;
+
+        // Already built once: the new track is checked and the video made again with it. Before a build it simply waits.
+        var music = run.Stage(StoryStageIds.Music);
+        if (IsPastBuild(run) && music.Status is StoryStageStatus.Completed or StoryStageStatus.Skipped)
+        {
+            RestartFrom(run, StoryStageIds.Assemble);
+            music.Status = StoryStageStatus.Completed;
+            music.Code = null;
+            music.Message = $"Using your track “{name}”.";
+            run.MusicApprovedAtUtc = null;
+            run.VideoApprovedAtUtc = null;
+            run.Status = StoryRunStatus.AwaitingReview;
+            run.Review = StoryStageIds.Music;
+        }
+
+        await Save(run, ct).ConfigureAwait(false);
+        logger.LogInformation("Story run {RunId}: the person attached their own music ({Type}).", run.Id, type);
+        return run;
+    }
+
+    /// <summary>Builds the video again with a fresh automatic look, another style, or effects and transitions set by hand.</summary>
+    public async Task<StoryRun> RedoLookAsync(string userId, string id, StoryLookRedo redo, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireReviewable(run, StoryStageIds.Assemble);
+
+        // Checked in full before anything changes, so a bad name never leaves half a look applied.
+        var edits = new List<(StoryScene Scene, StorySceneLookEdit Edit, BackgroundEffect? Effect, SceneTransition? Transition)>();
+        foreach (var edit in redo.Scenes ?? [])
+        {
+            var scene = RequireScene(script, edit.Number);
+            edits.Add((scene, edit, ParseName<BackgroundEffect>(edit.Effect, "effect"), ParseName<SceneTransition>(edit.Transition, "transition")));
+        }
+
+        if (redo.Style is { } style && !Enum.IsDefined(style))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "look-invalid", "Pick one of the looks offered.", "style");
+
+        foreach (var (scene, edit, effect, transition) in edits)
+        {
+            if (edit.Auto)
+            {
+                scene.LookPinned = false;
+                continue;
+            }
+
+            scene.LookPinned = true;
+            if (effect is { } e) scene.Effect = e.ToString();
+            if (transition is { } t) scene.Transition = t.ToString();
+            if (edit.TransitionSeconds is { } seconds && double.IsFinite(seconds))
+                scene.TransitionSeconds = Math.Clamp(seconds, 0.2, StoryLook.MaxTransitionSeconds);
+        }
+
+        await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
+        if (redo.NewLook) run.LookTake++;
+        if (redo.Style is { } chosen) run.Options.LookStyle = chosen;
+        if (redo.MusicVolume is { } volume && double.IsFinite(volume)) run.Options.MusicVolume = Math.Clamp(volume, 0.0, 1.0);
+        run.VideoApprovedAtUtc = null;
+        RestartFrom(run, StoryStageIds.Assemble);
+
+        await Save(run, ct).ConfigureAwait(false);
+        queue.Enqueue(run.Id);
+        logger.LogInformation("Story run {RunId}: a new look was asked for (take {Take}, {Edits} scenes set by hand).", run.Id, run.LookTake, edits.Count);
+        return run;
+    }
+
+    /// <summary>
+    /// Makes the story's video play at another speed. The project's own render is kept and a copy at the new speed becomes
+    /// the video - downloaded, sent to YouTube, and timed for its subtitles and chapters - so this takes a minute, not a
+    /// whole render. An approved video stays approved: only its pace changed.
+    /// </summary>
+    public async Task<StoryRun> ChangeSpeedAsync(string userId, string id, double speed, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (!double.IsFinite(speed) || speed < StoryVideoSpeed.Min || speed > StoryVideoSpeed.Max)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "speed-invalid", "Pick a speed between 0.5× and 2×.", "speed");
+
+        RequireReviewable(run, StoryStageIds.Render);
+        if (run.Stage(StoryStageIds.Render).Status != StoryStageStatus.Completed || string.IsNullOrEmpty(run.RenderJobId))
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "speed-no-video", "There is no rendered video to change the speed of yet.");
+
+        var chosen = StoryVideoSpeed.Normalize(speed);
+
+        // A speed chosen by hand is the person's: a later narration no longer changes it.
+        if (run.Options.AutoPace)
+        {
+            run.Options.AutoPace = false;
+            if (run.Pace is not null) run.Pace.Applied = false;
+            if (StoryVideoSpeed.Same(chosen, run.Options.VideoSpeed))
+            {
+                await Save(run, ct).ConfigureAwait(false);
+                return run;
+            }
+        }
+
+        if (StoryVideoSpeed.Same(chosen, run.Options.VideoSpeed)) return run;
+
+        await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
+        // A run from before speeds existed has its own render as the video; that is the one to copy from.
+        run.SourceRenderJobId ??= run.RenderJobId;
+        run.Options.VideoSpeed = chosen;
+        RestartFrom(run, StoryStageIds.Render);
+
+        await Save(run, ct).ConfigureAwait(false);
+        queue.Enqueue(run.Id);
+        logger.LogInformation("Story run {RunId}: the video speed was changed to {Speed}x.", run.Id, chosen);
         return run;
     }
 
@@ -456,10 +856,39 @@ public sealed partial class StoryRunService(
 
     // ------------------------------------------------------------------------------------------------ checks
 
-    private StoryBrief CheckBrief(StoryBrief brief)
+    private async Task<IReadOnlyList<StoryGenre>> ListGenresAsync(CancellationToken ct) =>
+        genres is null
+            ? StoryGenres.All()
+            : await genres.ListAsync(enabledOnly: true, ct).ConfigureAwait(false);
+
+    /// <summary>The genre a new story is made in: one that is switched on, or the devotional one when none is named.</summary>
+    private async Task<StoryGenre> GenreAsync(string? id, CancellationToken ct)
+    {
+        var key = string.IsNullOrWhiteSpace(id) ? StoryGenres.DefaultId : id.Trim().ToLowerInvariant();
+        var genre = genres is null ? StoryGenres.Find(key) : await genres.GetAsync(key, ct).ConfigureAwait(false);
+        if (genre is null || !genre.Enabled)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "genre-invalid", "Pick one of the story genres.", "genreId");
+        return genre;
+    }
+
+    /// <summary>
+    /// The genre's picture style, voice and look, for whatever the person left at its default. Its music query is not
+    /// copied: the script's own suggestion is more specific, and the genre's comes after it.
+    /// </summary>
+    private static StoryBuildOptions WithGenreDefaults(StoryBuildOptions o, StoryGenre genre)
+    {
+        if (string.IsNullOrWhiteSpace(o.ImageStyle)) o.ImageStyle = genre.ImageStyle;
+        if (string.IsNullOrWhiteSpace(o.SpeechStyle)) o.SpeechStyle = genre.SpeechStyle;
+        if (o.LookStyle == StoryLookStyle.Auto) o.LookStyle = genre.LookStyle;
+        return o;
+    }
+
+    private StoryBrief CheckBrief(StoryBrief brief, StoryGenre genre)
     {
         var pack = brief.Writer == StoryWriterMode.BuiltIn
-            ? StoryPacks.Find(brief.PackId) ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "pack-invalid", "Pick one of the built-in stories.", "packId")
+            ? StoryPacks.Find(brief.PackId) is { } found && string.Equals(found.GenreId, genre.Id, StringComparison.Ordinal)
+                ? found
+                : throw new StoryRunException(StoryRunErrorKind.Invalid, "pack-invalid", "Pick one of the built-in stories of this genre.", "packId")
             : null;
 
         var title = AiOutputSanitizer.ToSafeLine(brief.Title, MaxTitleChars);
@@ -470,8 +899,12 @@ public sealed partial class StoryRunService(
 
         if (!Enum.IsDefined(brief.Writer) || !Enum.IsDefined(brief.Format))
             throw new StoryRunException(StoryRunErrorKind.Invalid, "brief-invalid", "That writer or format is not one this app knows.", "writer");
+        if (!Enum.IsDefined(brief.Voicing))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "brief-invalid", "Choose a narrator or characters only.", "voicing");
 
-        var language = pack?.Language ?? (string.Equals(brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi");
+        var language = pack?.Language ?? (string.IsNullOrWhiteSpace(brief.Language)
+            ? genre.DefaultLanguage
+            : string.Equals(brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi");
         var seconds = pack?.TargetSeconds ?? Math.Clamp(brief.TargetSeconds <= 0 ? 150 : brief.TargetSeconds, MinTargetSeconds, MaxTargetSeconds);
 
         return new StoryBrief
@@ -482,7 +915,11 @@ public sealed partial class StoryRunService(
             TargetSeconds = seconds,
             Format = brief.Format,
             Writer = brief.Writer,
-            PackId = pack?.Id
+            // A built-in pack is written for a narrator.
+            Voicing = pack is null ? brief.Voicing : StoryVoicing.Narrated,
+            PackId = pack?.Id,
+            GenreId = genre.Id,
+            Mode = genre.Mode
         };
     }
 
@@ -499,7 +936,16 @@ public sealed partial class StoryRunService(
         if (engine is not null && !EnginePattern().IsMatch(engine))
             throw new StoryRunException(StoryRunErrorKind.Invalid, "engine-invalid", "Pick a speech engine from the list.", "speechEngine");
 
+        // A model is part of a provider's request path, so only one the named engine offers is kept.
+        var model = string.IsNullOrWhiteSpace(o.SpeechModel) ? null : o.SpeechModel.Trim();
+        if (model is not null && (engine is null || KnownAiProviders.Find(engine) is not { } descriptor || !descriptor.Allows(model, null)))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "model-invalid", "Pick a model the chosen speech engine offers.", "speechModel");
+
+        // Sent only to an engine that takes a delivery instruction; elsewhere it would only split the narration's key.
+        var style = StoryNarrator.SupportsStyle(engine) ? AiOutputSanitizer.ToSafeLine(o.SpeechStyle, 300) : null;
+
         string? profileId = null;
+        var onGoogle = false;
         if (o.Narration == StoryNarrationMode.MyVoice)
         {
             profileId = o.VoiceProfileId?.Trim();
@@ -509,24 +955,38 @@ public sealed partial class StoryRunService(
             var profile = await voices.GetAsync(profileId, ct).ConfigureAwait(false);
             if (profile is null || !string.Equals(profile.UserId, userId, StringComparison.Ordinal))
                 throw new StoryRunException(StoryRunErrorKind.Invalid, "my-voice-invalid", "Pick one of your voices.", "voiceProfileId");
+
+            // Spoken by the engine only when the person sent this voice there; otherwise made on this machine.
+            onGoogle = MyVoiceReplication.VoiceFor(profile, engine) is not null;
         }
 
+        var keepDelivery = o.Narration != StoryNarrationMode.MyVoice || onGoogle;
         return new StoryBuildOptions
         {
             Narration = o.Narration,
             VoiceProfileId = profileId,
             VoiceId = voiceId,
             SpeechEngine = engine,
+            SpeechModel = keepDelivery ? model : null,
+            SpeechStyle = keepDelivery ? style : null,
             SpeechRate = double.IsFinite(o.SpeechRate) ? Math.Clamp(o.SpeechRate, 0.5, 2.0) : 1.0,
+            CastVoices = o.CastVoices,
             ClosestToMyVoice = o.ClosestToMyVoice && o.Narration == StoryNarrationMode.MyVoice,
             Visuals = o.Visuals,
             ImageStyle = AiOutputSanitizer.ToSafeLine(o.ImageStyle, 300),
             Music = o.Music,
+            MusicSource = Enum.IsDefined(o.MusicSource) ? o.MusicSource : StoryMusicSource.Auto,
             UploadsAreAiMade = o.UploadsAreAiMade,
             MusicQuery = AiOutputSanitizer.ToSafeLine(o.MusicQuery, 80),
             MusicVolume = double.IsFinite(o.MusicVolume) ? Math.Clamp(o.MusicVolume, 0.0, 1.0) : 0.2,
+            // Sent to the composer as written, so it gets the same cleaning as anything else a person types for a model.
+            MusicPrompt = AiOutputSanitizer.ToSafeText(o.MusicPrompt, MusicStage.MaxPromptChars),
+            LookStyle = Enum.IsDefined(o.LookStyle) ? o.LookStyle : StoryLookStyle.Auto,
             RenderWhenReady = o.RenderWhenReady,
-            AutoApprove = o.AutoApprove
+            AutoApprove = o.AutoApprove,
+            VideoSpeed = StoryVideoSpeed.Normalize(o.VideoSpeed),
+            AutoPace = o.AutoPace,
+            ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto
         };
     }
 
@@ -576,6 +1036,76 @@ public sealed partial class StoryRunService(
         return run.Script;
     }
 
+    /// <summary>The build got as far as making something to look at: it is waiting for a review, done, or stopped after it.</summary>
+    private static bool IsPastBuild(StoryRun run) =>
+        run.Status is StoryRunStatus.AwaitingReview or StoryRunStatus.Completed or StoryRunStatus.Failed or StoryRunStatus.Cancelled;
+
+    /// <summary>The run's script, when the step named has made something and nothing is being made now, so it can be made again.</summary>
+    private static StoryScript RequireReviewable(StoryRun run, string stageId)
+    {
+        if (run.Script is null || run.IsWorking || !IsPastBuild(run)
+            || run.Stage(stageId).Status is not (StoryStageStatus.Completed or StoryStageStatus.Skipped))
+        {
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "redo-not-allowed",
+                "That can be made again once the build has made it and nothing is being made.");
+        }
+
+        return run.Script;
+    }
+
+    /// <summary>The voice is the same when everything that decides how a line sounds is the same.</summary>
+    private static bool SameVoice(StoryBuildOptions a, StoryBuildOptions b) =>
+        a.VoiceId == b.VoiceId && a.SpeechStyle == b.SpeechStyle && a.SpeechRate.Equals(b.SpeechRate) && a.CastVoices == b.CastVoices
+        && a.SpeechEngine == b.SpeechEngine && a.SpeechModel == b.SpeechModel && a.VoiceProfileId == b.VoiceProfileId && a.Narration == b.Narration;
+
+    /// <summary>A named effect or transition, exactly as the app names it; null when none was sent.</summary>
+    private static T? ParseName<T>(string? name, string field) where T : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        if (Enum.TryParse<T>(name.Trim(), ignoreCase: false, out var value) && Enum.IsDefined(value) && !int.TryParse(name, out _)) return value;
+        throw new StoryRunException(StoryRunErrorKind.Invalid, "look-invalid", $"Pick a {field} from the list.", field);
+    }
+
+    /// <summary>Starts the build again at <paramref name="stageId"/>: it and every step after it are made again, the ones before are kept.</summary>
+    private static void RestartFrom(StoryRun run, string stageId)
+    {
+        var following = StoryStageIds.Building.SkipWhile(s => s != stageId).ToList();
+        ResetStages(run, stageId, following);
+        if (following.Contains(StoryStageIds.Render)) run.RenderJobId = null;
+        // From the render on, the project's own render still fits and only the copy at the video's speed is made again.
+        if (following.Contains(StoryStageIds.Assemble)) run.SourceRenderJobId = null;
+        run.Kit = null;
+        run.ErrorCode = null;
+        run.ErrorMessage = null;
+        run.CancelRequested = false;
+        run.Review = null;
+        run.Status = StoryRunStatus.Building;
+    }
+
+    private static void ClearReviews(StoryRun run)
+    {
+        run.Review = null;
+        run.VoiceApprovedAtUtc = null;
+        run.MusicApprovedAtUtc = null;
+        run.VideoApprovedAtUtc = null;
+    }
+
+    /// <summary>
+    /// The script or a picture changed while a step was waiting to be checked: what was made no longer matches, so the story
+    /// goes back to the build. Building again keeps every file that still fits (narration of unchanged words, the music).
+    /// </summary>
+    private static void ReopenForEditing(StoryRun run)
+    {
+        if (run.Status != StoryRunStatus.AwaitingReview) return;
+
+        ClearReviews(run);
+        ResetStages(run, StoryStageIds.Visuals, StoryStageIds.Building);
+        run.RenderJobId = null;
+        run.SourceRenderJobId = null;
+        run.Kit = null;
+        run.Status = StoryRunStatus.ScriptReady;
+    }
+
     private static StoryScene RequireScene(StoryScript script, int number) =>
         script.Scenes.FirstOrDefault(s => s.Number == number)
         ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "scene-not-found", "That scene is not in the script.");
@@ -601,6 +1131,7 @@ public sealed partial class StoryRunService(
         {
             await CheckCapacityAsync(run.UserId, ct).ConfigureAwait(false);
             Preflight(run.Options);
+            run.ScriptApprovedAtUtc = clock.GetUtcNow().UtcDateTime;
             run.Status = StoryRunStatus.Building;
             await Save(run, ct).ConfigureAwait(false);
             queue.Enqueue(run.Id);
@@ -646,7 +1177,7 @@ public sealed partial class StoryRunService(
     private async Task DeleteScriptFilesAsync(StoryRun run, CancellationToken ct)
     {
         foreach (var scene in run.Script?.Scenes ?? [])
-            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey], ct).ConfigureAwait(false);
     }
 
     private async Task DeleteAllFilesAsync(StoryRun run, CancellationToken ct) =>
@@ -670,12 +1201,15 @@ public sealed partial class StoryRunService(
         }
     }
 
-    /// <summary>Keeps a person's saved runs to the limit by deleting their oldest finished ones.</summary>
+    /// <summary>
+    /// Keeps a person's saved runs near the limit by deleting their oldest ones that came to nothing - failed or stopped.
+    /// A finished story is never deleted by this: it has a video, and may be on YouTube. Only its owner deletes it.
+    /// </summary>
     private async Task PruneAsync(string userId, string keep, CancellationToken ct)
     {
         var limit = options.CurrentValue.MaxSavedRunsPerUser;
         var all = await runs.ListByUserAsync(userId, limit + 25, ct).ConfigureAwait(false);
-        foreach (var old in all.Skip(limit).Where(r => r.IsTerminal && r.Id != keep))
+        foreach (var old in all.Skip(limit).Where(r => r.Status is StoryRunStatus.Failed or StoryRunStatus.Cancelled && r.Id != keep))
         {
             await DeleteAllFilesAsync(old, ct).ConfigureAwait(false);
             await runs.DeleteAsync(old.Id, ct).ConfigureAwait(false);

@@ -69,6 +69,13 @@ public sealed record AiSpeechRequest
     public double Rate { get; init; } = 1.0;
     public double Pitch { get; init; }
     public string? LanguageCode { get; init; }
+
+    /// <summary>
+    /// How the line is delivered ("warm and unhurried", "whispered urgently"), for an engine
+    /// that takes a delivery instruction; the others ignore it. Null for the voice's own way.
+    /// </summary>
+    public string? Style { get; init; }
+
     public bool BypassCache { get; init; }
 
     /// <summary>
@@ -79,7 +86,24 @@ public sealed record AiSpeechRequest
 
     /// <summary>A model the caller checked against the engine's offered models; null for the configured one.</summary>
     public string? Model { get; init; }
+
+    /// <summary>
+    /// A voice the engine replicated from one of the user's own voices, spoken instead of
+    /// <see cref="VoiceId"/>. Server-set only, from a profile checked against its owner: such a
+    /// voice is never listed, and never accepted as a <see cref="VoiceId"/>.
+    /// </summary>
+    public string? ReplicatedVoiceId { get; init; }
+
+    /// <summary>
+    /// A dialogue for an engine that speaks one in a single call (Gemini): exactly two voices, and <see cref="Text"/>
+    /// is lines of "Label: words". Never sent to an engine without dialogue support, which would read the labels aloud.
+    /// </summary>
+    public IReadOnlyList<AiSpeechSpeaker>? Speakers { get; init; }
 }
+
+/// <summary>A voice in a dialogue: the label its lines carry, and the voice that speaks them.</summary>
+/// <param name="ReplicatedVoiceId">As <see cref="AiSpeechRequest.ReplicatedVoiceId"/>: server-set, from a profile it checked.</param>
+public sealed record AiSpeechSpeaker(string Label, string VoiceId, string? ReplicatedVoiceId = null);
 
 public sealed record AiSpeechResult(
     byte[] Content, string MimeType, double? DurationSeconds, AiProvenance Provenance);

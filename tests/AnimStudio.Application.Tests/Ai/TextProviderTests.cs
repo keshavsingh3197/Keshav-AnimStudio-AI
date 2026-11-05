@@ -152,6 +152,21 @@ public class OpenAiCompatibleTextProviderTests
         Assert.Equal("user", messages[1].GetProperty("role").GetString());
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("Low", "low")]
+    [InlineData("turbo", null)]
+    public async Task Reasoning_effort_is_sent_only_when_configured_and_known(string? configured, string? expected)
+    {
+        var (provider, handler, _) = Build(o => o.ReasoningEffort = configured);
+        handler.RespondJson(Completion("ok"));
+
+        await provider.CompleteAsync(Request(), CancellationToken.None);
+
+        var sent = handler.Sent().TryGetProperty("reasoning_effort", out var effort) ? effort.GetString() : null;
+        Assert.Equal(expected, sent);
+    }
+
     [Fact]
     public async Task It_posts_to_the_versioned_path_rather_than_replacing_the_last_segment()
     {
@@ -238,6 +253,21 @@ public class OpenAiCompatibleTextProviderTests
             provider.CompleteAsync(Request(), CancellationToken.None));
 
         Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task An_endpoint_that_refuses_the_seed_is_retried_without_it()
+    {
+        var (provider, handler, _) = Build();
+        handler.Respond(HttpStatusCode.BadRequest, """{"error":{"code":"invalid_argument"}}""");
+        handler.RespondJson(Completion("a fresh script"));
+
+        var result = await provider.CompleteAsync(Request() with { Seed = 3 }, CancellationToken.None);
+
+        Assert.Equal("a fresh script", result.Text);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Sent(0).GetProperty("seed").GetInt64());
+        Assert.False(handler.Sent(1).TryGetProperty("seed", out _));
     }
 
     [Theory]

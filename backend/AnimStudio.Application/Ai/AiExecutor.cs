@@ -338,7 +338,13 @@ public sealed class AiExecutor(
         r.Text, r.VoiceId,
         r.Rate.ToString("R", CultureInfo.InvariantCulture),
         r.Pitch.ToString("R", CultureInfo.InvariantCulture),
-        r.LanguageCode);
+        // Appended only when set, so lines cached before styles existed are still found.
+        (r.Style is null ? r.LanguageCode : $"{r.LanguageCode}\nstyle:{r.Style}")
+        + (r.ReplicatedVoiceId is null ? string.Empty : $"\nreplicated:{r.ReplicatedVoiceId}")
+        // A dialogue's voices live here, not in VoiceId: without them two casts of the same lines share one answer.
+        + (r.Speakers is not { Count: > 0 } speakers
+            ? string.Empty
+            : "\nspeakers:" + string.Join('|', speakers.Select(s => $"{s.Label}={s.VoiceId}/{s.ReplicatedVoiceId}"))));
 
     /// <summary>Null when the caller supplied no audio digest - see the request's comment.</summary>
     private static string? FingerprintOf(AiTranscriptionRequest r) =>

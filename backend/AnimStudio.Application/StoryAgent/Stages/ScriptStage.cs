@@ -59,16 +59,16 @@ public sealed class ScriptStage(
     {
         var run = context.Run;
 
+        var (templateKey, variables) = StoryScriptPrompt.For(run);
         RenderedPrompt rendered;
         try
         {
-            rendered = await prompts.RenderAsync(BuiltInPrompts.StoryScript, StoryScriptPrompt.Variables(run.Brief, run.Research), ct)
-                .ConfigureAwait(false);
+            rendered = await prompts.RenderAsync(templateKey, variables, ct).ConfigureAwait(false);
         }
         catch (PromptTemplateException ex)
         {
-            logger.LogError("The story-script prompt could not be rendered: {Code}", ex.Code);
-            throw new StoryStageException("script-prompt-invalid", "The script prompt could not be prepared. If the story-script prompt template has been overridden, check it.");
+            logger.LogError("The {Template} prompt could not be rendered: {Code}", templateKey, ex.Code);
+            throw new StoryStageException("script-prompt-invalid", $"The script prompt could not be prepared. If the {templateKey} prompt template has been overridden, check it.");
         }
 
         string? problem = null;
@@ -84,7 +84,9 @@ public sealed class ScriptStage(
             if (outcome.Kind == AiOutcomeKind.Unavailable)
                 return Wait(run, "No text model is turned on, so the script is waiting for you.");
             if (!outcome.IsSuccess)
-                return Wait(run, outcome.Message ?? "The text model could not write the script.");
+                return Wait(run, outcome.ErrorCode is { Length: > 0 } code
+                    ? $"{outcome.Message ?? "The text model could not write the script."} ({code})"
+                    : outcome.Message ?? "The text model could not write the script.");
 
             try
             {
@@ -114,7 +116,9 @@ public sealed class ScriptStage(
         {
             SystemPrompt = rendered.SystemPrompt,
             Prompt = body,
-            JsonSchema = rendered.OutputJsonSchema,
+            // No JsonSchema: the provider's strict check would throw away a whole script over one
+            // long citation or a null list. The tolerant parser judges it, and a reply it cannot
+            // use is asked for again with the reason.
             PromptTemplateKey = rendered.TemplateKey,
             PromptTemplateVersion = rendered.Version,
             MaxOutputTokens = Math.Clamp(scenes * 900, 6_000, 16_000),

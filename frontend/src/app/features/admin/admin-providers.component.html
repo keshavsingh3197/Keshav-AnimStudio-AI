@@ -270,10 +270,38 @@
                 <div class="grid">
                   <div>
                     <label [for]="provider.id + '-model'">Model</label>
-                    <input [id]="provider.id + '-model'" type="text" [(ngModel)]="draft.model" [class.pv-invalid]="issues.model"
-                           [placeholder]="provider.defaultModel ?? 'whatever the server has loaded'" autocomplete="off" />
-                    @if (issues.model) { <p class="pv-problem">{{ issues.model }}</p> } @else {
-                      <p class="hint">Letters, digits and <code>. - _ / : &#64; +</code>.</p>
+                    @if (provider.models?.length) {
+                      @let choice = modelChoice(provider, draft);
+                      <select [id]="provider.id + '-model'" [ngModel]="choice" (ngModelChange)="pickModel(draft, $event)">
+                        <option value="">Default ({{ provider.defaultModel ?? 'server choice' }})</option>
+                        @for (m of provider.models; track m.id) {
+                          <option [value]="m.id">{{ m.recommended ? '★ ' : '' }}{{ m.label }}</option>
+                        }
+                        <option [value]="customModel">Other - type a model name…</option>
+                      </select>
+                      @if (choice === customModel) {
+                        <input [id]="provider.id + '-model-custom'" type="text" [(ngModel)]="draft.model" [class.pv-invalid]="issues.model"
+                               placeholder="model name" autocomplete="off" aria-label="Custom model name" />
+                      }
+                      @if (issues.model) { <p class="pv-problem">{{ issues.model }}</p> } @else {
+                        @if (modelInfo(provider, draft); as info) {
+                          <p class="hint">
+                            @if (tierLabel(info.tier)) { <strong>{{ tierLabel(info.tier) }}.</strong> }
+                            {{ info.detail ?? info.label }}
+                          </p>
+                          @if (!info.recommended && recommendedModel(provider); as best) {
+                            <p class="hint">Recommended: <code>{{ best.id }}</code> - {{ best.label }}</p>
+                          }
+                        } @else if (choice === customModel) {
+                          <p class="hint">Any name the service accepts. Letters, digits and <code>. - _ / : &#64; +</code>.</p>
+                        }
+                      }
+                    } @else {
+                      <input [id]="provider.id + '-model'" type="text" [(ngModel)]="draft.model" [class.pv-invalid]="issues.model"
+                             [placeholder]="provider.defaultModel ?? 'whatever the server has loaded'" autocomplete="off" />
+                      @if (issues.model) { <p class="pv-problem">{{ issues.model }}</p> } @else {
+                        <p class="hint">Letters, digits and <code>. - _ / : &#64; +</code>.</p>
+                      }
                     }
                   </div>
 

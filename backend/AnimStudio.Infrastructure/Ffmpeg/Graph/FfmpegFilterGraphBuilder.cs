@@ -34,6 +34,28 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var inputs = new List<FfmpegInputSpec>();
         var graph = new StringBuilder();
 
+        if (plan.BackgroundIsVideo)
+        {
+            // --- input 0: a moving clip, looped for a scene longer than it, filling the
+            // canvas. It already moves, so no Ken Burns; its own sound is never mapped.
+            inputs.Add(new FfmpegInputSpec(["-stream_loop", "-1", "-t", seconds], plan.BackgroundRelativePath));
+            var size = $"{plan.Canvas.Width}:{plan.Canvas.Height}";
+            graph.Append($"[0:v]scale={size}:force_original_aspect_ratio=increase:flags=bicubic,")
+                 .Append($"crop={size},setsar=1,fps={rate.ToFfmpegRate()},")
+                 .Append($"trim=duration={seconds},setpts=PTS-STARTPTS,format=yuv444p[bg];\n");
+        }
+        else
+        {
+            AppendStillBackground(plan, rate, seconds, inputs, graph, warnings);
+        }
+
+        return BuildSceneLayers(plan, rate, seconds, inputs, graph, warnings);
+    }
+
+    private void AppendStillBackground(
+        SceneRenderPlan plan, FrameRate rate, string seconds,
+        List<FfmpegInputSpec> inputs, StringBuilder graph, List<string> warnings)
+    {
         // --- input 0: the background still, driven as a real timed stream so zoompan can
         // treat "on" as the output frame index.
         inputs.Add(new FfmpegInputSpec(
@@ -56,7 +78,12 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         graph.Append($"[0:v]{BackgroundMotionFilters.Prepare(plan.Canvas, plan.KenBurnsSupersample)},")
              .Append(motion)
              .Append(",format=yuv444p[bg];\n");
+    }
 
+    private FilterGraphPlan BuildSceneLayers(
+        SceneRenderPlan plan, FrameRate rate, string seconds,
+        List<FfmpegInputSpec> inputs, StringBuilder graph, List<string> warnings)
+    {
         // --- sprite inputs, ordered by z-order so later overlays land on top.
         var sprites = plan.Sprites.OrderBy(s => s.ZOrder).ToList();
         var spriteLabels = new List<(SpritePlan Sprite, string Closed, string? Open)>();
@@ -224,6 +251,9 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-colorspace", "bt709",
             "-color_primaries", "bt709",
             "-color_trc", "bt709",
+            // Pictures from a camera or an image tool are full-range JPEG; without this the video is tagged full range
+            // and some players and re-encoders show it washed out or crushed. FFmpeg converts the levels to match.
+            "-color_range", "tv",
             "-c:a", plan.Encoder.AudioCodec,
             "-b:a", $"{plan.Encoder.AudioBitrateKbps}k",
             "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
@@ -915,6 +945,9 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-colorspace", "bt709",
             "-color_primaries", "bt709",
             "-color_trc", "bt709",
+            // Pictures from a camera or an image tool are full-range JPEG; without this the video is tagged full range
+            // and some players and re-encoders show it washed out or crushed. FFmpeg converts the levels to match.
+            "-color_range", "tv",
             "-c:a", enc.AudioCodec,
             "-b:a", $"{enc.AudioBitrateKbps}k",
             "-ar", FilterExpr.N(enc.AudioSampleRate),
@@ -1252,6 +1285,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-preset", plan.Encoder.Preset,
             "-crf", FilterExpr.N(plan.Encoder.Crf),
             "-pix_fmt", plan.Encoder.PixelFormat,
+            "-color_range", "tv",
             "-r", rate.ToFfmpegRate(),
             "-fps_mode", "cfr",
             "-c:a", plan.Encoder.AudioCodec,

@@ -37,8 +37,17 @@ public sealed class OpenAiCompatibleTextProvider(
 {
     private const string Endpoint = "chat/completions";
 
+    private static readonly HashSet<string> ReasoningEfforts =
+        new(["minimal", "low", "medium", "high"], StringComparer.Ordinal);
+
+    // Set once the endpoint has refused a seed on its own (Gemini does), so later calls skip
+    // the doomed first attempt instead of paying a 400 round-trip each time.
+    private volatile bool _seedRefused;
+
     public async Task<AiTextResult> CompleteAsync(AiTextRequest request, CancellationToken ct)
     {
+        if (_seedRefused && request.Seed is not null) request = request with { Seed = null };
+
         var wantsJson = !string.IsNullOrWhiteSpace(request.JsonSchema);
         var useJsonMode = wantsJson && ProviderOptions?.SupportsJsonMode != false;
         string? modelOverride = null;
@@ -59,13 +68,20 @@ public sealed class OpenAiCompatibleTextProvider(
 
             return await AttemptAsync(request, useJsonMode, modelOverride, ct).ConfigureAwait(false);
         }
-        catch (AiProviderException ex) when (useJsonMode && ex.Code == "bad-request")
+        catch (AiProviderException ex) when (ex.Code == "bad-request" && (useJsonMode || request.Seed is not null))
         {
+            // Optional fields some compatible endpoints refuse with a 400; the answer matters more than either.
             Logger.LogInformation(
-                "AI provider {ProviderId} refused a JSON-mode request; retrying without it.",
-                Id.Value);
+                "AI provider {ProviderId} refused a request with JSON mode {JsonMode} and seed {HasSeed}; retrying without them.",
+                Id.Value, useJsonMode, request.Seed is not null);
 
-            return await AttemptAsync(request, useJsonMode: false, modelOverride, ct).ConfigureAwait(false);
+            var result = await AttemptAsync(request with { Seed = null }, useJsonMode: false, modelOverride, ct)
+                .ConfigureAwait(false);
+
+            // Only when the seed was the one optional field sent is it known to be the cause.
+            if (!useJsonMode) _seedRefused = true;
+
+            return result;
         }
     }
 
@@ -103,6 +119,13 @@ public sealed class OpenAiCompatibleTextProvider(
         if (request.Seed is { } seed) body["seed"] = seed;
 
         if (useJsonMode) body["response_format"] = new { type = "json_object" };
+
+        // Only a value the API defines is sent; anything else is operator input with no meaning there.
+        if (ProviderOptions?.ReasoningEffort?.Trim().ToLowerInvariant() is { } effort &&
+            ReasoningEfforts.Contains(effort))
+        {
+            body["reasoning_effort"] = effort;
+        }
 
         using var response = await PostJsonAsync(Endpoint, body, ct).ConfigureAwait(false);
 

@@ -9,6 +9,7 @@ using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
+using AnimStudio.Infrastructure.Storage;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AnimStudio.Api.Controllers;

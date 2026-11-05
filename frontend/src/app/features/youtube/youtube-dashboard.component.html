@@ -16,14 +16,6 @@
     </div>
 
     <div class="yt-head-actions">
-      @if (channels().length > 0) {
-        <a routerLink="/youtube/checkup" class="yt-btn-checkup" title="Audit and fix missing descriptions, tags, playlists, and audience with AI">
-          🩺 Video Details Checkup
-        </a>
-      }
-      <a routerLink="/youtube/details" class="yt-btn-checkup" title="Paste video IDs or links: captions, music, chapters and fresh SEO for each">
-        🔎 Details from IDs
-      </a>
       <button type="button" class="yt-btn-secondary" (click)="load(true)" [disabled]="refreshing() || loading()">
         <span class="yt-btn-icon" [class.spinning]="refreshing()">↻</span>
         {{ refreshing() ? 'Refreshing…' : 'Refresh Numbers' }}
@@ -35,6 +27,8 @@
       }
     </div>
   </header>
+
+  <app-yt-nav />
 
   @if (auth.isAnonymous()) {
     <div class="yt-empty-card yt-auth-card">
@@ -90,8 +84,30 @@
       </div>
     }
 
+    <!-- Channel Switcher (when multiple channels are connected) -->
+    @if (channels().length > 1) {
+      <div class="yt-channel-switcher" role="tablist" aria-label="Connected channels">
+        <button type="button" role="tab" class="yt-ch-tab" [class.is-active]="channelFilter() === 'all'"
+                [attr.aria-selected]="channelFilter() === 'all'" (click)="setChannel('all')">
+          All Channels ({{ channels().length }})
+        </button>
+        @for (c of channels(); track c.channelId) {
+          <button type="button" role="tab" class="yt-ch-tab" [class.is-active]="channelFilter() === c.channelId"
+                  [attr.aria-selected]="channelFilter() === c.channelId" (click)="setChannel(c.channelId)">
+            @if (c.thumbnailUrl) {
+              <img [src]="c.thumbnailUrl" alt="" width="20" height="20" referrerpolicy="no-referrer" />
+            }
+            <span>{{ c.channelTitle }}</span>
+            @if (c.needsReconnect) { <span class="yt-ch-dot warn" title="Needs reconnect"></span> }
+            @else { <span class="yt-ch-dot ok"></span> }
+          </button>
+        }
+      </div>
+    }
+
     <!-- Channel Hero Cards -->
     @for (c of channels(); track c.channelId) {
+      @if (channelFilter() === 'all' || channelFilter() === c.channelId) {
       <article class="yt-channel-hero">
         <div class="yt-channel-banner">
           <div class="yt-channel-profile">
@@ -121,6 +137,12 @@
           </div>
 
           <div class="yt-channel-quick-links">
+            <a class="yt-btn-outline" routerLink="/youtube/analysis" title="Open Channel Analysis &amp; Plan">
+              📈 Analysis
+            </a>
+            <a class="yt-btn-outline" routerLink="/youtube/checkup" [queryParams]="{ channel: c.channelId }" title="Audit video metadata on this channel">
+              🩺 Checkup
+            </a>
             <a class="yt-btn-outline" [href]="c.channelUrl" target="_blank" rel="noopener noreferrer">
               View Channel ↗
             </a>
@@ -169,6 +191,7 @@
           </div>
         }
       </article>
+      }
     }
 
     <!-- App Upload Totals KPIs -->

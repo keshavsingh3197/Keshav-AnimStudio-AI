@@ -17,16 +17,23 @@ import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import {
+  CLIP_ACCEPT,
   PICTURE_ACCEPT,
   basisLabel,
+  clipPrompts,
+  clipProblem,
   checkBadge,
   clock,
   copyText,
   estimateSeconds,
-  naturalCompare,
+  matchPictures,
+  pictureFileName,
   picturePrompts,
   pictureProblem,
 } from './story-agent.utils';
+
+/** The words of the script, or its pictures: the same draft, shown on two tabs of the story page. */
+export type StoryEditorView = 'script' | 'pictures';
 
 /** A source as it is edited: the words in the boxes, and what the server last said about the place they name. */
 interface DraftSource {
@@ -46,6 +53,7 @@ interface DraftScene {
   basis: StoryBasis;
   sources: DraftSource[];
   imagePrompt: string;
+  videoPrompt: string;
   imageKeywords: string[];
   mood: string | null;
 }
@@ -65,6 +73,9 @@ const MIN_SCENES = 2;
  * remove a citation, reorder, add and remove scenes, and put their own picture on each. Nothing is made until Build.
  * While a story is being made the script is shown but cannot be changed.
  *
+ * The story page keeps one editor for both its Script and Pictures tabs and switches `view`, so words typed on one tab
+ * are still there - unsaved - on the other.
+ *
  * A picture goes up the moment it is chosen; the words wait for Save. Everything that writes goes through one queue,
  * because each write replaces the whole story on the server and two at once would lose one of them.
  */
@@ -73,16 +84,19 @@ const MIN_SCENES = 2;
   imports: [FormsModule, DecimalPipe, FileDropDirective],
   templateUrl: './story-script-editor.component.html',
   styleUrls: ['./story-script-editor.component.css'],
+  host: { '(window:beforeunload)': 'onLeave($event)' },
 })
 export class StoryScriptEditorComponent {
   private readonly stories = inject(StoryAgentService);
   private readonly status = inject(StatusService);
 
   readonly run = input.required<StoryRun>();
+  readonly view = input<StoryEditorView>('script');
   /** The story came back changed - a picture attached, the script saved - so the page should show this version. */
   readonly runChange = output<StoryRun>();
 
   readonly accept = PICTURE_ACCEPT;
+  readonly clipAccept = CLIP_ACCEPT;
   readonly basisChoices: { id: StoryBasis; label: string }[] = [
     { id: 'Text', label: 'From the text' },
     { id: 'Tradition', label: 'Tradition' },
@@ -105,7 +119,8 @@ export class StoryScriptEditorComponent {
   readonly locked = computed(() => this.run().working);
   readonly vertical = computed(() => this.run().brief.format === 'Vertical');
   readonly byNumber = computed(() => new Map((this.run().script?.scenes ?? []).map((scene) => [scene.number, scene])));
-  readonly withPicture = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasImage && scene.imageSource !== 'plain').length);
+  readonly withClip = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasVideo).length);
+  readonly withPicture = computed(() => (this.run().script?.scenes ?? []).filter((scene) => scene.hasImage && scene.imageSource !== 'placeholder').length);
   readonly canAdd = computed(() => this.draft().length < MAX_SCENES);
   readonly canRemove = computed(() => this.draft().length > MIN_SCENES);
 
@@ -166,6 +181,7 @@ export class StoryScriptEditorComponent {
         server: source,
       })),
       imagePrompt: scene.imagePrompt ?? '',
+      videoPrompt: scene.videoPrompt ?? '',
       imageKeywords: [...scene.imageKeywords],
       mood: scene.mood,
     };
@@ -214,7 +230,7 @@ export class StoryScriptEditorComponent {
     if (!this.canAdd()) return;
     const scene: DraftScene = {
       key: ++this.nextKey, number: 0, headline: '', narration: '', english: '', basis: 'Reflection',
-      sources: [], imagePrompt: '', imageKeywords: [], mood: null,
+      sources: [], imagePrompt: '', videoPrompt: '', imageKeywords: [], mood: null,
     };
     this.draft.update((list) => [...list.slice(0, after + 1), scene, ...list.slice(after + 1)]);
     this.touch();
@@ -296,6 +312,7 @@ export class StoryScriptEditorComponent {
         .filter((source) => source.text.trim())
         .map((source) => ({ text: source.text.trim(), ref: source.ref.trim(), note: source.note.trim() || null })),
       imagePrompt: draft.imagePrompt.trim() || null,
+      videoPrompt: draft.videoPrompt.trim() || null,
       imageKeywords: draft.imageKeywords,
       mood: draft.mood,
     });
@@ -324,18 +341,24 @@ export class StoryScriptEditorComponent {
   /** A picture someone chose - or the image engine drew - as against the plain background a build falls back to. */
   hasOwnPicture(number: number): boolean {
     const scene = this.byNumber().get(number);
-    return !!scene?.hasImage && scene.imageSource !== 'plain';
+    return !!scene?.hasImage && scene.imageSource !== 'placeholder';
+  }
+
+  /** The file name this scene's picture should be saved as, for adding a whole set at once. */
+  fileName(index: number): string {
+    return pictureFileName(index, this.draft().length);
   }
 
   /** Where a scene's picture came from, in a few words. */
   pictureNote(number: number): string {
     const scene = this.byNumber().get(number);
     if (!scene?.hasImage) return '';
+    // The server names the image engine that drew a picture by its provider id.
     switch (scene.imageSource) {
       case 'upload': return scene.imageName ? `Yours · ${scene.imageName}` : 'Your picture';
-      case 'ai': return 'Drawn by the AI image engine';
-      case 'plain': return 'A plain background, because no picture was attached';
-      default: return '';
+      case 'placeholder': return 'A plain background, because no picture was attached';
+      case null: case '': return '';
+      default: return `Drawn by the AI image engine (${scene.imageSource})`;
     }
   }
 
@@ -374,26 +397,35 @@ export class StoryScriptEditorComponent {
     }
   }
 
-  /** Several pictures at once - the whole set from an image tool - go to the scenes in file-name order. */
+  /**
+   * Several pictures at once - the whole set from an image tool. A file named by its scene (01.png, scene-3.jpg) goes to
+   * that scene; otherwise the files go to the scenes in file-name order.
+   */
   async attachMany(files: File[]): Promise<void> {
-    const saved = this.draft().filter((scene) => scene.number > 0);
-    const usable = [...files].sort((a, b) => naturalCompare(a.name, b.name));
-    const refused = usable.map(pictureProblem).find((problem) => problem !== null);
+    const refused = files.map(pictureProblem).find((problem) => problem !== null);
     if (refused) {
       this.error.set(refused);
       return;
     }
 
-    const chosen = usable.slice(0, saved.length);
+    const scenes = this.draft();
+    const { byNumber, slots } = matchPictures(files.map((file) => file.name), scenes.length);
+    // A scene added here and not saved yet has no number on the server, so nothing can be attached to it.
+    const plan = files
+      .map((file, at) => ({ file, position: slots[at] }))
+      .filter((item) => item.position >= 0 && scenes[item.position].number > 0)
+      .sort((a, b) => a.position - b.position);
+
     this.sending.set(0);
     let added = 0;
     try {
-      for (const [index, file] of chosen.entries()) {
-        await this.upload(saved[index].number, file);
+      for (const item of plan) {
+        await this.upload(scenes[item.position].number, item.file);
         added++;
       }
-      const skipped = usable.length - chosen.length;
-      this.status.showNotice(`Added ${added} picture${added === 1 ? '' : 's'} to scenes 1-${added}.${skipped > 0 ? ` ${skipped} more than there are scenes, so they were left out.` : ''}`);
+      const skipped = files.length - plan.length;
+      const where = byNumber ? 'by the number in each file name' : 'in file-name order';
+      this.status.showNotice(`Added ${added} picture${added === 1 ? '' : 's'} ${where}.${skipped > 0 ? ` ${skipped} had no scene to go to, so they were left out.` : ''}`);
     } catch (failure: unknown) {
       this.error.set(`${failure instanceof ApiFailure ? failure.message : 'A picture could not be added.'}${added > 0 ? ` (${added} were added before it.)` : ''}`);
     } finally {
@@ -418,6 +450,112 @@ export class StoryScriptEditorComponent {
     const files = Array.from(input.files ?? []);
     input.value = '';
     if (files.length > 0) void this.attachMany(files);
+  }
+
+  // ------------------------------------------------------------------------------------------------ moving clips
+
+  hasClip(number: number): boolean {
+    return this.byNumber().get(number)?.hasVideo ?? false;
+  }
+
+  clipName(number: number): string {
+    return this.byNumber().get(number)?.videoName ?? '';
+  }
+
+  /** A character speaks in the scene, so its animation moves their lips. */
+  speaks(number: number): boolean {
+    return this.byNumber().get(number)?.speaks ?? false;
+  }
+
+  /** What the video engine is asked for this scene, as the server composes it from the saved script. */
+  animationPrompt(number: number): string | null {
+    return this.byNumber().get(number)?.animationPrompt ?? null;
+  }
+
+  async copyAnimationPrompt(scene: DraftScene, prompt: string): Promise<void> {
+    const shape = this.vertical() ? '9:16 vertical' : '16:9 wide';
+    await this.flash(`a${scene.key}`, `${prompt}\n\n8 seconds, ${shape}. Start from the attached picture.`, 'The animation prompt is copied.');
+  }
+
+  async attachClip(scene: DraftScene, file: File | undefined): Promise<void> {
+    if (!file || scene.number === 0) return;
+    const problem = clipProblem(file);
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+
+    this.sending.set(scene.number);
+    try {
+      await this.uploadClip(scene.number, file);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That clip could not be added.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  async detachClip(scene: DraftScene): Promise<void> {
+    if (scene.number === 0) return;
+    this.sending.set(scene.number);
+    try {
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.removeVideo(this.run().id, scene.number)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That clip could not be removed.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  /** Every clip at once, matched to scenes the same way as pictures: 01.mp4 to scene 1, otherwise in file-name order. */
+  async attachManyClips(files: File[]): Promise<void> {
+    const refused = files.map(clipProblem).find((problem) => problem !== null);
+    if (refused) {
+      this.error.set(refused);
+      return;
+    }
+
+    const scenes = this.draft();
+    const { byNumber, slots } = matchPictures(files.map((file) => file.name), scenes.length);
+    const plan = files
+      .map((file, at) => ({ file, position: slots[at] }))
+      .filter((item) => item.position >= 0 && scenes[item.position].number > 0)
+      .sort((a, b) => a.position - b.position);
+
+    this.sending.set(0);
+    let added = 0;
+    try {
+      for (const item of plan) {
+        await this.uploadClip(scenes[item.position].number, item.file);
+        added++;
+      }
+      const skipped = files.length - plan.length;
+      const where = byNumber ? 'by the number in each file name' : 'in file-name order';
+      this.status.showNotice(`Added ${added} clip${added === 1 ? '' : 's'} ${where}.${skipped > 0 ? ` ${skipped} had no scene to go to, so they were left out.` : ''}`);
+    } catch (failure: unknown) {
+      this.error.set(`${failure instanceof ApiFailure ? failure.message : 'A clip could not be added.'}${added > 0 ? ` (${added} were added before it.)` : ''}`);
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  private async uploadClip(number: number, file: File): Promise<void> {
+    const updated = await this.enqueue(() => firstValueFrom(this.stories.attachVideo(this.run().id, number, file)));
+    this.runChange.emit(updated);
+  }
+
+  onPickedClip(scene: DraftScene, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    void this.attachClip(scene, input.files?.[0]);
+    input.value = '';
+  }
+
+  onPickedManyClips(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (files.length > 0) void this.attachManyClips(files);
   }
 
   /** Fetches the pictures the server has, one at a time, as they appear. A picture that will not load is not asked for again. */
@@ -462,18 +600,67 @@ export class StoryScriptEditorComponent {
 
   async copyPrompts(): Promise<void> {
     const run = this.run();
+    const meta = this.meta();
+    const title = meta.title || run.title;
     const text = picturePrompts(
-      this.meta().title || run.title,
-      this.draft().map((scene) => ({ headline: scene.headline, imagePrompt: scene.imagePrompt })),
+      meta.titleEnglish.trim() ? `${title} (${meta.titleEnglish.trim()})` : title,
+      meta.summary,
+      this.draft().map((scene) => ({ headline: scene.headline, imagePrompt: scene.imagePrompt, context: this.context(scene) })),
       run.options.imageStyle,
       this.vertical(),
     );
-    await this.flash('all', text, 'The picture prompts are copied. Paste them into your image tool.');
+    await this.flash('all', text, 'The picture prompts are copied, numbered. Save each picture under its number, then add them all at once.');
+  }
+
+  async copyClipPrompts(): Promise<void> {
+    const run = this.run();
+    const meta = this.meta();
+    const title = meta.title || run.title;
+    const text = clipPrompts(
+      meta.titleEnglish.trim() ? `${title} (${meta.titleEnglish.trim()})` : title,
+      meta.summary,
+      this.draft().map((scene) => ({
+        headline: scene.headline, videoPrompt: scene.videoPrompt, imagePrompt: scene.imagePrompt,
+        context: this.context(scene), seconds: this.seconds(scene),
+      })),
+      run.options.imageStyle,
+      this.vertical(),
+    );
+    await this.flash('clips', text, 'The video clip prompts are copied, numbered. Save each clip under its number (01.mp4 …), then add them all at once.');
+  }
+
+  async copyClipPrompt(scene: DraftScene, index: number): Promise<void> {
+    const style = this.run().options.imageStyle?.trim();
+    const parts = [
+      scene.imagePrompt.trim() ? `Shot: ${scene.imagePrompt.trim()}` : '',
+      `Motion: ${scene.videoPrompt.trim() || 'a gentle, slow push in; light and cloth move softly'}`,
+      style ? `Look: ${style}` : '',
+      `8 seconds, ${this.vertical() ? '9:16 vertical' : '16:9 wide'}, no speech, no words or letters. Save as ${this.fileName(index)}.mp4`,
+    ];
+    await this.flash(`v${scene.key}`, parts.filter(Boolean).join('\n\n'), `Scene ${index + 1}'s clip prompt is copied.`);
   }
 
   async copyPrompt(scene: DraftScene, index: number): Promise<void> {
     const style = this.run().options.imageStyle?.trim();
-    await this.flash(`s${scene.key}`, style ? `${scene.imagePrompt.trim()}\n\nStyle: ${style}` : scene.imagePrompt.trim(), `Scene ${index + 1}'s prompt is copied.`);
+    const context = this.context(scene);
+    const parts = [
+      context ? `What happens: ${context}` : '',
+      scene.imagePrompt.trim(),
+      style ? `Style: ${style}` : '',
+      `${this.vertical() ? '9:16 vertical' : '16:9 wide'}. Save as ${this.fileName(index)}.png`,
+    ];
+    await this.flash(`s${scene.key}`, parts.filter(Boolean).join('\n\n'), `Scene ${index + 1}'s prompt is copied.`);
+  }
+
+  /** What happens in a scene, in words an image tool reads: the English meaning, or the narration of an English story. */
+  private context(scene: DraftScene): string | null {
+    const text = scene.english.trim() || (this.run().brief.language === 'en' ? scene.narration.trim() : '');
+    return text || null;
+  }
+
+  /** Closing or reloading the tab with words not yet saved asks first, as the browser allows. */
+  onLeave(event: BeforeUnloadEvent): void {
+    if (this.dirty()) event.preventDefault();
   }
 
   private async flash(id: string, text: string, notice: string): Promise<void> {
@@ -494,7 +681,7 @@ function signatureOf(script: StoryScript | null): string {
   return JSON.stringify([
     script.title, script.titleEnglish, script.summary, script.musicQuery, script.writtenBy,
     script.scenes.map((scene) => [
-      scene.number, scene.headline, scene.narration, scene.english, scene.basis, scene.imagePrompt,
+      scene.number, scene.headline, scene.narration, scene.english, scene.basis, scene.imagePrompt, scene.videoPrompt ?? null,
       scene.sources.map((source) => [source.textId, source.ref, source.note, source.check]),
     ]),
   ]);

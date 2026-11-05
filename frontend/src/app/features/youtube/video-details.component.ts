@@ -10,6 +10,7 @@ import {
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { YOUTUBE_LANGUAGES, splitTags, toneLabel } from './checkup-draft';
+import { YtNavComponent } from './yt-nav.component';
 
 /** The most videos one run reads; each one is a watch page, captions and an AI draft. */
 export const MAX_VIDEOS = 25;
@@ -54,7 +55,7 @@ export interface DetailsItem {
  */
 @Component({
   selector: 'app-video-details',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, YtNavComponent],
   templateUrl: './video-details.component.html',
   styleUrl: './video-details.component.css',
 })

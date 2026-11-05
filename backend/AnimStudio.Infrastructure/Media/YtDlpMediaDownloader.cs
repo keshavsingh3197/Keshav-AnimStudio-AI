@@ -317,7 +317,7 @@ public sealed class YtDlpMediaDownloader(
                     downloadedFile = compressedPath;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 logger.LogWarning(ex, "FFmpeg compression pass failed; falling back to uncompressed downloaded media.");
             }

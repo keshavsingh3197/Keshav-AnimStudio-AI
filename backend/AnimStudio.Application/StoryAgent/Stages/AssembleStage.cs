@@ -51,12 +51,34 @@ public sealed class AssembleStage(
             var mime = AiImageValidator.Sniff(image)
                 ?? throw new StoryStageException("picture-invalid", $"The picture for scene {scene.Number} is not a PNG, JPEG or WebP.");
             var audio = await ReadAsync(run, scene.AudioKey, ct).ConfigureAwait(false);
+            // A clip the build animated plays only while animation is on; turning it off goes back to the picture.
+            var clip = PlaysClip(run, scene) ? await ReadAsync(run, scene.VideoKey, ct).ConfigureAwait(false) : null;
 
             scenes.Add(new StoryBundleScene(
                 scene.Number, image, mime, ImageNote(scene),
                 audio, audio is null ? null : $"Narration in {scene.AudioSource}",
                 audio is not null && scene.AudioSeconds is > 0 ? scene.AudioSeconds.Value : scene.EstimatedSeconds,
-                scene.Pauses));
+                scene.Pauses)
+            {
+                Video = clip,
+                VideoNote = clip is null ? null
+                    : scene.HasAttachedClip ? "A moving clip the person attached to the Story Agent."
+                    : $"The scene's picture brought to life by the {scene.VideoSource} video engine (AI)."
+            });
+        }
+
+        // How each scene moves and cuts to the next, chosen from its mood unless the person set it; kept on the scene so
+        // the page can show it, and so a new look can be asked for against it.
+        var looks = StoryLook.Plan(script.Scenes, [.. scenes.Select(s => s.DurationSeconds)], run.Brief.Format, run.Options.LookStyle, run.LookTake,
+            playsClip: s => PlaysClip(run, s));
+        for (var i = 0; i < scenes.Count; i++)
+        {
+            scenes[i] = scenes[i] with { Look = looks[i] };
+            var scene = script.Scenes[i];
+            scene.Effect = looks[i].Effect.ToString();
+            scene.EffectIntensity = looks[i].Intensity;
+            scene.Transition = looks[i].Transition.ToString();
+            scene.TransitionSeconds = looks[i].TransitionSeconds;
         }
 
         var music = await ReadMusicAsync(run, ct).ConfigureAwait(false);
@@ -74,6 +96,10 @@ public sealed class AssembleStage(
 
         run.SceneStarts = [.. built.SceneStarts];
         run.TotalSeconds = built.TotalSeconds;
+        // Timed at the project's own pace; the render stage moves them to the video's speed. A rebuilt project needs a new render.
+        run.TimingSpeed = 1.0;
+        run.SourceRenderJobId = null;
+        run.RenderJobId = null;
         StoryRunWarnings.AddRange(run, result.Warnings);
 
         logger.LogInformation("Story run {RunId} built project {ProjectId}: {Scenes} scenes, {Seconds:0}s.",
@@ -81,6 +107,10 @@ public sealed class AssembleStage(
         return StoryStageOutcome.Completed(
             $"Project built: {script.Scenes.Count} scenes, {built.CaptionCount} subtitles, about {Duration(built.TotalSeconds)}.");
     }
+
+    /// <summary>True when the scene's clip, not its picture, is what the video shows.</summary>
+    public static bool PlaysClip(StoryRun run, StoryScene scene) =>
+        scene.HasAttachedClip;
 
     private async Task<byte[]?> ReadAsync(StoryRun run, string? key, CancellationToken ct)
     {
@@ -102,7 +132,8 @@ public sealed class AssembleStage(
         if (bytes is null) return null;
 
         var license = Enum.TryParse<LicenseClass>(pick.LicenseClass, out var parsed) ? parsed : LicenseClass.Unknown;
-        return new StoryBundleMusic(bytes, pick.Attribution, pick.PageUrl, license);
+        return new StoryBundleMusic(bytes, pick.Attribution, pick.PageUrl, license,
+            pick.ContentType == AiAudioValidator.Wav ? AiAudioValidator.Wav : AiAudioValidator.Mp3);
     }
 
     private async Task<Project> EnsureProjectAsync(StoryRun run, string name, CancellationToken ct)

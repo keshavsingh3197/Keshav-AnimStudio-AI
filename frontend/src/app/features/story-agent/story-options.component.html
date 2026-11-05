@@ -32,9 +32,27 @@
     }
 
     @if (v.narration === 'Stock') {
+      @if (engines().length > 1) {
+        <div class="so-field">
+          <label [for]="uid + '-engine'">Speech engine</label>
+          <select [id]="uid + '-engine'" (change)="setEngine(text($event) || null)">
+            <option value="" [selected]="!v.speechEngine">Automatic (first one that answers)</option>
+            @for (engine of engines(); track engine.id) {
+              <option [value]="engine.id" [selected]="engine.id === v.speechEngine">
+                {{ engine.name }}{{ engine.runsLocally ? ' · on this machine' : '' }}
+              </option>
+            }
+          </select>
+        </div>
+      }
+      @if (currentEngine(); as engine) {
+        @if (!engine.runsLocally) {
+          <p class="so-note">Only the script's words are sent to this hosted engine. Its free daily allowance is small, so it suits short stories.</p>
+        }
+      }
       @if (voiceGroups().length > 0) {
         <div class="so-field">
-          <label [for]="uid + '-voice'">Voice</label>
+          <label [for]="uid + '-voice'">{{ castAvailable() ? 'Narrator voice' : 'Voice' }}</label>
           <select [id]="uid + '-voice'" [value]="v.voiceId ?? ''" (change)="patch({ voiceId: text($event) || null })">
             <option value="">Recommended for this language</option>
             @for (group of voiceGroups(); track group.label) {
@@ -47,12 +65,49 @@
           </select>
         </div>
       }
-      <div class="so-field">
-        <label [for]="uid + '-rate'">Speed <span class="muted">{{ v.speechRate | number: '1.2-2' }}×</span></label>
-        <input [id]="uid + '-rate'" type="range" min="0.8" max="1.3" step="0.05" [value]="v.speechRate"
-               (input)="patch({ speechRate: numeric($event) })" />
-        <p class="so-note">A story told a little slower than conversation (0.9–1.0×) is easier to follow.</p>
-      </div>
+      @if (castAvailable()) {
+        <label class="switch so-switch" title="The script marks who says what; each character then gets a fitting voice in the story's language">
+          <input type="checkbox" [checked]="v.castVoices !== false" (change)="patch({ castVoices: checked($event) })" />
+          <span class="track"></span>
+          <span>A voice for each character <span class="muted">(chosen automatically)</span></span>
+        </label>
+      }
+      <details class="so-more">
+        <summary>More voice settings</summary>
+        @if (currentEngine(); as engine) {
+          @if (engine.models.length > 0) {
+            <div class="so-field">
+              <label [for]="uid + '-model'">Model</label>
+              <select [id]="uid + '-model'" (change)="patch({ speechModel: text($event) || null })">
+                <option value="" [selected]="!v.speechModel">Default{{ engine.model ? ' (' + engine.model + ')' : '' }}</option>
+                @for (m of engine.models; track m.id) {
+                  <option [value]="m.id" [selected]="m.id === v.speechModel" [title]="m.detail ?? ''">{{ m.recommended ? '★ ' : '' }}{{ m.label }}</option>
+                }
+              </select>
+            </div>
+          }
+        }
+        <div class="so-field">
+          <label [for]="uid + '-rate'">Speed <span class="muted">{{ v.speechRate | number: '1.2-2' }}×</span></label>
+          <input [id]="uid + '-rate'" type="range" min="0.8" max="1.3" step="0.05" [value]="v.speechRate"
+                 (input)="patch({ speechRate: numeric($event) })" />
+          <p class="so-note">A story told a little slower than conversation (0.9–1.0×) is easier to follow.</p>
+        </div>
+        @if (currentEngine()?.supportsStyle) {
+          <div class="so-field">
+            <label [for]="uid + '-delivery'">Delivery style <span class="muted">(optional)</span></label>
+            <input [id]="uid + '-delivery'" type="text" [attr.maxlength]="maxStyleChars" [value]="v.speechStyle ?? ''"
+                   [attr.list]="uid + '-delivery-list'" (input)="setStyle(text($event))"
+                   placeholder="e.g. Warm, unhurried storyteller" />
+            <datalist [id]="uid + '-delivery-list'">
+              @for (s of styleSuggestions; track s) {
+                <option [value]="s"></option>
+              }
+            </datalist>
+            <p class="so-note">How every line is spoken: mood, energy or accent. The speed above is added as a pace hint.</p>
+          </div>
+        }
+      </details>
     }
 
     @if (v.narration === 'MyVoice') {
@@ -67,17 +122,79 @@
         </select>
         @if (myVoice(); as mine) {
           <p class="so-note">
-            {{ mine.tuned
-              ? 'The speech engine has a voice tuned from your sample, so each line takes seconds.'
-              : 'Each line is first spoken in a stock voice and then converted into yours by the AI voice converter. That works, and takes minutes.' }}
+            @if (mine.googleEngine && mine.googleEngine === v.speechEngine) {
+              Google speaks the story in your voice, from the copy it made with your consent. Only the script's words are sent.
+            } @else {
+              {{ mine.tuned
+                ? 'The speech engine has a voice tuned from your sample, so each line takes seconds.'
+                : 'Each line is first spoken in a stock voice and then converted into yours by the AI voice converter. That works, and takes minutes.' }}
+            }
           </p>
         }
       </div>
-      <label class="switch so-switch" title="Convert every line with the AI voice converter instead of using the tuned voice">
-        <input type="checkbox" [checked]="v.closestToMyVoice" (change)="patch({ closestToMyVoice: checked($event) })" />
-        <span class="track"></span>
-        <span>Closest to my voice <span class="muted">(slower)</span></span>
-      </label>
+      @if (myVoice(); as mine) {
+        @if (mine.googleEngine) {
+          <div class="so-field">
+            <label [for]="uid + '-my-engine'">Spoken by</label>
+            <select [id]="uid + '-my-engine'" (change)="setEngine(text($event) || null)">
+              <option value="" [selected]="v.speechEngine !== mine.googleEngine">This machine</option>
+              <option [value]="mine.googleEngine" [selected]="v.speechEngine === mine.googleEngine">
+                {{ googleEngineName(mine.googleEngine) }} (your voice on Google)
+              </option>
+            </select>
+          </div>
+          @if (v.speechEngine === mine.googleEngine) {
+            @if (castAvailable()) {
+              <label class="switch so-switch" title="The script marks who says what; each character then gets a fitting voice in the story's language">
+          <input type="checkbox" [checked]="v.castVoices !== false" (change)="patch({ castVoices: checked($event) })" />
+          <span class="track"></span>
+          <span>A voice for each character <span class="muted">(chosen automatically)</span></span>
+        </label>
+            }
+            @if (currentEngine(); as engine) {
+              <details class="so-more">
+                <summary>More voice settings</summary>
+                @if (engine.models.length > 0) {
+                  <div class="so-field">
+                    <label [for]="uid + '-my-model'">Model</label>
+                    <select [id]="uid + '-my-model'" (change)="patch({ speechModel: text($event) || null })">
+                      <option value="" [selected]="!v.speechModel">Default{{ engine.model ? ' (' + engine.model + ')' : '' }}</option>
+                      @for (m of engine.models; track m.id) {
+                        <option [value]="m.id" [selected]="m.id === v.speechModel" [title]="m.detail ?? ''">{{ m.recommended ? '★ ' : '' }}{{ m.label }}</option>
+                      }
+                    </select>
+                  </div>
+                }
+                @if (engine.supportsStyle) {
+                  <div class="so-field">
+                    <label [for]="uid + '-my-delivery'">Delivery style <span class="muted">(optional)</span></label>
+                    <input [id]="uid + '-my-delivery'" type="text" [attr.maxlength]="maxStyleChars" [value]="v.speechStyle ?? ''"
+                           [attr.list]="uid + '-my-delivery-list'" (input)="setStyle(text($event))"
+                           placeholder="e.g. Warm, unhurried storyteller" />
+                    <datalist [id]="uid + '-my-delivery-list'">
+                      @for (s of styleSuggestions; track s) {
+                        <option [value]="s"></option>
+                      }
+                    </datalist>
+                  </div>
+                }
+              </details>
+            }
+          }
+        } @else {
+          <p class="so-note">
+            To have Google Gemini TTS speak in this voice (with its delivery styles), open the Voiceover tab of any project,
+            pick the voice and choose "Use this voice with Google Gemini TTS".
+          </p>
+        }
+      }
+      @if (!(myVoice()?.googleEngine && myVoice()?.googleEngine === v.speechEngine)) {
+        <label class="switch so-switch" title="Convert every line with the AI voice converter instead of using the tuned voice">
+          <input type="checkbox" [checked]="v.closestToMyVoice" (change)="patch({ closestToMyVoice: checked($event) })" />
+          <span class="track"></span>
+          <span>Closest to my voice <span class="muted">(slower)</span></span>
+        </label>
+      }
     }
   </div>
 
@@ -111,6 +228,16 @@
       <span>The pictures I attach are AI-made <span class="muted">(Google Flow, Midjourney…)</span></span>
     </label>
     <p class="so-note">This puts the right credit in the description and reminds you to tick YouTube's "altered or synthetic content" box.</p>
+    <div class="so-title so-subtitle" [id]="uid + '-art'">Look</div>
+    <div class="seg" role="radiogroup" [attr.aria-labelledby]="uid + '-art'">
+      @for (s of artStyles; track s.id) {
+        <label [class.selected]="(v.artStyle ?? 'Auto') === s.id">
+          <input type="radio" [name]="uid + '-art'" [checked]="(v.artStyle ?? 'Auto') === s.id" (change)="patch({ artStyle: s.id })" />
+          {{ s.label }}
+        </label>
+      }
+    </div>
+    <p class="so-note">{{ artHint() }}</p>
     <div class="so-field">
       <label [for]="uid + '-style'">Picture style <span class="muted">(optional)</span></label>
       <input [id]="uid + '-style'" type="text" maxlength="300" [value]="v.imageStyle ?? ''"
@@ -122,17 +249,36 @@
   <!-- ------------------------------------------------------------------ music -->
   <div class="so-group">
     <div class="so-title">Music</div>
-    <label class="switch so-switch" [class.so-off]="!c.music">
-      <input type="checkbox" [checked]="v.music && c.music" [disabled]="!c.music" (change)="patch({ music: checked($event) })" />
+    <label class="switch so-switch" [class.so-off]="!c.music && !c.musicComposer">
+      <input type="checkbox" [checked]="v.music && (c.music || c.musicComposer)" [disabled]="!c.music && !c.musicComposer"
+             (change)="patch({ music: checked($event) })" />
       <span class="track"></span>
       <span>A soft background track</span>
     </label>
-    @if (!c.music) {
-      <p class="so-note so-warn">The music catalogue is not set up on this server, so the video will have no background music.</p>
+    @if (!c.music && !c.musicComposer) {
+      <p class="so-note so-warn">Neither Google music (Gemini speech) nor the music catalogue is set up on this server, so the video will have no background music.</p>
     } @else if (v.music) {
-      <p class="so-note">Creative Commons music that allows commercial use is searched for, and the credit it asks for goes in the description.</p>
+      @if (c.musicComposer) {
+        <div class="seg" role="radiogroup" aria-label="Where the music comes from">
+          <label [class.selected]="v.musicSource !== 'Search'">
+            <input type="radio" [name]="uid + '-music-source'" [checked]="v.musicSource !== 'Search'" (change)="patch({ musicSource: 'Auto' })" />
+            Compose with Google
+          </label>
+          @if (c.music) {
+            <label [class.selected]="v.musicSource === 'Search'">
+              <input type="radio" [name]="uid + '-music-source'" [checked]="v.musicSource === 'Search'" (change)="patch({ musicSource: 'Search' })" />
+              Royalty-free search
+            </label>
+          }
+        </div>
+      }
+      @if (c.musicComposer && v.musicSource !== 'Search') {
+        <p class="so-note">Google's Lyria composes an instrumental score for this story, as long as the video and in its moods. If it can't, a royalty-free track is searched for instead.</p>
+      } @else {
+        <p class="so-note">Creative Commons music that allows commercial use is searched for, and the credit it asks for goes in the description.</p>
+      }
       <div class="so-field">
-        <label [for]="uid + '-music'">Search for <span class="muted">(optional, otherwise the script suggests one)</span></label>
+        <label [for]="uid + '-music'">{{ c.musicComposer && v.musicSource !== 'Search' ? 'Style' : 'Search for' }} <span class="muted">(optional, otherwise the script suggests one)</span></label>
         <input [id]="uid + '-music'" type="text" maxlength="80" [value]="v.musicQuery ?? ''"
                (input)="patch({ musicQuery: text($event) || null })" placeholder="e.g. sitar flute devotional" />
       </div>
@@ -156,11 +302,33 @@
     @if (!c.renderer) {
       <p class="so-note so-warn">Video rendering is not set up on this server (it needs ffmpeg). The project is still built, and you can render it later.</p>
     }
+    @if (v.renderWhenReady && c.renderer) {
+      <label class="switch so-switch">
+        <input type="checkbox" [checked]="v.autoPace !== false"
+               (change)="patch(checked($event) ? { autoPace: true, videoSpeed: 1 } : { autoPace: false })" />
+        <span class="track"></span>
+        <span>Set the pace from the voice: if the narration comes out too slow or too fast, speed the video up or down to a comfortable pace</span>
+      </label>
+    }
+    @if (v.renderWhenReady && c.renderer && v.autoPace === false) {
+      <div class="so-field">
+        <label [for]="uid + '-video-speed'">Video speed</label>
+        <select [id]="uid + '-video-speed'" (change)="patch({ videoSpeed: numeric($event) })">
+          @for (s of videoSpeeds; track s) {
+            <option [value]="s" [selected]="s === (v.videoSpeed ?? 1)">{{ s }}×{{ s === 1 ? ' (as built)' : '' }}</option>
+          }
+        </select>
+        <p class="so-note">
+          The whole video - pictures, voice and music - plays at this speed, with the voice's pitch kept. The download, YouTube
+          and the subtitles all use it. You can change it after watching, too.
+        </p>
+      </div>
+    }
     @if (offerAutoApprove()) {
       <label class="switch so-switch">
         <input type="checkbox" [checked]="v.autoApprove" (change)="patch({ autoApprove: checked($event) })" />
         <span class="track"></span>
-        <span>Skip the review and build as soon as the script is written</span>
+        <span>Skip every review: build as soon as the script is written, without stopping to check the voice, music or video</span>
       </label>
       @if (v.autoApprove) {
         <p class="so-note so-warn">

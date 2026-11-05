@@ -82,7 +82,7 @@ public sealed class MongoToSqlServerMigrator(
                 Message: $"Migration completed successfully. Migrated {totalMigrated} records across {results.Count} collections.",
                 Details: results);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Failed to migrate data from MongoDB to SQL Server.");
             return new MigrationReport(

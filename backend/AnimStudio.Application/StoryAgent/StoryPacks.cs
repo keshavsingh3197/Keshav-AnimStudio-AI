@@ -10,13 +10,15 @@ namespace AnimStudio.Application.StoryAgent;
 /// <param name="TitleEnglish">The same, in English, for the picker.</param>
 /// <param name="Description">One or two sentences for the picker.</param>
 /// <param name="TargetSeconds">About how long the video runs, so the picker can say.</param>
+/// <param name="GenreId">The <see cref="StoryGenre"/> the pack is written for; it is only offered there.</param>
 public sealed record StoryPack(
     string Id,
     string Title,
     string TitleEnglish,
     string Description,
     string Language,
-    int TargetSeconds);
+    int TargetSeconds,
+    string GenreId = StoryGenres.DefaultId);
 
 /// <summary>
 /// The built-in scripts. They are why the Story Agent works the very first time, with no text model and no key:

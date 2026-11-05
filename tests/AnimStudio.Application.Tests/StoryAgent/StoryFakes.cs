@@ -171,15 +171,18 @@ internal sealed class FakePrompts : IPromptLibrary
 }
 
 /// <summary>Reports which capabilities exist; the providers behind them do nothing.</summary>
-internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0) : IAiProviderRegistry
+internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0, IReadOnlyList<ISpeechAiProvider>? extraSpeech = null,
+    IReadOnlyList<IImageAiProvider>? extraImage = null) : IAiProviderRegistry
 {
     public IReadOnlyList<ITextAiProvider> TextChain() => [.. Enumerable.Range(0, text).Select(i => new ScriptedTextProvider($"stub-text-{i}", _ => string.Empty))];
 
     public IReadOnlyList<ITextAiProvider> UsableTextProviders() => TextChain();
 
-    public IReadOnlyList<IImageAiProvider> ImageChain() => [.. Enumerable.Range(0, image).Select(i => new ScriptedImageProvider($"stub-image-{i}", []))];
+    public IReadOnlyList<IImageAiProvider> ImageChain() =>
+        [.. Enumerable.Range(0, image).Select(i => (IImageAiProvider)new ScriptedImageProvider($"stub-image-{i}", [])), .. extraImage ?? []];
 
-    public IReadOnlyList<ISpeechAiProvider> SpeechChain() => [.. Enumerable.Range(0, speech).Select(i => (ISpeechAiProvider)new StubSpeech($"stub-speech-{i}"))];
+    public IReadOnlyList<ISpeechAiProvider> SpeechChain() =>
+        [.. Enumerable.Range(0, speech).Select(i => (ISpeechAiProvider)new StubSpeech($"stub-speech-{i}")), .. extraSpeech ?? []];
 
     public IReadOnlyList<ITranscriptionProvider> TranscriptionChain() => [];
 
@@ -287,7 +290,9 @@ internal sealed class InMemoryVoices : IVoiceProfileRepository
 internal static class StoryTestData
 {
     /// <summary>A run with its stages and a script, in the given status, owned by <paramref name="userId"/>.</summary>
-    public static StoryRun Run(StoryRunStatus status = StoryRunStatus.Researching, string userId = "user-1", bool withScript = false)
+    /// <param name="reviewsApproved">The voice, music and video were already approved, so a build runs straight through.</param>
+    public static StoryRun Run(StoryRunStatus status = StoryRunStatus.Researching, string userId = "user-1", bool withScript = false,
+        bool reviewsApproved = false)
     {
         var run = new StoryRun
         {
@@ -309,8 +314,38 @@ internal static class StoryTestData
             foreach (var id in StoryStageIds.Planning) run.Stage(id).Status = StoryStageStatus.Completed;
         }
 
+        if (reviewsApproved)
+        {
+            foreach (var id in StoryStageIds.Reviewed) run.SetApproval(id, StorySamples.Now);
+        }
+
         return run;
     }
 
     public static byte[] Png(int scene = 1) => StoryPlaceholderImage.Create(scene, vertical: false);
+}
+
+/// <summary>The person's YouTube uploads, held in a list; a caption is "added" unless the test says YouTube refuses it.</summary>
+internal sealed class FakeStoryPublishing : IStoryPublishing
+{
+    public List<StoryPublication> Videos { get; } = [];
+    public List<(string UserId, string ChannelId, string VideoId, string Language, string Srt)> Captions { get; } = [];
+
+    /// <summary>Languages YouTube refuses, with the code it refuses them with.</summary>
+    public Dictionary<string, string> Refuse { get; } = new(StringComparer.Ordinal);
+
+    public Task<IReadOnlyList<StoryPublication>> ListAsync(string userId, string? projectId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<StoryPublication>>([.. Videos.Where(v => projectId is null || v.ProjectId == projectId)]);
+
+    public Task<string> AddCaptionAsync(string userId, string channelId, string videoId, string language, string name, byte[] srt, CancellationToken ct)
+    {
+        if (Refuse.TryGetValue(language, out var code)) throw new StoryPublishingException(code, "YouTube said no.");
+        Captions.Add((userId, channelId, videoId, language, System.Text.Encoding.UTF8.GetString(srt)));
+        return Task.FromResult($"cap-{language}-{Captions.Count}");
+    }
+
+    public static StoryPublication Video(string projectId, string videoId = "abcdefghijk", string jobId = "job-1", bool canCaption = true,
+        string privacy = "public", DateTime? publishAt = null) =>
+        new(videoId, projectId, jobId, "UCchannel", "My channel", "A title", privacy, null, StorySamples.Now, publishAt,
+            "Ok", null, $"https://youtu.be/{videoId}", $"https://studio.youtube.com/video/{videoId}/edit", null, canCaption);
 }

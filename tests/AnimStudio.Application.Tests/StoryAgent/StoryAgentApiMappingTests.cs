@@ -99,7 +99,7 @@ public sealed class StoryAgentApiMappingTests
         Assert.Equal(run.Id, root.GetProperty("id").GetString());
         Assert.Equal("ScriptReady", root.GetProperty("status").GetString());
         Assert.False(root.GetProperty("working").GetBoolean());
-        Assert.Equal(8, root.GetProperty("stages").GetArrayLength());
+        Assert.Equal(StoryStageIds.All.Count, root.GetProperty("stages").GetArrayLength());
         Assert.Equal("research", root.GetProperty("stages")[0].GetProperty("id").GetString());
         Assert.Equal("Completed", root.GetProperty("stages")[0].GetProperty("status").GetString());
         Assert.Equal("Pending", root.GetProperty("stages")[2].GetProperty("status").GetString());
@@ -224,7 +224,7 @@ public sealed class StoryAgentApiMappingTests
 
         var summary = StoryAgentMapper.ToSummary(run);
 
-        Assert.Equal((4 * 100 + 50) / 8, summary.Progress);
+        Assert.Equal((4 * 100 + 50) / StoryStageIds.All.Count, summary.Progress);
         Assert.Equal("Narrating scene 3 of 6", summary.Message);
         Assert.True(summary.Working);
         Assert.Equal(run.Id, summary.Id);

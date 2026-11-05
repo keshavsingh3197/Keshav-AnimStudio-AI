@@ -1,8 +1,7 @@
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Domain.Jobs;
-using AnimStudio.Infrastructure.Storage;
 
-namespace AnimStudio.Api.Common;
+namespace AnimStudio.Infrastructure.Storage;
 
 /// <summary>
 /// A finished render staged once to a local file. <see cref="IObjectStore"/> streams are
