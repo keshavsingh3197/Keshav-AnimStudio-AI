@@ -39,6 +39,10 @@ public sealed record CreateStoryRunRequest
     [StringLength(40)]
     public string? GenreId { get; init; }
 
+    /// <summary>The text engine that writes the script, from the options' list; empty walks the chain.</summary>
+    [StringLength(40)]
+    public string? TextEngine { get; init; }
+
     public StoryBuildOptionsRequest? Options { get; init; }
 }
 
@@ -92,6 +96,33 @@ public sealed record StoryBuildOptionsRequest
     public bool? AutoPace { get; init; }
 
     public StoryArtStyle ArtStyle { get; init; } = StoryArtStyle.Auto;
+
+    public static StoryBuildOptionsRequest From(StoryBuildOptions o) => new()
+    {
+        Narration = o.Narration,
+        VoiceProfileId = o.VoiceProfileId,
+        VoiceId = o.VoiceId,
+        SpeechEngine = o.SpeechEngine,
+        SpeechModel = o.SpeechModel,
+        SpeechStyle = o.SpeechStyle,
+        SpeechRate = o.SpeechRate,
+        CastVoices = o.CastVoices,
+        ClosestToMyVoice = o.ClosestToMyVoice,
+        Visuals = o.Visuals,
+        ImageStyle = o.ImageStyle,
+        Music = o.Music,
+        MusicSource = o.MusicSource,
+        UploadsAreAiMade = o.UploadsAreAiMade,
+        MusicQuery = o.MusicQuery,
+        MusicVolume = o.MusicVolume,
+        MusicPrompt = o.MusicPrompt,
+        LookStyle = o.LookStyle,
+        RenderWhenReady = o.RenderWhenReady,
+        AutoApprove = o.AutoApprove,
+        VideoSpeed = o.VideoSpeed,
+        AutoPace = o.AutoPace,
+        ArtStyle = o.ArtStyle
+    };
 
     public StoryBuildOptions ToOptions() => new()
     {
@@ -240,6 +271,10 @@ public sealed record RewriteStoryScriptRequest
 {
     /// <summary>Switch writer for the rewrite: <c>Auto</c> (the text model) or <c>Manual</c> (paste a reply). Null keeps the current one.</summary>
     public StoryWriterMode? Writer { get; init; }
+
+    /// <summary>The text engine to write it with. Null keeps the story's; empty hands it back to the chain.</summary>
+    [StringLength(40)]
+    public string? TextEngine { get; init; }
 }
 
 // The limits below are the ones the service applies when it saves the script, so a value that is too long is refused
@@ -325,7 +360,11 @@ public sealed record StoryAgentOptionsResponse(
     IReadOnlyList<StoryTopicSummaryResponse> Topics,
     IReadOnlyList<MyVoiceResponse> MyVoices,
     bool MusicComposer = false,
-    IReadOnlyList<StoryGenreOptionResponse>? Genres = null);
+    IReadOnlyList<StoryGenreOptionResponse>? Genres = null,
+    IReadOnlyList<StoryTextEngineResponse>? TextEngines = null);
+
+/// <summary>A text engine that is on and ready, offered as "who writes the script".</summary>
+public sealed record StoryTextEngineResponse(string Id, string Name, bool RunsLocally);
 
 public sealed record StoryStageResponse(
     string Id, StoryStageStatus Status, int Progress, string? Message, string? Code, DateTime? StartedAtUtc, DateTime? CompletedAtUtc);
@@ -426,7 +465,7 @@ public sealed record StoryKitResponse(
 public sealed record StoryBriefResponse(
     string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
     string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture,
-    StoryVoicing Voicing = StoryVoicing.Narrated);
+    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
@@ -563,7 +602,8 @@ public static class StoryAgentMapper
         [.. GranthTopics.All.Select(t => new StoryTopicSummaryResponse(t.Id, t.Name, t.Hindi, t.Summary))],
         [.. caps.MyVoices.Select(Controllers.MyVoicesController.ToResponse)],
         caps.MusicComposer,
-        [.. (caps.Genres ?? StoryGenres.All()).Select(ToOption)]);
+        [.. (caps.Genres ?? StoryGenres.All()).Select(ToOption)],
+        [.. (caps.TextEngines ?? []).Select(e => new StoryTextEngineResponse(e.Id, e.Name, e.RunsLocally))]);
 
     public static StoryGenreOptionResponse ToOption(StoryGenre g) => new(
         g.Id, g.Name, g.NameHindi, g.Description, g.Icon, g.Mode, g.MadeForKids,
@@ -627,7 +667,7 @@ public static class StoryAgentMapper
         run.Id,
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
-            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing),
+            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,

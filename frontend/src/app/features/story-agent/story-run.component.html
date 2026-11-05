@@ -41,9 +41,15 @@
           <span>· {{ r.brief.format === 'Vertical' ? '9:16 vertical' : '16:9 wide' }}</span>
           @if (r.brief.writer === 'BuiltIn') { <span>· built-in story</span> }
           @if (r.brief.voicing === 'CharactersOnly') { <span>· characters only</span> }
+          @if (engineName(r.brief.textEngine); as engine) { <span>· written with {{ engine }}</span> }
         </p>
       </div>
       <div class="sb-studio-actions">
+        <button type="button" class="secondary" [disabled]="exporting()" (click)="exportStory()"
+                title="Save this story - its choices and script - as a file you can import again">
+          @if (exporting()) { <span class="spinner" aria-hidden="true"></span> }
+          ⬇ Export
+        </button>
         @if (r.working) {
           <button type="button" class="secondary" [disabled]="busy() !== null" (click)="cancel()">
             @if (busy() === 'cancel') { <span class="spinner" aria-hidden="true"></span> }
@@ -249,6 +255,15 @@
                 Use this script
               </button>
               @if (caps()?.textModel) {
+                @if (engines().length > 0) {
+                  <select class="sr-engine" aria-label="AI engine to write it" [disabled]="busy() !== null"
+                          (change)="rewriteEngine.set(text($event))">
+                    <option value="" [selected]="(rewriteEngine() ?? r.brief.textEngine ?? '') === ''">Auto · the server's own order</option>
+                    @for (e of engines(); track e.id) {
+                      <option [value]="e.id" [selected]="(rewriteEngine() ?? r.brief.textEngine ?? '') === e.id">{{ e.name }}</option>
+                    }
+                  </select>
+                }
                 <button type="button" class="secondary" [disabled]="busy() !== null" (click)="rewrite('Auto')">Let the text model write it instead</button>
               }
             </div>
@@ -270,6 +285,15 @@
             @if (!r.working) {
               <div class="row">
                 @if (caps()?.textModel) {
+                  @if (engines().length > 0) {
+                    <select class="sr-engine" aria-label="AI engine for the rewrite" [disabled]="busy() !== null"
+                            (change)="rewriteEngine.set(text($event))">
+                      <option value="" [selected]="(rewriteEngine() ?? r.brief.textEngine ?? '') === ''">Auto · the server's own order</option>
+                      @for (e of engines(); track e.id) {
+                        <option [value]="e.id" [selected]="(rewriteEngine() ?? r.brief.textEngine ?? '') === e.id">{{ e.name }}</option>
+                      }
+                    </select>
+                  }
                   <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="rewrite('Auto')"
                           title="Throws this script away and has the text model write it again">Rewrite with the text model</button>
                 }

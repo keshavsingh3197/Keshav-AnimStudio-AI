@@ -124,7 +124,8 @@ public sealed class StorySeriesService(
             PromptTemplateVersion = rendered.Version,
             MaxOutputTokens = 2_500,
             Temperature = 0.8,
-            BypassCache = fresh
+            BypassCache = fresh,
+            ProviderId = stories.UsableTextEngine(run.Brief.TextEngine)
         }, new AiCallContext(null, run.UserId), ct).ConfigureAwait(false);
 
         if (!outcome.IsSuccess)
@@ -245,7 +246,9 @@ public sealed class StorySeriesService(
             // A built-in pack is one story; what comes after it is written.
             Writer = previous.Brief.Writer == StoryWriterMode.BuiltIn ? StoryWriterMode.Auto : previous.Brief.Writer,
             Voicing = previous.Brief.Voicing,
-            GenreId = previous.Brief.GenreId
+            GenreId = previous.Brief.GenreId,
+            // The engine the series was written with, while it is still on; the chain otherwise.
+            TextEngine = stories.UsableTextEngine(previous.Brief.TextEngine)
         };
 
         var created = await stories.CreateAsync(userId, brief, request.Options ?? SameAs(previous.Options), ct, link).ConfigureAwait(false);

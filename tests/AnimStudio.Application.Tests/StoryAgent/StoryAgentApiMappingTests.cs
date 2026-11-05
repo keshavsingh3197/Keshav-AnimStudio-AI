@@ -435,4 +435,46 @@ public sealed class StoryAgentApiMappingTests
         Assert.False(other.ExceptionHandled);
         Assert.Null(other.Result);
     }
+
+    [Fact]
+    public void An_exported_story_reads_back_through_the_script_parser_as_the_same_script()
+    {
+        var run = Stocked();
+        run.Brief.TextEngine = "claude-cli";
+
+        var file = StoryTransfer.Export(run, StorySamples.Now);
+        var json = JsonSerializer.Serialize(file, Wire);
+        var back = JsonSerializer.Deserialize<ImportStoryRunRequest>(json, Wire)!;
+
+        Assert.Equal(StoryTransfer.Kind, back.Kind);
+        Assert.Equal(StoryTransfer.Version, back.Version);
+        Assert.Equal(run.Brief.Title, back.Story!.Title);
+        Assert.Equal("claude-cli", back.Story.TextEngine);
+        Assert.Equal(run.Options.Music, back.Story.Options!.Music);
+
+        var reread = StoryScriptParser.Parse(back.Script!.Value.GetRawText(), run.Brief, run.Research, "imported story file", StorySamples.Now, tolerant: true).Script;
+        var original = run.Script!;
+        Assert.Equal(original.Title, reread.Title);
+        Assert.Equal(original.Scenes.Select(s => s.Narration), reread.Scenes.Select(s => s.Narration));
+        Assert.Equal(original.Scenes.Select(s => s.Headline), reread.Scenes.Select(s => s.Headline));
+        Assert.Equal(original.Scenes.Select(s => s.Basis), reread.Scenes.Select(s => s.Basis));
+        Assert.Equal(original.Scenes.Select(s => s.Sources.Count), reread.Scenes.Select(s => s.Sources.Count));
+        Assert.Equal(original.Scenes.Select(s => s.Lines.Count), reread.Scenes.Select(s => s.Lines.Count));
+        Assert.Equal(original.Cast.Select(c => c.Name), reread.Cast.Select(c => c.Name));
+    }
+
+    [Fact]
+    public void An_export_carries_no_storage_keys_or_owner()
+    {
+        var run = Stocked();
+        var json = JsonSerializer.Serialize(StoryTransfer.Export(run, StorySamples.Now), Wire);
+
+        Assert.DoesNotContain("user-1", json, StringComparison.Ordinal);
+        Assert.DoesNotContain(run.Id, json, StringComparison.Ordinal);
+        foreach (var scene in run.Script!.Scenes)
+        {
+            Assert.DoesNotContain(scene.ImageKey!, json, StringComparison.Ordinal);
+            Assert.DoesNotContain(scene.AudioKey!, json, StringComparison.Ordinal);
+        }
+    }
 }

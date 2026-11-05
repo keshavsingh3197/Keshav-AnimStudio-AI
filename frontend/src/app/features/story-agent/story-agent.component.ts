@@ -17,8 +17,43 @@ import {
 } from '../../core/models/story-agent.models';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
+import { StoryImportDialogComponent } from './story-import-dialog.component';
 import { StoryOptionsComponent } from './story-options.component';
-import { STATUS_LABEL, statusTone, timeAgo } from './story-agent.utils';
+import { STATUS_LABEL, saveStoryFile, statusTone, timeAgo } from './story-agent.utils';
+
+/** The page's two halves: the stories already started, and a new one. */
+export type StoryAgentView = 'stories' | 'new';
+
+/** The steps of a new story, in order. Any can be opened at any time; Start says what is still missing. */
+export type NewStoryStep = 'story' | 'telling' | 'making' | 'start';
+
+const STEPS: { id: NewStoryStep; label: string }[] = [
+  { id: 'story', label: 'The story' },
+  { id: 'telling', label: 'How it is told' },
+  { id: 'making', label: 'Voice, pictures & music' },
+  { id: 'start', label: 'Check & start' },
+];
+
+/** How the list can be narrowed, by what the person would do next. */
+export type StoryListFilter = 'all' | 'working' | 'waiting' | 'done' | 'stopped';
+
+const FILTERS: { id: StoryListFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'waiting', label: 'Needs you' },
+  { id: 'working', label: 'Being made' },
+  { id: 'done', label: 'Done' },
+  { id: 'stopped', label: 'Stopped' },
+];
+
+function filterOf(run: StoryRunSummary): Exclude<StoryListFilter, 'all'> {
+  if (run.working) return 'working';
+  switch (run.status) {
+    case 'Completed': return 'done';
+    case 'Failed':
+    case 'Cancelled': return 'stopped';
+    default: return 'waiting';
+  }
+}
 
 const TOPICS_SHOWN = 8;
 /** What a run with no genre is, on the server as here. */
@@ -35,12 +70,13 @@ const LENGTHS: { minutes: number; label: string }[] = [
 ];
 
 /**
- * The Story Agent's front door: say what the story is about - a title is enough - and choose how it should be made; and
- * below it, the stories already started. Starting one opens it, and it carries on by itself from there.
+ * The Story Agent's front door, in two tabs: the stories already started - to find, open, export or delete - and a new
+ * story, made in four short steps instead of one long form. Starting one opens it, and it carries on by itself from
+ * there. A story exported earlier can be imported from a dialog.
  */
 @Component({
   selector: 'app-story-agent',
-  imports: [DecimalPipe, RouterLink, StoryOptionsComponent],
+  imports: [DecimalPipe, RouterLink, StoryImportDialogComponent, StoryOptionsComponent],
   templateUrl: './story-agent.component.html',
   styleUrls: ['./story-agent.component.css'],
 })
@@ -69,7 +105,19 @@ export class StoryAgentComponent {
   readonly genreId = signal<string | null>(null);
   readonly options = signal<StoryBuildOptions | null>(null);
   readonly showAllTopics = signal(false);
+  /** The engine that writes the script; '' walks the server's chain. */
+  readonly textEngine = signal('');
 
+  /** Null until the person or the first list answer decides, so an empty list can open on a new story. */
+  readonly view = signal<StoryAgentView | null>(null);
+  readonly step = signal<NewStoryStep>('story');
+  readonly filter = signal<StoryListFilter>('all');
+  readonly query = signal('');
+  readonly importing = signal(false);
+  readonly exporting = signal<string | null>(null);
+
+  readonly steps = STEPS;
+  readonly filters = FILTERS;
   readonly lengths = LENGTHS;
   readonly label = STATUS_LABEL;
   readonly tone = statusTone;
@@ -105,6 +153,56 @@ export class StoryAgentComponent {
 
   readonly working = computed(() => (this.runs() ?? []).filter((run) => run.working).length);
 
+  readonly engines = computed(() => this.caps()?.textEngines ?? []);
+  readonly engineName = computed(() => this.engines().find((e) => e.id === this.textEngine())?.name ?? null);
+  readonly stepIndex = computed(() => STEPS.findIndex((s) => s.id === this.step()));
+
+  /** Which steps still need something before Start, so the step strip can mark them. */
+  readonly stepMissing = computed<Record<NewStoryStep, boolean>>(() => ({
+    story: this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort(),
+    telling: false,
+    making: false,
+    start: this.missing() !== null,
+  }));
+
+  readonly counts = computed<Record<StoryListFilter, number>>(() => {
+    const counts: Record<StoryListFilter, number> = { all: 0, working: 0, waiting: 0, done: 0, stopped: 0 };
+    for (const run of this.runs() ?? []) {
+      counts.all++;
+      counts[filterOf(run)]++;
+    }
+    return counts;
+  });
+
+  readonly shown = computed(() => {
+    const filter = this.filter();
+    const words = this.query().trim().toLocaleLowerCase();
+    return (this.runs() ?? []).filter((run) =>
+      (filter === 'all' || filterOf(run) === filter) && (!words || run.title.toLocaleLowerCase().includes(words)));
+  });
+
+  /** The choices as one line each, for the last step. */
+  readonly summary = computed(() => {
+    const o = this.options();
+    const builtIn = this.writer() === 'BuiltIn';
+    const writer = this.writer() === 'Auto'
+      ? `The AI${this.engineName() ? ' · ' + this.engineName() : this.caps()?.textModel ? '' : ' (no text model on: you will paste it)'}`
+      : this.writer() === 'Manual' ? 'You, from a chat' : 'A built-in story';
+    const length = LENGTHS.find((l) => l.minutes === this.minutes())?.label ?? `${this.minutes()} minutes`;
+    return [
+      { label: 'Kind', value: this.genre()?.name ?? 'Devotional', step: 'story' as NewStoryStep },
+      { label: builtIn ? 'Story' : 'Title', value: (builtIn ? this.pack()?.titleEnglish : this.title().trim()) || '—', step: 'story' as NewStoryStep },
+      { label: 'Written by', value: writer, step: 'story' as NewStoryStep },
+      { label: 'Language', value: this.language() === 'en' ? 'English' : 'Hindi', step: 'telling' as NewStoryStep },
+      { label: 'Length', value: builtIn ? 'As the story is written' : length, step: 'telling' as NewStoryStep },
+      { label: 'Told by', value: this.voicing() === 'CharactersOnly' && !builtIn ? 'Characters only' : 'A narrator', step: 'telling' as NewStoryStep },
+      { label: 'Shape', value: this.format() === 'Vertical' ? 'Vertical 9:16 · Shorts' : 'Wide 16:9 · YouTube', step: 'telling' as NewStoryStep },
+      { label: 'Voice', value: o?.narration === 'MyVoice' ? 'My voice' : o?.narration === 'Stock' ? 'A voice' : 'Subtitles only', step: 'making' as NewStoryStep },
+      { label: 'Music', value: o?.music ? 'With music' : 'No music', step: 'making' as NewStoryStep },
+      { label: 'Approval', value: o?.autoApprove ? 'Voice, music and video approved for me' : 'I listen and watch before it goes on', step: 'making' as NewStoryStep },
+    ];
+  });
+
   private timer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
 
@@ -114,6 +212,10 @@ export class StoryAgentComponent {
     const format = query.get('format');
     if (query.get('title')) this.title.set(query.get('title')!.slice(0, 160));
     if (query.get('notes')) this.notes.set(query.get('notes')!.slice(0, 2000));
+    // `?tab=new|stories` opens that half; an idea to start from opens a new story.
+    const tab = query.get('tab');
+    if (tab === 'new' || tab === 'stories') this.view.set(tab);
+    else if (query.get('title')) this.view.set('new');
 
     this.stories.options().subscribe({
       next: (caps) => {
@@ -188,6 +290,7 @@ export class StoryAgentComponent {
         if (this.destroyed) return;
         this.listError.set(null);
         this.runs.set(runs);
+        if (this.view() === null) this.view.set(runs.length === 0 ? 'new' : 'stories');
         // Only a story being made changes by itself, so only then is the list asked again.
         if (runs.some((run) => run.working)) this.timer = setTimeout(() => this.refresh(), LIST_POLL_MS);
       },
@@ -195,8 +298,43 @@ export class StoryAgentComponent {
         if (this.destroyed) return;
         this.listError.set(failure instanceof ApiFailure ? failure.message : 'Your stories could not be loaded.');
         if (this.runs() === null) this.runs.set([]);
+        if (this.view() === null) this.view.set('stories');
       },
     });
+  }
+
+  // ------------------------------------------------------------------------------------------------ tabs and steps
+
+  setView(view: StoryAgentView): void {
+    this.view.set(view);
+  }
+
+  onViewKey(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    event.preventDefault();
+    const next: StoryAgentView = this.view() === 'new' ? 'stories' : 'new';
+    this.view.set(next);
+    document.getElementById(`sa-tab-${next}`)?.focus();
+  }
+
+  goStep(step: NewStoryStep): void {
+    this.step.set(step);
+  }
+
+  moveStep(by: 1 | -1): void {
+    const next = STEPS[this.stepIndex() + by];
+    if (next) this.step.set(next.id);
+  }
+
+  async exportRun(run: StoryRunSummary): Promise<void> {
+    this.exporting.set(run.id);
+    try {
+      saveStoryFile(await firstValueFrom(this.stories.exportStory(run.id)), run.title);
+    } catch (failure: unknown) {
+      this.status.showError(failure instanceof ApiFailure ? failure.message : 'That story could not be exported.');
+    } finally {
+      this.exporting.set(null);
+    }
   }
 
   async remove(run: StoryRunSummary): Promise<void> {
@@ -224,7 +362,11 @@ export class StoryAgentComponent {
   }
 
   async start(): Promise<void> {
-    if (this.starting() || this.missing()) return;
+    if (this.starting()) return;
+    if (this.missing()) {
+      if (this.stepMissing().story) this.step.set('story');
+      return;
+    }
     const builtIn = this.writer() === 'BuiltIn';
     const notes = this.notes().trim();
 
@@ -238,6 +380,7 @@ export class StoryAgentComponent {
       voicing: builtIn ? undefined : this.voicing(),
       packId: builtIn ? (this.packId() ?? undefined) : undefined,
       genreId: this.genre()?.id,
+      textEngine: this.writer() !== 'BuiltIn' && this.textEngine() ? this.textEngine() : undefined,
       options: this.options() ?? undefined,
     };
 

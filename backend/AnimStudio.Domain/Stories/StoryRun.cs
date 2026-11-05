@@ -105,6 +105,12 @@ public sealed class StoryRun
     public StoryResearch? Research { get; set; }
     public StoryScript? Script { get; set; }
 
+    /// <summary>
+    /// The script an imported story file brought, as JSON in the shape a chat's reply has. The script stage reads it once
+    /// the research is in - with the same parser and checks as a pasted reply - and clears it.
+    /// </summary>
+    public string? ImportedScript { get; set; }
+
     /// <summary>How many times the script has been rewritten. A rewrite asks the model afresh instead of reusing its cached answer.</summary>
     public int ScriptRevision { get; set; }
 

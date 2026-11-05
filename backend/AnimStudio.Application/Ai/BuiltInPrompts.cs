@@ -36,6 +36,9 @@ public static class BuiltInPrompts
     /// <summary>What a channel's numbers say, and what to make and do next.</summary>
     public const string YouTubeChannelPlan = "youtube-channel-plan";
 
+    /// <summary>The camera move, grade and length a still is animated with, from what the person wants.</summary>
+    public const string ImageMotionPlan = "image-motion-plan";
+
     /// <summary>
     /// Repeated in every system prompt. The transcript in these prompts is someone else's
     /// text, and it can contain sentences that look like instructions - this is the line
@@ -814,6 +817,59 @@ new()
                         }
                       }
                     }
+                  }
+                }
+                """
+        },
+
+        new()
+        {
+            TemplateKey = ImageMotionPlan,
+            Version = 1,
+            Capability = AiCapability.Text,
+            SystemPrompt =
+                "You are a film director choosing one camera move and a colour grade that bring a still picture to " +
+                "life. You can only move a virtual camera over the picture and grade it; nothing inside the picture " +
+                "can move. " + DataFenceRule,
+            Body =
+                """
+                Choose how to animate a still picture for this request:
+
+                {{description}}
+
+                motion: zoom-in (push in), zoom-out (pull back), pan-left, pan-right, pan-up, pan-down,
+                drift (slow push in travelling from the opposite corner), handheld (gentle sway like a hand-held
+                camera) or breathe (one slow zoom in and back out).
+                intensity: 0.02-0.5, how far it zooms or travels (0.08 subtle, 0.15 normal, 0.3 dramatic).
+                focusX and focusY: 0-100, the point the move heads for (50,50 is the centre; faces are usually near
+                the top, so focusY around 30).
+                easing: ease-in-out unless a constant speed is asked for, then linear.
+                look: none, cinematic, warm, cool, vintage, noir, vivid or matte.
+                vignette, grain, cinemaBars: true only when they suit the request.
+                durationSeconds: 2-20, 6 unless a length is asked for.
+                summary: one short sentence saying what the clip will do.
+                If the request asks for things a camera cannot do (a character walking, lips moving), choose the
+                camera move that best suggests it and say so in the summary.
+                """,
+            Variables = ["description"],
+            OutputJsonSchema =
+                """
+                {
+                  "type": "object",
+                  "required": ["motion", "intensity", "look", "durationSeconds"],
+                  "additionalProperties": true,
+                  "properties": {
+                    "motion": { "type": "string", "maxLength": 20 },
+                    "intensity": { "type": "number" },
+                    "focusX": { "type": "number" },
+                    "focusY": { "type": "number" },
+                    "easing": { "type": "string", "maxLength": 20 },
+                    "look": { "type": "string", "maxLength": 20 },
+                    "vignette": { "type": "boolean" },
+                    "grain": { "type": "boolean" },
+                    "cinemaBars": { "type": "boolean" },
+                    "durationSeconds": { "type": "number" },
+                    "summary": { "type": "string", "maxLength": 300 }
                   }
                 }
                 """

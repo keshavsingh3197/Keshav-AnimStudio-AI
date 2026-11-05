@@ -112,6 +112,9 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
                   @case ('motion-copy') {
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M5 10l7 1 7-1M9 22l3-9 3 9"/></svg>
                   }
+                  @case ('animate') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/><path d="M15 3l2-2M19 5l2-2" stroke-linecap="round"/></svg>
+                  }
                   @case ('collab') {
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                   }

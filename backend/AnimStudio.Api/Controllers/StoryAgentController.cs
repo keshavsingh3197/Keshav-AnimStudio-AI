@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -100,10 +101,53 @@ public sealed class StoryAgentController(
             Writer = request.Writer,
             Voicing = request.Voicing,
             PackId = request.PackId,
-            GenreId = request.GenreId
+            GenreId = request.GenreId,
+            TextEngine = request.TextEngine
         };
 
         var run = await stories.CreateAsync(currentUser.UserId, brief, request.Options?.ToOptions(), ct);
+        return await DetailAsync(run, ct);
+    }
+
+    /// <summary>The story as a file: its brief, its choices and its script, to keep or to start again from with Import.</summary>
+    [HttpGet("runs/{id}/export")]
+    public async Task<ActionResult<ApiResponse<StoryExportFile>>> Export(string id, CancellationToken ct) =>
+        Ok(ApiResponse<StoryExportFile>.Ok(StoryTransfer.Export(await stories.GetAsync(currentUser.UserId, id, ct), DateTime.UtcNow)));
+
+    /// <summary>Starts a new story from an exported story file. Its script is read and checked once the research is in.</summary>
+    [HttpPost("runs/import")]
+    [RequestSizeLimit(MaxReplyRequestBytes + MaxBriefRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> Import([FromBody] ImportStoryRunRequest request, CancellationToken ct)
+    {
+        if (await GuestRefusalAsync(ct) is { } refused) return refused;
+
+        if (!string.Equals(request.Kind, StoryTransfer.Kind, StringComparison.Ordinal) || request.Version is < 1 or > StoryTransfer.Version
+            || request.Story is not { } story)
+        {
+            return BadRequest(ApiResponse<StoryRunResponse>.Fail("That isn't a story file exported from AnimStudio.",
+                new ApiError("import-not-a-story", "That isn't a story file exported from AnimStudio.")));
+        }
+        if (request.Script is { ValueKind: not JsonValueKind.Object })
+        {
+            return BadRequest(ApiResponse<StoryRunResponse>.Fail("The script in that file isn't readable.",
+                new ApiError("import-script-invalid", "The script in that file isn't readable.")));
+        }
+
+        var brief = new StoryBrief
+        {
+            Title = story.Title ?? string.Empty,
+            Notes = story.Notes,
+            Language = story.Language ?? string.Empty,
+            TargetSeconds = story.TargetSeconds,
+            Format = story.Format,
+            Writer = story.Writer,
+            Voicing = story.Voicing,
+            PackId = story.PackId,
+            GenreId = story.GenreId,
+            TextEngine = story.TextEngine
+        };
+
+        var run = await stories.ImportAsync(currentUser.UserId, brief, story.Options?.ToOptions(), request.Script?.GetRawText(), ct);
         return await DetailAsync(run, ct);
     }
 
@@ -134,7 +178,7 @@ public sealed class StoryAgentController(
     public async Task<ActionResult<ApiResponse<StoryRunResponse>>> Rewrite(
         string id, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RewriteStoryScriptRequest? request,
         CancellationToken ct) =>
-        await DetailAsync(await stories.RewriteAsync(currentUser.UserId, id, request?.Writer, ct), ct);
+        await DetailAsync(await stories.RewriteAsync(currentUser.UserId, id, request?.Writer, ct, request?.TextEngine), ct);
 
     // ------------------------------------------------------------------------------------------------ pictures
 

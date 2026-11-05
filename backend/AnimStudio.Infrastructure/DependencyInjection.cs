@@ -291,6 +291,7 @@ public static class DependencyInjection
         services.AddSingleton<ClipConformCache>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
+        services.AddScoped<IImageAnimationRenderer, ImageAnimationRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
 
         // The user's effects library: clips, stills and sounds reused across every project.

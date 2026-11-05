@@ -118,6 +118,66 @@ public sealed class ScriptStageTests
     }
 
     [Fact]
+    public async Task The_engine_picked_for_the_story_is_the_one_asked_and_a_story_without_one_walks_the_chain()
+    {
+        var (stage, ai, _) = Make();
+        ai.Text = _ => FakeAi.TextOk(StorySamples.ReplyJson, "claude-cli");
+        var picked = AutoRun();
+        picked.Brief.TextEngine = "claude-cli";
+        var chain = AutoRun();
+
+        await stage.RunAsync(Context(picked), CancellationToken.None);
+        await stage.RunAsync(Context(chain), CancellationToken.None);
+
+        Assert.Equal("claude-cli", ai.TextCalls[0].ProviderId);
+        Assert.Null(ai.TextCalls[1].ProviderId);
+    }
+
+    [Fact]
+    public async Task A_picked_engine_that_is_not_available_says_so_and_waits_for_the_person()
+    {
+        var (stage, _, _) = Make();
+        var run = AutoRun();
+        run.Brief.TextEngine = "claude-cli";
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.AwaitingScript, outcome.NextStatus);
+        Assert.Contains(run.Warnings, w => w.Contains("(claude-cli) isn't available", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_imported_script_is_read_by_the_parser_without_asking_any_model_and_is_then_let_go()
+    {
+        var (stage, ai, prompts) = Make();
+        var run = AutoRun();
+        run.ImportedScript = StorySamples.ReplyJson;
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.Equal("imported story file", run.Script!.WrittenBy);
+        Assert.Null(run.ImportedScript);
+        Assert.Empty(ai.TextCalls);
+        Assert.Empty(prompts.Rendered);
+    }
+
+    [Fact]
+    public async Task An_imported_script_that_cannot_be_read_leaves_the_story_waiting_with_the_reason()
+    {
+        var (stage, ai, _) = Make();
+        var run = AutoRun();
+        run.ImportedScript = "{\"title\":\"x\"}";
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryRunStatus.AwaitingScript, outcome.NextStatus);
+        Assert.Contains(run.Warnings, w => w.Contains("imported file could not be read", StringComparison.Ordinal));
+        Assert.Null(run.ImportedScript);
+        Assert.Empty(ai.TextCalls);
+    }
+
+    [Fact]
     public async Task A_reply_that_cannot_be_read_is_asked_for_once_more_with_the_problem_named_and_without_the_cache()
     {
         var (stage, ai, _) = Make();
