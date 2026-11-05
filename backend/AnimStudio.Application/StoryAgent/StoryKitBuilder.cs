@@ -27,36 +27,68 @@ public static class StoryKitBuilder
     private const int TagBudget = 450;
     private const int MaxTagChars = 40;
 
-    public static StoryPublishKit Build(StoryScript script, StoryBrief brief, StoryResearch? research, StoryKitFacts facts)
+    /// <param name="genre">The run's genre; null for the devotional one.</param>
+    public static StoryPublishKit Build(StoryScript script, StoryBrief brief, StoryResearch? research, StoryKitFacts facts, StoryGenre? genre = null)
     {
+        genre ??= StoryGenres.Devotional();
         var hindi = !string.Equals(brief.Language, "en", StringComparison.OrdinalIgnoreCase);
+        var known = StoryGenres.TopicsOf(genre);
         var topics = research?.Topics.Count > 0
-            ? [.. research.Topics.Select(t => GranthTopics.Get(t.TopicId)).OfType<GranthTopic>()]
-            : GranthTopics.Match($"{brief.Title} {brief.Notes} {script.Title} {script.TitleEnglish}");
+            ? [.. research.Topics.Select(t => known.FirstOrDefault(k => k.Id == t.TopicId)).OfType<GranthTopic>()]
+            : GranthTopics.Match($"{brief.Title} {brief.Notes} {script.Title} {script.TitleEnglish}", known);
 
         var chapters = Chapters(script, facts);
         var sources = Sources(script);
 
-        var hashtags = Hashtags(topics, facts.Branding, hindi);
-        var description = Description(script, hindi, facts, sources, chapters, hashtags, script.Scenes.Any(s => s.Basis == StoryBasis.Tradition));
+        var hashtags = Hashtags(topics, genre, facts.Branding, hindi);
+        var description = Description(script, hindi, facts, sources, chapters, hashtags, script.Scenes.Any(s => s.Basis == StoryBasis.Tradition), genre);
 
-        var tags = Tags(script, topics, sources, facts.Branding, hindi);
-        var jaikara = Jaikara(topics, hindi);
+        var tags = Tags(script, topics, sources, genre, facts.Branding, hindi);
+        var creative = genre.Mode == StoryGenreMode.Creative;
 
         var kit = new StoryPublishKit
         {
-            TitleOptions = Titles(script, hindi),
+            TitleOptions = creative ? CreativeTitles(script, genre, hindi) : Titles(script, hindi),
             Description = description,
             Tags = tags,
             Hashtags = hashtags,
             Chapters = [.. chapters.Select(c => new StoryChapter { StartSeconds = c.StartSeconds, Stamp = c.Stamp, Title = c.Title })],
-            PinnedComment = PinnedComment(script, jaikara, hindi),
+            PinnedComment = creative ? CreativePinnedComment(script, genre, hindi) : PinnedComment(script, Jaikara(topics, hindi), hindi),
             EngagementComment = EngagementComment(chapters, hindi),
-            Checklist = Checklist(script, facts, sources, hindi)
+            Checklist = Checklist(script, facts, sources, genre, hindi)
         };
         kit.DescriptionBytes = Encoding.UTF8.GetByteCount(kit.Description);
         kit.TagsLength = YouTubePublishValidator.TagsLength(kit.Tags);
         return kit;
+    }
+
+    /// <summary>
+    /// Says which part of a series the video is: a title that names the part, a line at the top of the description, and a
+    /// reminder to put the parts in one playlist so a viewer finds the next.
+    /// </summary>
+    public static void AddSeries(StoryPublishKit kit, StorySeriesLink series, string? language)
+    {
+        var hindi = !string.Equals(language, "en", StringComparison.OrdinalIgnoreCase);
+        var label = hindi ? $"भाग {series.Part}" : $"Part {series.Part}";
+
+        if (kit.TitleOptions.Count > 0 && !kit.TitleOptions[0].Contains(label, StringComparison.OrdinalIgnoreCase))
+        {
+            var suffix = $" | {label}";
+            var first = kit.TitleOptions[0];
+            var room = YouTubePublishValidator.MaxTitleLength - suffix.Length;
+            kit.TitleOptions.Insert(0, (first.Length > room ? first[..room].TrimEnd() : first) + suffix);
+        }
+
+        var line = hindi
+            ? $"{series.Name} - {label}। पिछले भाग चैनल की प्लेलिस्ट में देखें।"
+            : $"{series.Name} - {label}. Watch the earlier parts in the channel's playlist.";
+        if (Encoding.UTF8.GetByteCount(kit.Description) + Encoding.UTF8.GetByteCount(line) + 2 <= DescriptionBudget)
+            kit.Description = $"{line}\n\n{kit.Description}";
+        kit.DescriptionBytes = Encoding.UTF8.GetByteCount(kit.Description);
+
+        kit.Checklist.Add(hindi
+            ? $"इस वीडियो को \"{series.Name}\" की प्लेलिस्ट में भाग {series.Part} के रूप में जोड़ें, और पिछले भाग के अंत में इसका लिंक दें।"
+            : $"Add this video to the \"{series.Name}\" playlist as part {series.Part}, and link it from the end screen of the part before.");
     }
 
     // ---------------------------------------------------------------- titles
@@ -89,6 +121,27 @@ public static class StoryKitBuilder
             Add($"{native} | Told from the Granths");
         }
 
+        return options;
+    }
+
+    private static List<string> CreativeTitles(StoryScript script, StoryGenre genre, bool hindi)
+    {
+        var native = script.Title.Trim();
+        var english = script.TitleEnglish?.Trim();
+        var options = new List<string>();
+
+        void Add(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return;
+            var fitted = FitTitle(title);
+            if (!options.Contains(fitted, StringComparer.OrdinalIgnoreCase)) options.Add(fitted);
+        }
+
+        var differs = english is { Length: > 0 } && !string.Equals(english, native, StringComparison.OrdinalIgnoreCase);
+        if (hindi && differs) Add($"{native} | {english}");
+        Add(native);
+        if (differs) Add(english);
+        if (!string.IsNullOrWhiteSpace(genre.TitleSuffix)) Add($"{native} | {genre.TitleSuffix}");
         return options;
     }
 
@@ -162,7 +215,7 @@ public static class StoryKitBuilder
 
     private static string Description(
         StoryScript script, bool hindi, StoryKitFacts facts, List<SourceLine> sources,
-        List<YouTubeChapter> chapters, List<string> hashtags, bool hasTradition)
+        List<YouTubeChapter> chapters, List<string> hashtags, bool hasTradition, StoryGenre genre)
     {
         var variants = new (bool Notes, bool Cta, bool Subscribe, bool Chapters)[]
         {
@@ -173,14 +226,14 @@ public static class StoryKitBuilder
         string result = string.Empty;
         foreach (var (notes, cta, subscribe, withChapters) in variants)
         {
-            result = Compose(script, hindi, facts, sources, chapters, hashtags, hasTradition, notes, cta, subscribe, withChapters);
+            result = Compose(script, hindi, facts, sources, chapters, hashtags, hasTradition, genre, notes, cta, subscribe, withChapters);
             if (Encoding.UTF8.GetByteCount(result) <= DescriptionBudget) return result;
         }
 
         // Still too long: keep the first sources that fit.
         for (var keep = sources.Count - 1; keep >= 1; keep--)
         {
-            result = Compose(script, hindi, facts, [.. sources.Take(keep)], [], hashtags, hasTradition, false, false, false, false);
+            result = Compose(script, hindi, facts, [.. sources.Take(keep)], [], hashtags, hasTradition, genre, false, false, false, false);
             if (Encoding.UTF8.GetByteCount(result) <= DescriptionBudget) break;
         }
         return result;
@@ -188,18 +241,23 @@ public static class StoryKitBuilder
 
     private static string Compose(
         StoryScript script, bool hindi, StoryKitFacts facts, List<SourceLine> sources, List<YouTubeChapter> chapters,
-        List<string> hashtags, bool hasTradition, bool notes, bool cta, bool subscribe, bool withChapters)
+        List<string> hashtags, bool hasTradition, StoryGenre genre, bool notes, bool cta, bool subscribe, bool withChapters)
     {
         var blocks = new List<string>();
         var brand = facts.Branding;
+        var creative = genre.Mode == StoryGenreMode.Creative;
 
         var hook = new StringBuilder();
-        hook.Append("🙏 ").Append(script.Title);
+        hook.Append(creative ? genre.Icon : "🙏").Append(' ').Append(script.Title);
         if (!string.IsNullOrWhiteSpace(script.Summary)) hook.Append(" - ").Append(script.Summary);
         blocks.Add(hook.ToString());
 
         if (hindi && !string.IsNullOrWhiteSpace(script.TitleEnglish))
-            blocks.Add($"{script.TitleEnglish}: told in simple Hindi, with the Granths it comes from.");
+        {
+            blocks.Add(creative
+                ? $"{script.TitleEnglish}: {genre.Name.ToLowerInvariant()}, told in simple Hindi."
+                : $"{script.TitleEnglish}: told in simple Hindi, with the Granths it comes from.");
+        }
 
         if (sources.Count > 0)
         {
@@ -219,11 +277,24 @@ public static class StoryKitBuilder
             blocks.Add(list.ToString());
         }
 
-        if (cta)
+        if (cta && creative)
+        {
+            blocks.Add(hindi
+                ? "👍 वीडियो अच्छा लगे तो Like, Share और Subscribe करें, और कमेंट में बताइए कि आपको कैसा लगा।"
+                : $"👍 If you enjoyed this, please Like, Share and Subscribe for more {genre.Name.ToLowerInvariant()}.");
+        }
+        else if (cta)
         {
             blocks.Add(hindi
                 ? "🙏 वीडियो अच्छा लगे तो Like, Share और Subscribe करें, और कमेंट में अपना जयकारा लिखें।"
                 : "🙏 If you liked this, please Like, Share and Subscribe, and write your jaikara in the comments.");
+        }
+
+        if (genre.Links.Count > 0)
+        {
+            // No brackets around the links: YouTube's link detection would swallow a closing one.
+            blocks.Add((hindi ? "🔗 लिंक (Links)" : "🔗 Links") + "\n"
+                + string.Join('\n', genre.Links.Select(l => $"• {l.Label}: {l.Url}")));
         }
 
         if (withChapters && chapters.Count >= YouTubeChapterBuilder.MinChapters)
@@ -231,7 +302,11 @@ public static class StoryKitBuilder
 
         var credits = new List<string>();
         if (facts.AiPictures)
-            credits.Add(hindi ? "चित्र: AI से बने भक्ति-चित्र - कलात्मक कल्पना" : "Pictures: made with AI - artistic imagination");
+        {
+            credits.Add(hindi
+                ? creative ? "चित्र: AI से बने चित्र - कलात्मक कल्पना" : "चित्र: AI से बने भक्ति-चित्र - कलात्मक कल्पना"
+                : "Pictures: made with AI - artistic imagination");
+        }
         credits.AddRange(facts.Narration switch
         {
             StoryNarrationMode.MyVoice => [hindi ? "स्वर: निर्माता की अपनी आवाज़ पर आधारित AI वॉइस" : "Voice: an AI voice made from the creator's own voice"],
@@ -275,7 +350,7 @@ public static class StoryKitBuilder
 
     // ---------------------------------------------------------------- hashtags and tags
 
-    private static List<string> Hashtags(IReadOnlyList<GranthTopic> topics, ChannelBranding? brand, bool hindi)
+    private static List<string> Hashtags(IReadOnlyList<GranthTopic> topics, StoryGenre genre, ChannelBranding? brand, bool hindi)
     {
         var tags = new List<string>();
 
@@ -295,7 +370,7 @@ public static class StoryKitBuilder
             Add(Pascal(topic.Keywords.FirstOrDefault(k => k.All(c => char.IsAsciiLetter(c) || c == ' '))));
             if (topics.Count > 1) Add(Pascal(topics[1].Keywords.FirstOrDefault(k => k.All(c => char.IsAsciiLetter(c) || c == ' '))));
         }
-        Add("HinduMythology");
+        foreach (var tag in genre.Hashtags) Add(tag);
 
         foreach (var tag in (brand?.Hashtags ?? []).Take(2)) Add(tag.TrimStart('#'));
         return [.. tags.Take(5)];
@@ -306,7 +381,7 @@ public static class StoryKitBuilder
             .Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
 
     private static List<string> Tags(
-        StoryScript script, IReadOnlyList<GranthTopic> topics, List<SourceLine> sources, ChannelBranding? brand, bool hindi)
+        StoryScript script, IReadOnlyList<GranthTopic> topics, List<SourceLine> sources, StoryGenre genre, ChannelBranding? brand, bool hindi)
     {
         var tags = new List<string>();
 
@@ -336,10 +411,8 @@ public static class StoryKitBuilder
         }
 
         foreach (var name in sources.Select(s => s.Name.ToLowerInvariant()).Distinct().Take(4)) Add(name);
-        Add("hindu mythology stories");
-        Add("hindu scriptures");
-        Add("puranic stories");
-        if (hindi) Add("पौराणिक कथाएँ");
+        // A Hindi tag on an English video only reaches people who will not understand it.
+        foreach (var tag in genre.Tags.Where(t => hindi || !t.Any(c => c is >= '\u0900' and <= '\u097F'))) Add(tag);
 
         foreach (var tag in brand?.Tags ?? []) Add(tag);
         foreach (var tag in brand?.Hashtags ?? []) Add(tag);
@@ -371,6 +444,13 @@ public static class StoryKitBuilder
             ? $"🙏 {script.Title}\nआपको यह कथा कैसी लगी? कमेंट में अपना जयकारा लिखिए 👇\n{jaikara}"
             : $"🙏 {script.Title}\nHow did you like this story? Write your jaikara in the comments 👇\n{jaikara}";
 
+    private static string CreativePinnedComment(StoryScript script, StoryGenre genre, bool hindi)
+    {
+        var ask = hindi ? "आपको यह कहानी कैसी लगी? कमेंट में बताइए 👇" : "How did you like this story? Tell us in the comments 👇";
+        var closing = string.IsNullOrWhiteSpace(genre.PinnedLine) ? string.Empty : "\n" + genre.PinnedLine;
+        return $"{genre.Icon} {script.Title}\n{ask}{closing}";
+    }
+
     private static string EngagementComment(List<YouTubeChapter> chapters, bool hindi)
     {
         var numbers = new[] { "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣" };
@@ -387,8 +467,10 @@ public static class StoryKitBuilder
             : $"Which part of this video did you like the most? Reply with its number 👇\n{options}";
     }
 
-    private static List<string> Checklist(StoryScript script, StoryKitFacts facts, List<SourceLine> sources, bool hindi)
+    private static List<string> Checklist(StoryScript script, StoryKitFacts facts, List<SourceLine> sources, StoryGenre genre, bool hindi)
     {
+        if (genre.Mode == StoryGenreMode.Creative) return CreativeChecklist(facts, genre, hindi);
+
         var items = new List<string>
         {
             "Read the script once more for facts and pronunciation. Check the chapter numbers in your own edition; the ones marked as checked only exist, they are not proof the verse says that.",
@@ -404,6 +486,26 @@ public static class StoryKitBuilder
             items.Add("Some citations in the script do not exist; they were left out of the description. Fix or remove them in the script.");
         if (sources.Count == 0)
             items.Add("The script cites no source the catalogue could place. Add the Granths it comes from before publishing.");
+
+        items.Add("After it is live: post the pinned comment, pin it, and add the video to a playlist.");
+        return items;
+    }
+
+    private static List<string> CreativeChecklist(StoryKitFacts facts, StoryGenre genre, bool hindi)
+    {
+        var audience = genre.MadeForKids ? "\"Yes, it's made for kids\"" : "\"No, it's not made for kids\"";
+        var items = new List<string>
+        {
+            "Read the script once more for pronunciation, and for anything that could hurt someone or be taken as fact when it is not.",
+            $"In YouTube Studio: audience {audience}; category {genre.Category}; language {(hindi ? "Hindi" : "English")}; comments on, with potentially inappropriate comments held for review."
+        };
+
+        if (facts.AiPictures || facts.Narration != StoryNarrationMode.None)
+            items.Insert(1, "Set \"AI use\" to Yes when uploading: the pictures or the voice were made with AI. Disclosing does not limit reach or earnings.");
+        if (genre.MadeForKids)
+            items.Add("Made for kids turns off comments and personalised ads on the video; that is YouTube's rule for children's content.");
+        if (facts.Music is not null)
+            items.Add("Keep the music credit in the description; the track's licence requires it.");
 
         items.Add("After it is live: post the pinned comment, pin it, and add the video to a playlist.");
         return items;

@@ -1,4 +1,4 @@
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Component, DestroyRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -7,6 +7,7 @@ import { firstValueFrom, lastValueFrom } from 'rxjs';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   StoryAgentOptions,
+  StoryBudgetReport,
   StoryBuildOptions,
   StoryCaptionResult,
   StoryPublication,
@@ -20,6 +21,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
+import { StoryContinueComponent } from './story-continue.component';
 import { StoryKitComponent } from './story-kit.component';
 import { StoryOptionsComponent } from './story-options.component';
 import { StoryReviewComponent } from './story-review.component';
@@ -45,7 +47,13 @@ import {
 const POLL_MS = 2000;
 const RETRY_MAX_MS = 10_000;
 
-type Action = 'cancel' | 'retry' | 'delete' | 'build' | 'rewrite' | 'paste' | 'approve';
+/** The speeds offered for the video, as multiples of the pace it was built at. */
+const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+
+/** Two speeds are the same once rounded the way the server stores them (to 0.05). */
+const sameSpeed = (a: number, b: number): boolean => Math.abs(a - b) < 0.001;
+
+type Action = 'cancel' | 'retry' | 'delete' | 'build' | 'rewrite' | 'paste' | 'approve' | 'speed';
 
 /** The story page's tabs, in the order a story goes through them. */
 export type StoryTab = 'overview' | 'script' | 'pictures' | 'build' | 'review' | 'publish';
@@ -74,8 +82,8 @@ type TabState = 'done' | 'now' | 'locked' | 'todo';
 @Component({
   selector: 'app-story-run',
   imports: [
-    RouterLink, FormsModule, DecimalPipe, StoryScriptEditorComponent, StoryOptionsComponent, StoryKitComponent, StoryReviewComponent,
-    YouTubePublishDialogComponent,
+    RouterLink, FormsModule, DecimalPipe, NgTemplateOutlet, StoryScriptEditorComponent, StoryOptionsComponent, StoryKitComponent, StoryReviewComponent,
+    YouTubePublishDialogComponent, StoryContinueComponent,
   ],
   templateUrl: './story-run.component.html',
   styleUrls: ['./story-run.component.css'],
@@ -110,6 +118,23 @@ export class StoryRunComponent {
   readonly localVideo = signal<{ jobId: string; url: string } | null>(null);
   readonly videoBusy = signal<'watch' | 'save' | null>(null);
   readonly videoError = signal<string | null>(null);
+  /**
+   * The video's speed. {@link fileSpeed} is the speed the file was made at - what is downloaded and sent to YouTube, with
+   * subtitles timed to it. A speed picked here plays at once as a preview; applying it makes the file at that speed.
+   */
+  readonly speeds = SPEEDS;
+  readonly fileSpeed = computed(() => this.run()?.render?.speed ?? 1);
+  private readonly pickedSpeed = signal<number | null>(null);
+  readonly speed = computed(() => this.pickedSpeed() ?? this.fileSpeed());
+  /** A speed is being previewed that the file is not yet made at. */
+  readonly speedPending = computed(() => !sameSpeed(this.speed(), this.fileSpeed()));
+  /** How long the video will run at the previewed speed, in seconds; null when the length is not known. */
+  readonly speedSeconds = computed(() => {
+    const seconds = this.run()?.render?.seconds ?? 0;
+    return seconds > 0 ? (seconds * this.fileSpeed()) / this.speed() : null;
+  });
+  /** The player's sound is off (muted, or its volume at zero) - the usual reason a finished video seems silent. */
+  readonly videoSilent = signal(false);
 
   /** The prompt for writing the script by hand, once the search has finished. */
   readonly prompt = signal<string | null>(null);
@@ -445,7 +470,99 @@ export class StoryRunComponent {
       this.go('script');
       return;
     }
+    // A build that would pass the warning share of a paid Google daily limit asks first; a failed check never blocks.
+    let report: StoryBudgetReport | null = null;
+    try {
+      report = await firstValueFrom(this.stories.budget(run.id, options));
+    } catch {
+      report = null;
+    }
+    if (report && report.status !== 'ok' && report.lines.some((l) => l.status !== 'ok')) {
+      this.budgetWarning.set({ report, options });
+      return;
+    }
+    await this.startBuild(options);
+  }
+
+  /** The limits a build is about to pass, waiting for the person's answer. */
+  readonly budgetWarning = signal<{ report: StoryBudgetReport; options: StoryBuildOptions } | null>(null);
+  readonly budgetBusy = signal(false);
+
+  budgetLines(report: StoryBudgetReport) {
+    return report.lines.filter((l) => l.status !== 'ok');
+  }
+
+  budgetReset(report: StoryBudgetReport): string {
+    return new Date(report.resetsAtUtc).toLocaleString();
+  }
+
+  /** True when a flagged line is one of Google's own limits, so its reset time is worth showing. */
+  budgetHasGoogle(report: StoryBudgetReport): boolean {
+    return this.budgetLines(report).some((l) => l.kind === 'google');
+  }
+
+  /** "Proceed anyway", "Proceed with the alternatives" (the free one for each flagged limit) or cancel. */
+  async answerBudget(choice: 'anyway' | 'without' | 'cancel'): Promise<void> {
+    const pending = this.budgetWarning();
+    if (!pending || choice === 'cancel') {
+      this.budgetWarning.set(null);
+      return;
+    }
+    if (choice === 'anyway') {
+      this.budgetWarning.set(null);
+      await this.startBuild(pending.options);
+      return;
+    }
+    this.budgetBusy.set(true);
+    try {
+      const options = await this.withoutPaid(pending.report, pending.options);
+      this.buildOptions.set(options);
+      this.budgetWarning.set(null);
+      await this.startBuild(options);
+    } finally {
+      this.budgetBusy.set(false);
+    }
+  }
+
+  private async startBuild(options: StoryBuildOptions): Promise<void> {
+    const run = this.run();
+    if (!run) return;
     if (await this.act('build', () => firstValueFrom(this.stories.build(run.id, options)))) this.go('overview');
+  }
+
+  /**
+   * The same options with the flagged parts swapped for free ones: a speech limit moves narration to the first engine
+   * running on this machine (or subtitles only when there is none), a music limit uses a royalty-free track, and an image
+   * engine's cap keeps the person's own pictures and gives the other scenes plain backgrounds.
+   */
+  private async withoutPaid(report: StoryBudgetReport, options: StoryBuildOptions): Promise<StoryBuildOptions> {
+    const flagged = this.budgetLines(report);
+    const music = flagged.some((l) => l.area === 'music');
+    const speech = flagged.some((l) => l.area === 'speech');
+    const images = flagged.some((l) => l.area === 'image');
+    const next: StoryBuildOptions = { ...options };
+    if (music) next.musicSource = 'Search';
+    if (images) {
+      next.visuals = 'UploadsOnly';
+      this.status.showNotice('No pictures will be generated: scenes without a picture of yours get a plain background.');
+    }
+    if (speech) {
+      let local: string | null = null;
+      try {
+        const voices = await firstValueFrom(this.api.voiceoverVoices());
+        local = voices.engines?.find((e) => e.runsLocally)?.id ?? null;
+      } catch {
+        local = null;
+      }
+      if (local) {
+        Object.assign(next, { speechEngine: local, voiceId: null, speechModel: null, castVoices: false });
+        if (next.narration === 'MyVoice') next.narration = 'Stock';
+      } else {
+        next.narration = 'None';
+      }
+      this.status.showNotice(local ? `Narration will use ${local}, which runs on this machine.` : 'No free voice is set up, so the video will have subtitles only.');
+    }
+    return next;
   }
 
   async rewrite(writer: StoryWriterMode): Promise<void> {
@@ -603,6 +720,49 @@ export class StoryRunComponent {
     } finally {
       this.videoBusy.set(null);
     }
+  }
+
+  // ------------------------------------------------------------------------------------------------ the player
+
+  /**
+   * Starts the player with its sound on, previewing any speed picked but not yet applied. A viewer who muted the player
+   * once and forgot hears nothing on the next video, so the sound is put back on each load.
+   */
+  onVideoReady(video: HTMLVideoElement): void {
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
+    video.preservesPitch = true;
+    video.playbackRate = this.speed() / this.fileSpeed();
+    this.onVolume(video);
+  }
+
+  /** Follows speed changes made from the player's own menu too, so the buttons always show the true speed. */
+  onRate(video: HTMLVideoElement): void {
+    const speed = Math.round(video.playbackRate * this.fileSpeed() * 100) / 100;
+    if (!sameSpeed(speed, this.speed())) this.pickedSpeed.set(sameSpeed(speed, this.fileSpeed()) ? null : speed);
+  }
+
+  onVolume(video: HTMLVideoElement): void {
+    this.videoSilent.set(video.muted || video.volume === 0);
+  }
+
+  unmute(video: HTMLVideoElement): void {
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
+  }
+
+  /** Previews a speed in the player; the file is changed only by {@link applySpeed}. */
+  setSpeed(speed: number, video: HTMLVideoElement): void {
+    this.pickedSpeed.set(sameSpeed(speed, this.fileSpeed()) ? null : speed);
+    video.playbackRate = speed / this.fileSpeed();
+  }
+
+  /** Makes the video at the previewed speed: the download, YouTube and the subtitles then all use it. */
+  async applySpeed(): Promise<void> {
+    const run = this.run();
+    if (!run || !this.speedPending()) return;
+    const speed = this.speed();
+    if (await this.act('speed', () => firstValueFrom(this.stories.changeSpeed(run.id, speed)))) this.pickedSpeed.set(null);
   }
 
   private dropLocalVideo(): void {

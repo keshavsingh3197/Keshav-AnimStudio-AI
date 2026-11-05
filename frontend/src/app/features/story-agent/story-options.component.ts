@@ -2,7 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, input, model, signal } from '@angular/core';
 
 import { VoiceoverEngine, VoiceoverVoice } from '../../core/models/api.models';
-import { StoryAgentOptions, StoryBuildOptions } from '../../core/models/story-agent.models';
+import { StoryAgentOptions, StoryArtStyle, StoryBuildOptions } from '../../core/models/story-agent.models';
 import { ApiService } from '../../core/services/api.service';
 
 let nextId = 0;
@@ -18,6 +18,15 @@ const FIRST_LETTERS: Record<string, string[]> = { hi: ['h'], en: ['a', 'b'] };
 
 /** Must match the server's 300-character limit on a delivery style. */
 const MAX_STYLE_CHARS = 300;
+
+/** The looks a story can be made in; the same one shapes the pictures and the way they are animated. */
+const ART_STYLES: { id: StoryArtStyle; label: string; hint: string }[] = [
+  { id: 'Auto', label: 'Genre default', hint: "The genre's own picture style." },
+  { id: 'Painting', label: 'Painting', hint: 'Classical Indian painting: jewel colours and gold, animated as a living painting.' },
+  { id: 'Realistic', label: 'Realistic', hint: 'Like a film: real-looking people and places with natural motion.' },
+  { id: 'Cartoon', label: 'Cartoon', hint: 'A hand-drawn 2D cartoon with bold outlines and bouncy, expressive acting.' },
+  { id: 'Cartoon3D', label: '3D cartoon', hint: 'A 3D animated feature: rounded characters, big expressive eyes.' },
+];
 
 /** Ready-made delivery instructions for an engine that takes one; any other phrase works too. */
 const STYLE_SUGGESTIONS = [
@@ -77,6 +86,8 @@ export class StoryOptionsComponent {
   readonly value = model.required<StoryBuildOptions>();
 
   readonly uid = `so${++nextId}`;
+  /** The speeds the finished video can be made at; the video page offers the same ones. */
+  readonly videoSpeeds = [0.75, 1, 1.25, 1.5, 1.75, 2];
   private readonly voices = signal<VoiceoverVoice[]>([]);
   /** The speech engines that are on, in the configured order. */
   readonly engines = signal<VoiceoverEngine[]>([]);
@@ -84,6 +95,8 @@ export class StoryOptionsComponent {
   /** Each character gets a voice from the engine's voices in the story's language; Piper's models are not cast. */
   readonly castAvailable = computed(() => this.value().speechEngine !== 'piper-local');
   readonly styleSuggestions = STYLE_SUGGESTIONS;
+  readonly artStyles = ART_STYLES;
+  readonly artHint = computed(() => ART_STYLES.find((s) => s.id === (this.value().artStyle ?? 'Auto'))?.hint ?? '');
   readonly maxStyleChars = MAX_STYLE_CHARS;
   /** The engine whose voices are listed, so a slow answer for an earlier pick is dropped. */
   private listedFor: string | null = null;

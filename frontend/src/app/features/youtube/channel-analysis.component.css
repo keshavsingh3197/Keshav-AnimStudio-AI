@@ -1,0 +1,75 @@
+.ca { display: flex; flex-direction: column; gap: 1rem; }
+.ca-head h2 { margin: .2rem 0; }
+.ca-head p { margin: 0; max-width: 60rem; line-height: 1.5; }
+.ca-back { font-size: .86rem; }
+.ca-center { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 2rem 1rem; text-align: center; }
+.ca-note { margin: 0; font-size: .8rem; line-height: 1.45; }
+
+.ca-tabs { display: flex; flex-wrap: wrap; gap: .4rem; }
+.ca-tabs button, .ca-filter button {
+  padding: .35rem .8rem; border-radius: 999px; border: 1px solid var(--border); background: var(--ov-1); color: var(--text); cursor: pointer;
+}
+.ca-tabs button.active, .ca-filter button.active { border-color: var(--brand); color: var(--brand); font-weight: 700; }
+
+.ca-channel { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem; }
+.ca-channel-id { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.ca-channel-id img { border-radius: 50%; flex: none; }
+.ca-channel-id h3 { margin: 0; }
+.ca-channel-id p { margin: .15rem 0 0; font-size: .84rem; }
+
+.ca-tiles { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); }
+.ca-tile {
+  display: flex; flex-direction: column; gap: .15rem; padding: .7rem .8rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--ov-1);
+}
+.ca-tile strong { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.ca-tile span { font-size: .8rem; color: var(--text-muted, inherit); opacity: .8; }
+
+.ca-compare h4 { margin: 0 0 .6rem; }
+.ca-compare p { margin: .5rem 0 0; }
+.ca-bar-row { display: grid; grid-template-columns: 7.5rem 1fr 4rem; align-items: center; gap: .6rem; margin-bottom: .4rem; font-size: .86rem; }
+.ca-bar-row strong { text-align: right; font-variant-numeric: tabular-nums; }
+.ca-bar { height: .7rem; border-radius: 999px; background: var(--ov-1); border: 1px solid var(--border); overflow: hidden; }
+.ca-bar-fill { height: 100%; background: var(--brand); }
+.ca-bar-short { opacity: .65; }
+
+.ca-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .45rem; }
+.ca-findings li { line-height: 1.5; }
+
+.ca-plan { display: flex; flex-direction: column; gap: .6rem; }
+.ca-plan h3, .ca-plan h4 { margin: .4rem 0 .2rem; }
+.ca-goal { display: flex; flex-direction: column; gap: .35rem; }
+.ca-goal input { width: 100%; box-sizing: border-box; }
+.ca-goal-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ca-summary { margin: .4rem 0 0; font-size: 1rem; line-height: 1.55; }
+
+.ca-two { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.ca-two ul { margin: .2rem 0 0; padding-left: 1.2rem; line-height: 1.5; }
+
+.ca-suggestions, .ca-steps { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .45rem; line-height: 1.5; }
+.ca-suggestions p { margin: .15rem 0 0; font-size: .86rem; }
+.ca-suggestions .pill { margin-right: .4rem; text-transform: capitalize; }
+.ca-when { font-weight: 700; margin-right: .35rem; }
+
+.ca-ideas { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.ca-idea {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; padding: .7rem .8rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--ov-1);
+}
+.ca-idea p { margin: 0; font-size: .84rem; line-height: 1.45; flex: 1; }
+
+.ca-rank { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .55rem; }
+.ca-rank li > * { display: block; overflow-wrap: anywhere; }
+.ca-rank span { font-size: .82rem; }
+.ca-rank button { margin-top: .25rem; }
+
+.ca-all-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
+.ca-all-head h3 { margin: 0; }
+.ca-filter { display: flex; gap: .3rem; }
+.ca-table-wrap { overflow-x: auto; }
+.ca-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.ca-table th, .ca-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.ca-table td:nth-child(n + 3), .ca-table th:nth-child(n + 3) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-table td:first-child { min-width: 14rem; }
+.ca-table .pill { margin-left: .35rem; font-size: .72rem; }
+.ca-private { opacity: .6; }

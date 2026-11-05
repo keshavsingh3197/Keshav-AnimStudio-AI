@@ -40,8 +40,10 @@ public static class StoryLook
 
     /// <summary>A look for every scene, in order. <paramref name="durations"/> are the scenes' lengths in seconds.</summary>
     public static IReadOnlyList<StorySceneLook> Plan(
-        IReadOnlyList<StoryScene> scenes, IReadOnlyList<double> durations, StoryFormat format, StoryLookStyle style, int take)
+        IReadOnlyList<StoryScene> scenes, IReadOnlyList<double> durations, StoryFormat format, StoryLookStyle style, int take,
+        Func<StoryScene, bool>? playsClip = null)
     {
+        playsClip ??= s => !string.IsNullOrEmpty(s.VideoKey);
         var looks = new List<StorySceneLook>(scenes.Count);
         var previous = BackgroundEffect.None;
 
@@ -54,7 +56,8 @@ public static class StoryLook
             var pinned = Pinned(scene);
             var effect = pinned?.Effect ?? PickEffect(i, scenes.Count, feel, style, format, take, previous);
             var intensity = pinned?.Intensity ?? Intensity(feel, style);
-            if (!string.IsNullOrEmpty(scene.VideoKey)) effect = BackgroundEffect.None;
+            // A moving clip carries its own motion; a camera move on top of it would fight it.
+            if (playsClip(scene)) effect = BackgroundEffect.None;
 
             SceneTransition transition;
             double seconds;

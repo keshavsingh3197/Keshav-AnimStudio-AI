@@ -83,6 +83,30 @@
 .sr-result { margin: 0; display: grid; gap: .9rem; }
 .sr-video { width: 100%; max-height: 32rem; border-radius: var(--radius-sm); background: #000; }
 .sr-video.sr-vertical { width: auto; max-height: 36rem; justify-self: center; }
+.sr-player-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem .8rem; }
+.sr-speeds { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.sr-speeds .muted { font-size: .84rem; margin-right: .2rem; }
+.sr-speed {
+  padding: .28rem .6rem; font-size: .82rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--ov-1); color: var(--text); cursor: pointer;
+}
+.sr-speed.active { border-color: var(--brand); color: var(--brand); font-weight: 700; }
+.sr-speed:disabled { opacity: .55; cursor: default; }
+/* The speed the file is made at, while another one is previewed. */
+.sr-speed.sr-speed-file:not(.active) { border-style: dashed; }
+.sr-speed-apply {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem .8rem;
+  padding: .6rem .8rem; border: 1px solid var(--brand); border-radius: var(--radius-sm); background: var(--ov-1);
+  font-size: .86rem; line-height: 1.45;
+}
+.sr-unmute { padding: .38rem .8rem; font-size: .84rem; }
+.sr-player-hint { margin: 0; font-size: .8rem; line-height: 1.45; }
+.sr-pace {
+  margin: 0; padding: .5rem .7rem; font-size: .84rem; line-height: 1.5;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--ov-1);
+}
+.sr-pace-off { border-color: var(--brand); }
+.sr-pace button { margin-left: .4rem; }
 .sr-rendering { display: grid; gap: .5rem; }
 .sr-guest-video {
   display: grid; gap: .6rem; justify-items: start; padding: 1rem;
@@ -206,3 +230,9 @@
   .sb-studio-actions button { flex: 1 1 auto; }
   .sr-result-actions .sr-btn { flex: 1 1 auto; }
 }
+
+/* The warning shown before a build that would pass a paid Google daily limit. */
+.sr-budget { margin-top: 12px; border-left: 4px solid #f59e0b; }
+.sr-budget h4 { margin: 0 0 8px; }
+.sr-budget-lines { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 8px; }
+.sr-budget-over { color: #dc2626; }

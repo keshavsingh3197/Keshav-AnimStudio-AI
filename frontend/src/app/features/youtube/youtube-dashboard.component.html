@@ -20,6 +20,11 @@
         🗓️ Publishing board
       </a>
       @if (channels().length > 0) {
+        <a routerLink="/youtube/analysis" class="yt-btn-checkup" title="What your recent videos' numbers say, and a plan for what to make next">
+          📈 Channel analysis &amp; plan
+        </a>
+      }
+      @if (channels().length > 0) {
         <a routerLink="/youtube/checkup" class="yt-btn-checkup" title="Audit and fix missing descriptions, tags, playlists, and audience with AI">
           🩺 Video Details Checkup
         </a>

@@ -59,16 +59,16 @@ public sealed class ScriptStage(
     {
         var run = context.Run;
 
+        var (templateKey, variables) = StoryScriptPrompt.For(run);
         RenderedPrompt rendered;
         try
         {
-            rendered = await prompts.RenderAsync(BuiltInPrompts.StoryScript, StoryScriptPrompt.Variables(run.Brief, run.Research), ct)
-                .ConfigureAwait(false);
+            rendered = await prompts.RenderAsync(templateKey, variables, ct).ConfigureAwait(false);
         }
         catch (PromptTemplateException ex)
         {
-            logger.LogError("The story-script prompt could not be rendered: {Code}", ex.Code);
-            throw new StoryStageException("script-prompt-invalid", "The script prompt could not be prepared. If the story-script prompt template has been overridden, check it.");
+            logger.LogError("The {Template} prompt could not be rendered: {Code}", templateKey, ex.Code);
+            throw new StoryStageException("script-prompt-invalid", $"The script prompt could not be prepared. If the {templateKey} prompt template has been overridden, check it.");
         }
 
         string? problem = null;

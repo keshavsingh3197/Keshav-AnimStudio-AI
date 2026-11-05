@@ -234,7 +234,7 @@ export interface VoiceoverEngine {
   runsLocally: boolean;
   /** The model it uses unless another is picked. */
   model?: string | null;
-  models: { id: string; label: string }[];
+  models: { id: string; label: string; detail?: string | null; recommended?: boolean }[];
   /** It takes a delivery instruction ("warm and unhurried") with each line. */
   supportsStyle?: boolean;
 }
@@ -1389,6 +1389,18 @@ export interface AdminProvider {
 
   defaultBaseUrl: string | null;
   defaultModel: string | null;
+  /** Known models to pick from, best first; empty when only a typed name makes sense. */
+  models?: AdminModelChoice[];
+}
+
+/** A listed model and what it trades against its siblings. */
+export interface AdminModelChoice {
+  id: string;
+  label: string;
+  detail: string | null;
+  /** best | balanced | cheaper | cheapest | legacy */
+  tier: string | null;
+  recommended: boolean;
 }
 
 export interface AdminChain {

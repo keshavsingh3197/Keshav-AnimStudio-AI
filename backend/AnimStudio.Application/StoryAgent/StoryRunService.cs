@@ -89,7 +89,8 @@ public sealed record StoryAgentCapabilities(
     IReadOnlyList<StoryPack> Packs,
     IReadOnlyList<VoiceProfile> MyVoices,
     int MaxActiveRuns,
-    bool MusicComposer = false);
+    bool MusicComposer = false,
+    IReadOnlyList<StoryGenre>? Genres = null);
 
 /// <summary>
 /// Everything a person can do to a Story Agent run: start one, give it a script, edit the script, attach pictures, press
@@ -111,7 +112,8 @@ public sealed partial class StoryRunService(
     IStoryAudioFinisher finisher,
     IOptionsMonitor<StoryAgentOptions> options,
     TimeProvider clock,
-    ILogger<StoryRunService> logger)
+    ILogger<StoryRunService> logger,
+    IStoryGenreCatalog? genres = null)
 {
     public const int MinTitleChars = 3;
     public const int MaxTitleChars = 160;
@@ -147,7 +149,8 @@ public sealed partial class StoryRunService(
             StoryPacks.All,
             await voices.ListByUserAsync(userId, ct).ConfigureAwait(false),
             options.CurrentValue.MaxActiveRunsPerUser,
-            registry.SpeechChain().OfType<IMusicGeneratingProvider>().Any(p => p.IsConfigured));
+            registry.SpeechChain().OfType<IMusicGeneratingProvider>().Any(p => p.IsConfigured),
+            await ListGenresAsync(ct).ConfigureAwait(false));
 
     public async Task<IReadOnlyList<StoryRun>> ListAsync(string userId, CancellationToken ct) =>
         await runs.ListByUserAsync(userId, Math.Max(options.CurrentValue.MaxListedRuns, 1), ct).ConfigureAwait(false);
@@ -156,13 +159,16 @@ public sealed partial class StoryRunService(
 
     // ------------------------------------------------------------------------------------------------ starting
 
-    public async Task<StoryRun> CreateAsync(string userId, StoryBrief brief, StoryBuildOptions? build, CancellationToken ct)
+    /// <param name="series">For a later part of a series: what its writer carries on from. Set by <see cref="StorySeriesService"/>.</param>
+    public async Task<StoryRun> CreateAsync(
+        string userId, StoryBrief brief, StoryBuildOptions? build, CancellationToken ct, StorySeriesLink? series = null)
     {
         var settings = options.CurrentValue;
         if (!settings.Enabled) throw new StoryRunException(StoryRunErrorKind.NotFound, "story-agent-off", "The Story Agent is switched off on this server.");
 
-        var checkedBrief = CheckBrief(brief);
-        var checkedOptions = await CheckOptionsAsync(userId, build ?? new StoryBuildOptions(), ct).ConfigureAwait(false);
+        var genre = await GenreAsync(brief.GenreId, ct).ConfigureAwait(false);
+        var checkedBrief = CheckBrief(brief, genre);
+        var checkedOptions = await CheckOptionsAsync(userId, WithGenreDefaults(build ?? new StoryBuildOptions(), genre), ct).ConfigureAwait(false);
 
         var working = await runs.CountWorkingByUserAsync(userId, ct).ConfigureAwait(false);
         if (working >= settings.MaxActiveRunsPerUser)
@@ -179,6 +185,8 @@ public sealed partial class StoryRunService(
             Title = checkedBrief.Title,
             Brief = checkedBrief,
             Options = checkedOptions,
+            Genre = genre,
+            Series = series,
             Status = StoryRunStatus.Researching,
             Stages = StoryRun.NewStages(),
             CreatedAtUtc = now,
@@ -187,7 +195,7 @@ public sealed partial class StoryRunService(
 
         await runs.UpsertAsync(run, ct).ConfigureAwait(false);
         queue.Enqueue(run.Id);
-        logger.LogInformation("Story run {RunId} started for a {Writer} script.", run.Id, run.Brief.Writer);
+        logger.LogInformation("Story run {RunId} started for a {Writer} script in the {Genre} genre.", run.Id, run.Brief.Writer, genre.Id);
 
         await PruneAsync(userId, run.Id, ct).ConfigureAwait(false);
         return run;
@@ -202,15 +210,16 @@ public sealed partial class StoryRunService(
         if (run.Research is null)
             throw new StoryRunException(StoryRunErrorKind.Conflict, "research-not-ready", "The search of the Granths is still running. The prompt is ready when it finishes.");
 
+        var (templateKey, variables) = StoryScriptPrompt.For(run);
         RenderedPrompt rendered;
         try
         {
-            rendered = await prompts.RenderAsync(BuiltInPrompts.StoryScript, StoryScriptPrompt.Variables(run.Brief, run.Research), ct).ConfigureAwait(false);
+            rendered = await prompts.RenderAsync(templateKey, variables, ct).ConfigureAwait(false);
         }
         catch (PromptTemplateException ex)
         {
-            logger.LogError("The story-script prompt could not be rendered: {Code}", ex.Code);
-            throw new StoryRunException(StoryRunErrorKind.Unavailable, "script-prompt-invalid", "The script prompt could not be prepared. If the story-script prompt template has been overridden, check it.");
+            logger.LogError("The {Template} prompt could not be rendered: {Code}", templateKey, ex.Code);
+            throw new StoryRunException(StoryRunErrorKind.Unavailable, "script-prompt-invalid", $"The script prompt could not be prepared. If the {templateKey} prompt template has been overridden, check it.");
         }
 
         return StoryScriptPrompt.ManualPrompt(rendered);
@@ -306,6 +315,7 @@ public sealed partial class StoryRunService(
                 scene.ImageName = old.ImageName;
                 scene.VideoKey = old.VideoKey;
                 scene.VideoName = old.VideoName;
+                scene.VideoSource = old.VideoSource;
                 scene.AudioKey = old.AudioKey;
                 scene.AudioSeconds = old.AudioSeconds;
                 scene.AudioName = old.AudioName;
@@ -416,7 +426,7 @@ public sealed partial class StoryRunService(
         return run;
     }
 
-    /// <summary>The largest moving clip a scene takes: an 8-second 1080p clip from Flow or Veo is well under this.</summary>
+    /// <summary>The largest moving clip a scene takes: an 8-second 1080p clip from Google Flow is well under this.</summary>
     public const int MaxVideoBytes = 100 * 1024 * 1024;
 
     /// <summary>Attaches a moving clip (MP4) to a scene; it plays in place of the picture, looped if the scene is longer.</summary>
@@ -437,6 +447,7 @@ public sealed partial class StoryRunService(
         await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
         scene.VideoKey = key;
         scene.VideoName = SafeFileLabel(fileName) ?? $"Scene {scene.Number} clip";
+        scene.VideoSource = StoryScene.AttachedClip;
         ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;
@@ -450,6 +461,7 @@ public sealed partial class StoryRunService(
         await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
         scene.VideoKey = null;
         scene.VideoName = null;
+        scene.VideoSource = null;
         ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;
@@ -479,6 +491,7 @@ public sealed partial class StoryRunService(
         run.ScriptRevision++;
         run.Kit = null;
         run.RenderJobId = null;
+        run.SourceRenderJobId = null;
         run.ErrorCode = null;
         run.ErrorMessage = null;
         run.CancelRequested = false;
@@ -491,6 +504,20 @@ public sealed partial class StoryRunService(
     }
 
     // ------------------------------------------------------------------------------------------------ building
+
+    /// <summary>
+    /// The run and the options a build would use, checked exactly as <see cref="BuildAsync"/> checks them, without
+    /// starting or saving anything - for the check of the day's AI limits before Build.
+    /// </summary>
+    public async Task<(StoryRun Run, StoryBuildOptions Options)> PreviewBuildAsync(
+        string userId, string id, StoryBuildOptions? build, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (run.Script is null)
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "build-not-allowed", "There is no script to build yet.");
+
+        return (run, await CheckOptionsAsync(userId, build ?? run.Options, ct).ConfigureAwait(false));
+    }
 
     /// <summary>Approves the script and starts the build: pictures, narration, music, the project, the render and the YouTube kit.</summary>
     public async Task<StoryRun> BuildAsync(string userId, string id, StoryBuildOptions? build, CancellationToken ct)
@@ -509,6 +536,7 @@ public sealed partial class StoryRunService(
         ClearReviews(run);
         run.Kit = null;
         run.RenderJobId = null;
+        run.SourceRenderJobId = null;
         run.ErrorCode = null;
         run.ErrorMessage = null;
         run.CancelRequested = false;
@@ -747,6 +775,49 @@ public sealed partial class StoryRunService(
         return run;
     }
 
+    /// <summary>
+    /// Makes the story's video play at another speed. The project's own render is kept and a copy at the new speed becomes
+    /// the video - downloaded, sent to YouTube, and timed for its subtitles and chapters - so this takes a minute, not a
+    /// whole render. An approved video stays approved: only its pace changed.
+    /// </summary>
+    public async Task<StoryRun> ChangeSpeedAsync(string userId, string id, double speed, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        if (!double.IsFinite(speed) || speed < StoryVideoSpeed.Min || speed > StoryVideoSpeed.Max)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "speed-invalid", "Pick a speed between 0.5× and 2×.", "speed");
+
+        RequireReviewable(run, StoryStageIds.Render);
+        if (run.Stage(StoryStageIds.Render).Status != StoryStageStatus.Completed || string.IsNullOrEmpty(run.RenderJobId))
+            throw new StoryRunException(StoryRunErrorKind.Conflict, "speed-no-video", "There is no rendered video to change the speed of yet.");
+
+        var chosen = StoryVideoSpeed.Normalize(speed);
+
+        // A speed chosen by hand is the person's: a later narration no longer changes it.
+        if (run.Options.AutoPace)
+        {
+            run.Options.AutoPace = false;
+            if (run.Pace is not null) run.Pace.Applied = false;
+            if (StoryVideoSpeed.Same(chosen, run.Options.VideoSpeed))
+            {
+                await Save(run, ct).ConfigureAwait(false);
+                return run;
+            }
+        }
+
+        if (StoryVideoSpeed.Same(chosen, run.Options.VideoSpeed)) return run;
+
+        await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
+        // A run from before speeds existed has its own render as the video; that is the one to copy from.
+        run.SourceRenderJobId ??= run.RenderJobId;
+        run.Options.VideoSpeed = chosen;
+        RestartFrom(run, StoryStageIds.Render);
+
+        await Save(run, ct).ConfigureAwait(false);
+        queue.Enqueue(run.Id);
+        logger.LogInformation("Story run {RunId}: the video speed was changed to {Speed}x.", run.Id, chosen);
+        return run;
+    }
+
     public async Task<StoryRun> CancelAsync(string userId, string id, CancellationToken ct)
     {
         var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
@@ -785,10 +856,39 @@ public sealed partial class StoryRunService(
 
     // ------------------------------------------------------------------------------------------------ checks
 
-    private StoryBrief CheckBrief(StoryBrief brief)
+    private async Task<IReadOnlyList<StoryGenre>> ListGenresAsync(CancellationToken ct) =>
+        genres is null
+            ? StoryGenres.All()
+            : await genres.ListAsync(enabledOnly: true, ct).ConfigureAwait(false);
+
+    /// <summary>The genre a new story is made in: one that is switched on, or the devotional one when none is named.</summary>
+    private async Task<StoryGenre> GenreAsync(string? id, CancellationToken ct)
+    {
+        var key = string.IsNullOrWhiteSpace(id) ? StoryGenres.DefaultId : id.Trim().ToLowerInvariant();
+        var genre = genres is null ? StoryGenres.Find(key) : await genres.GetAsync(key, ct).ConfigureAwait(false);
+        if (genre is null || !genre.Enabled)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "genre-invalid", "Pick one of the story genres.", "genreId");
+        return genre;
+    }
+
+    /// <summary>
+    /// The genre's picture style, voice and look, for whatever the person left at its default. Its music query is not
+    /// copied: the script's own suggestion is more specific, and the genre's comes after it.
+    /// </summary>
+    private static StoryBuildOptions WithGenreDefaults(StoryBuildOptions o, StoryGenre genre)
+    {
+        if (string.IsNullOrWhiteSpace(o.ImageStyle)) o.ImageStyle = genre.ImageStyle;
+        if (string.IsNullOrWhiteSpace(o.SpeechStyle)) o.SpeechStyle = genre.SpeechStyle;
+        if (o.LookStyle == StoryLookStyle.Auto) o.LookStyle = genre.LookStyle;
+        return o;
+    }
+
+    private StoryBrief CheckBrief(StoryBrief brief, StoryGenre genre)
     {
         var pack = brief.Writer == StoryWriterMode.BuiltIn
-            ? StoryPacks.Find(brief.PackId) ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "pack-invalid", "Pick one of the built-in stories.", "packId")
+            ? StoryPacks.Find(brief.PackId) is { } found && string.Equals(found.GenreId, genre.Id, StringComparison.Ordinal)
+                ? found
+                : throw new StoryRunException(StoryRunErrorKind.Invalid, "pack-invalid", "Pick one of the built-in stories of this genre.", "packId")
             : null;
 
         var title = AiOutputSanitizer.ToSafeLine(brief.Title, MaxTitleChars);
@@ -800,7 +900,9 @@ public sealed partial class StoryRunService(
         if (!Enum.IsDefined(brief.Writer) || !Enum.IsDefined(brief.Format))
             throw new StoryRunException(StoryRunErrorKind.Invalid, "brief-invalid", "That writer or format is not one this app knows.", "writer");
 
-        var language = pack?.Language ?? (string.Equals(brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi");
+        var language = pack?.Language ?? (string.IsNullOrWhiteSpace(brief.Language)
+            ? genre.DefaultLanguage
+            : string.Equals(brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi");
         var seconds = pack?.TargetSeconds ?? Math.Clamp(brief.TargetSeconds <= 0 ? 150 : brief.TargetSeconds, MinTargetSeconds, MaxTargetSeconds);
 
         return new StoryBrief
@@ -811,7 +913,9 @@ public sealed partial class StoryRunService(
             TargetSeconds = seconds,
             Format = brief.Format,
             Writer = brief.Writer,
-            PackId = pack?.Id
+            PackId = pack?.Id,
+            GenreId = genre.Id,
+            Mode = genre.Mode
         };
     }
 
@@ -875,7 +979,10 @@ public sealed partial class StoryRunService(
             MusicPrompt = AiOutputSanitizer.ToSafeText(o.MusicPrompt, MusicStage.MaxPromptChars),
             LookStyle = Enum.IsDefined(o.LookStyle) ? o.LookStyle : StoryLookStyle.Auto,
             RenderWhenReady = o.RenderWhenReady,
-            AutoApprove = o.AutoApprove
+            AutoApprove = o.AutoApprove,
+            VideoSpeed = StoryVideoSpeed.Normalize(o.VideoSpeed),
+            AutoPace = o.AutoPace,
+            ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto
         };
     }
 
@@ -961,6 +1068,8 @@ public sealed partial class StoryRunService(
         var following = StoryStageIds.Building.SkipWhile(s => s != stageId).ToList();
         ResetStages(run, stageId, following);
         if (following.Contains(StoryStageIds.Render)) run.RenderJobId = null;
+        // From the render on, the project's own render still fits and only the copy at the video's speed is made again.
+        if (following.Contains(StoryStageIds.Assemble)) run.SourceRenderJobId = null;
         run.Kit = null;
         run.ErrorCode = null;
         run.ErrorMessage = null;
@@ -988,6 +1097,7 @@ public sealed partial class StoryRunService(
         ClearReviews(run);
         ResetStages(run, StoryStageIds.Visuals, StoryStageIds.Building);
         run.RenderJobId = null;
+        run.SourceRenderJobId = null;
         run.Kit = null;
         run.Status = StoryRunStatus.ScriptReady;
     }

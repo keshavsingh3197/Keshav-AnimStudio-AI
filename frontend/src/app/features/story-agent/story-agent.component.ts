@@ -1,6 +1,6 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
@@ -9,6 +9,7 @@ import {
   StoryAgentOptions,
   StoryBuildOptions,
   StoryFormat,
+  StoryGenreOption,
   StoryRunSummary,
   StoryTopic,
   StoryWriterMode,
@@ -19,6 +20,8 @@ import { StoryOptionsComponent } from './story-options.component';
 import { STATUS_LABEL, statusTone, timeAgo } from './story-agent.utils';
 
 const TOPICS_SHOWN = 8;
+/** What a run with no genre is, on the server as here. */
+const DEFAULT_GENRE = 'devotional';
 const LIST_POLL_MS = 4000;
 
 /** Lengths a story is offered in. The script is written to about this; it is a target, not a promise. */
@@ -61,6 +64,7 @@ export class StoryAgentComponent {
   readonly format = signal<StoryFormat>('Wide');
   readonly writer = signal<StoryWriterMode>('Auto');
   readonly packId = signal<string | null>(null);
+  readonly genreId = signal<string | null>(null);
   readonly options = signal<StoryBuildOptions | null>(null);
   readonly showAllTopics = signal(false);
 
@@ -69,12 +73,23 @@ export class StoryAgentComponent {
   readonly tone = statusTone;
   readonly ago = timeAgo;
 
+  readonly genres = computed<StoryGenreOption[]>(() => this.caps()?.genres ?? []);
+  /** The genre picked; null only on a server from before genres, which made devotional stories. */
+  readonly genre = computed<StoryGenreOption | null>(() => this.genres().find((g) => g.id === this.genreId()) ?? this.genres()[0] ?? null);
+  readonly scripture = computed(() => (this.genre()?.mode ?? 'Scripture') === 'Scripture');
+
+  private readonly allTopics = computed<StoryTopic[]>(() => this.genre()?.topics ?? this.caps()?.topics ?? []);
   readonly topics = computed<StoryTopic[]>(() => {
-    const all = this.caps()?.topics ?? [];
+    const all = this.allTopics();
     return this.showAllTopics() ? all : all.slice(0, TOPICS_SHOWN);
   });
-  readonly hiddenTopics = computed(() => Math.max(0, (this.caps()?.topics.length ?? 0) - TOPICS_SHOWN));
-  readonly pack = computed(() => this.caps()?.packs.find((pack) => pack.id === this.packId()) ?? null);
+  readonly hiddenTopics = computed(() => Math.max(0, this.allTopics().length - TOPICS_SHOWN));
+  /** Only the built-in stories written for the genre picked. */
+  readonly packs = computed(() => {
+    const genre = this.genre()?.id ?? DEFAULT_GENRE;
+    return (this.caps()?.packs ?? []).filter((pack) => (pack.genreId ?? DEFAULT_GENRE) === genre);
+  });
+  readonly pack = computed(() => this.packs().find((pack) => pack.id === this.packId()) ?? null);
   readonly titleTooShort = computed(() => this.writer() !== 'BuiltIn' && this.title().trim().length < 3);
 
   /** Why Start is not pressed yet, in words, or null when it can be. */
@@ -92,10 +107,17 @@ export class StoryAgentComponent {
   private destroyed = false;
 
   constructor() {
+    // `?title=&notes=&format=` - an idea from the channel analysis or a series, to start a story from.
+    const query = inject(ActivatedRoute).snapshot.queryParamMap;
+    const format = query.get('format');
+    if (query.get('title')) this.title.set(query.get('title')!.slice(0, 160));
+    if (query.get('notes')) this.notes.set(query.get('notes')!.slice(0, 2000));
+
     this.stories.options().subscribe({
       next: (caps) => {
         this.caps.set(caps);
         this.applyDefaults(caps);
+        if (format === 'Wide' || format === 'Vertical') this.format.set(format);
       },
       error: (failure: unknown) => this.capsError.set(failure instanceof ApiFailure ? failure.message : 'The Story Agent could not be reached.'),
     });
@@ -129,9 +151,31 @@ export class StoryAgentComponent {
       musicVolume: 0.2,
       renderWhenReady: caps.renderer,
       autoApprove: false,
+      artStyle: 'Auto',
     });
     this.writer.set(caps.textModel ? 'Auto' : 'Manual');
-    this.packId.set(caps.packs[0]?.id ?? null);
+    const first = caps.genres?.[0];
+    if (first) this.setGenre(first);
+    else this.packId.set(caps.packs[0]?.id ?? null);
+  }
+
+  /**
+   * Picks a genre and fills in what comes with it - language, length, shape, the picture style, the voice's delivery
+   * and the look - so the story is made the genre's way unless the person changes something afterwards.
+   */
+  setGenre(genre: StoryGenreOption): void {
+    this.genreId.set(genre.id);
+    this.showAllTopics.set(false);
+    this.startError.set(null);
+    this.language.set(genre.defaultLanguage === 'en' ? 'en' : 'hi');
+    this.format.set(genre.defaultFormat);
+    const minutes = genre.defaultTargetSeconds / 60;
+    this.minutes.set(LENGTHS.reduce((best, l) => (Math.abs(l.minutes - minutes) < Math.abs(best.minutes - minutes) ? l : best)).minutes);
+    this.options.update((o) => (o ? { ...o, imageStyle: genre.imageStyle, speechStyle: genre.speechStyle, lookStyle: genre.lookStyle } : o));
+
+    const packs = this.packs();
+    this.packId.set(packs[0]?.id ?? null);
+    if (this.writer() === 'BuiltIn' && packs.length === 0) this.writer.set(this.caps()?.textModel ? 'Auto' : 'Manual');
   }
 
   // ------------------------------------------------------------------------------------------------ the list
@@ -190,6 +234,7 @@ export class StoryAgentComponent {
       format: this.format(),
       writer: this.writer(),
       packId: builtIn ? (this.packId() ?? undefined) : undefined,
+      genreId: this.genre()?.id,
       options: this.options() ?? undefined,
     };
 

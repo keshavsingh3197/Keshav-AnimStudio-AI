@@ -118,7 +118,7 @@ public sealed class AuthController(
                 ContentType = "application/json"
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Failed to authenticate via central IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -172,7 +172,7 @@ public sealed class AuthController(
                 ContentType = "application/json"
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Failed to verify 2FA via central IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -219,7 +219,7 @@ public sealed class AuthController(
                 ContentType = "application/json"
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Failed to confirm session via central IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -259,7 +259,7 @@ public sealed class AuthController(
                 ContentType = "application/json"
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Failed to begin passkey login via IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -300,7 +300,7 @@ public sealed class AuthController(
                 ContentType = "application/json"
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Failed to complete passkey login via IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -342,7 +342,9 @@ public sealed class AuthController(
                 ContentType = "application/json"
             };
         }
-        catch (Exception ex)
+        // A closed tab or reload cancels ct mid-request; that is not an IdP outage, so it
+        // propagates and GlobalExceptionHandler drops it quietly instead of logging an error.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Silent SSO session refresh failed.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -419,7 +421,7 @@ public sealed class AuthController(
                     return ((int)confirmResp.StatusCode, confirmContent);
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 logger.LogWarning(ex, "Failed to auto-confirm session conflict.");
             }

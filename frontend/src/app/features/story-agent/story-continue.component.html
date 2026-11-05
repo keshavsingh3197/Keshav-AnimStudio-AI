@@ -1,0 +1,118 @@
+@let r = run();
+<section class="card sc" aria-labelledby="sc-title">
+  <div class="sc-head">
+    <div>
+      <h3 id="sc-title">Continue the story</h3>
+      <p class="muted">
+        @if (r.series) {
+          Part {{ part() }} of <strong [attr.lang]="r.brief.language">{{ seriesName() }}</strong>.
+          <a routerLink="/story-agent/series" [queryParams]="{ id: r.series.id }">See the whole series</a>
+        } @else {
+          Make Part 2 of this story: the writer is given the story so far, how this part ended and who is in it, so it carries
+          straight on. It uses the same voice, music and look.
+        }
+      </p>
+    </div>
+  </div>
+
+  @if (error(); as problem) {
+    <div class="notice error" role="alert">{{ problem }}</div>
+  }
+
+  @if (!ready()) {
+    <p class="muted">Once this part's script is written and nothing is being made, you can continue it here.</p>
+  } @else {
+    @if (r.nextRunId) {
+      <div class="sc-next" role="status">
+        <span>Part {{ nextPart() }} has been started from this one.</span>
+        <a class="sc-open" [routerLink]="['/story-agent', r.nextRunId]">Open Part {{ nextPart() }} →</a>
+        <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="make(undefined, true)"
+                title="Start another version of the next part, as written below">
+          @if (busy() === 'continue') { <span class="spinner" aria-hidden="true"></span> }
+          Make another take
+        </button>
+      </div>
+    }
+
+    <!-- Ideas: suggested once and kept, so they cost nothing to see again. -->
+    <div class="sc-ideas">
+      <div class="sc-ideas-head">
+        <h4>Ideas for Part {{ nextPart() }}</h4>
+        @if (ideas().length > 0) {
+          <span class="muted sc-by">{{ r.nextPartsBy === 'built-in' ? 'from the script (no text model on)' : 'suggested by ' + r.nextPartsBy }}</span>
+          <button type="button" class="secondary small" [disabled]="busy() !== null" (click)="suggest(true)">
+            @if (busy() === 'fresh') { <span class="spinner" aria-hidden="true"></span> }
+            New ideas
+          </button>
+        }
+      </div>
+
+      @if (ideas().length === 0) {
+        <button type="button" [disabled]="busy() !== null" (click)="suggest(false)">
+          @if (busy() === 'ideas') { <span class="spinner" aria-hidden="true"></span> }
+          ✨ Suggest what happens next
+        </button>
+      } @else {
+        <ul class="sc-idea-list">
+          @for (idea of ideas(); track $index) {
+            <li class="sc-idea">
+              <strong [attr.lang]="r.brief.language">{{ idea.title }}</strong>
+              @if (idea.hook) { <span class="sc-hook">{{ idea.hook }}</span> }
+              <p class="muted">{{ idea.notes }}</p>
+              @if (!r.nextRunId) {
+                <button type="button" class="small" [disabled]="busy() !== null" (click)="make($index)">
+                  @if (busy() === 'continue') { <span class="spinner" aria-hidden="true"></span> }
+                  Make this Part {{ nextPart() }}
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <!-- Their own idea. -->
+    <details class="sc-own" [open]="ideas().length === 0 && !r.nextRunId">
+      <summary>Or write your own Part {{ nextPart() }}</summary>
+      <div class="sc-field">
+        <label for="sc-own-title">Title (leave empty for "{{ seriesName() }} - Part {{ nextPart() }}")</label>
+        <input id="sc-own-title" type="text" maxlength="160" [value]="title()" (input)="title.set(text($event))" />
+      </div>
+      <div class="sc-field">
+        <label for="sc-own-notes">What happens in it (optional)</label>
+        <textarea id="sc-own-notes" rows="3" maxlength="2000" [value]="notes()" (input)="notes.set(text($event))"></textarea>
+      </div>
+      @if (!r.nextRunId) {
+        <button type="button" [disabled]="busy() !== null" (click)="make()">
+          @if (busy() === 'continue') { <span class="spinner" aria-hidden="true"></span> }
+          Make Part {{ nextPart() }}
+        </button>
+      }
+    </details>
+
+    <!-- Going on by itself. -->
+    <div class="sc-auto">
+      @if (!r.nextRunId) {
+        <label for="sc-ahead">After Part {{ nextPart() }}, keep making parts by themselves</label>
+        <select id="sc-ahead" (change)="ahead.set(+text($event))">
+          <option value="0" [selected]="ahead() === 0">No - I'll decide each time</option>
+          @for (n of aheadChoices; track n) {
+            <option [value]="n" [selected]="ahead() === n">Up to Part {{ nextPart() + n }}</option>
+          }
+        </select>
+      } @else if (r.status === 'Completed' || autoTo()) {
+        <label for="sc-auto">From this part on, start each next part by itself</label>
+        <select id="sc-auto" [disabled]="busy() !== null" (change)="setAuto($event)">
+          <option value="0" [selected]="!autoTo()">Off</option>
+          @for (n of aheadChoices; track n) {
+            <option [value]="n" [selected]="aheadOf(autoTo()) === n">Up to Part {{ part() + n }}</option>
+          }
+        </select>
+      }
+      <p class="muted sc-note">
+        Each part made by itself takes the first idea and your same choices. It still stops for your review unless you
+        chose to skip reviews, so nothing is published without you.
+      </p>
+    </div>
+  }
+</section>

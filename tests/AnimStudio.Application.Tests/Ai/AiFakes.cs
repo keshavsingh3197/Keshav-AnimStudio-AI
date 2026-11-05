@@ -69,6 +69,16 @@ internal sealed class InMemoryAiUsageRepository : IAiUsageRepository
     public Task<IReadOnlyList<AiUsageDailyTotal>> SummarizeAsync(
         string fromDayBucket, string toDayBucket, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<AiUsageDailyTotal>>([]);
+
+    public Task<IReadOnlyList<AiModelRequestCount>> CountBillableRequestsByModelAsync(DateTime sinceUtc, CancellationToken ct)
+    {
+        if (ReadFailure is not null) throw ReadFailure;
+
+        return Task.FromResult<IReadOnlyList<AiModelRequestCount>>([.. _records
+            .Where(r => r.CreatedAt >= sinceUtc && r.Outcome is AiCallOutcome.Succeeded or AiCallOutcome.Failed)
+            .GroupBy(r => (r.ProviderId, r.Model))
+            .Select(g => new AiModelRequestCount(g.Key.ProviderId, g.Key.Model, g.Sum(r => (long)Math.Max(1, r.RequestCount))))]);
+    }
 }
 
 /// <summary>A quota guard the test drives directly, so executor tests need no repository.</summary>

@@ -134,7 +134,7 @@ public sealed class VoiceoverController(
             descriptor?.DisplayName ?? provider.Id.Value,
             configured?.IsLocal ?? descriptor?.RunsLocally ?? false,
             configured?.Model ?? descriptor?.DefaultModel,
-            [.. (descriptor?.Models ?? []).Select(m => new VoiceoverModelResponse(m.Id, m.Label))],
+            [.. (descriptor?.Models ?? []).Select(m => new VoiceoverModelResponse(m.Id, m.Label, m.Detail, m.Recommended))],
             SupportsStyle(provider.Id.Value));
     }
 

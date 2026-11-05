@@ -119,3 +119,6 @@ fieldset.se-fields:disabled { opacity: .72; }
 .se-clip { margin-top: 0.5rem; border-top: 1px dashed var(--border, #ddd); padding-top: 0.4rem; }
 .se-clip > summary { cursor: pointer; font-size: 0.85rem; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
 .se-clip .pill { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.se-anim { margin-top: 0.4rem; }
+.se-anim > summary { cursor: pointer; font-size: 0.82rem; color: var(--text-dim); }
+.se-anim-text { margin: 0.35rem 0; font-size: 0.8rem; line-height: 1.45; color: var(--muted); white-space: pre-wrap; }

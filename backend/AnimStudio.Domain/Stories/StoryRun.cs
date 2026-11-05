@@ -93,6 +93,12 @@ public sealed class StoryRun
     public StoryBrief Brief { get; set; } = new();
     public StoryBuildOptions Options { get; set; } = new();
 
+    /// <summary>
+    /// The genre as it was when the run started: the prompt, the topics, the tags and links all come from this copy, so
+    /// editing the genre later does not change a story already under way. Null on runs from before genres.
+    /// </summary>
+    public StoryGenre? Genre { get; set; }
+
     public StoryRunStatus Status { get; set; } = StoryRunStatus.Researching;
     public List<StoryStageState> Stages { get; set; } = [];
 
@@ -138,8 +144,43 @@ public sealed class StoryRun
     /// <summary>How long the finished video runs, in seconds.</summary>
     public double TotalSeconds { get; set; }
 
+    /// <summary>
+    /// The story's video: what is watched, downloaded and sent to YouTube. The project's own render, or the copy of it at
+    /// <see cref="StoryBuildOptions.VideoSpeed"/> when the speed is not 1.
+    /// </summary>
     public string? RenderJobId { get; set; }
+
+    /// <summary>
+    /// The project's own render, at the pace it was built. Kept when only the speed changes so a new speed is a quick copy
+    /// of it instead of a whole new render. Null on runs from before speeds existed (their <see cref="RenderJobId"/> is it).
+    /// </summary>
+    public string? SourceRenderJobId { get; set; }
+
+    /// <summary>
+    /// The speed <see cref="SceneStarts"/> and <see cref="TotalSeconds"/> are measured at: 1 when the project is built,
+    /// the video's speed once the copy at that speed exists. Narration lengths and pauses are always at 1.
+    /// </summary>
+    public double TimingSpeed { get; set; } = 1.0;
+
     public StoryPublishKit? Kit { get; set; }
+
+    /// <summary>The series this run is a part of; null for a story nobody has continued.</summary>
+    public StorySeriesLink? Series { get; set; }
+
+    /// <summary>
+    /// Ideas for the part after this one. Kept once suggested, so opening the story again costs no model call; asked for
+    /// afresh only when the person wants new ones.
+    /// </summary>
+    public List<StoryNextPartIdea> NextParts { get; set; } = [];
+
+    /// <summary>The text engine that suggested <see cref="NextParts"/>, or <c>built-in</c> when they were worked out here.</summary>
+    public string? NextPartsBy { get; set; }
+
+    /// <summary>The part started from this one, so it is not continued twice by accident.</summary>
+    public string? NextRunId { get; set; }
+
+    /// <summary>How fast the narration came out, once it exists.</summary>
+    public StoryPace? Pace { get; set; }
 
     /// <summary>The background track chosen for the video, kept so a retry does not download another.</summary>
     public StoryMusicPick? Music { get; set; }
@@ -190,9 +231,31 @@ public sealed class StoryRun
         }
     }
 
-    public StoryStageState Stage(string id) =>
-        Stages.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))
-        ?? throw new InvalidOperationException($"The run has no '{id}' stage.");
+    /// <remarks>
+    /// A run saved before a stage existed gets it here, in its place: pending when nothing after it has happened yet,
+    /// otherwise skipped, so a finished story does not suddenly look unfinished.
+    /// </remarks>
+    public StoryStageState Stage(string id)
+    {
+        var found = Stages.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal));
+        if (found is not null) return found;
+
+        var order = StoryStageIds.All.ToList();
+        var position = order.IndexOf(id);
+        if (position < 0) throw new InvalidOperationException($"The run has no '{id}' stage.");
+
+        var later = Stages.Where(s => order.IndexOf(s.Id) > position).ToList();
+        var state = new StoryStageState
+        {
+            Id = id,
+            Status = later.Any(s => s.Status != StoryStageStatus.Pending) ? StoryStageStatus.Skipped : StoryStageStatus.Pending,
+            Progress = 0
+        };
+
+        var before = later.Count == 0 ? Stages.Count : Stages.IndexOf(later[0]);
+        Stages.Insert(before, state);
+        return state;
+    }
 
     /// <summary>A run starts with every stage pending, so a client can draw the whole timeline at once.</summary>
     public static List<StoryStageState> NewStages() =>

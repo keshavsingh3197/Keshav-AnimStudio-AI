@@ -21,3 +21,4 @@ fieldset.so:disabled { opacity: .6; }
 .so-more[open] > summary { margin-bottom: .55rem; }
 .so-off { opacity: .55; }
 .seg > label.so-off { cursor: not-allowed; }
+.so-subtitle { margin-top: .35rem; }

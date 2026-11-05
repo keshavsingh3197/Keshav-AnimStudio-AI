@@ -221,6 +221,29 @@ BEGIN
     CREATE INDEX IX_VoiceProfiles_UserId ON VoiceProfiles (UserId);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StoryGenres')
+BEGIN
+    CREATE TABLE StoryGenres (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        SortOrder INT NOT NULL DEFAULT 0,
+        Enabled BIT NOT NULL DEFAULT 1,
+        UpdatedAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YouTubeChannelAnalyses')
+BEGIN
+    CREATE TABLE YouTubeChannelAnalyses (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        ChannelId NVARCHAR(64) NOT NULL,
+        UpdatedAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_YouTubeChannelAnalyses_User ON YouTubeChannelAnalyses (UserId, ChannelId, UpdatedAt DESC);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
 BEGIN
     CREATE TABLE WebSettings (

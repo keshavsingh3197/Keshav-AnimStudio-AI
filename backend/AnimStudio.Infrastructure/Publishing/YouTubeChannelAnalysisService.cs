@@ -1,0 +1,234 @@
+using AnimStudio.Application.Abstractions.Ai;
+using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Ai;
+using AnimStudio.Application.Publishing;
+using AnimStudio.Domain.Publishing;
+using Microsoft.Extensions.Logging;
+
+namespace AnimStudio.Infrastructure.Publishing;
+
+/// <summary>A connected channel and what was last found out about it; <see cref="Analysis"/> is null before the first read.</summary>
+public sealed record YouTubeChannelAnalysisView(
+    YouTubeConnectionStatus Channel,
+    YouTubeChannelAnalysis? Analysis,
+    YouTubeChannelInsights? Insights,
+    bool CanRefresh,
+    DateTime? NextRefreshAtUtc);
+
+/// <summary>Why an analysis could not be read or made. The message is safe to show.</summary>
+public sealed class YouTubeAnalysisException(string code, string message, bool notFound = false) : Exception(message)
+{
+    public string Code { get; } = code;
+    public bool NotFound { get; } = notFound;
+}
+
+/// <summary>
+/// Reads a connected channel's recent uploads and their counters, keeps them, and turns them into advice. The page opens
+/// from what was kept - no call to YouTube, no model - and each is asked again only when it can tell something new.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A refresh costs a few units of the server's daily YouTube quota (one list call per 50 uploads, one details and one
+/// counters call per 50 videos), so the numbers are read again at most every <see cref="MinRefresh"/>, and only when asked.
+/// </para>
+/// <para>
+/// A plan is written by the text model once per set of numbers and goal: asking again with nothing changed gives back the
+/// same plan. With no model on, the plan is made from the findings by fixed rules, so the page is useful either way.
+/// </para>
+/// </remarks>
+public sealed class YouTubeChannelAnalysisService(
+    IYouTubeChannelAnalysisRepository analyses,
+    YouTubeConnectionStore connections,
+    YouTubeOAuthClient oauth,
+    YouTubeStatsClient stats,
+    YouTubeChannelVideosClient videos,
+    IAiExecutor ai,
+    IPromptLibrary prompts,
+    TimeProvider clock,
+    ILogger<YouTubeChannelAnalysisService> logger)
+{
+    /// <summary>The numbers are not read again sooner than this, however often refresh is pressed.</summary>
+    public static readonly TimeSpan MinRefresh = TimeSpan.FromMinutes(30);
+
+    /// <summary>How many of the newest uploads are read.</summary>
+    public const int MaxVideos = 100;
+
+    public const int MaxGoalChars = 300;
+
+    public async Task<IReadOnlyList<YouTubeChannelAnalysisView>> ListAsync(string userId, CancellationToken ct)
+    {
+        var channels = await connections.ListAsync(userId, ct).ConfigureAwait(false);
+        var kept = await analyses.ListByUserAsync(userId, ct).ConfigureAwait(false);
+        var now = Now;
+        return [.. channels.Select(c => View(c, kept.FirstOrDefault(a => a.ChannelId == c.ChannelId), now))];
+    }
+
+    public async Task<YouTubeChannelAnalysisView> GetAsync(string userId, string channelId, CancellationToken ct)
+    {
+        var channel = await OwnedChannelAsync(userId, channelId, ct).ConfigureAwait(false);
+        return View(channel, await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false), Now);
+    }
+
+    /// <summary>Reads the channel's numbers from YouTube again, unless they were read less than <see cref="MinRefresh"/> ago.</summary>
+    public async Task<YouTubeChannelAnalysisView> RefreshAsync(string userId, string channelId, CancellationToken ct)
+    {
+        var channel = await OwnedChannelAsync(userId, channelId, ct).ConfigureAwait(false);
+        var analysis = await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false);
+        var now = Now;
+
+        if (analysis is not null && analysis.FetchError is null && now - analysis.FetchedAtUtc < MinRefresh)
+            return View(channel, analysis, now);
+
+        if (!oauth.IsConfigured)
+            throw new YouTubeAnalysisException("youtube-not-configured", "YouTube isn't set up on this server.");
+        if (channel.NeedsReconnect)
+            throw new YouTubeAnalysisException("youtube-reconnect", "YouTube access for this channel has expired or was removed. Connect the channel again.");
+
+        analysis ??= new YouTubeChannelAnalysis { Id = $"yca_{Guid.NewGuid():n}", UserId = userId, ChannelId = channelId };
+        analysis.ChannelTitle = channel.ChannelTitle;
+
+        try
+        {
+            var token = await connections.GetAccessTokenAsync(userId, channelId, ct).ConfigureAwait(false);
+            var counters = await stats.GetMyChannelAsync(token, ct).ConfigureAwait(false);
+            var uploads = await videos.ListUploadsDetailedAsync(token, channelId, MaxVideos, ct).ConfigureAwait(false);
+
+            var numbers = new Dictionary<string, YouTubeVideoStats>(StringComparer.Ordinal);
+            foreach (var batch in uploads.Select(u => u.VideoId).Where(YouTubeRelatedVideos.IsVideoId).Distinct().Chunk(YouTubeStatsClient.MaxIdsPerCall))
+                foreach (var (id, s) in await stats.GetVideosAsync(batch, token, ct).ConfigureAwait(false))
+                    numbers[id] = s;
+
+            analysis.Subscribers = counters?.Subscribers;
+            analysis.TotalViews = counters?.Views;
+            analysis.TotalVideos = counters?.Videos;
+            analysis.Videos = [.. uploads.Select(u =>
+            {
+                numbers.TryGetValue(u.VideoId, out var n);
+                return new YouTubeAnalyzedVideo
+                {
+                    VideoId = u.VideoId,
+                    Title = u.Title,
+                    PublishedAtUtc = u.ScheduledAt is { } at && at > now ? null : u.PublishedAt,
+                    DurationSeconds = u.DurationSeconds,
+                    // A video scheduled to go public later is private until then.
+                    Privacy = u.ScheduledAt is { } later && later > now ? "private" : u.PrivacyStatus,
+                    Views = n?.Views,
+                    Likes = n?.Likes,
+                    Comments = n?.Comments,
+                    ThumbnailUrl = u.ThumbnailUrl,
+                    Tags = [.. u.Tags.Take(8)]
+                };
+            })];
+            analysis.FetchedAtUtc = now;
+            analysis.FetchError = null;
+        }
+        catch (YouTubePublishException ex)
+        {
+            // Our own user-safe sentence, never Google's raw answer. The numbers read before are kept.
+            logger.LogInformation("Couldn't read YouTube numbers for the analysis of channel {ChannelId}: {Code}", channelId, ex.Code);
+            analysis.FetchError = ex.Message;
+        }
+
+        analysis.UpdatedAtUtc = now;
+        await analyses.UpsertAsync(analysis, ct).ConfigureAwait(false);
+        return View(channel, analysis, now);
+    }
+
+    /// <summary>
+    /// The advice and the plan. The kept plan is given back while the numbers and the goal are unchanged, unless
+    /// <paramref name="fresh"/> asks the model to think again.
+    /// </summary>
+    public async Task<YouTubeChannelAnalysisView> PlanAsync(string userId, string channelId, string? goal, bool fresh, CancellationToken ct)
+    {
+        var channel = await OwnedChannelAsync(userId, channelId, ct).ConfigureAwait(false);
+        var analysis = await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false);
+        if (analysis is null || analysis.Videos.Count == 0)
+        {
+            var refreshed = await RefreshAsync(userId, channelId, ct).ConfigureAwait(false);
+            analysis = refreshed.Analysis;
+            if (analysis is null || analysis.Videos.Count == 0)
+                throw new YouTubeAnalysisException("no-videos", analysis?.FetchError ?? "This channel has no videos to analyse yet.");
+        }
+
+        var now = Now;
+        var cleanGoal = AiOutputSanitizer.ToSafeLine(goal, MaxGoalChars);
+        var fingerprint = YouTubeChannelAnalyzer.Fingerprint(analysis, cleanGoal);
+        if (!fresh && analysis.Report is { } kept && kept.DataFingerprint == fingerprint)
+            return View(channel, analysis, now);
+
+        var insights = YouTubeChannelAnalyzer.Insights(analysis, now);
+        var report = await AskAsync(analysis, insights, cleanGoal, fresh, now, ct).ConfigureAwait(false)
+                     ?? YouTubeChannelAnalyzer.RuleReport(analysis, insights, cleanGoal, now);
+        report.DataFingerprint = fingerprint;
+        report.Goal = cleanGoal;
+        report.CreatedAtUtc = now;
+
+        analysis.Report = report;
+        analysis.UpdatedAtUtc = now;
+        await analyses.UpsertAsync(analysis, ct).ConfigureAwait(false);
+        return View(channel, analysis, now);
+    }
+
+    private async Task<YouTubeChannelReport?> AskAsync(
+        YouTubeChannelAnalysis analysis, YouTubeChannelInsights insights, string? goal, bool fresh, DateTime now, CancellationToken ct)
+    {
+        RenderedPrompt rendered;
+        try
+        {
+            rendered = await prompts.RenderAsync(BuiltInPrompts.YouTubeChannelPlan, new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["channel"] = YouTubeChannelAnalyzer.ChannelBlock(analysis, insights),
+                ["videos"] = YouTubeChannelAnalyzer.VideosBlock(analysis, now),
+                ["goal"] = goal ?? "(none)"
+            }, ct).ConfigureAwait(false);
+        }
+        catch (PromptTemplateException ex)
+        {
+            logger.LogError("The {Template} prompt could not be rendered: {Code}", BuiltInPrompts.YouTubeChannelPlan, ex.Code);
+            return null;
+        }
+
+        var outcome = await ai.TextAsync(new AiTextRequest
+        {
+            SystemPrompt = rendered.SystemPrompt,
+            Prompt = rendered.Body,
+            JsonSchema = rendered.OutputJsonSchema,
+            PromptTemplateKey = rendered.TemplateKey,
+            PromptTemplateVersion = rendered.Version,
+            MaxOutputTokens = 4_000,
+            Temperature = 0.4,
+            BypassCache = fresh
+        }, new AiCallContext(null, analysis.UserId), ct).ConfigureAwait(false);
+
+        if (!outcome.IsSuccess)
+        {
+            logger.LogInformation("No channel plan from a text model ({Kind}); using the built-in rules.", outcome.Kind);
+            return null;
+        }
+
+        var report = YouTubeChannelAnalyzer.ParseReport(outcome.Value!.Text);
+        if (report is not null) report.By = outcome.Value.Provenance.ProviderId;
+        return report;
+    }
+
+    private async Task<YouTubeConnectionStatus> OwnedChannelAsync(string userId, string channelId, CancellationToken ct)
+    {
+        // Only a channel this person connected; anyone else's answers as one that does not exist.
+        var channels = await connections.ListAsync(userId, ct).ConfigureAwait(false);
+        return channels.FirstOrDefault(c => string.Equals(c.ChannelId, channelId, StringComparison.Ordinal))
+            ?? throw new YouTubeAnalysisException("channel-not-found", "That channel isn't connected to your account.", notFound: true);
+    }
+
+    private YouTubeChannelAnalysisView View(YouTubeConnectionStatus channel, YouTubeChannelAnalysis? analysis, DateTime now)
+    {
+        var next = analysis is { FetchError: null } ? analysis.FetchedAtUtc + MinRefresh : (DateTime?)null;
+        return new YouTubeChannelAnalysisView(
+            channel,
+            analysis,
+            analysis is null ? null : YouTubeChannelAnalyzer.Insights(analysis, now),
+            oauth.IsConfigured && !channel.NeedsReconnect && (next is null || next <= now),
+            next is { } at && at > now ? DateTime.SpecifyKind(at, DateTimeKind.Utc) : null);
+    }
+
+    private DateTime Now => clock.GetUtcNow().UtcDateTime;
+}

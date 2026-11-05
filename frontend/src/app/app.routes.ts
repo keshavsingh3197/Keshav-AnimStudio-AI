@@ -126,6 +126,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'story-agent/series',
+    title: 'Series - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-series.component').then((m) => m.StorySeriesComponent),
+  },
+
+  {
     path: 'story-agent/:runId',
     title: 'Story - AnimStudio AI',
     loadComponent: () =>
@@ -196,6 +203,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/youtube/youtube-dashboard.component')
         .then((m) => m.YouTubeDashboardComponent),
+  },
+
+  {
+    path: 'youtube/analysis',
+    title: 'Channel analysis - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
+    loadComponent: () =>
+      import('./features/youtube/channel-analysis.component')
+        .then((m) => m.ChannelAnalysisComponent),
   },
 
   {
@@ -359,6 +375,12 @@ export const routes: Routes = [
         title: 'Storage - AnimStudio AI',
         loadComponent: () =>
           import('./features/admin/admin-storage.component').then((m) => m.AdminStorageComponent),
+      },
+      {
+        path: 'story-genres',
+        title: 'Story genres - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-story-genres.component').then((m) => m.AdminStoryGenresComponent),
       },
       {
         path: 'usage',

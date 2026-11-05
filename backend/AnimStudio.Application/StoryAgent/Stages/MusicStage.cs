@@ -1,9 +1,11 @@
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Music;
+using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Music;
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Stories;
 using Microsoft.Extensions.Logging;
@@ -19,13 +21,18 @@ namespace AnimStudio.Application.StoryAgent.Stages;
 /// is skipped and the video is made without it, with the reason said.
 /// </remarks>
 public sealed class MusicStage(
-    IMusicCatalog catalog, IObjectStore store, IAiProviderRegistry registry, ILogger<MusicStage> logger) : IStoryStage
+    IMusicCatalog catalog,
+    IObjectStore store,
+    IAiProviderRegistry registry,
+    ILogger<MusicStage> logger,
+    IAiUsageRepository? usage = null,
+    TimeProvider? clock = null) : IStoryStage
 {
     /// <summary>What a composed track's pick is filed under.</summary>
     public const string ComposedProvider = "google-lyria";
 
     /// <summary>The full-length model first (a track as long as the video), then the 30-second clip the renderer loops.</summary>
-    private static readonly string[] ComposerModels = ["lyria-3.5", "lyria-3-clip-preview"];
+    public static readonly IReadOnlyList<string> ComposerModels = ["lyria-3.5", "lyria-3-clip-preview"];
 
     private const int MinComposedSeconds = 30;
     private const int MaxComposedSeconds = 180;
@@ -150,6 +157,46 @@ public sealed class MusicStage(
         }
     }
 
+    /// <summary>
+    /// True when a build with these options would ask the composer for a track (a paid request): music is on, it is not
+    /// to be searched for, a composer is set up, and there is no track from before that the stage keeps.
+    /// </summary>
+    public static bool WillCompose(StoryRun run, bool composerConfigured)
+    {
+        if (!run.Options.Music || run.Options.MusicSource == StoryMusicSource.Search || !composerConfigured) return false;
+        if (!StoryObjectKeys.Owns(run.Id, run.Music?.StorageKey)) return true;
+        return run.Music!.Provider is not (ComposedProvider or UploadedProvider);
+    }
+
+    /// <summary>
+    /// Kept with the other AI calls so the check before a build knows how many of the day's composer requests are gone.
+    /// Never fails the stage: the record is bookkeeping, the track is what matters.
+    /// </summary>
+    private async Task RecordAsync(StoryRun run, IMusicGeneratingProvider composer, string model, AiCallOutcome outcome, string? code, CancellationToken ct)
+    {
+        if (usage is null) return;
+        try
+        {
+            var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+            await usage.RecordAsync(new AiUsageRecord
+            {
+                ProviderId = composer.Id.Value,
+                Capability = AiCapability.Speech,
+                Model = model,
+                UserId = run.UserId,
+                DayBucket = AiUsageRecord.BucketFor(now),
+                Units = 1,
+                Outcome = outcome,
+                ErrorCode = code,
+                CreatedAt = now
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning("Story run {RunId}: the music request could not be recorded: {ErrorType}", run.Id, ex.GetType().Name);
+        }
+    }
+
     /// <summary>The configured engine that can compose music, if any.</summary>
     private IMusicGeneratingProvider? Composer() =>
         registry.SpeechChain().OfType<IMusicGeneratingProvider>().FirstOrDefault(p => p.IsConfigured);
@@ -172,9 +219,11 @@ public sealed class MusicStage(
             try
             {
                 music = await composer.GenerateMusicAsync(prompt, model, ct).ConfigureAwait(false);
+                await RecordAsync(run, composer, model, AiCallOutcome.Succeeded, null, ct).ConfigureAwait(false);
             }
             catch (AiProviderException ex)
             {
+                await RecordAsync(run, composer, model, AiCallOutcome.Failed, ex.Code, ct).ConfigureAwait(false);
                 logger.LogWarning("Story run {RunId}: {Model} could not compose music: {Code}", run.Id, model, ex.Code);
 
                 // Out of allowance or refused the key: the other model shares both.
@@ -256,11 +305,14 @@ public sealed class MusicStage(
         return prompt;
     }
 
-    /// <summary>The person's words first, then the script's own suggestion, then the topic's, then a plain devotional one.</summary>
+    /// <summary>The person's words first, then the script's own suggestion, then the topic's, then the genre's, then a plain devotional one.</summary>
     private static string Query(StoryRun run, StoryScript script)
     {
-        var topic = run.Research?.Topics.Select(t => GranthTopics.Get(t.TopicId)).OfType<GranthTopic>().FirstOrDefault();
-        foreach (var candidate in new[] { run.Options.MusicQuery, script.MusicQuery, topic?.MusicQuery })
+        var genre = StoryGenres.Of(run);
+        var topic = run.Research?.Topics
+            .Select(t => genre.Topics.FirstOrDefault(g => g.Id == t.TopicId)?.MusicQuery)
+            .FirstOrDefault(q => !string.IsNullOrWhiteSpace(q));
+        foreach (var candidate in new[] { run.Options.MusicQuery, script.MusicQuery, topic, genre.MusicQuery })
         {
             if (!string.IsNullOrWhiteSpace(candidate)) return candidate.Trim()[..Math.Min(candidate.Trim().Length, 80)];
         }

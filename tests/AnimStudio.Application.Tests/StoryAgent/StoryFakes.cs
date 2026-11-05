@@ -171,13 +171,15 @@ internal sealed class FakePrompts : IPromptLibrary
 }
 
 /// <summary>Reports which capabilities exist; the providers behind them do nothing.</summary>
-internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0, IReadOnlyList<ISpeechAiProvider>? extraSpeech = null) : IAiProviderRegistry
+internal sealed class StubRegistry(int text = 0, int image = 0, int speech = 0, IReadOnlyList<ISpeechAiProvider>? extraSpeech = null,
+    IReadOnlyList<IImageAiProvider>? extraImage = null) : IAiProviderRegistry
 {
     public IReadOnlyList<ITextAiProvider> TextChain() => [.. Enumerable.Range(0, text).Select(i => new ScriptedTextProvider($"stub-text-{i}", _ => string.Empty))];
 
     public IReadOnlyList<ITextAiProvider> UsableTextProviders() => TextChain();
 
-    public IReadOnlyList<IImageAiProvider> ImageChain() => [.. Enumerable.Range(0, image).Select(i => new ScriptedImageProvider($"stub-image-{i}", []))];
+    public IReadOnlyList<IImageAiProvider> ImageChain() =>
+        [.. Enumerable.Range(0, image).Select(i => (IImageAiProvider)new ScriptedImageProvider($"stub-image-{i}", [])), .. extraImage ?? []];
 
     public IReadOnlyList<ISpeechAiProvider> SpeechChain() =>
         [.. Enumerable.Range(0, speech).Select(i => (ISpeechAiProvider)new StubSpeech($"stub-speech-{i}")), .. extraSpeech ?? []];

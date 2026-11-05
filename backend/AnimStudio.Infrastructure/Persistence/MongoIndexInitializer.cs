@@ -134,6 +134,12 @@ public sealed class MongoIndexInitializer(
                     .Ascending(r => r.Status).Ascending(r => r.UpdatedAtUtc))
             ], ct).ConfigureAwait(false);
 
+            // A person's analysis of one channel.
+            var analyses = mongo.GetCollection<YouTubeChannelAnalysis>(MongoCollections.YouTubeChannelAnalyses);
+            await analyses.Indexes.CreateOneAsync(
+                new CreateIndexModel<YouTubeChannelAnalysis>(Builders<YouTubeChannelAnalysis>.IndexKeys
+                    .Ascending(a => a.UserId).Ascending(a => a.ChannelId)), cancellationToken: ct).ConfigureAwait(false);
+
             // The calendar lists one owner's posts by date and one topic's posts for planning;
             // the sync walks a date window across everyone.
             var contentTopics = mongo.GetCollection<ContentTopic>(MongoCollections.ContentTopics);
@@ -206,7 +212,7 @@ public sealed class MongoIndexInitializer(
 
             logger.LogInformation("Mongo indexes verified.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             // A database that is unreachable at startup must not stop the app from booting;
             // the failure will surface on the first request instead, with a clearer message.

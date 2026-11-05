@@ -1,3 +1,4 @@
+using System.Globalization;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Domain.Stories;
@@ -9,7 +10,8 @@ namespace AnimStudio.Application.StoryAgent.Stages;
 /// Speaks every scene. Each finished scene is stored the moment it is made, under a name that says what it sounds like, so
 /// a retry (or a restart halfway through a ten-minute conversion) speaks only the scenes that are not done.
 /// </summary>
-public sealed class NarrationStage(StoryNarrator narrator, IObjectStore store, ILogger<NarrationStage> logger) : IStoryStage
+public sealed class NarrationStage(
+    StoryNarrator narrator, IObjectStore store, ILogger<NarrationStage> logger, TimeProvider? clock = null) : IStoryStage
 {
     public string Id => StoryStageIds.Narration;
 
@@ -69,9 +71,38 @@ public sealed class NarrationStage(StoryNarrator narrator, IObjectStore store, I
             logger.LogInformation("Story run {RunId}: narrated scene {Scene} ({Seconds:0.0}s).", run.Id, scene.Number, line.DurationSeconds);
         }
 
-        return StoryStageOutcome.Completed(reused > 0
+        var pace = Pace(run, script);
+        return StoryStageOutcome.Completed((reused > 0
             ? $"Narration ready: {spoken} scene{(spoken == 1 ? string.Empty : "s")} spoken, {reused} kept from before."
-            : $"Narration ready in {plan.Describe()}.");
+            : $"Narration ready in {plan.Describe()}.") + pace);
+    }
+
+    /// <summary>
+    /// Measures how fast the voice came out and, when the person let the app choose the pace, makes the speed that brings
+    /// it to a comfortable one the video's speed. Returns a few words for the stage's message.
+    /// </summary>
+    private string Pace(StoryRun run, StoryScript script)
+    {
+        var measured = StoryNarrationPace.Measure(script, run.Brief.Language, StoryGenres.Of(run).MadeForKids,
+            (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
+        run.Pace = measured;
+        if (measured is null) return string.Empty;
+
+        if (run.Options.AutoPace)
+        {
+            run.Options.VideoSpeed = measured.SuggestedSpeed;
+            measured.Applied = true;
+            logger.LogInformation("Story run {RunId}: narration at {Wpm:0} words a minute; the video plays at {Speed}x.",
+                run.Id, measured.WordsPerMinute, measured.SuggestedSpeed);
+        }
+
+        var speed = measured.SuggestedSpeed.ToString("0.##", CultureInfo.InvariantCulture);
+        return measured.Verdict switch
+        {
+            "good" => " The pace is comfortable.",
+            _ when measured.Applied => $" The voice was a little {measured.Verdict}, so the video plays at {speed}x.",
+            _ => $" The voice is a little {measured.Verdict}; {speed}x would suit it."
+        };
     }
 
     private async Task<bool> ExistsAsync(string key, CancellationToken ct)

@@ -36,7 +36,7 @@ namespace AnimStudio.Infrastructure.Ai.Providers;
 /// this pipeline sizes a scene by reading its narration's length from that header.
 /// </para>
 /// </remarks>
-public sealed class GeminiSpeechProvider(
+public sealed partial class GeminiSpeechProvider(
     AiProviderId id,
     IAiHttpClientFactory clients,
     IAiSecretResolver secrets,

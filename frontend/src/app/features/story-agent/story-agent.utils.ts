@@ -235,10 +235,10 @@ export function pictureProblem(file: File): string | null {
   return null;
 }
 
-/** What the clip upload accepts: MP4, which Google Flow, Veo and phones save (`StoryRunService.MaxVideoBytes`). */
+/** What the clip upload accepts: MP4, which Google Flow and phones save (`StoryRunService.MaxVideoBytes`). */
 export const CLIP_ACCEPT = 'video/mp4,.mp4';
 export const CLIP_MAX_BYTES = 100 * 1024 * 1024;
-/** How long one generated clip is (Veo and Flow make 8 seconds); a longer scene loops it. */
+/** How long one generated clip is (Google Flow makes 8 seconds); a longer scene loops it. */
 export const CLIP_SECONDS = 8;
 
 /** Why a file cannot be used as a scene's moving clip, or null when it can. */
@@ -259,7 +259,7 @@ export interface ClipPromptScene {
 }
 
 /**
- * The clip prompts for pasting into a video tool (Google Flow or Veo), numbered like the pictures. Each clip is
+ * The clip prompts for pasting into a video tool (Google Flow), numbered like the pictures. Each clip is
  * {@link CLIP_SECONDS} seconds; a scene longer than that loops its clip, so the prompt asks for a shot that loops
  * gently, and says when a scene is long enough to be worth a second clip instead.
  */

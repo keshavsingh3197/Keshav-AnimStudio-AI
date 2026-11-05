@@ -56,7 +56,7 @@ public sealed class DriveDataSyncService(
             var total = results.Sum(r => r.Copied + r.Updated);
             return new DriveSyncReport(true, $"Sync complete. {total} records copied or updated.", results);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Drive data sync failed.");
             return new DriveSyncReport(false, $"Sync failed: {ex.Message}", results);

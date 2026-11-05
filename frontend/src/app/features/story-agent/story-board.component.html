@@ -7,6 +7,7 @@
     </div>
     <div class="sb-studio-actions">
       <input type="search" class="sb-search" placeholder="Find a story…" aria-label="Find a story" [value]="query()" (input)="query.set(text($event))" />
+      <a routerLink="/story-agent/series" class="secondary">📚 Series</a>
       <a routerLink="/story-agent" class="sb-new">＋ New story</a>
     </div>
   </div>
@@ -59,6 +60,7 @@
                 <div class="sb-card-body">
                   <a class="sb-title" [attr.lang]="run.language" [routerLink]="['/story-agent', run.id]" [queryParams]="tabFor(column)">{{ run.title }}</a>
                   <div class="sb-meta muted">
+                    @if (run.part) { <a routerLink="/story-agent/series" [queryParams]="{ id: run.seriesId }">📚 Part {{ run.part }}</a> · }
                     {{ run.language === 'en' ? 'English' : 'Hindi' }} · {{ run.format === 'Vertical' ? '9:16' : '16:9' }}
                     @if (run.sceneCount > 0) { · {{ run.sceneCount }} scenes }
                   </div>

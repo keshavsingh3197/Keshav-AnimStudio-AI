@@ -186,6 +186,13 @@ public static class StoryScriptParser
             if (mismatch)
                 warnings.Add($"Scene {number}: the characters' lines did not match the narration, so the narrator reads all of it.");
 
+            // A creative genre's story is the storyteller's own: it cites nothing and claims nothing about a text.
+            if (brief.Mode == StoryGenreMode.Creative)
+            {
+                scene.Sources = [];
+                scene.Basis = StoryBasis.Reflection;
+            }
+
             var sources = new List<StorySourceRef>();
             foreach (var source in scene.Sources.Take(8))
             {

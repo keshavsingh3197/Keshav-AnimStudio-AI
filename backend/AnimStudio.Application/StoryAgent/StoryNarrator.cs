@@ -144,6 +144,10 @@ public sealed partial class StoryNarrator(
     private static bool UsesCast(NarrationPlan plan, StoryScene scene) =>
         plan.Cast is { Count: > 0 } cast && scene.Lines.Any(l => cast.ContainsKey(l.Speaker));
 
+    /// <summary>How many requests speaking the scene sends to the engine: one, or one per run of at most two voices.</summary>
+    public static int RequestsFor(NarrationPlan plan, StoryScene scene) =>
+        UsesCast(plan, scene) ? Math.Max(1, Dialogue(plan, scene.Lines, SpeaksDialogue(plan.Engine) ? 2 : 1).Count()) : 1;
+
     /// <summary>
     /// As <see cref="Fingerprint(NarrationPlan, string)"/>, with who says which line when characters speak, and the take
     /// when the person asked for the scene again (only then, so narration made before retakes existed is still found).

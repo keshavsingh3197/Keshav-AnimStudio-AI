@@ -96,6 +96,42 @@ public sealed class StoryRunServiceTests
         var saved = world.Runs.Read(run.Id)!;
         Assert.Equal(run.Title, saved.Title);
         Assert.Equal(StoryRunStatus.Researching, saved.Status);
+        Assert.Equal(StoryGenres.DefaultId, saved.Brief.GenreId);
+        Assert.Equal(StoryGenreMode.Scripture, saved.Brief.Mode);
+    }
+
+    [Fact]
+    public async Task A_genre_is_copied_onto_the_run_and_fills_in_what_the_person_left_at_its_default()
+    {
+        var world = new World();
+
+        var run = await world.Service.CreateAsync(User, Brief(tweak: b => { b.GenreId = "funny"; b.Language = ""; }),
+            new StoryBuildOptions { ImageStyle = "my own style" }, CancellationToken.None);
+
+        Assert.Equal("funny", run.Brief.GenreId);
+        Assert.Equal(StoryGenreMode.Creative, run.Brief.Mode);
+        Assert.Equal("funny", run.Genre!.Id);
+        Assert.Equal(StoryGenres.Funny().DefaultLanguage, run.Brief.Language);
+        Assert.Equal("my own style", run.Options.ImageStyle);
+        Assert.Equal(StoryLookStyle.Lively, run.Options.LookStyle);
+    }
+
+    [Fact]
+    public async Task An_unknown_genre_or_a_pack_from_another_genre_is_refused()
+    {
+        var world = new World();
+
+        var unknown = await Assert.ThrowsAsync<StoryRunException>(() =>
+            world.Service.CreateAsync(User, Brief(tweak: b => b.GenreId = "no-such-genre"), null, CancellationToken.None));
+        Assert.Equal("genre-invalid", unknown.Code);
+
+        var pack = await Assert.ThrowsAsync<StoryRunException>(() => world.Service.CreateAsync(User, Brief(tweak: b =>
+        {
+            b.GenreId = "funny";
+            b.Writer = StoryWriterMode.BuiltIn;
+            b.PackId = StoryPacks.All[0].Id;
+        }), null, CancellationToken.None));
+        Assert.Equal("pack-invalid", pack.Code);
     }
 
     [Fact]

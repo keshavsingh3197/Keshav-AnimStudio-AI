@@ -103,6 +103,12 @@ public static class MongoMappingRegistrar
             // "sr_{guid}" - one Story Agent run: a title becoming a video.
             MapWithLiteralId<StoryRun>();
 
+            // A slug such as "devotional" - one Story Agent genre and everything bundled with it.
+            MapWithLiteralId<StoryGenre>();
+
+            // "yca_{guid}" - the last analysis of one of a person's YouTube channels.
+            MapWithLiteralId<YouTubeChannelAnalysis>();
+
             // App-assigned GUIDs - the content calendar's topics, posts and saved links.
             MapWithLiteralId<ContentTopic>();
             MapWithLiteralId<ContentPlanItem>();

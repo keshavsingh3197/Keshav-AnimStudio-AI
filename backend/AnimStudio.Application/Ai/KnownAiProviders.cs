@@ -65,7 +65,11 @@ public sealed record AiProviderDescriptor(
 }
 
 /// <summary>A model a user may pick per request, with a label that says what it trades.</summary>
-public sealed record AiModelChoice(string Id, string Label);
+/// <param name="Detail">Quality, price and daily-limit differences, shown when the model is picked.</param>
+/// <param name="Tier">Where it sits against its siblings: <c>best</c>, <c>balanced</c>, <c>cheaper</c>, <c>cheapest</c> or <c>legacy</c>.</param>
+/// <param name="Recommended">The one picked when nothing is chosen.</param>
+public sealed record AiModelChoice(
+    string Id, string Label, string? Detail = null, string? Tier = null, bool Recommended = false);
 
 /// <summary>
 /// The catalogue of providers this build can actually construct.
@@ -108,7 +112,16 @@ public static class KnownAiProviders
             "Free tier with a generous daily request allowance and very fast responses. " +
             "The best default for extraction work, which is many small calls.",
             "https://console.groq.com/keys",
-            DefaultDailyRequestLimit: 900),
+            DefaultDailyRequestLimit: 900,
+            Models:
+            [
+                new("llama-3.3-70b-versatile", "Llama 3.3 70B - best quality (recommended)",
+                    "Large model: better writing and instruction-following. Free tier with a smaller daily token allowance.",
+                    "best", Recommended: true),
+                new("llama-3.1-8b-instant", "Llama 3.1 8B Instant - fastest, larger free allowance",
+                    "Small model: much faster and a far bigger free daily allowance, but weaker writing and Hindi.",
+                    "cheaper")
+            ]),
 
         new(Gemini, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,
             "Google Gemini",
@@ -123,13 +136,34 @@ public static class KnownAiProviders
             DefaultDailyRequestLimit: 200,
             Models:
             [
-                new("gemini-3.8-flash", "3.8 Flash - latest quality default"),
-                new("gemini-3.6-flash", "3.6 Flash - previous Flash, its own free allowance"),
-                new("gemini-3.5-flash-lite", "3.5 Flash-Lite - faster, larger free allowance"),
-                new("gemini-3.1-flash-lite", "3.1 Flash-Lite - cheapest, for bulk small calls"),
-                new("gemini-flash-latest", "Flash Latest - auto-tracks current Flash release"),
-                new("gemini-2.5-flash", "2.5 Flash (deprecated - becomes 3.5 Flash-Lite on 1 Dec 2026)"),
-                new("gemini-2.5-flash-lite", "2.5 Flash-Lite (legacy, still served)")
+                new("gemini-3.8-flash", "3.8 Flash - best quality (recommended)",
+                    "Best writing and Hindi of the Flash family. Paid: $0.75 in / $3.75 out per 1M tokens " +
+                    "(doubles on 1 Jan 2027) - a short story is well under 1 cent. Tier 1: 10K requests/day. " +
+                    "Free tier without billing.",
+                    "best", Recommended: true),
+                new("gemini-3.1-pro-preview", "3.1 Pro (preview) - deepest reasoning, paid only",
+                    "Stronger reasoning than Flash but slower. $2 in / $12 out per 1M tokens - about 3x 3.8 Flash. " +
+                    "Tier 1: 250 requests/day. No free tier.",
+                    "best"),
+                new("gemini-4-argon", "Gemini 4 Argon - newest flagship, paid only",
+                    "Top quality. $2 in / $10 out per 1M tokens, rising to $4 / $20 on 1 Dec 2026. No free tier.",
+                    "best"),
+                new("gemini-3.6-flash", "3.6 Flash - previous Flash, same price",
+                    "Same price and limits as 3.8 Flash with slightly lower quality; useful if 3.8 Flash is busy.",
+                    "balanced"),
+                new("gemini-3.5-flash-lite", "3.5 Flash-Lite - cheaper and faster",
+                    "Good enough for titles and short scripts. $0.30 in / $2.50 out per 1M tokens - " +
+                    "about 2.5x cheaper input than 3.8 Flash. Tier 1: 150K requests/day.",
+                    "cheaper"),
+                new("gemini-3.1-flash-lite", "3.1 Flash-Lite - cheapest, for bulk small calls",
+                    "Lowest quality of the list. $0.25 in / $1.50 out per 1M tokens. Tier 1: 150K requests/day.",
+                    "cheapest"),
+                new("gemini-flash-latest", "Flash Latest - auto-tracks current Flash release",
+                    "Always the newest Flash, so price and quality change when Google moves the alias.",
+                    "balanced"),
+                new("gemini-2.5-flash", "2.5 Flash (deprecated - becomes 3.5 Flash-Lite on 1 Dec 2026)",
+                    null, "legacy"),
+                new("gemini-2.5-flash-lite", "2.5 Flash-Lite (legacy, still served)", null, "legacy")
             ]),
 
 
@@ -258,7 +292,7 @@ public static class KnownAiProviders
             "https://generativelanguage.googleapis.com/v1beta",
             "gemini-3.8-flash-tts",
             RunsLocally: false,
-            "Free on the AI Studio tier. 30 voices that speak any language plus Google's " +
+            "Free on an AI Studio project without billing; paid per audio token once billing is on. 30 voices that speak any language plus Google's " +
             "per-language library and any voices designed in your Google project, with a " +
             "delivery style per line. It speaks Hindi and 100+ other languages, detected from " +
             "the line itself. The free daily allowance is small, so " +
@@ -268,8 +302,20 @@ public static class KnownAiProviders
             DefaultDailyRequestLimit: 50,
             Models:
             [
-                new("gemini-3.8-flash-tts", "3.8 Flash TTS - most natural, 130+ languages"),
-                new("gemini-3.8-flash-lite-tts", "3.8 Flash-Lite TTS - faster, 100+ languages")
+                new("gemini-3.8-flash-tts", "3.8 Flash TTS - most natural voice (recommended)",
+                    "Studio-grade, expressive, steady over long narration; 130+ languages. Audio $9 per 1M tokens " +
+                    "(about $0.0023 per 10 s, roughly 1.4 cents per minute; doubles on 1 Jan 2027). Tier 1: 100 requests/day.",
+                    "best", Recommended: true),
+                new("gemini-3.8-flash-lite-tts", "3.8 Flash-Lite TTS - a third cheaper, faster",
+                    "Slightly flatter delivery; 100+ languages. Audio $6 per 1M tokens (about $0.0015 per 10 s, " +
+                    "roughly 0.9 cents per minute; doubles on 1 Jan 2027). Tier 1: 100 requests/day.",
+                    "cheaper"),
+                new("gemini-2.5-pro-preview-tts", "2.5 Pro TTS (older) - most expensive",
+                    "Older generation. Audio $20 per 1M tokens - over 2x 3.8 Flash TTS. Tier 1: 50 requests/day.",
+                    "legacy"),
+                new("gemini-2.5-flash-preview-tts", "2.5 Flash TTS (older)",
+                    "Older generation. Audio $10 per 1M tokens - costs more than 3.8 Flash TTS and sounds worse.",
+                    "legacy")
             ]),
 
         new(OpenAiTts, AiCapability.Speech, AiProviderFamily.OpenAiCompatibleTts,
@@ -314,7 +360,16 @@ public static class KnownAiProviders
             "provider id, and this is a separate id from the text provider on purpose, so " +
             "that turning one off does not turn off the other.",
             "https://console.groq.com/keys",
-            DefaultDailyRequestLimit: 300),
+            DefaultDailyRequestLimit: 300,
+            Models:
+            [
+                new("whisper-large-v3-turbo", "Whisper Large v3 Turbo - fast (recommended)",
+                    "Nearly the accuracy of Large v3 at several times the speed, and cheaper per hour once past the free tier.",
+                    "balanced", Recommended: true),
+                new("whisper-large-v3", "Whisper Large v3 - most accurate, slower",
+                    "Best accuracy, especially for Hindi and noisy audio; slower and costs more per hour.",
+                    "best")
+            ]),
 
         new(OpenAiAsr, AiCapability.Transcription, AiProviderFamily.OpenAiCompatibleAsr,
             "OpenAI-compatible transcription",

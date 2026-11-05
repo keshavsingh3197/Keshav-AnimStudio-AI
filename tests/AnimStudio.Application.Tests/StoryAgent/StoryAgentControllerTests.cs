@@ -136,7 +136,7 @@ public sealed class StoryAgentControllerTests
         Assert.Equal("Why we light diyas", shown.Title);
         Assert.Equal(StoryRunStatus.Researching, shown.Status);
         Assert.True(shown.Working);
-        Assert.Equal(8, shown.Stages.Count);
+        Assert.Equal(StoryStageIds.All.Count, shown.Stages.Count);
         Assert.Equal([shown.Id], world.Queue.Enqueued);
         Assert.Equal(Me, world.Runs.Read(shown.Id)!.UserId);
     }

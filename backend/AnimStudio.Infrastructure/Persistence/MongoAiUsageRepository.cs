@@ -72,6 +72,22 @@ public sealed class MongoAiUsageRepository(MongoDbService mongo) : IAiUsageRepos
             .OrderByDescending(t => t.DayBucket)
             .ThenBy(t => t.ProviderId)];
     }
+
+    public async Task<IReadOnlyList<AiModelRequestCount>> CountBillableRequestsByModelAsync(DateTime sinceUtc, CancellationToken ct)
+    {
+        var filter = Builders<AiUsageRecord>.Filter.And(
+            Builders<AiUsageRecord>.Filter.Gte(r => r.CreatedAt, sinceUtc),
+            Builders<AiUsageRecord>.Filter.In(r => r.Outcome, Billable));
+
+        // A day of one person's calls is a few hundred rows at most, so they are folded here.
+        var rows = await Collection.Find(filter)
+            .Project(r => new { r.ProviderId, r.Model, r.RequestCount })
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        return [.. rows
+            .GroupBy(r => (r.ProviderId, r.Model))
+            .Select(g => new AiModelRequestCount(g.Key.ProviderId, g.Key.Model, g.Sum(r => (long)Math.Max(1, r.RequestCount))))];
+    }
 }
 
 public sealed class MongoAiCredentialRepository(MongoDbService mongo) : IAiCredentialRepository

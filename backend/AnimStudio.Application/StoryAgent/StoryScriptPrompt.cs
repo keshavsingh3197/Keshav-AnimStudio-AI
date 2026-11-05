@@ -1,5 +1,6 @@
 using System.Text;
 using AnimStudio.Application.Abstractions.Ai;
+using AnimStudio.Application.Ai;
 using AnimStudio.Domain.Stories;
 
 namespace AnimStudio.Application.StoryAgent;
@@ -34,6 +35,77 @@ public static class StoryScriptPrompt
             ["research"] = ResearchBlock(research, maxResearchChars),
             ["sources"] = SourcesBlock()
         };
+
+    /// <summary>
+    /// The template a run's script is written with, and its values: the Granth prompt for a scripture genre, the creative
+    /// one - with the genre's style guide as data - for the rest.
+    /// </summary>
+    public static (string TemplateKey, IReadOnlyDictionary<string, string?> Variables) For(StoryRun run)
+    {
+        if (run.Brief.Mode != StoryGenreMode.Creative)
+        {
+            var variables = new Dictionary<string, string?>(Variables(run.Brief, run.Research), StringComparer.Ordinal)
+            {
+                ["notes"] = NotesFor(run)
+            };
+            return (BuiltInPrompts.StoryScript, variables);
+        }
+
+        var genre = StoryGenres.Of(run);
+        return (BuiltInPrompts.StoryScriptCreative, new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["title"] = run.Brief.Title,
+            ["language"] = LanguageName(run.Brief.Language),
+            ["sceneCount"] = SceneCount(run.Brief.TargetSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["notes"] = NotesFor(run),
+            ["genre"] = GenreBlock(genre),
+            ["research"] = IdeasBlock(run.Research)
+        });
+    }
+
+    /// <summary>
+    /// The creator's notes, and for a later part of a series what the writer must carry on from: the story so far, how the
+    /// last part ended, and who speaks. It goes in the notes so it reaches the model as data, whichever template is in use.
+    /// </summary>
+    public static string NotesFor(StoryRun run)
+    {
+        var notes = string.IsNullOrWhiteSpace(run.Brief.Notes) ? null : run.Brief.Notes.Trim();
+        if (run.Series is not { Part: > 1 } series) return notes ?? "(none)";
+
+        var builder = new StringBuilder();
+        builder.Append("This video is Part ").Append(series.Part).Append(" of the series \"").Append(series.Name)
+            .Append("\". Continue the story; do not retell it. Open with a one-scene reminder of where it stopped, then go on from there.\n");
+        if (!string.IsNullOrWhiteSpace(series.StorySoFar))
+            builder.Append("\nThe story so far:\n").Append(series.StorySoFar.Trim()).Append('\n');
+        if (!string.IsNullOrWhiteSpace(series.LastScene))
+            builder.Append("\nHow the last part ended:\n").Append(series.LastScene.Trim()).Append('\n');
+        if (series.Cast.Count > 0)
+        {
+            builder.Append("\nCharacters met so far - keep these exact names when they speak: ")
+                .Append(string.Join(", ", series.Cast.Select(c => c.Name))).Append('\n');
+        }
+        builder.Append("\nEnd on a moment that makes the viewer want the next part, unless the creator's notes say this part ends the story.\n");
+        if (notes is not null) builder.Append("\nThe creator's notes for this part:\n").Append(notes).Append('\n');
+        return builder.ToString().TrimEnd();
+    }
+
+    /// <summary>The genre as the writer reads it: its name, who it is for, the style guide and the moods.</summary>
+    public static string GenreBlock(StoryGenre genre)
+    {
+        var builder = new StringBuilder();
+        builder.Append("Genre: ").Append(genre.Name).Append('\n');
+        if (genre.MadeForKids) builder.Append("Audience: children\n");
+        if (genre.StyleGuide.Length > 0) builder.Append(genre.StyleGuide.Trim()).Append('\n');
+        if (genre.Moods.Count > 0) builder.Append("Moods: ").Append(string.Join(", ", genre.Moods)).Append('\n');
+        return builder.ToString().TrimEnd();
+    }
+
+    private static string IdeasBlock(StoryResearch? research)
+    {
+        if (research is null || research.Topics.Count == 0) return "(none)";
+        return string.Join('\n', research.Topics.Select(t =>
+            string.IsNullOrWhiteSpace(t.Summary) ? $"- {t.Name}" : $"- {t.Name}: {t.Summary}"));
+    }
 
     /// <summary>A literal-safe language name: a single word.</summary>
     public static string LanguageName(string? language) =>

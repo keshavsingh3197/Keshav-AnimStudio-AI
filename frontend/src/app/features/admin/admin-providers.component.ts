@@ -5,7 +5,7 @@ import { catchError, concatMap, from, map, of, toArray } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  AdminChain, AdminProvider, AdminProviderBody, AdminProviders,
+  AdminChain, AdminModelChoice, AdminProvider, AdminProviderBody, AdminProviders,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
@@ -16,6 +16,8 @@ import { CAPABILITIES, CapabilitySummary, Tone, capabilityLabel, summariseCapabi
 interface Draft {
   enabled: boolean;
   model: string;
+  /** Typing a model name rather than picking one of the listed ones. */
+  customModel: boolean;
   baseUrl: string;
   dailyRequestLimit: number | null;
   monthlyRequestLimit: number | null;
@@ -48,6 +50,8 @@ const FILTERS: readonly { id: Filter; label: string }[] = [
 ];
 const PREFS_KEY = 'animstudio.admin.providers';
 const MODEL_PATTERN = /^[A-Za-z0-9._\-/:@+]+$/;
+/** The dropdown's "type a name" entry; not a valid model name, so it can never collide with one. */
+const CUSTOM_MODEL = '<custom>';
 const OLD_KEY_DAYS = 180;
 
 /**
@@ -84,6 +88,7 @@ export class AdminProvidersComponent {
   /** The provider whose card is expanded. One at a time keeps the page scannable. */
   readonly open = signal<string | null>(null);
   readonly draft = signal<Draft | null>(null);
+  readonly customModel = CUSTOM_MODEL;
 
   readonly query = signal('');
   readonly filter = signal<Filter>('all');
@@ -219,6 +224,7 @@ export class AdminProvidersComponent {
     this.draft.set({
       enabled: provider.enabled,
       model: provider.model ?? '',
+      customModel: this.isCustomModel(provider, provider.model ?? ''),
       baseUrl: provider.baseUrl ?? '',
       dailyRequestLimit: provider.dailyRequestLimit,
       monthlyRequestLimit: provider.monthlyRequestLimit,
@@ -231,6 +237,44 @@ export class AdminProvidersComponent {
     this.open.set(null);
     this.draft.set(null);
     this.confirm.set(null);
+  }
+
+  /** A model name that is not one of the listed choices, so it needs the free-text box. */
+  isCustomModel(provider: AdminProvider, model: string): boolean {
+    const name = model.trim();
+    return !!name && !(provider.models ?? []).some((m) => m.id === name);
+  }
+
+  /** What the dropdown shows: '' for the server default, a listed id, or the custom sentinel. */
+  modelChoice(provider: AdminProvider, draft: Draft): string {
+    return draft.customModel || this.isCustomModel(provider, draft.model) ? CUSTOM_MODEL : draft.model.trim();
+  }
+
+  pickModel(draft: Draft, value: string): void {
+    const custom = value === CUSTOM_MODEL;
+    this.draft.set({ ...draft, customModel: custom, model: custom ? draft.model : value });
+  }
+
+  /** The listed model that will actually run: the picked one, or the default when nothing is picked. */
+  modelInfo(provider: AdminProvider, draft: Draft): AdminModelChoice | null {
+    const models = provider.models ?? [];
+    const name = draft.model.trim() || provider.defaultModel || '';
+    return models.find((m) => m.id === name) ?? null;
+  }
+
+  recommendedModel(provider: AdminProvider): AdminModelChoice | null {
+    return (provider.models ?? []).find((m) => m.recommended) ?? null;
+  }
+
+  tierLabel(tier: string | null): string {
+    switch (tier) {
+      case 'best': return 'Best quality';
+      case 'balanced': return 'Balanced';
+      case 'cheaper': return 'Cheaper';
+      case 'cheapest': return 'Cheapest';
+      case 'legacy': return 'Older';
+      default: return '';
+    }
   }
 
   /** What differs between the form and what is saved - the Save button's whole condition. */
@@ -307,6 +351,7 @@ export class AdminProvidersComponent {
     this.draft.set({
       ...draft,
       model: provider.model ?? '',
+      customModel: this.isCustomModel(provider, provider.model ?? ''),
       baseUrl: provider.baseUrl ?? '',
       dailyRequestLimit: provider.dailyRequestLimit,
       monthlyRequestLimit: provider.monthlyRequestLimit,

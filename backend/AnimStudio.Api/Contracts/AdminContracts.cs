@@ -62,7 +62,12 @@ public sealed record AdminProviderResponse(
     bool ExecutableConfigured,
     bool ModelFolderConfigured,
     string? DefaultBaseUrl,
-    string? DefaultModel);
+    string? DefaultModel,
+    IReadOnlyList<AdminModelChoiceResponse>? Models = null);
+
+/// <summary>A model offered in the console's dropdown, with what it trades against the others.</summary>
+public sealed record AdminModelChoiceResponse(
+    string Id, string Label, string? Detail, string? Tier, bool Recommended);
 
 /// <summary>
 /// The fallback order for one capability, and every provider that could legitimately be

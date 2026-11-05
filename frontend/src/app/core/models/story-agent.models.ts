@@ -24,6 +24,9 @@ export const REVIEW_STEP: Record<StoryReviewStage, 'voice' | 'music' | 'video'> 
 /** The feel of the motion and the cuts picked for each scene. */
 export type StoryLookStyle = 'Auto' | 'Gentle' | 'Cinematic' | 'Lively';
 
+/** The look of the pictures and the animation. Auto keeps the genre's picture style. */
+export type StoryArtStyle = 'Auto' | 'Painting' | 'Realistic' | 'Cartoon' | 'Cartoon3D';
+
 /** The picture's motion; the renderer's own names. */
 export const STORY_EFFECTS = ['None', 'ZoomIn', 'ZoomOut', 'PanLeft', 'PanRight', 'PanUp', 'PanDown'] as const;
 export type StoryEffect = (typeof STORY_EFFECTS)[number];
@@ -56,6 +59,30 @@ export interface StoryPack {
   description: string;
   language: string;
   targetSeconds: number;
+  /** The genre the pack is written for; it is only offered there. */
+  genreId: string;
+}
+
+/** `Scripture`: researched in the Granths with every source checked. `Creative`: written from the title and the genre's style. */
+export type StoryGenreMode = 'Scripture' | 'Creative';
+
+/** A kind of story, and what picking it fills in on the form. Managed under Settings → Story genres. */
+export interface StoryGenreOption {
+  id: string;
+  name: string;
+  nameHindi: string | null;
+  description: string;
+  icon: string;
+  mode: StoryGenreMode;
+  madeForKids: boolean;
+  defaultLanguage: 'hi' | 'en';
+  defaultTargetSeconds: number;
+  defaultFormat: StoryFormat;
+  lookStyle: StoryLookStyle;
+  imageStyle: string | null;
+  musicQuery: string | null;
+  speechStyle: string | null;
+  topics: StoryTopic[];
 }
 
 export interface StoryTopic {
@@ -92,6 +119,8 @@ export interface StoryAgentOptions {
   packs: StoryPack[];
   topics: StoryTopic[];
   myVoices: StoryMyVoice[];
+  /** The genres offered for a new story, in order; the first is the default. */
+  genres?: StoryGenreOption[];
 }
 
 // ------------------------------------------------------------------------------------------------ a run
@@ -136,11 +165,15 @@ export interface StoryScene {
   audioSeconds: number | null;
   /** Who says which words of the narration; empty when the narrator reads it all. */
   lines?: StoryLine[];
-  /** The same moment as an 8-second moving shot, for Google Flow or Veo. */
+  /** The same moment as an 8-second moving shot, for Google Flow. */
   videoPrompt?: string | null;
   /** A moving clip is attached and plays instead of the picture. */
   hasVideo?: boolean;
   videoName?: string | null;
+  /** Everything a video tool should make of this scene's picture, ready to paste into Google Flow. */
+  animationPrompt?: string | null;
+  /** A character (not the narrator) speaks in this scene, so their lips move when it is animated. */
+  speaks?: boolean;
   /** How many times the narration was taken again. */
   audioTake?: number;
   /** The motion and the cut into the next scene the last build used; null before a build. */
@@ -232,6 +265,10 @@ export interface StoryRender {
   progress: number;
   message: string | null;
   downloadable: boolean;
+  /** The speed the video plays at (1 = as built); its subtitles and chapters are timed to it. */
+  speed?: number;
+  /** How long the video runs at that speed. */
+  seconds?: number;
 }
 
 export interface StoryChapter {
@@ -262,6 +299,9 @@ export interface StoryBrief {
   format: StoryFormat;
   writer: StoryWriterMode;
   packId: string | null;
+  genreId?: string;
+  genreName?: string | null;
+  mode?: StoryGenreMode;
 }
 
 export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
@@ -293,6 +333,12 @@ export interface StoryBuildOptions {
   renderWhenReady: boolean;
   /** Skips every review: the script, the voice, the music and the video. */
   autoApprove: boolean;
+  /** How fast the finished video plays (1 = as built). The download, YouTube and the subtitles all use it. */
+  videoSpeed?: number;
+  /** Let the app pick videoSpeed from how fast the narration came out. Choosing a speed by hand turns it off. */
+  autoPace?: boolean;
+  /** The look of the pictures and the animation. */
+  artStyle?: StoryArtStyle;
 }
 
 /** A subtitle track the story offers as an SRT file: the narration, or (for a Hindi story) its English meaning. */
@@ -373,6 +419,68 @@ export interface StoryRun {
   videoApprovedAtUtc?: string | null;
   /** The composer's brief and length, to read, edit, or paste into Google's own music tool. */
   musicBrief?: StoryMusicBrief | null;
+  /** The series this story is a part of; null for a story nobody has continued. */
+  series?: StorySeriesLink | null;
+  /** Ideas for the part after this one, kept once suggested. */
+  nextParts?: StoryNextPartIdea[];
+  /** The text engine that suggested them, or 'built-in'. */
+  nextPartsBy?: string | null;
+  /** The part started from this one. */
+  nextRunId?: string | null;
+  /** How fast the narration came out, once it exists. */
+  pace?: StoryPace | null;
+}
+
+/** Where a story sits in a series told over several videos. */
+export interface StorySeriesLink {
+  id: string;
+  name: string;
+  part: number;
+  previousRunId: string | null;
+  /** The series goes on making parts by itself up to this one. */
+  autoContinueTo: number | null;
+  hasStorySoFar: boolean;
+}
+
+export interface StoryNextPartIdea {
+  title: string;
+  notes: string;
+  hook: string | null;
+}
+
+/** How fast the voice came out, and the speed that would bring it to a comfortable pace. */
+export interface StoryPace {
+  wordsPerMinute: number;
+  targetWordsPerMinute: number;
+  suggestedSpeed: number;
+  verdict: 'slow' | 'good' | 'fast';
+  /** The suggestion was made the video's speed, because the app was choosing the pace. */
+  applied: boolean;
+}
+
+/** A series and its parts in order, each as it appears on the storyboard. */
+export interface StorySeries {
+  id: string;
+  name: string;
+  parts: StoryRunSummary[];
+  latestRunId: string;
+  autoContinueTo: number | null;
+  /** Ideas for the part after the latest one, if any were asked for. */
+  nextParts: StoryNextPartIdea[];
+  nextPartsBy: string | null;
+  updatedAtUtc: string;
+}
+
+/** Starts the next part. Everything is optional: left out, it comes from the part it continues. */
+export interface ContinueStoryBody {
+  title?: string;
+  notes?: string;
+  /** One of the suggested ideas, by its place in the list. */
+  ideaIndex?: number;
+  /** Keep making parts by themselves until this part number. */
+  autoContinueTo?: number;
+  /** Make another take of the next part even though one exists. */
+  again?: boolean;
 }
 
 /** Take scenes again, or speak them all again in a changed voice. */
@@ -431,6 +539,9 @@ export interface StoryRunSummary {
   publicationCount: number;
   /** The newest YouTube video made from it. */
   publication: StoryPublication | null;
+  seriesId?: string | null;
+  seriesName?: string | null;
+  part?: number | null;
 }
 
 // ------------------------------------------------------------------------------------------------ what the page sends
@@ -447,6 +558,8 @@ export interface CreateStoryRunBody {
   format?: StoryFormat;
   writer?: StoryWriterMode;
   packId?: string;
+  /** The genre the story is made in; empty for the devotional one. */
+  genreId?: string;
   options?: StoryBuildOptionsBody;
 }
 
@@ -476,4 +589,33 @@ export interface EditStoryScriptBody {
   summary: string | null;
   musicQuery: string | null;
   scenes: EditStorySceneBody[];
+}
+
+/** One daily limit a build would use: on Google's side for a model, or this app's own cap on a provider. */
+export interface StoryBudgetLine {
+  kind: 'google' | 'app';
+  /** What the limit is for, so "proceed with the alternatives" switches the right part. */
+  area: 'speech' | 'music' | 'image';
+  name: string;
+  label: string;
+  /** Requests already sent today, as this app counted them. */
+  used: number;
+  /** Requests the build would send at most. */
+  needed: number;
+  limit: number;
+  percentAfter: number;
+  status: StoryBudgetStatus;
+  /** What to switch to that does not use this limit. */
+  fallback: string;
+}
+
+export type StoryBudgetStatus = 'ok' | 'warn' | 'over';
+
+/** What a build would use of today's paid Google limits and the free image engines' daily caps, checked before Build. */
+export interface StoryBudgetReport {
+  status: StoryBudgetStatus;
+  warnAtPercent: number;
+  lines: StoryBudgetLine[];
+  resetsAtUtc: string;
+  notes: string[];
 }

@@ -10,7 +10,7 @@ The page is **Story Agent** in the top bar (`/story-agent`), and a card on the P
 
 ## What it does, step by step
 
-A run is eight stages, in order. Each is idempotent and resumable (see *Runs survive restarts*).
+A run is nine stages, in order. Each is idempotent and resumable (see *Runs survive restarts*).
 
 | # | Stage | What happens |
 | --- | --- | --- |
@@ -19,6 +19,7 @@ A run is eight stages, in order. Each is idempotent and resumable (see *Runs sur
 | — | *review* | The run stops at **Script ready**. The person reads and edits the script, checks each source and puts a picture on each scene. Nothing is made until they press **Build** (unless they opted into *skip the review*). |
 | 3 | `visuals` | A picture per scene: the person's own, else the AI image engine if one is on, else a plain coloured background (a scene with no background cannot render). |
 | 4 | `narration` | The voice, scene by scene (see *Narration*). |
+| ~~4½~~ | ~~`animate`~~ | Removed: Veo animation was too costly (see P16). Attach your own clips from Google Flow instead. |
 | 5 | `music` | A soft Creative Commons track from Jamendo, credited in the description. Never fails a run. |
 | 6 | `assemble` | An ordinary project (scenes, subtitles, sound) through the same path as a bundle import. It opens in the editor like any other. |
 | 7 | `render` | The video, through the normal render queue. |
@@ -35,6 +36,28 @@ Lifecycle: `Researching → WritingScript → (AwaitingScript | ScriptReady) →
 | **A built-in story** (`BuiltIn`) | Nothing | A script that ships with the app (`StoryAgent/Packs/*.json`, embedded), written and checked by hand. It goes through the same parser and checks as a model's script. Today: Diwali. |
 
 This is why it works the first time with no key: the built-in story and *Manual* need no provider at all.
+
+## Genres: what kind of story
+
+Every run is made in one **genre** (`StoryGenre`), picked first on the new-story form. A genre bundles everything that
+decides how that kind of story comes out, and the run takes a **copy** of it when it starts (`StoryRun.Genre`), so
+editing a genre later never changes a story already under way.
+
+| Part of the bundle | Used by |
+| --- | --- |
+| Mode: `Scripture` or `Creative` | Research (the Granths, or nothing to fetch), the prompt (`story-script` or `story-script-creative`), the parser (a creative script cites nothing; every scene is a reflection) |
+| Style guide and moods | The creative prompt, as the `genre` data block - a description to match, never a change to the prompt's rules |
+| Topics (keywords, summary, music) and, for scripture, their Granth sources | Topic matching, the research's starting chapters, the writer's ideas, tags and hashtags, the music search |
+| Language, length, shape, look, picture style, voice delivery | Filled in on the form when the genre is picked; the server applies them to anything left at its default |
+| Tags, hashtags, links, second title, pinned-comment line, YouTube category, made for kids | The YouTube kit and its checklist |
+
+The genres live in the database (`storyGenres` in MongoDB, `StoryGenres` in SQL Server). The built-in ones -
+**Devotional** (the curated Granth topics and sources, unchanged), Funny stories, Kids' moral stories, Bedtime,
+Motivational, Explainers and Folk tales - are in `StoryGenres` and are written to the database the first time genres are
+read, then edited there. Manage them under *Settings → AI → Story genres* (`/admin/story-genres`, API
+`/api/admin/story-genres`, admin only, every change audited). Deleting a built-in genre puts the shipped version back;
+switching one off hides it from the form. A run from before genres has no copy and is treated as devotional. Built-in
+story packs belong to a genre (`StoryPack.GenreId`) and are only offered there.
 
 ## Grounding: how it stays honest about the texts
 
@@ -205,8 +228,10 @@ What it uses from elsewhere:
 
 - **A built-in story:** add `StoryAgent/Packs/<id>.json` (the shape the script parser reads, plus nothing else) and one
   line in `StoryPacks.All`. A test reads every pack through the parser.
-- **A topic:** add a `GranthTopic` to `GranthTopics.All`; a test checks that every pointer is acceptable to the citation
-  validator.
+- **A topic:** add it to its genre under *Settings → Story genres* (the server refuses a source that names a text the
+  catalogue does not know). `GranthTopics.All` is only the shipped devotional set the built-in genre is seeded from.
+- **A genre:** make it under *Settings → Story genres*, or ship one by adding it to `StoryGenres.All()`; a test runs
+  every built-in genre through `StoryGenreRules`.
 - **A text on Wikisource:** add its verified title pattern to `WikisourceTitleMap`; a test pins each mapped pattern.
 
 ## Not done, on purpose or yet
@@ -217,3 +242,6 @@ What it uses from elsewhere:
 - [ ] Translation and dubbing into further languages (Hindi and English today).
 - [ ] The MongoDB repository is written and registered but has not been run against a live MongoDB here; SQL Server is
       the tested path.
+- [ ] Genres are not copied by the Mongo → SQL Server migration or the Drive data sync; the built-ins re-seed themselves,
+      but custom genres would have to be made again.
+- [ ] A creative genre has no research source of its own (web search, a story library); its topics are the only ideas.

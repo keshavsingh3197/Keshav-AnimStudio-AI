@@ -462,6 +462,21 @@ export class StoryScriptEditorComponent {
     return this.byNumber().get(number)?.videoName ?? '';
   }
 
+  /** A character speaks in the scene, so its animation moves their lips. */
+  speaks(number: number): boolean {
+    return this.byNumber().get(number)?.speaks ?? false;
+  }
+
+  /** What the video engine is asked for this scene, as the server composes it from the saved script. */
+  animationPrompt(number: number): string | null {
+    return this.byNumber().get(number)?.animationPrompt ?? null;
+  }
+
+  async copyAnimationPrompt(scene: DraftScene, prompt: string): Promise<void> {
+    const shape = this.vertical() ? '9:16 vertical' : '16:9 wide';
+    await this.flash(`a${scene.key}`, `${prompt}\n\n8 seconds, ${shape}. Start from the attached picture.`, 'The animation prompt is copied.');
+  }
+
   async attachClip(scene: DraftScene, file: File | undefined): Promise<void> {
     if (!file || scene.number === 0) return;
     const problem = clipProblem(file);

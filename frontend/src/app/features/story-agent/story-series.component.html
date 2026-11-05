@@ -1,0 +1,89 @@
+<div class="page ss-page">
+  <div class="page-head sb-studio-bar">
+    <div class="sb-studio-title-col">
+      <a routerLink="/story-agent" class="sb-back">← Story Agent</a>
+      <h2>Series</h2>
+      <p class="muted">
+        Stories told over several videos - Part 1, Part 2 and on. Each new part carries on from where the last one stopped,
+        with the same characters, voice and look. Continue any story from the bottom of its "Video &amp; YouTube" tab.
+      </p>
+    </div>
+    <div class="sb-studio-actions">
+      <a routerLink="/story-agent/board" class="secondary">▦ Storyboard</a>
+    </div>
+  </div>
+
+  @if (error(); as problem) {
+    <div class="notice error" role="alert">
+      {{ problem }}
+      <button type="button" class="secondary small" (click)="refresh()">Try again</button>
+    </div>
+  }
+
+  @if (all() === null) {
+    <div class="empty ss-center"><span class="spinner" role="status" aria-label="Loading"></span> Loading your series…</div>
+  } @else if ((all() ?? []).length === 0) {
+    <div class="card empty ss-center">
+      <p>No series yet.</p>
+      <p class="muted">Open a finished story and use <strong>Continue the story</strong> to make its Part 2.</p>
+      <a routerLink="/story-agent/board">Open the storyboard</a>
+    </div>
+  } @else {
+    <div class="ss-layout">
+      <nav class="ss-list" aria-label="Your series">
+        @for (s of all(); track s.id) {
+          <button type="button" class="ss-item" [class.active]="s.id === openId()" [attr.aria-current]="s.id === openId()"
+                  (click)="select(s)">
+            <strong>{{ s.name }}</strong>
+            <span class="muted">{{ s.parts.length }} part{{ s.parts.length === 1 ? '' : 's' }} · {{ ago(s.updatedAtUtc) }}</span>
+            @if (s.autoContinueTo) { <span class="pill brand">Going on to Part {{ s.autoContinueTo }}</span> }
+          </button>
+        }
+      </nav>
+
+      @if (open(); as s) {
+        <div class="ss-main">
+          <section class="card" aria-labelledby="ss-parts-title">
+            <h3 id="ss-parts-title">{{ s.name }}</h3>
+            <p class="muted ss-stats">
+              {{ s.parts.length }} part{{ s.parts.length === 1 ? '' : 's' }}
+              @if (totalSeconds(s) > 0) { · {{ clock(totalSeconds(s)) }} in all }
+              · {{ onYouTube(s) }} on YouTube
+            </p>
+
+            <ol class="ss-parts">
+              @for (p of s.parts; track p.id) {
+                @let state = stateOf(p);
+                <li class="ss-part" [class.ss-part-working]="p.working">
+                  <span class="ss-num" aria-hidden="true">{{ p.part ?? $index + 1 }}</span>
+                  <div class="ss-part-body">
+                    <a [routerLink]="['/story-agent', p.id]" [attr.lang]="p.language">{{ p.title }}</a>
+                    <span class="ss-meta">
+                      <span class="pill" [class]="state.tone">{{ state.label }}</span>
+                      @if (p.working) { <span class="muted">{{ p.progress }}% · {{ p.message }}</span> }
+                      @else if (p.durationSeconds > 0) { <span class="muted">{{ clock(p.durationSeconds) }}</span> }
+                      @if (p.publication; as video) {
+                        <a [href]="video.videoUrl" target="_blank" rel="noopener noreferrer">Watch on YouTube</a>
+                      }
+                    </span>
+                  </div>
+                </li>
+              }
+            </ol>
+          </section>
+
+          @if (latestError(); as problem) {
+            <div class="notice error" role="alert">{{ problem }}</div>
+          }
+          @if (latest(); as run) {
+            @if (run.id === s.latestRunId) {
+              <app-story-continue [run]="run" (updated)="onUpdated($event)" />
+            }
+          } @else if (!latestError()) {
+            <div class="empty ss-center"><span class="spinner" role="status" aria-label="Loading"></span></div>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>

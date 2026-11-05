@@ -63,6 +63,12 @@ public sealed class StoryBrief
 
     /// <summary>The id of a built-in story pack, when <see cref="Writer"/> is <see cref="StoryWriterMode.BuiltIn"/>.</summary>
     public string? PackId { get; set; }
+
+    /// <summary>The <see cref="StoryGenre"/> the story is made in. Null on runs from before genres, which were devotional.</summary>
+    public string? GenreId { get; set; }
+
+    /// <summary>The genre's mode, copied here because the script parser and the prompt only see the brief.</summary>
+    public StoryGenreMode Mode { get; set; } = StoryGenreMode.Scripture;
 }
 
 /// <summary>How the video is made once the script is approved.</summary>
@@ -130,8 +136,46 @@ public sealed class StoryBuildOptions
     /// <summary>Queue the render as soon as the project is built.</summary>
     public bool RenderWhenReady { get; set; } = true;
 
+    /// <summary>
+    /// How fast the finished video plays: 1.25 makes it a fifth shorter, voice and music sped up with the pitch kept. The
+    /// project renders at its own pace and a copy at this speed becomes the story's video, so the download, YouTube and the
+    /// subtitles all get the same one.
+    /// </summary>
+    public double VideoSpeed { get; set; } = 1.0;
+
+    /// <summary>
+    /// Let the app choose <see cref="VideoSpeed"/>: once the narration exists its pace is measured, and a voice that came
+    /// out too slow or too fast is brought to a comfortable pace. Choosing a speed by hand turns this off.
+    /// </summary>
+    public bool AutoPace { get; set; }
+
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
+
+    /// <summary>
+    /// The look of the pictures and of the animation: a painting, a realistic film, a cartoon. Auto keeps the genre's
+    /// picture style.
+    /// </summary>
+    public StoryArtStyle ArtStyle { get; set; } = StoryArtStyle.Auto;
+}
+
+/// <summary>The look of a story's pictures and animation.</summary>
+public enum StoryArtStyle
+{
+    /// <summary>The genre's own picture style (a devotional painting for a scripture story).</summary>
+    Auto = 0,
+
+    /// <summary>Classical Indian painting: jewel colours, gold, ornament.</summary>
+    Painting = 1,
+
+    /// <summary>Like a film: real-looking people and places, natural light and motion.</summary>
+    Realistic = 2,
+
+    /// <summary>A hand-drawn 2D cartoon: bold outlines, flat bright colours, bouncy expressive acting.</summary>
+    Cartoon = 3,
+
+    /// <summary>A 3D animated feature: soft rounded characters, big expressive eyes, cinematic light.</summary>
+    Cartoon3D = 4
 }
 
 public enum StoryMusicSource
@@ -316,10 +360,25 @@ public sealed class StoryScene
 
     public string? ImageName { get; set; }
 
-    /// <summary>Object-store key of a moving clip the person attached; when there is one it plays instead of the picture.</summary>
+    /// <summary>
+    /// Object-store key of the scene's moving clip, one the person attached. When there is one it plays instead of the
+    /// picture.
+    /// </summary>
     public string? VideoKey { get; set; }
 
     public string? VideoName { get; set; }
+
+    /// <summary>
+    /// Null or <c>upload</c> for a clip the person attached. Runs saved while the app could still generate clips may
+    /// name a video model here; such a clip is no longer played.
+    /// </summary>
+    public string? VideoSource { get; set; }
+
+    /// <summary>True when the clip is one the person attached rather than one the build made.</summary>
+    public bool HasAttachedClip => !string.IsNullOrEmpty(VideoKey) && VideoSource is null or StoryScene.AttachedClip;
+
+    /// <summary>What <see cref="VideoSource"/> says for a clip the person attached.</summary>
+    public const string AttachedClip = "upload";
 
     public string? AudioKey { get; set; }
     public string? AudioName { get; set; }

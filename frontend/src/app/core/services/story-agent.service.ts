@@ -5,6 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
+  ContinueStoryBody,
   CreateStoryRunBody,
   EditStoryScriptBody,
   REVIEW_STEP,
@@ -12,11 +13,13 @@ import {
   RedoMusicBody,
   RedoNarrationBody,
   StoryAgentOptions,
+  StoryBudgetReport,
   StoryBuildOptionsBody,
   StoryCaptionsSent,
   StoryReviewStage,
   StoryRun,
   StoryRunSummary,
+  StorySeries,
   StoryWriterMode,
 } from '../models/story-agent.models';
 
@@ -117,6 +120,11 @@ export class StoryAgentService {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/build`, options ?? {}));
   }
 
+  /** What a build with these options would use of today's paid Google limits. Starts nothing. */
+  budget(id: string, options?: StoryBuildOptionsBody): Observable<StoryBudgetReport> {
+    return this.unwrap(this.http.post<ApiResponse<StoryBudgetReport>>(`${this.run(id)}/budget`, options ?? {}));
+  }
+
   /** "This is good, go on": approves the step the build is waiting on. The music's level can come with it. */
   approveReview(id: string, stage: StoryReviewStage, musicVolume?: number): Observable<StoryRun> {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/review/${REVIEW_STEP[stage]}/approve`,
@@ -142,6 +150,11 @@ export class StoryAgentService {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/look/redo`, body));
   }
 
+  /** Makes the video play at another speed: a copy of the render, with its subtitles and chapters retimed to it. */
+  changeSpeed(id: string, speed: number): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/speed`, { speed }));
+  }
+
   /** A scene's narration, through HttpClient like a picture, so it carries the caller's identity. */
   sceneAudio(id: string, scene: number): Observable<Blob> {
     return this.http.get(`${this.run(id)}/scenes/${scene}/audio`, { responseType: 'blob' });
@@ -149,6 +162,30 @@ export class StoryAgentService {
 
   musicFile(id: string): Observable<Blob> {
     return this.http.get(`${this.run(id)}/music`, { responseType: 'blob' });
+  }
+
+  /** Every story that was continued, as series with their parts in order. */
+  series(): Observable<StorySeries[]> {
+    return this.unwrap(this.http.get<ApiResponse<StorySeries[]>>(`${this.base}/series`));
+  }
+
+  oneSeries(id: string): Observable<StorySeries> {
+    return this.unwrap(this.http.get<ApiResponse<StorySeries>>(`${this.base}/series/${encodeURIComponent(id)}`));
+  }
+
+  /** Ideas for the next part: the kept ones cost nothing; fresh asks the text model for new ones. */
+  suggestNextParts(id: string, fresh = false): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/next-parts`, { fresh }));
+  }
+
+  /** Starts the next part of the story. The answer is the new part. */
+  continueStory(id: string, body: ContinueStoryBody = {}): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/continue`, body));
+  }
+
+  /** How far the series goes on by itself from this part; null stops it. */
+  setSeriesAuto(id: string, upTo: number | null): Observable<StoryRun> {
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/series/auto`, { upTo }));
   }
 
   retry(id: string): Observable<StoryRun> {

@@ -145,7 +145,7 @@
           <select id="vo-model" class="form-select form-select-sm" [ngModel]="model()" (ngModelChange)="onModelChange($event)"
                   [disabled]="loadingVoices() || generating()">
             @for (m of currentEngine()!.models; track m.id) {
-              <option [value]="m.id">{{ m.label }}</option>
+              <option [value]="m.id" [title]="m.detail ?? ''">{{ m.recommended ? '★ ' : '' }}{{ m.label }}</option>
             }
           </select>
         </div>

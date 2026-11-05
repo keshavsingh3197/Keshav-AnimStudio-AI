@@ -178,7 +178,9 @@ public sealed class AdminController(
                 !string.IsNullOrWhiteSpace(configured?.VoicesPath)
                     || !string.IsNullOrWhiteSpace(configured?.ModelsPath),
                 descriptor?.DefaultBaseUrl,
-                descriptor?.DefaultModel));
+                descriptor?.DefaultModel,
+                [.. (descriptor?.Models ?? []).Select(m =>
+                    new AdminModelChoiceResponse(m.Id, m.Label, m.Detail, m.Tier, m.Recommended))]));
         }
 
         var chains = Enum.GetValues<AiCapability>()
@@ -1287,7 +1289,7 @@ public sealed class AdminController(
                 }
                 purgedCount++;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 log.LogWarning(ex, "Failed to purge guest project {ProjectId}", proj.Id);
             }

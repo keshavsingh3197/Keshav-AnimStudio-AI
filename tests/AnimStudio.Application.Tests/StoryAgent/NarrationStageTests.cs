@@ -117,7 +117,30 @@ public sealed class NarrationStageTests
             Assert.Single(scene.Pauses);
             Assert.Equal("voice hf_alpha", scene.AudioSource);
         });
-        Assert.Equal("Narration ready in voice hf_alpha.", outcome.Message);
+        Assert.StartsWith("Narration ready in voice hf_alpha.", outcome.Message);
+
+        // The pace is measured from what was spoken; the speed is the person's own, so it is only suggested.
+        Assert.NotNull(run.Pace);
+        Assert.False(run.Pace!.Applied);
+        Assert.Equal(1.0, run.Options.VideoSpeed);
+    }
+
+    [Fact]
+    public async Task With_the_pace_left_to_the_app_the_measured_speed_becomes_the_videos()
+    {
+        var world = Build();
+        var run = BuildingRun();
+        run.Options.AutoPace = true;
+
+        var outcome = await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.NotNull(run.Pace);
+        Assert.True(run.Pace!.Applied);
+        Assert.Equal(run.Pace.SuggestedSpeed, run.Options.VideoSpeed);
+        Assert.InRange(run.Options.VideoSpeed, StoryNarrationPace.MinSpeed, StoryNarrationPace.MaxSpeed);
+        // No line is spoken twice to change the pace.
+        Assert.Equal(run.Script!.Scenes.Count, world.Ai.SpeechCalls.Count);
     }
 
     [Fact]

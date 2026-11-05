@@ -1072,6 +1072,26 @@ public sealed class SqlAiUsageRepository(ISqlConnectionFactory factory) : IAiUsa
         return Convert.ToInt64(result);
     }
 
+    public async Task<IReadOnlyList<AiModelRequestCount>> CountBillableRequestsByModelAsync(DateTime sinceUtc, CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        const string sql = "SELECT DataJson FROM AiUsage WHERE AtUtc >= @Since AND Outcome IN (0, 3)";
+        await using var cmd = new SqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("@Since", sinceUtc);
+
+        // The model lives only in the JSON copy; a day of one person's calls is a few hundred rows at most.
+        var records = new List<AiUsageRecord>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            if (SqlJson.Deserialize<AiUsageRecord>(reader.GetString(0)) is { } record) records.Add(record);
+        }
+
+        return [.. records
+            .GroupBy(r => (r.ProviderId, r.Model))
+            .Select(g => new AiModelRequestCount(g.Key.ProviderId, g.Key.Model, g.Sum(r => (long)Math.Max(1, r.RequestCount))))];
+    }
+
     public async Task<IReadOnlyList<AiUsageDailyTotal>> SummarizeAsync(
         string fromDayBucket, string toDayBucket, CancellationToken ct)
     {

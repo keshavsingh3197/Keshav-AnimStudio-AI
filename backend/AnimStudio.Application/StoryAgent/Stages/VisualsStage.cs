@@ -51,8 +51,9 @@ public sealed class VisualsStage(
                 continue;
             }
 
-            // The person's own clip plays here, so the picture is only a fallback and not worth an image request.
-            if (StoryObjectKeys.Owns(run.Id, scene.VideoKey))
+            // The person's own clip plays here, so the picture is only a fallback and not worth an image request. A clip the
+            // build animated is different: it was made from the picture, and is made again from the new one.
+            if (scene.HasAttachedClip && StoryObjectKeys.Owns(run.Id, scene.VideoKey))
             {
                 await KeepPlainAsync(run, scene, vertical, ct).ConfigureAwait(false);
                 clips++;
@@ -116,7 +117,7 @@ public sealed class VisualsStage(
 
     private async Task<Generated> GenerateAsync(StoryRun run, StoryScene scene, int width, int height, CancellationToken ct)
     {
-        var style = string.IsNullOrWhiteSpace(run.Options.ImageStyle) ? DefaultStyle : run.Options.ImageStyle.Trim();
+        var style = StoryAnimation.PictureStyle(run, DefaultStyle);
         var outcome = await ai.ImageAsync(new AiImageRequest
         {
             Prompt = $"{scene.ImagePrompt!.TrimEnd('.', ' ')}, {style}",

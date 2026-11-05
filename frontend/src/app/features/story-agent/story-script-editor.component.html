@@ -63,7 +63,7 @@
           </button>
           <input #bulk type="file" multiple hidden [accept]="accept" (change)="onPickedMany($event)" />
           <button type="button" class="secondary small" (click)="copyClipPrompts()"
-                  title="Copies an 8-second video prompt for every scene, numbered, to paste into Google Flow or Veo">
+                  title="Copies an 8-second video prompt for every scene, numbered, to paste into Google Flow">
             {{ copied() === 'clips' ? '✓ Copied' : 'Copy all video prompts' }}
           </button>
           <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="bulkClips.click()"
@@ -80,7 +80,7 @@
         <li><strong>Copy all picture prompts.</strong> Each one is numbered and says what happens in its scene, after a line about the whole story.</li>
         <li><strong>Make the pictures</strong> in Google Flow or any image tool, and save each one under its number: <span class="mono">01.png</span>, <span class="mono">02.png</span> …</li>
         <li><strong>Add all pictures</strong> in one go. Each file goes onto the scene with its number. A scene you leave empty gets an AI picture, or a plain background.</li>
-        <li class="muted"><strong>Optional, moving clips:</strong> copy all video prompts, make 8-second clips in Google Flow or Veo (start from the scene's picture so they match), save them as <span class="mono">01.mp4</span> … and add them all. A scene with a clip plays it, looped if the narration is longer; the others keep their picture.</li>
+        <li class="muted"><strong>Optional, moving clips:</strong> copy all video prompts, make 8-second clips in Google Flow (start from the scene's picture so they match), save them as <span class="mono">01.mp4</span> … and add them all. A scene with a clip plays it, looped if the narration is longer; the others keep their picture.</li>
       </ol>
       @if (dirty()) {
         <p class="notice se-note">Save your script changes first, so the scene numbers match the prompts.</p>
@@ -262,7 +262,10 @@
                   @if (hasClip(scene.number)) {
                     <span class="pill ok" [title]="clipName(scene.number)">▶ {{ clipName(scene.number) || 'Attached' }}</span>
                   } @else {
-                    <span class="muted">(optional, 8 s from Flow or Veo)</span>
+                    <span class="muted">(optional, 8 s from Google Flow)</span>
+                  }
+                  @if (speaks(scene.number)) {
+                    <span class="pill" title="A character speaks here: ask the video tool to move their lips with the words">🗣 Speaks</span>
                   }
                 </summary>
                 @if (scene.number > 0) {
@@ -285,6 +288,15 @@
                     {{ copied() === 'v' + scene.key ? '✓ Copied' : 'Copy video prompt' }}
                   </button>
                 </div>
+                @if (animationPrompt(scene.number); as full) {
+                  <details class="se-anim">
+                    <summary>Full animation prompt <span class="muted">(to paste into Google Flow, from the saved script)</span></summary>
+                    <p class="se-anim-text">{{ full }}</p>
+                    <button type="button" class="link small se-copy" (click)="copyAnimationPrompt(scene, full)">
+                      {{ copied() === 'a' + scene.key ? '✓ Copied' : 'Copy animation prompt' }}
+                    </button>
+                  </details>
+                }
               </details>
             </article>
           }

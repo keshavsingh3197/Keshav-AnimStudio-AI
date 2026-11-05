@@ -1,0 +1,314 @@
+<div class="page-head" style="margin-top: 0">
+  <div class="ad-title">
+    <div class="studio-icon-badge" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row">
+        <h2>Story genres</h2>
+        <span class="pill brand">Story Agent</span>
+      </div>
+      <p class="muted">
+        The kinds of story the Story Agent makes, and everything each one bundles: how the script is written, the topics it
+        knows, the look, music and voice a new story starts with, and the tags, hashtags and links of its YouTube kit.
+        A story takes a copy of its genre when it starts, so editing a genre never changes a story already under way.
+      </p>
+    </div>
+  </div>
+  <div class="row">
+    <button type="button" (click)="startNew()" [disabled]="loading()">＋ New genre</button>
+  </div>
+</div>
+
+@if (failure(); as problem) {
+  <div class="notice error" role="alert">{{ problem }}</div>
+}
+
+@if (loading() && genres().length === 0) {
+  <div class="empty"><span class="spinner" role="status" aria-label="Loading"></span> Loading genres…</div>
+} @else {
+  <div class="sg-layout">
+    <!-- ================================================================ the list -->
+    <aside class="card sg-list" aria-label="Genres">
+      <div class="ad-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" placeholder="Find a genre…" aria-label="Find a genre" [value]="query()" (input)="query.set(value($event))" />
+      </div>
+      <ul>
+        @if (creating()) {
+          <li><button type="button" class="sg-item active"><span class="sg-icon" aria-hidden="true">{{ draft()?.icon }}</span>
+            <span class="sg-item-body"><strong>{{ draft()?.name || 'New genre' }}</strong><span class="muted">not saved yet</span></span></button></li>
+        }
+        @for (g of filtered(); track g.id) {
+          <li>
+            <button type="button" class="sg-item" [class.active]="!creating() && draft()?.id === g.id" [class.off]="!g.enabled" (click)="open(g)">
+              <span class="sg-icon" aria-hidden="true">{{ g.icon }}</span>
+              <span class="sg-item-body">
+                <strong>{{ g.name }}</strong>
+                <span class="muted">
+                  {{ g.mode === 'Scripture' ? 'Scripture' : 'Creative' }} · {{ g.topics.length }} topic{{ g.topics.length === 1 ? '' : 's' }}
+                  @if (!g.enabled) { · off }
+                </span>
+              </span>
+              @if (g.builtIn) { <span class="pill sg-tag" title="Ships with the app">built-in</span> }
+            </button>
+          </li>
+        } @empty {
+          <li class="muted sg-none">No genre matches.</li>
+        }
+      </ul>
+    </aside>
+
+    <!-- ================================================================ the editor -->
+    @if (draft(); as g) {
+      <section class="sg-editor" aria-label="Edit genre">
+        <div class="card sg-actions">
+          <div class="sg-actions-title">
+            <span class="sg-icon big" aria-hidden="true">{{ g.icon }}</span>
+            <div>
+              <strong>{{ g.name || 'New genre' }}</strong>
+              <div class="muted small">
+                @if (creating()) { Not saved yet. }
+                @else if (g.updatedAtUtc) { Saved {{ updated(g) }}{{ g.updatedBy ? ' by ' + g.updatedBy : '' }}. }
+              </div>
+            </div>
+          </div>
+          <div class="row sg-buttons">
+            @if (!creating()) { <button type="button" class="secondary" (click)="duplicate()">⧉ Duplicate</button> }
+            <button type="button" class="secondary" (click)="discard()" [disabled]="!dirty() && !creating()">Discard</button>
+            @if (confirmDelete()) {
+              <span class="sg-confirm">
+                {{ g.builtIn ? 'Put back the shipped version?' : 'Delete this genre?' }}
+                <button type="button" class="danger" (click)="remove()" [disabled]="saving()">Yes</button>
+                <button type="button" class="secondary" (click)="confirmDelete.set(false)">No</button>
+              </span>
+            } @else if (!creating()) {
+              <button type="button" class="secondary" (click)="confirmDelete.set(true)">{{ g.builtIn ? '↺ Reset to built-in' : '🗑 Delete' }}</button>
+            }
+            <button type="button" (click)="save()" [disabled]="saving() || problems().length > 0 || (!dirty() && !creating())">
+              @if (saving()) { <span class="spinner" aria-hidden="true"></span> }
+              {{ creating() ? 'Create genre' : 'Save' }}
+            </button>
+          </div>
+          @if (note(); as n) {
+            <div class="notice" [class.error]="n.tone === 'err'" [class.ok]="n.tone === 'ok'" role="status">{{ n.text }}</div>
+          }
+          @if (problems().length > 0 && (dirty() || creating())) {
+            <ul class="sg-problems" role="alert">
+              @for (p of problems(); track p) { <li>{{ p }}</li> }
+            </ul>
+          }
+        </div>
+
+        <!-- ---- what it is -->
+        <div class="card sg-section">
+          <h3>What it is</h3>
+          <div class="sg-grid">
+            <label>Name <input type="text" [attr.maxlength]="limits.name" [value]="g.name" (input)="setText('name', value($event))" /></label>
+            <label>Name in Hindi <input type="text" lang="hi" [attr.maxlength]="limits.name" [value]="g.nameHindi ?? ''" (input)="setOptional('nameHindi', value($event))" /></label>
+            <label>Id
+              <input type="text" maxlength="40" [value]="g.id" [readOnly]="!creating()" (input)="setText('id', value($event))"
+                     [title]="creating() ? 'Lower-case letters, digits and dashes. It cannot be changed later.' : 'The id cannot be changed.'" />
+            </label>
+            <label>Icon <input type="text" maxlength="8" [value]="g.icon" (input)="setText('icon', value($event))" /></label>
+            <label>Order in the picker <input type="number" step="10" [value]="g.order" (change)="setNumber('order', value($event))" /></label>
+            <label class="sg-check"><input type="checkbox" [checked]="g.enabled" (change)="patch({ enabled: checked($event) })" /> Offered for new stories</label>
+          </div>
+          <label>Description <span class="muted">(shown under the picker)</span>
+            <textarea rows="2" [attr.maxlength]="limits.description" [value]="g.description" (input)="setText('description', value($event))"></textarea>
+          </label>
+        </div>
+
+        <!-- ---- how it is written -->
+        <div class="card sg-section">
+          <h3>How the script is written</h3>
+          <div class="seg" role="radiogroup" aria-label="How the script is written">
+            <label [class.selected]="g.mode === 'Scripture'">
+              <input type="radio" name="sg-mode" [checked]="g.mode === 'Scripture'" (change)="setMode('Scripture')" />
+              Scripture - researched, sources checked
+            </label>
+            <label [class.selected]="g.mode === 'Creative'">
+              <input type="radio" name="sg-mode" [checked]="g.mode === 'Creative'" (change)="setMode('Creative')" />
+              Creative - from the title and the style guide
+            </label>
+          </div>
+          @if (g.mode === 'Scripture') {
+            <p class="sg-help">
+              Searches the Granths for the title's topics, reads the chapters from <strong>{{ scriptureSource() }}</strong>, and checks every
+              citation in the script against the catalogue of {{ texts().length }} texts. The writer's rules are in the
+              <code>story-script</code> prompt template; the style guide below is kept for reference.
+            </p>
+          } @else {
+            <p class="sg-help">
+              Written with the <code>story-script-creative</code> prompt template. The style guide is given to the writer as the
+              creator's description of the kind of story; it cannot change the prompt's own rules (an original story, kind
+              humour, nothing invented passed off as fact). No sources are cited.
+            </p>
+          }
+          <label>Style guide <span class="muted">(who it is for, the tone, how a story is shaped)</span>
+            <textarea rows="5" [attr.maxlength]="limits.styleGuide" [value]="g.styleGuide" (input)="setText('styleGuide', value($event))"
+                      placeholder="e.g. Clean family comedy. Everyday situations that go wrong. One running joke that pays off in a punchline."></textarea>
+          </label>
+          <div class="sg-grid">
+            <label>Moods <span class="muted">(comma-separated; they pick each scene's motion)</span>
+              <input type="text" [value]="listText(g.moods)" (change)="setList('moods', value($event))" placeholder="playful, joyful, tense" />
+            </label>
+            <label class="sg-check"><input type="checkbox" [checked]="g.madeForKids" (change)="patch({ madeForKids: checked($event) })" /> Made for children</label>
+          </div>
+        </div>
+
+        <!-- ---- defaults -->
+        <div class="card sg-section">
+          <h3>What a new story starts with</h3>
+          <p class="sg-help">Filled in when the genre is picked; the person can still change any of it for their story.</p>
+          <div class="sg-grid">
+            <label>Language
+              <select [value]="g.defaultLanguage" (change)="patch({ defaultLanguage: value($event) === 'en' ? 'en' : 'hi' })">
+                <option value="hi" [selected]="g.defaultLanguage === 'hi'">Hindi</option>
+                <option value="en" [selected]="g.defaultLanguage === 'en'">English</option>
+              </select>
+            </label>
+            <label>Length (seconds) <input type="number" min="45" max="600" step="15" [value]="g.defaultTargetSeconds" (change)="setNumber('defaultTargetSeconds', value($event))" /></label>
+            <label>Shape
+              <select (change)="patch({ defaultFormat: $any(value($event)) })">
+                @for (f of formats; track f) { <option [value]="f" [selected]="g.defaultFormat === f">{{ f === 'Wide' ? 'Wide 16:9' : 'Vertical 9:16' }}</option> }
+              </select>
+            </label>
+            <label>Look
+              <select (change)="patch({ lookStyle: $any(value($event)) })">
+                @for (l of looks; track l) { <option [value]="l" [selected]="g.lookStyle === l">{{ l }}</option> }
+              </select>
+            </label>
+          </div>
+          <label>Picture style <input type="text" maxlength="300" [value]="g.imageStyle ?? ''" (input)="setOptional('imageStyle', value($event))" placeholder="e.g. bright 3D cartoon, expressive faces" /></label>
+          <div class="sg-grid">
+            <label>Music search <input type="text" maxlength="80" [value]="g.musicQuery ?? ''" (input)="setOptional('musicQuery', value($event))" placeholder="e.g. funny quirky comedy" /></label>
+            <label>Voice delivery <input type="text" maxlength="300" [value]="g.speechStyle ?? ''" (input)="setOptional('speechStyle', value($event))" placeholder="e.g. playful, lively comic timing" /></label>
+          </div>
+        </div>
+
+        <!-- ---- youtube kit -->
+        <div class="card sg-section">
+          <h3>YouTube kit</h3>
+          <div class="sg-grid">
+            <label>Tags <span class="muted">(comma-separated)</span>
+              <textarea rows="2" [value]="listText(g.tags)" (change)="setList('tags', value($event))"></textarea>
+            </label>
+            <label>Hashtags <span class="muted">(comma-separated, without #)</span>
+              <textarea rows="2" [value]="listText(g.hashtags)" (change)="setList('hashtags', value($event))"></textarea>
+            </label>
+            <label>Second title option <span class="muted">(Title | …)</span>
+              <input type="text" maxlength="60" [value]="g.titleSuffix ?? ''" (input)="setOptional('titleSuffix', value($event))" />
+            </label>
+            <label>Closing line of the pinned comment
+              <input type="text" maxlength="200" [value]="g.pinnedLine ?? ''" (input)="setOptional('pinnedLine', value($event))" />
+            </label>
+            <label>YouTube category
+              <select (change)="setText('category', value($event))">
+                @for (c of categories(); track c) { <option [value]="c" [selected]="g.category === c">{{ c }}</option> }
+              </select>
+            </label>
+          </div>
+
+          <div class="sg-sub">
+            <div class="sg-sub-head">
+              <strong>Links</strong> <span class="muted">printed in the description of every video in this genre</span>
+              <button type="button" class="ad-link" (click)="addLink()" [disabled]="g.links.length >= limits.links">＋ Add link</button>
+            </div>
+            @for (l of g.links; track $index; let i = $index) {
+              <div class="sg-link">
+                <input type="text" maxlength="60" aria-label="Link label" placeholder="Label" [value]="l.label" (input)="setLink(i, 'label', value($event))" />
+                <input type="url" maxlength="300" aria-label="Link address" placeholder="https://…" [value]="l.url" (input)="setLink(i, 'url', value($event))" />
+                <button type="button" class="icon" (click)="removeLink(i)" [attr.aria-label]="'Remove link ' + (l.label || i + 1)">✕</button>
+              </div>
+            } @empty {
+              <p class="muted small">No links.</p>
+            }
+          </div>
+        </div>
+
+        <!-- ---- topics -->
+        <div class="card sg-section">
+          <div class="sg-sub-head">
+            <h3>Topics <span class="muted">({{ g.topics.length }})</span></h3>
+            <button type="button" class="ad-link" (click)="addTopic()" [disabled]="g.topics.length >= limits.topics">＋ Add topic</button>
+          </div>
+          <p class="sg-help">
+            A topic is recognised when a title or the notes contain one of its keywords. Its summary goes to the writer, and its
+            keywords become tags and hashtags.
+            @if (g.mode === 'Scripture') { Its sources are where the research starts reading. }
+            The topics also appear as ideas on the new-story form.
+          </p>
+          <ul class="sg-topics">
+            @for (t of g.topics; track $index; let i = $index) {
+              <li class="sg-topic" [class.open]="openTopic() === i">
+                <button type="button" class="sg-topic-head" (click)="toggleTopic(i)" [attr.aria-expanded]="openTopic() === i">
+                  <span>{{ t.name || 'New topic' }} <span class="muted" lang="hi">{{ t.hindi }}</span></span>
+                  <span class="muted small">{{ t.keywords.length }} keyword{{ t.keywords.length === 1 ? '' : 's' }}
+                    @if (g.mode === 'Scripture') { · {{ t.sources.length }} source{{ t.sources.length === 1 ? '' : 's' }} }</span>
+                </button>
+                @if (openTopic() === i) {
+                  <div class="sg-topic-body">
+                    <div class="sg-grid">
+                      <label>Name <input type="text" maxlength="120" [value]="t.name" (input)="nameTopic(i, value($event))" /></label>
+                      <label>In Hindi <input type="text" lang="hi" maxlength="120" [value]="t.hindi ?? ''" (input)="setTopicOptional(i, 'hindi', value($event))" /></label>
+                      <label>Id <input type="text" maxlength="40" [value]="t.id" (input)="setTopicText(i, 'id', value($event))" /></label>
+                      <label>Music search <input type="text" maxlength="80" [value]="t.musicQuery ?? ''" (input)="setTopicOptional(i, 'musicQuery', value($event))" /></label>
+                    </div>
+                    <label>Keywords <span class="muted">(comma-separated, English or Hindi)</span>
+                      <textarea rows="2" [value]="listText(t.keywords)" (change)="setKeywords(i, value($event))"></textarea>
+                    </label>
+                    <label>Summary <textarea rows="2" maxlength="600" [value]="t.summary" (input)="setTopicText(i, 'summary', value($event))"></textarea></label>
+
+                    @if (g.mode === 'Scripture') {
+                      <div class="sg-sub">
+                        <div class="sg-sub-head">
+                          <strong>Sources</strong> <span class="muted">where in the Granths this is told</span>
+                          <button type="button" class="ad-link" (click)="addSource(i)" [disabled]="t.sources.length >= limits.sourcesPerTopic">＋ Add source</button>
+                        </div>
+                        @for (s of t.sources; track $index; let j = $index) {
+                          <div class="sg-source">
+                            <select aria-label="Text" (change)="setSource(i, j, { textId: value($event) })">
+                              @for (x of texts(); track x.id) { <option [value]="x.id" [selected]="s.textId === x.id">{{ x.english }}</option> }
+                            </select>
+                            <input type="text" maxlength="80" aria-label="Place" placeholder="10.59 or a section name" [value]="s.ref" (input)="setSource(i, j, { ref: value($event) })" />
+                            <select aria-label="Confidence" (change)="setSource(i, j, { confidence: $any(value($event)) })">
+                              @for (c of confidences; track c) { <option [value]="c" [selected]="s.confidence === c">{{ c }}</option> }
+                            </select>
+                            <input type="text" maxlength="200" aria-label="Note" placeholder="What is there" class="sg-source-note" [value]="s.note ?? ''"
+                                   (input)="setSource(i, j, { note: value($event) || null })" />
+                            <button type="button" class="icon" (click)="removeSource(i, j)" [attr.aria-label]="'Remove source ' + textName(s.textId) + ' ' + s.ref">✕</button>
+                          </div>
+                        } @empty {
+                          <p class="muted small">No sources: the writer relies on the summary and its own knowledge, marked as tradition.</p>
+                        }
+                      </div>
+                    }
+                    <button type="button" class="ad-link sg-remove" (click)="removeTopic(i)">Remove this topic</button>
+                  </div>
+                }
+              </li>
+            } @empty {
+              <li class="muted small">No topics. The writer works from the title, the notes and the style guide alone.</li>
+            }
+          </ul>
+        </div>
+
+        @if (g.mode === 'Scripture') {
+          <details class="card sg-section">
+            <summary><strong>The texts a source may name</strong> <span class="muted">({{ texts().length }}, read from {{ scriptureSource() }})</span></summary>
+            <ul class="sg-texts">
+              @for (x of texts(); track x.id) {
+                <li><code>{{ x.id }}</code> {{ x.english }} <span lang="hi" class="muted">{{ x.hindi }}</span> <span class="muted small">· {{ x.kind }}, {{ x.divisionLabel }} / {{ x.unitLabel }}</span></li>
+              }
+            </ul>
+          </details>
+        }
+      </section>
+    } @else {
+      <div class="empty">Pick a genre on the left, or make a new one.</div>
+    }
+  </div>
+}

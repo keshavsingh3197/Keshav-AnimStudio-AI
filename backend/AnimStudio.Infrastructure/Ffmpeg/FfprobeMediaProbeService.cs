@@ -73,7 +73,7 @@ public sealed class FfprobeMediaProbeService(
 
             return result.ExitCode == 0 ? Parse(result.StdOut) : new MediaProbe();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not probe stored object.");
             return new MediaProbe();

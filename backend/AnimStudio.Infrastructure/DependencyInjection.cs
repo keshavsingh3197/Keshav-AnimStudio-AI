@@ -144,6 +144,8 @@ public static class DependencyInjection
             services.AddScoped<IPublishQueueRepository, SqlPublishQueueRepository>();
             services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
             services.AddScoped<IStoryRunRepository, SqlStoryRunRepository>();
+            services.AddScoped<IStoryGenreRepository, SqlStoryGenreRepository>();
+            services.AddScoped<IYouTubeChannelAnalysisRepository, SqlYouTubeChannelAnalysisRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -188,6 +190,8 @@ public static class DependencyInjection
             services.AddScoped<IPublishQueueRepository, MongoPublishQueueRepository>();
             services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
             services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
+            services.AddScoped<IStoryGenreRepository, MongoStoryGenreRepository>();
+            services.AddScoped<IYouTubeChannelAnalysisRepository, MongoYouTubeChannelAnalysisRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
@@ -387,6 +391,7 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeStatsClient>>()));
         services.AddSingleton<YouTubeDashboardCache>();
         services.AddScoped<YouTubeDashboardService>();
+        services.AddScoped<YouTubeChannelAnalysisService>();
 
         // The music picker: royalty-free, licence-checked tracks imported as audio assets.
         services.Configure<MusicLibraryOptions>(configuration.GetSection(MusicLibraryOptions.Section));
@@ -410,6 +415,7 @@ public static class DependencyInjection
         // Each stage is a scoped service the executor walks in order; the worker owns the queue the API talks to.
         services.AddSingleton<IStoryAudioFinisher, FfmpegStoryAudioFinisher>();
         services.AddScoped<StoryNarrator>();
+        services.AddScoped<StoryBudgetService>();
         services.AddScoped<IStoryStage, ResearchStage>();
         services.AddScoped<IStoryStage, ScriptStage>();
         services.AddScoped<IStoryStage, VisualsStage>();
@@ -419,7 +425,10 @@ public static class DependencyInjection
         services.AddScoped<IStoryStage, RenderStage>();
         services.AddScoped<IStoryStage, KitStage>();
         services.AddScoped<StoryRunExecutor>();
+        services.AddScoped<StoryGenreService>();
+        services.AddScoped<IStoryGenreCatalog>(sp => sp.GetRequiredService<StoryGenreService>());
         services.AddScoped<StoryRunService>();
+        services.AddScoped<StorySeriesService>();
         services.AddScoped<IStoryPublishing, YouTubeStoryPublishing>();
         services.AddScoped<StoryCaptionPublisher>();
         services.AddSingleton<StoryRunWorker>();

@@ -32,6 +32,10 @@ public sealed record CreateStoryRunRequest
     [StringLength(64)]
     public string? PackId { get; init; }
 
+    /// <summary>The genre the story is made in; empty for the devotional one.</summary>
+    [StringLength(40)]
+    public string? GenreId { get; init; }
+
     public StoryBuildOptionsRequest? Options { get; init; }
 }
 
@@ -78,6 +82,14 @@ public sealed record StoryBuildOptionsRequest
     public bool RenderWhenReady { get; init; } = true;
     public bool AutoApprove { get; init; }
 
+    [Range(StoryVideoSpeed.Min, StoryVideoSpeed.Max)]
+    public double VideoSpeed { get; init; } = 1.0;
+
+    /// <summary>Let the app pick the speed from how fast the narration came out. Left out, it is on.</summary>
+    public bool? AutoPace { get; init; }
+
+    public StoryArtStyle ArtStyle { get; init; } = StoryArtStyle.Auto;
+
     public StoryBuildOptions ToOptions() => new()
     {
         Narration = Narration,
@@ -99,8 +111,55 @@ public sealed record StoryBuildOptionsRequest
         MusicPrompt = MusicPrompt,
         LookStyle = LookStyle,
         RenderWhenReady = RenderWhenReady,
-        AutoApprove = AutoApprove
+        AutoApprove = AutoApprove,
+        VideoSpeed = VideoSpeed,
+        AutoPace = AutoPace ?? true,
+        ArtStyle = ArtStyle
     };
+}
+
+/// <summary>The speed the story's video should play at; the video, its subtitles and chapters are made again to match.</summary>
+public sealed record ChangeStorySpeedRequest
+{
+    [Range(StoryVideoSpeed.Min, StoryVideoSpeed.Max)] public double Speed { get; init; } = 1.0;
+}
+
+/// <summary>Ideas for the next part: the kept ones, or new ones when <see cref="Fresh"/>.</summary>
+public sealed record SuggestNextPartsRequest
+{
+    public bool Fresh { get; init; }
+}
+
+/// <summary>Starts the next part of a story. Everything is optional: left out, it comes from the part it continues.</summary>
+public sealed record ContinueStoryRequest
+{
+    [StringLength(StoryRunService.MaxTitleChars, ErrorMessage = "The title can be up to 160 characters.")]
+    public string? Title { get; init; }
+
+    [StringLength(StoryRunService.MaxNotesChars, ErrorMessage = "The notes can be up to 2000 characters.")]
+    public string? Notes { get; init; }
+
+    /// <summary>One of the suggested ideas, by its place in the list.</summary>
+    [Range(0, 10)]
+    public int? IdeaIndex { get; init; }
+
+    /// <summary>Go on making parts by themselves until this part number.</summary>
+    [Range(1, StorySeriesService.MaxParts)]
+    public int? AutoContinueTo { get; init; }
+
+    /// <summary>Make another take of the next part even though one exists.</summary>
+    public bool Again { get; init; }
+
+    public StoryBuildOptionsRequest? Options { get; init; }
+
+    public StoryContinuation ToContinuation() => new(Title, Notes, IdeaIndex, AutoContinueTo, Again, Options?.ToOptions());
+}
+
+/// <summary>How far a series goes on by itself; null stops it.</summary>
+public sealed record StorySeriesAutoRequest
+{
+    [Range(1, StorySeriesService.MaxParts)]
+    public int? UpTo { get; init; }
 }
 
 /// <summary>Approving a step; with the music, the level the person chose while listening.</summary>
@@ -239,7 +298,14 @@ public sealed record SendStoryCaptionsRequest
 
 // ------------------------------------------------------------------------------------------------ responses
 
-public sealed record StoryPackResponse(string Id, string Title, string TitleEnglish, string Description, string Language, int TargetSeconds);
+public sealed record StoryPackResponse(string Id, string Title, string TitleEnglish, string Description, string Language, int TargetSeconds, string GenreId);
+
+/// <summary>A genre as the new-story form offers it: what it is, and what picking it fills in.</summary>
+public sealed record StoryGenreOptionResponse(
+    string Id, string Name, string? NameHindi, string Description, string Icon, StoryGenreMode Mode, bool MadeForKids,
+    string DefaultLanguage, int DefaultTargetSeconds, StoryFormat DefaultFormat, StoryLookStyle LookStyle,
+    string? ImageStyle, string? MusicQuery, string? SpeechStyle,
+    IReadOnlyList<StoryTopicSummaryResponse> Topics);
 
 public sealed record StoryTopicSummaryResponse(string Id, string Name, string Hindi, string Summary);
 
@@ -255,7 +321,8 @@ public sealed record StoryAgentOptionsResponse(
     IReadOnlyList<StoryPackResponse> Packs,
     IReadOnlyList<StoryTopicSummaryResponse> Topics,
     IReadOnlyList<MyVoiceResponse> MyVoices,
-    bool MusicComposer = false);
+    bool MusicComposer = false,
+    IReadOnlyList<StoryGenreOptionResponse>? Genres = null);
 
 public sealed record StoryStageResponse(
     string Id, StoryStageStatus Status, int Progress, string? Message, string? Code, DateTime? StartedAtUtc, DateTime? CompletedAtUtc);
@@ -288,7 +355,9 @@ public sealed record StorySceneResponse(
     string? Effect = null,
     string? Transition = null,
     double? TransitionSeconds = null,
-    bool LookPinned = false);
+    bool LookPinned = false,
+    string? AnimationPrompt = null,
+    bool Speaks = false);
 
 /// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
 public sealed record StoryLineResponse(string Speaker, string Text);
@@ -332,7 +401,10 @@ public sealed record StoryMusicResponse(
 /// </summary>
 public sealed record StoryMusicBriefResponse(string Prompt, int Seconds);
 
-public sealed record StoryRenderResponse(string JobId, RenderJobStatus Status, int Progress, string? Message, bool Downloadable);
+/// <param name="Speed">The speed the video plays at (1 is the pace it was built at); its subtitles and chapters are timed to it.</param>
+/// <param name="Seconds">How long the video runs at that speed.</param>
+public sealed record StoryRenderResponse(
+    string JobId, RenderJobStatus Status, int Progress, string? Message, bool Downloadable, double Speed = 1.0, double Seconds = 0);
 
 public sealed record StoryChapterResponse(double StartSeconds, string Stamp, string Title);
 
@@ -349,13 +421,15 @@ public sealed record StoryKitResponse(
     int TagsLength);
 
 public sealed record StoryBriefResponse(
-    string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId);
+    string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
+    string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
     bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
-    StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto);
+    StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
+    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -411,7 +485,12 @@ public sealed record StoryRunResponse(
     DateTime? VoiceApprovedAtUtc = null,
     DateTime? MusicApprovedAtUtc = null,
     DateTime? VideoApprovedAtUtc = null,
-    StoryMusicBriefResponse? MusicBrief = null);
+    StoryMusicBriefResponse? MusicBrief = null,
+    StorySeriesLinkResponse? Series = null,
+    IReadOnlyList<StoryNextPartIdeaResponse>? NextParts = null,
+    string? NextPartsBy = null,
+    string? NextRunId = null,
+    StoryPaceResponse? Pace = null);
 
 /// <summary>A run in the list and on the storyboard: enough to draw a card, place it in its column and open it.</summary>
 /// <param name="CoverScene">The first scene with a picture of its own, for the card; null when there is none yet.</param>
@@ -435,9 +514,34 @@ public sealed record StoryRunSummaryResponse(
     bool HasRender,
     int? CoverScene,
     int PublicationCount,
-    StoryPublicationResponse? Publication);
+    StoryPublicationResponse? Publication,
+    string? SeriesId = null,
+    string? SeriesName = null,
+    int? Part = null);
 
 public sealed record StoryPromptResponse(string Prompt);
+
+/// <param name="PreviousRunId">The part this one continues; null for Part 1.</param>
+/// <param name="AutoContinueTo">The part the series goes on to by itself; null when it does not.</param>
+public sealed record StorySeriesLinkResponse(string Id, string Name, int Part, string? PreviousRunId, int? AutoContinueTo, bool HasStorySoFar);
+
+public sealed record StoryNextPartIdeaResponse(string Title, string Notes, string? Hook);
+
+/// <param name="Verdict"><c>slow</c>, <c>good</c> or <c>fast</c>.</param>
+/// <param name="Applied">The suggested speed was made the video's, because the app was choosing the pace.</param>
+public sealed record StoryPaceResponse(double WordsPerMinute, double TargetWordsPerMinute, double SuggestedSpeed, string Verdict, bool Applied);
+
+/// <summary>A series and its parts, in order, each as it appears on the storyboard.</summary>
+/// <param name="NextParts">Ideas for the part after the latest one, if any were asked for.</param>
+public sealed record StorySeriesResponse(
+    string Id,
+    string Name,
+    IReadOnlyList<StoryRunSummaryResponse> Parts,
+    string LatestRunId,
+    int? AutoContinueTo,
+    IReadOnlyList<StoryNextPartIdeaResponse> NextParts,
+    string? NextPartsBy,
+    DateTime UpdatedAtUtc);
 
 // ------------------------------------------------------------------------------------------------ mapping
 
@@ -451,16 +555,23 @@ public static class StoryAgentMapper
 
     public static StoryAgentOptionsResponse ToResponse(StoryAgentCapabilities caps) => new(
         caps.Enabled, caps.TextModel, caps.SpeechEngine, caps.ImageEngine, caps.Music, caps.Renderer, caps.AudioFinishing, caps.MaxActiveRuns,
-        [.. caps.Packs.Select(p => new StoryPackResponse(p.Id, p.Title, p.TitleEnglish, p.Description, p.Language, p.TargetSeconds))],
+        [.. caps.Packs.Select(p => new StoryPackResponse(p.Id, p.Title, p.TitleEnglish, p.Description, p.Language, p.TargetSeconds, p.GenreId))],
         [.. GranthTopics.All.Select(t => new StoryTopicSummaryResponse(t.Id, t.Name, t.Hindi, t.Summary))],
         [.. caps.MyVoices.Select(Controllers.MyVoicesController.ToResponse)],
-        caps.MusicComposer);
+        caps.MusicComposer,
+        [.. (caps.Genres ?? StoryGenres.All()).Select(ToOption)]);
+
+    public static StoryGenreOptionResponse ToOption(StoryGenre g) => new(
+        g.Id, g.Name, g.NameHindi, g.Description, g.Icon, g.Mode, g.MadeForKids,
+        g.DefaultLanguage, g.DefaultTargetSeconds, g.DefaultFormat, g.LookStyle, g.ImageStyle, g.MusicQuery, g.SpeechStyle,
+        [.. g.Topics.Select(t => new StoryTopicSummaryResponse(t.Id, t.Name, t.Hindi ?? t.Name, t.Summary))]);
 
     public static StoryRunSummaryResponse ToSummary(StoryRun run) => ToSummary(run, []);
 
     /// <param name="publications">The person's uploads of this run's project, newest first.</param>
     public static StoryRunSummaryResponse ToSummary(StoryRun run, IReadOnlyList<StoryPublication> publications)
     {
+        WithoutRetiredStages(run);
         var running = run.Stages.FirstOrDefault(s => s.Status == StoryStageStatus.Running);
         var message = run.Status switch
         {
@@ -487,28 +598,45 @@ public static class StoryAgentMapper
             run.Brief.Language, run.Brief.Format, scenes.Count,
             run.TotalSeconds > 0 ? run.TotalSeconds : Math.Round(scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
             run.ScriptApprovedAtUtc, !string.IsNullOrEmpty(run.RenderJobId), cover?.Number,
-            publications.Count, latest is null ? null : ToResponse(run, latest));
+            publications.Count, latest is null ? null : ToResponse(run, latest),
+            run.Series?.Id, run.Series?.Name, run.Series?.Part);
     }
 
     public static StoryRunResponse ToResponse(StoryRun run, RenderJob? job) => ToResponse(run, job, []);
 
     /// <param name="publications">The person's uploads of this run's project.</param>
-    public static StoryRunResponse ToResponse(StoryRun run, RenderJob? job, IReadOnlyList<StoryPublication> publications) => new(
+    public static StoryRunResponse ToResponse(StoryRun run, RenderJob? job, IReadOnlyList<StoryPublication> publications) =>
+        ToResponseWithAllStages(WithAllStages(run), job, publications);
+
+    /// <summary>A run saved before a step existed is shown with it, so the timeline always has every step.</summary>
+    private static StoryRun WithAllStages(StoryRun run)
+    {
+        WithoutRetiredStages(run);
+        foreach (var id in StoryStageIds.All) run.Stage(id);
+        return run;
+    }
+
+    /// <summary>A run saved while a step existed that has since been removed (scene animation) is shown without it.</summary>
+    private static void WithoutRetiredStages(StoryRun run) => run.Stages.RemoveAll(s => !StoryStageIds.All.Contains(s.Id));
+
+    private static StoryRunResponse ToResponseWithAllStages(StoryRun run, RenderJob? job, IReadOnlyList<StoryPublication> publications) => new(
         run.Id,
         run.Title,
-        new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId),
+        new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
+            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,
         [.. run.Stages.Select(s => new StoryStageResponse(s.Id, s.Status, s.Progress, s.Message, s.Code, s.StartedAtUtc, s.CompletedAtUtc))],
         run.Research is null ? null : ToResponse(run.Research),
-        run.Script is null ? null : ToResponse(run.Id, run.Script),
+        run.Script is null ? null : ToResponse(run, run.Script),
         run.Warnings,
         run.ScriptWarnings,
         run.ProjectId,
         job is null ? null : new StoryRenderResponse(job.Id, job.Status, job.Progress,
             job.Status == RenderJobStatus.Failed ? job.ErrorMessage ?? job.Message : job.Message,
-            (job.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings) && !string.IsNullOrEmpty(job.OutputStorageKey)),
+            (job.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings) && !string.IsNullOrEmpty(job.OutputStorageKey),
+            run.TimingSpeed > 0 ? run.TimingSpeed : 1.0, run.TotalSeconds),
         run.Kit is null ? null : ToResponse(run.Kit),
         run.Music is null ? null : ToResponse(run.Music),
         run.ErrorCode,
@@ -522,7 +650,33 @@ public static class StoryAgentMapper
         run.VoiceApprovedAtUtc,
         run.MusicApprovedAtUtc,
         run.VideoApprovedAtUtc,
-        run.Script is null ? null : MusicBrief(run, run.Script));
+        run.Script is null ? null : MusicBrief(run, run.Script),
+        run.Series is null ? null : ToResponse(run.Series),
+        [.. run.NextParts.Select(ToResponse)],
+        run.NextPartsBy,
+        run.NextRunId,
+        run.Pace is null ? null : new StoryPaceResponse(run.Pace.WordsPerMinute, run.Pace.TargetWordsPerMinute,
+            run.Pace.SuggestedSpeed, run.Pace.Verdict, run.Pace.Applied));
+
+    private static StorySeriesLinkResponse ToResponse(StorySeriesLink s) =>
+        new(s.Id, s.Name, s.Part, s.PreviousRunId, s.AutoContinueTo, !string.IsNullOrWhiteSpace(s.StorySoFar));
+
+    private static StoryNextPartIdeaResponse ToResponse(StoryNextPartIdea i) => new(i.Title, i.Notes, i.Hook);
+
+    /// <param name="publications">The person's uploads, matched to each part by its project.</param>
+    public static StorySeriesResponse ToResponse(StorySeries series, Func<StoryRun, IReadOnlyList<StoryPublication>> publications)
+    {
+        var latest = series.Latest;
+        return new StorySeriesResponse(
+            series.Id,
+            series.Name,
+            [.. series.Parts.Select(p => ToSummary(p, publications(p)))],
+            latest.Id,
+            latest.Series?.AutoContinueTo,
+            [.. latest.NextParts.Select(ToResponse)],
+            latest.NextPartsBy,
+            series.Parts.Max(p => p.UpdatedAtUtc));
+    }
 
     private static StoryMusicResponse ToResponse(StoryMusicPick m) => new(
         m.Title, m.Artist, m.PageUrl, m.LicenseCode, m.LicenseUrl, m.Attribution,
@@ -552,7 +706,7 @@ public static class StoryAgentMapper
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
-        o.MusicPrompt, o.LookStyle);
+        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle);
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],
@@ -560,7 +714,9 @@ public static class StoryAgentMapper
             p.Excerpt.Length <= ExcerptChars ? p.Excerpt : p.Excerpt[..ExcerptChars].TrimEnd() + "...", p.Direct, p.License))],
         r.Queries, r.Warnings, r.RetrievedAtUtc);
 
-    private static StoryScriptResponse ToResponse(string runId, StoryScript s) => new(
+    private static StoryScriptResponse ToResponse(StoryRun run, StoryScript s) => ToResponse(run, run.Id, s);
+
+    private static StoryScriptResponse ToResponse(StoryRun run, string runId, StoryScript s) => new(
         s.Title, s.TitleEnglish, s.Language, s.Summary, s.MusicQuery,
         [.. s.Scenes.Select(scene => new StorySceneResponse(
             scene.Number, scene.Headline, scene.Narration, scene.English, scene.Basis,
@@ -569,8 +725,9 @@ public static class StoryAgentMapper
             StoryObjectKeys.Owns(runId, scene.ImageKey), scene.ImageSource, scene.ImageName,
             StoryObjectKeys.Owns(runId, scene.AudioKey), scene.AudioSeconds,
             [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))],
-            scene.VideoPrompt, StoryObjectKeys.Owns(runId, scene.VideoKey), scene.VideoName,
-            scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned))],
+            scene.VideoPrompt, StoryObjectKeys.Owns(runId, scene.VideoKey) && scene.HasAttachedClip, scene.VideoName,
+            scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned,
+            StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene)))],
         s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
         [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))]);
 

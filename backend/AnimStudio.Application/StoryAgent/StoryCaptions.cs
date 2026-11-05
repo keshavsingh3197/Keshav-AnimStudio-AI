@@ -59,6 +59,8 @@ public static class StoryCaptions
         if (language != spoken && !translated) return [];
 
         var scenes = run.Script!.Scenes;
+        // Narration lengths and pauses are measured at the project's own pace; the scene starts at the video's speed.
+        var pace = run.TimingSpeed > 0 && double.IsFinite(run.TimingSpeed) ? run.TimingSpeed : 1.0;
         var cues = new List<StoryCaptionCue>();
         for (var i = 0; i < scenes.Count; i++)
         {
@@ -66,7 +68,7 @@ public static class StoryCaptions
             var start = run.SceneStarts[i];
             var seconds = Math.Max(0.5, HasAudio(run, scene) ? scene.AudioSeconds!.Value : scene.EstimatedSeconds);
             // The next scene fades in before this one ends; a subtitle stops where the next scene starts.
-            var limit = i + 1 < scenes.Count ? run.SceneStarts[i + 1] : Math.Max(run.TotalSeconds, start + seconds);
+            var limit = i + 1 < scenes.Count ? run.SceneStarts[i + 1] : Math.Max(run.TotalSeconds, start + seconds / pace);
 
             var text = translated ? scene.English : scene.Narration;
             var chunks = StoryPacing.SplitCaptions(text);
@@ -76,8 +78,8 @@ public static class StoryCaptions
 
             foreach (var span in spans)
             {
-                var from = Math.Round(start + span.Start, 3);
-                var to = Math.Round(Math.Min(start + span.End, limit), 3);
+                var from = Math.Round(start + span.Start / pace, 3);
+                var to = Math.Round(Math.Min(start + span.End / pace, limit), 3);
                 if (to - from < 0.2 || string.IsNullOrWhiteSpace(span.Text)) continue;
                 cues.Add(new StoryCaptionCue(from, to, span.Text.Trim()));
             }

@@ -347,7 +347,7 @@ public sealed record VoiceoverEngineResponse(
     string Id, string Name, bool RunsLocally, string? Model, IReadOnlyList<VoiceoverModelResponse> Models,
     bool SupportsStyle = false);
 
-public sealed record VoiceoverModelResponse(string Id, string Label);
+public sealed record VoiceoverModelResponse(string Id, string Label, string? Detail = null, bool Recommended = false);
 
 /// <summary>What was heard in a dictated script, one line per spoken phrase.</summary>
 public sealed record VoiceScriptDictationResponse(IReadOnlyList<string> Lines);

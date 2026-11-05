@@ -13,6 +13,13 @@
     <nav class="sr-crumbs" aria-label="Story Agent">
       <a routerLink="/story-agent" class="sr-back">← All stories</a>
       <a routerLink="/story-agent/board" class="sr-back">▦ Storyboard</a>
+      <a routerLink="/story-agent/series" class="sr-back">📚 Series</a>
+      @if (r.series?.previousRunId; as previous) {
+        <a [routerLink]="['/story-agent', previous]" class="sr-back">← Part {{ r.series!.part - 1 }}</a>
+      }
+      @if (r.nextRunId; as next) {
+        <a [routerLink]="['/story-agent', next]" class="sr-back">Part {{ (r.series?.part ?? 1) + 1 }} →</a>
+      }
     </nav>
 
     <div class="page-head sb-studio-bar sr-head">
@@ -20,6 +27,9 @@
         <h2 [attr.lang]="language()">{{ r.title }}</h2>
         <p class="muted sr-sub">
           <span class="pill" [class]="tone(r.status)">{{ statusLabel[r.status] }}</span>
+          @if (r.series; as series) {
+            <span class="pill" [attr.lang]="r.brief.language">📚 Part {{ series.part }} · {{ series.name }}</span>
+          }
           @if (approved() && !r.working && r.status === 'ScriptReady') { <span class="pill ok">Script approved</span> }
           @if (r.status === 'AwaitingReview' && r.review) { <span class="pill warn">{{ reviewLabel[r.review] }}</span> }
           @if (r.publications.length > 0) {
@@ -330,7 +340,7 @@
             }
             <app-story-options [caps]="caps()!" [language]="language()" [value]="buildOptions()!" (valueChange)="buildOptions.set($event)" />
             <div class="row sr-build-actions">
-              <button type="button" class="sr-build-btn" [disabled]="busy() !== null" (click)="build()">
+              <button type="button" class="sr-build-btn" [disabled]="busy() !== null || budgetWarning() !== null" (click)="build()">
                 @if (busy() === 'build') { <span class="spinner" aria-hidden="true"></span> }
                 {{ r.status === 'Completed' ? 'Build it again' : approved() ? 'Build the video' : 'Approve the script and build' }}
               </button>
@@ -338,6 +348,35 @@
                 <span class="muted">Your unsaved edits to the script are saved first.</span>
               }
             </div>
+            @if (budgetWarning(); as w) {
+              <div class="notice sr-budget" role="alertdialog" aria-labelledby="sr-budget-title">
+                <h4 id="sr-budget-title">
+                  {{ w.report.status === 'over' ? 'This build would pass a daily limit' : 'This build would use most of a daily limit' }}
+                </h4>
+                <ul class="sr-budget-lines">
+                  @for (line of budgetLines(w.report); track line.kind + line.name) {
+                    <li>
+                      <strong>{{ line.label }}</strong> <span class="muted mono">{{ line.name }}</span><br />
+                      {{ line.used }} used today + {{ line.needed }} for this build of {{ line.limit }}
+                      = <strong [class.sr-budget-over]="line.status === 'over'">{{ line.percentAfter }}%</strong>
+                      <br /><span class="muted">Instead: {{ line.fallback }}</span>
+                    </li>
+                  }
+                </ul>
+                <p class="muted">
+                  @if (budgetHasGoogle(w.report)) { Google's counts start again at {{ budgetReset(w.report) }}. }
+                  @for (note of w.report.notes; track note) { {{ note }} }
+                </p>
+                <div class="row sr-build-actions">
+                  <button type="button" [disabled]="budgetBusy()" (click)="answerBudget('anyway')">Proceed anyway</button>
+                  <button type="button" class="sr-build-btn" [disabled]="budgetBusy()" (click)="answerBudget('without')">
+                    @if (budgetBusy()) { <span class="spinner" aria-hidden="true"></span> }
+                    Proceed with the alternatives
+                  </button>
+                  <button type="button" [disabled]="budgetBusy()" (click)="answerBudget('cancel')">Cancel</button>
+                </div>
+              </div>
+            }
           </section>
         } @else if (r.working) {
           <div class="card empty sr-center sr-wait">
@@ -357,6 +396,57 @@
       }
 
       <!-- ================================================================== the video, its subtitles, YouTube -->
+      <ng-template #playerBar let-player>
+        <div class="sr-player-bar">
+          <div class="sr-speeds" role="group" aria-label="Video speed">
+            <span class="muted">Speed</span>
+            @for (rate of speeds; track rate) {
+              <button type="button" class="sr-speed" [class.active]="speed() === rate" [attr.aria-pressed]="speed() === rate"
+                      [class.sr-speed-file]="fileSpeed() === rate" [disabled]="busy() !== null"
+                      (click)="setSpeed(rate, player)">{{ rate }}×</button>
+            }
+          </div>
+          @if (videoSilent()) {
+            <button type="button" class="secondary sr-unmute" (click)="unmute(player)">🔇 The sound is off - turn it on</button>
+          }
+        </div>
+        @if (speedPending()) {
+          <div class="sr-speed-apply" role="status">
+            <span>
+              Previewing <strong>{{ speed() }}×</strong>.
+              @if (speedSeconds(); as seconds) { The video would run <strong>{{ clock(seconds) }}</strong>. }
+              Apply it so the download, YouTube and the subtitles use it too.
+            </span>
+            <button type="button" [disabled]="busy() !== null" (click)="applySpeed()">
+              @if (busy() === 'speed') { <span class="spinner" aria-hidden="true"></span> }
+              Make the video {{ speed() }}×
+            </button>
+          </div>
+        }
+        <p class="muted sr-player-hint">
+          This video: {{ fileSpeed() }}×@if (r.render?.seconds; as seconds) {, {{ clock(seconds) }} long}, with its narration and
+          music. If it plays silent, check that this browser tab is not muted (right-click the tab) and that your computer's
+          sound is on.
+        </p>
+        @if (r.pace; as pace) {
+          <p class="sr-pace" [class.sr-pace-off]="pace.verdict !== 'good' && !pace.applied" role="note">
+            🎙 The voice speaks about <strong>{{ pace.wordsPerMinute | number: '1.0-0' }}</strong> words a minute at the pace it
+            was built (comfortable is about {{ pace.targetWordsPerMinute }}).
+            @if (pace.verdict === 'good') {
+              That is a good pace.
+            } @else if (pace.applied) {
+              It was a little {{ pace.verdict }}, so the app made the video {{ pace.suggestedSpeed }}×.
+            } @else {
+              It is a little {{ pace.verdict }}; {{ pace.suggestedSpeed }}× would suit it.
+              @if (speed() !== pace.suggestedSpeed) {
+                <button type="button" class="secondary small" [disabled]="busy() !== null"
+                        (click)="setSpeed(pace.suggestedSpeed, player)">Try {{ pace.suggestedSpeed }}×</button>
+              }
+            }
+          </p>
+        }
+      </ng-template>
+
       @if (selected() === 'publish') {
         <section class="card sr-result" aria-labelledby="sr-result-title">
           <h3 id="sr-result-title">The video</h3>
@@ -364,13 +454,18 @@
           @if (r.render; as render) {
             @if (render.downloadable) {
               @if (signedIn()) {
-                <video class="sr-video" controls preload="metadata" [src]="previewUrl(render.jobId)" [class.sr-vertical]="r.brief.format === 'Vertical'">
+                <video #player class="sr-video" controls playsinline preload="metadata" [src]="previewUrl(render.jobId)"
+                       [class.sr-vertical]="r.brief.format === 'Vertical'"
+                       (loadedmetadata)="onVideoReady(player)" (ratechange)="onRate(player)" (volumechange)="onVolume(player)">
                   Your browser cannot play this video. Download it instead.
                 </video>
+                <ng-container *ngTemplateOutlet="playerBar; context: { $implicit: player }" />
               } @else if (localUrl(render.jobId); as url) {
-                <video class="sr-video" controls [src]="url" [class.sr-vertical]="r.brief.format === 'Vertical'">
+                <video #player class="sr-video" controls playsinline [src]="url" [class.sr-vertical]="r.brief.format === 'Vertical'"
+                       (loadedmetadata)="onVideoReady(player)" (ratechange)="onRate(player)" (volumechange)="onVolume(player)">
                   Your browser cannot play this video. Download it instead.
                 </video>
+                <ng-container *ngTemplateOutlet="playerBar; context: { $implicit: player }" />
               } @else {
                 <div class="sr-guest-video">
                   <p class="muted">
@@ -532,6 +627,8 @@
         @if (r.kit; as kit) {
           <app-story-kit [kit]="kit" [music]="r.music" />
         }
+
+        <app-story-continue [run]="r" (updated)="take($event)" />
       }
     </div>
   </div>

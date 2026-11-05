@@ -81,7 +81,7 @@
               <select [id]="uid + '-model'" (change)="patch({ speechModel: text($event) || null })">
                 <option value="" [selected]="!v.speechModel">Default{{ engine.model ? ' (' + engine.model + ')' : '' }}</option>
                 @for (m of engine.models; track m.id) {
-                  <option [value]="m.id" [selected]="m.id === v.speechModel">{{ m.label }}</option>
+                  <option [value]="m.id" [selected]="m.id === v.speechModel" [title]="m.detail ?? ''">{{ m.recommended ? '★ ' : '' }}{{ m.label }}</option>
                 }
               </select>
             </div>
@@ -160,7 +160,7 @@
                     <select [id]="uid + '-my-model'" (change)="patch({ speechModel: text($event) || null })">
                       <option value="" [selected]="!v.speechModel">Default{{ engine.model ? ' (' + engine.model + ')' : '' }}</option>
                       @for (m of engine.models; track m.id) {
-                        <option [value]="m.id" [selected]="m.id === v.speechModel">{{ m.label }}</option>
+                        <option [value]="m.id" [selected]="m.id === v.speechModel" [title]="m.detail ?? ''">{{ m.recommended ? '★ ' : '' }}{{ m.label }}</option>
                       }
                     </select>
                   </div>
@@ -228,6 +228,16 @@
       <span>The pictures I attach are AI-made <span class="muted">(Google Flow, Midjourney…)</span></span>
     </label>
     <p class="so-note">This puts the right credit in the description and reminds you to tick YouTube's "altered or synthetic content" box.</p>
+    <div class="so-title so-subtitle" [id]="uid + '-art'">Look</div>
+    <div class="seg" role="radiogroup" [attr.aria-labelledby]="uid + '-art'">
+      @for (s of artStyles; track s.id) {
+        <label [class.selected]="(v.artStyle ?? 'Auto') === s.id">
+          <input type="radio" [name]="uid + '-art'" [checked]="(v.artStyle ?? 'Auto') === s.id" (change)="patch({ artStyle: s.id })" />
+          {{ s.label }}
+        </label>
+      }
+    </div>
+    <p class="so-note">{{ artHint() }}</p>
     <div class="so-field">
       <label [for]="uid + '-style'">Picture style <span class="muted">(optional)</span></label>
       <input [id]="uid + '-style'" type="text" maxlength="300" [value]="v.imageStyle ?? ''"
@@ -291,6 +301,28 @@
     </label>
     @if (!c.renderer) {
       <p class="so-note so-warn">Video rendering is not set up on this server (it needs ffmpeg). The project is still built, and you can render it later.</p>
+    }
+    @if (v.renderWhenReady && c.renderer) {
+      <label class="switch so-switch">
+        <input type="checkbox" [checked]="v.autoPace !== false"
+               (change)="patch(checked($event) ? { autoPace: true, videoSpeed: 1 } : { autoPace: false })" />
+        <span class="track"></span>
+        <span>Set the pace from the voice: if the narration comes out too slow or too fast, speed the video up or down to a comfortable pace</span>
+      </label>
+    }
+    @if (v.renderWhenReady && c.renderer && v.autoPace === false) {
+      <div class="so-field">
+        <label [for]="uid + '-video-speed'">Video speed</label>
+        <select [id]="uid + '-video-speed'" (change)="patch({ videoSpeed: numeric($event) })">
+          @for (s of videoSpeeds; track s) {
+            <option [value]="s" [selected]="s === (v.videoSpeed ?? 1)">{{ s }}×{{ s === 1 ? ' (as built)' : '' }}</option>
+          }
+        </select>
+        <p class="so-note">
+          The whole video - pictures, voice and music - plays at this speed, with the voice's pitch kept. The download, YouTube
+          and the subtitles all use it. You can change it after watching, too.
+        </p>
+      </div>
     }
     @if (offerAutoApprove()) {
       <label class="switch so-switch">

@@ -298,14 +298,17 @@ public static class GranthTopics
     /// words ("ram" is not "program"); Devanagari keywords of four or more letters match inside a word,
     /// because Hindi attaches endings ("दीपावली" in "दीपावलीपर").
     /// </summary>
-    public static IReadOnlyList<GranthTopic> Match(string? text, int max = 3)
+    public static IReadOnlyList<GranthTopic> Match(string? text, int max = 3) => Match(text, All, max);
+
+    /// <summary>As <see cref="Match(string?, int)"/>, over a genre's own topics.</summary>
+    public static IReadOnlyList<GranthTopic> Match(string? text, IReadOnlyList<GranthTopic> topics, int max = 3)
     {
         var folded = Fold(text);
         if (folded.Length == 0) return [];
 
         var padded = $" {folded} ";
         var scored = new List<(GranthTopic Topic, int Score, int FirstAt)>();
-        foreach (var topic in All)
+        foreach (var topic in topics)
         {
             // One weight per place in the text: "lakshmi" inside "lakshmi puja" is the same mention.
             var hits = new Dictionary<int, int>();

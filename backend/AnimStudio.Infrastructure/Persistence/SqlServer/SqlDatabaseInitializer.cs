@@ -15,7 +15,7 @@ public sealed class SqlDatabaseInitializer(
             await EnsureDatabaseAndTablesAsync(cancellationToken).ConfigureAwait(false);
             logger.LogInformation("SQL Server database and tables verified successfully.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not initialize SQL Server tables on startup. Check that local SQL Server (SSMS/localhost) is running.");
         }
@@ -52,7 +52,7 @@ public sealed class SqlDatabaseInitializer(
 
                 await EnableReadCommittedSnapshotAsync(masterConn, targetDb, ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 logger.LogDebug(ex, "Could not verify/create database via master connection; trying direct connection.");
             }
@@ -97,7 +97,7 @@ public sealed class SqlDatabaseInitializer(
             await using var migrationCmd = new SqlCommand(migrationSql, conn);
             await migrationCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogDebug(ex, "Schema migration check completed with notice.");
         }
@@ -134,7 +134,7 @@ public sealed class SqlDatabaseInitializer(
             if (repaired > 0)
                 logger.LogInformation("Re-homed assets that referenced missing folders ({Rows} row(s) changed).", repaired);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not repair assets that reference missing folders.");
         }
@@ -154,7 +154,7 @@ public sealed class SqlDatabaseInitializer(
             await using var cleanupCmd = new SqlCommand(cleanupSql, conn);
             await cleanupCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogDebug(ex, "Database cleanup check completed with notice.");
         }
@@ -200,7 +200,7 @@ public sealed class SqlDatabaseInitializer(
                 logger.LogInformation("Re-bound {Count} legacy records to administrator account ({AdminId}).", rebindCount, "6a6ae3f1d0797d6459bdc65f");
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogDebug(ex, "Admin record rebind check completed with notice.");
         }
@@ -598,6 +598,29 @@ public sealed class SqlDatabaseInitializer(
             );
             CREATE INDEX IX_StoryRuns_User ON StoryRuns (UserId, UpdatedAt DESC);
             CREATE INDEX IX_StoryRuns_Status ON StoryRuns (Status, UpdatedAt);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StoryGenres')
+        BEGIN
+            CREATE TABLE StoryGenres (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                SortOrder INT NOT NULL DEFAULT 0,
+                Enabled BIT NOT NULL DEFAULT 1,
+                UpdatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YouTubeChannelAnalyses')
+        BEGIN
+            CREATE TABLE YouTubeChannelAnalyses (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                ChannelId NVARCHAR(64) NOT NULL,
+                UpdatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_YouTubeChannelAnalyses_User ON YouTubeChannelAnalyses (UserId, ChannelId, UpdatedAt DESC);
         END;
 
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
