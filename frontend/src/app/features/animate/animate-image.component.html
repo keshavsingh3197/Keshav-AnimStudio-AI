@@ -1,0 +1,155 @@
+<section class="an">
+  <header class="an-head">
+    <h2>Animate Image</h2>
+    <p>
+      Add a picture, say how it should move, and get a video. The camera zooms, pans, drifts or sways over your
+      picture with a colour grade of your choice. It's free and needs no AI key. With a free text AI set up, it also
+      understands longer descriptions.
+    </p>
+  </header>
+
+  @if (caps()?.rendererAvailable === false) {
+    <div class="an-alert">
+      Video rendering isn't available on this server right now. You can still preview the motion here.
+      @if (caps()?.rendererUnavailableReason; as reason) { <span class="text-dim">({{ reason }})</span> }
+    </div>
+  }
+
+  <div class="an-grid">
+    <!-- ------------------------------------------------------------ picture + preview -->
+    <div class="an-panel an-stage-panel">
+      @if (imageUrl(); as url) {
+        <div class="an-stage" [style.aspect-ratio]="aspect()" (click)="pickFocus($event)"
+             title="Click to choose where the zoom heads">
+          <img #stage class="an-stage-img" [src]="url" alt="Your picture, moving as it will in the video"
+               [style.filter]="lookFilter()" />
+          @if (plan().vignette) { <div class="an-vignette"></div> }
+          @if (plan().grain) { <div class="an-grain"></div> }
+          @if (plan().cinemaBars) { <div class="an-bar top"></div><div class="an-bar bottom"></div> }
+          @if (plan().motion !== 'pan-left' && plan().motion !== 'pan-right'
+               && plan().motion !== 'pan-up' && plan().motion !== 'pan-down' && plan().motion !== 'handheld') {
+            <span class="an-focus" [style.left.%]="plan().focusX" [style.top.%]="plan().focusY"></span>
+          }
+        </div>
+        <div class="an-stage-foot">
+          <span class="text-dim">Live preview, close to the final video. Click the picture to set the zoom point.</span>
+          <button type="button" class="an-btn" (click)="clearPicture()">Change picture</button>
+        </div>
+      } @else {
+        <label class="an-drop" [appFileDrop]="accept" (filesDropped)="onDropped($event)">
+          <input type="file" [accept]="accept" (change)="onFileInput($event)" hidden />
+          <span class="an-drop-icon">🖼️</span>
+          <strong>Drop a picture here or click to choose one</strong>
+          <span class="text-dim">PNG, JPEG or WebP, up to {{ ((caps()?.maxImageBytes ?? 20971520) / 1048576) }} MB. You can also paste one.</span>
+        </label>
+      }
+
+      <div class="an-formats" role="group" aria-label="Video shape">
+        <button type="button" [class.active]="plan().format === 'landscape'" (click)="setFormat('landscape')">16:9 YouTube</button>
+        <button type="button" [class.active]="plan().format === 'vertical'" (click)="setFormat('vertical')">9:16 Shorts / Reels</button>
+        <button type="button" [class.active]="plan().format === 'square'" (click)="setFormat('square')">1:1 Square</button>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------------------ controls -->
+    <div class="an-panel an-controls">
+      <div class="an-field">
+        <label for="an-desc">How should it move?</label>
+        <textarea id="an-desc" rows="3" maxlength="500"
+                  placeholder="e.g. Slowly push in on her face with a warm sunset look, 8 seconds"
+                  [ngModel]="description()" (ngModelChange)="description.set($event)"
+                  (keydown.control.enter)="planFromWords()"></textarea>
+        <div class="an-ideas">
+          @for (idea of ideas; track idea) {
+            <button type="button" (click)="useIdea(idea)">{{ idea }}</button>
+          }
+        </div>
+        <div class="an-row">
+          <label class="an-check">
+            <input type="checkbox" [ngModel]="useAi()" (ngModelChange)="useAi.set($event)" />
+            Use AI to understand it
+          </label>
+          <button type="button" class="an-btn primary" [disabled]="!description().trim() || planning()"
+                  (click)="planFromWords()">
+            {{ planning() ? 'Reading…' : 'Apply description' }}
+          </button>
+        </div>
+        @if (plan().summary) {
+          <p class="an-summary">
+            <strong>{{ plan().summary }}</strong>
+            @if (plannedBy(); as by) {
+              <span class="text-dim"> · planned by {{ by === 'built-in' ? 'built-in reader' : by }}</span>
+            }
+          </p>
+        }
+        @if (note(); as n) { <p class="an-note">{{ n }}</p> }
+      </div>
+
+      <div class="an-field">
+        <label>Camera move</label>
+        <div class="an-chips">
+          @for (m of motions; track m.id) {
+            <button type="button" [class.active]="plan().motion === m.id" (click)="update('motion', m.id)">{{ m.label }}</button>
+          }
+        </div>
+      </div>
+
+      <div class="an-sliders">
+        <label class="an-slider">
+          <span>Strength <em>{{ (plan().intensity * 100).toFixed(0) }}%</em></span>
+          <input type="range" min="0.02" max="0.5" step="0.01"
+                 [ngModel]="plan().intensity" (ngModelChange)="setNumber('intensity', $event)" />
+        </label>
+        <label class="an-slider">
+          <span>Length <em>{{ plan().durationSeconds }} s</em></span>
+          <input type="range" [min]="minSeconds()" [max]="maxSeconds()" step="1"
+                 [ngModel]="plan().durationSeconds" (ngModelChange)="setNumber('durationSeconds', $event)" />
+        </label>
+      </div>
+
+      <div class="an-field">
+        <label>Look</label>
+        <div class="an-chips">
+          @for (l of looks; track l.id) {
+            <button type="button" [class.active]="plan().look === l.id" (click)="update('look', l.id)">{{ l.label }}</button>
+          }
+        </div>
+        <div class="an-row wrap">
+          <label class="an-check"><input type="checkbox" [ngModel]="plan().vignette" (ngModelChange)="update('vignette', $event)" /> Vignette</label>
+          <label class="an-check"><input type="checkbox" [ngModel]="plan().grain" (ngModelChange)="update('grain', $event)" /> Film grain</label>
+          <label class="an-check"><input type="checkbox" [ngModel]="plan().cinemaBars" (ngModelChange)="update('cinemaBars', $event)" /> Cinema bars</label>
+          <label class="an-check">
+            <input type="checkbox" [ngModel]="plan().easing === 'linear'"
+                   (ngModelChange)="update('easing', $event ? 'linear' : 'ease-in-out')" /> Constant speed
+          </label>
+        </div>
+      </div>
+
+      @if (error(); as e) { <div class="an-alert" role="alert">{{ e }}</div> }
+
+      <button type="button" class="an-btn primary big" [disabled]="!canRender()" (click)="render()">
+        {{ rendering() ? 'Making your video…' : file() ? 'Make video' : 'Add a picture first' }}
+      </button>
+    </div>
+  </div>
+
+  @if (videoUrl(); as video) {
+    <div class="an-panel an-result">
+      <h3>Your video</h3>
+      <video [src]="video" controls autoplay loop muted playsinline [style.aspect-ratio]="aspect()"></video>
+      <div class="an-row">
+        <a class="an-btn primary" [href]="video" download="animated.mp4">Download MP4</a>
+        <span class="text-dim">Silent MP4, 1080p. Add it to a project from the editor's media library.</span>
+      </div>
+    </div>
+  }
+
+  <details class="an-panel an-more">
+    <summary>Want characters to really move (walk, talk, blink)?</summary>
+    <p>
+      This page moves a camera over your picture, so it's free, fast and runs on this server. To make things
+      <em>inside</em> the picture move, you need an image-to-video AI model. Those are coming as an optional provider here.
+      Until then, use the Story Agent's motion prompt with a video tool, then add the clip to your scene.
+    </p>
+  </details>
+</section>

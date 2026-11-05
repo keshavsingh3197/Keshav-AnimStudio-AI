@@ -308,6 +308,7 @@ const TAB_ICONS: Readonly<Record<string, string>> = {
   live: '🔴',
   camera: '📷',
   'motion-copy': '🕺',
+  animate: '🖼️',
   collab: '👥',
   logs: '📜',
   admin: '⚙️',

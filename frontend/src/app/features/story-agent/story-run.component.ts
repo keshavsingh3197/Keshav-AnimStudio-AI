@@ -37,6 +37,7 @@ import {
   publicationState,
   replyProblem,
   saveBlob,
+  saveStoryFile,
   stageMark,
   statusTone,
   timeAgo,
@@ -141,6 +142,10 @@ export class StoryRunComponent {
   readonly promptError = signal<string | null>(null);
   readonly reply = signal('');
   readonly replyError = signal<string | null>(null);
+  /** The engine a rewrite asks: null keeps the story's, '' is the server's own order. */
+  readonly rewriteEngine = signal<string | null>(null);
+  readonly engines = computed(() => this.caps()?.textEngines ?? []);
+  readonly exporting = signal(false);
   readonly copied = signal(false);
 
   /** The choices for building, editable on this page until Build is pressed. */
@@ -575,7 +580,31 @@ export class StoryRunComponent {
     this.reply.set('');
     this.prompt.set(null);
     this.promptFor = null;
-    await this.act('rewrite', () => firstValueFrom(this.stories.rewrite(run.id, writer)));
+    const engine = writer === 'Auto' ? (this.rewriteEngine() ?? undefined) : undefined;
+    await this.act('rewrite', () => firstValueFrom(this.stories.rewrite(run.id, writer, engine)));
+  }
+
+  /** The name of the engine picked for this story, or null when it walks the server's order. */
+  engineName(id: string | null | undefined): string | null {
+    return id ? (this.engines().find((e) => e.id === id)?.name ?? id) : null;
+  }
+
+  /** Saves the story as a file, to keep or to start again from with Import on the Story Agent page. */
+  async exportStory(): Promise<void> {
+    const run = this.run();
+    if (!run || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      saveStoryFile(await firstValueFrom(this.stories.exportStory(run.id)), run.title);
+    } catch (failure: unknown) {
+      this.status.showError(failure instanceof ApiFailure ? failure.message : 'The story could not be exported.');
+    } finally {
+      this.exporting.set(false);
+    }
+  }
+
+  text(event: Event): string {
+    return (event.target as HTMLSelectElement).value;
   }
 
   async paste(): Promise<void> {

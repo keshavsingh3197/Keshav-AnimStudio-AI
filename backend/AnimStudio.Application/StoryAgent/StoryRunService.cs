@@ -90,7 +90,11 @@ public sealed record StoryAgentCapabilities(
     IReadOnlyList<VoiceProfile> MyVoices,
     int MaxActiveRuns,
     bool MusicComposer = false,
-    IReadOnlyList<StoryGenre>? Genres = null);
+    IReadOnlyList<StoryGenre>? Genres = null,
+    IReadOnlyList<StoryTextEngine>? TextEngines = null);
+
+/// <summary>A text engine that is on and ready, which a story can be written with instead of walking the chain.</summary>
+public sealed record StoryTextEngine(string Id, string Name, bool RunsLocally);
 
 /// <summary>
 /// Everything a person can do to a Story Agent run: start one, give it a script, edit the script, attach pictures, press
@@ -150,7 +154,17 @@ public sealed partial class StoryRunService(
             await voices.ListByUserAsync(userId, ct).ConfigureAwait(false),
             options.CurrentValue.MaxActiveRunsPerUser,
             registry.SpeechChain().OfType<IMusicGeneratingProvider>().Any(p => p.IsConfigured),
-            await ListGenresAsync(ct).ConfigureAwait(false));
+            await ListGenresAsync(ct).ConfigureAwait(false),
+            [.. registry.UsableTextProviders().Select(p => KnownAiProviders.Find(p.Id.Value) is { } known
+                ? new StoryTextEngine(p.Id.Value, known.DisplayName, known.RunsLocally)
+                : new StoryTextEngine(p.Id.Value, p.Id.Value, false))]);
+
+    /// <summary>The engine's id as it is registered, when it is on and ready now; null otherwise, so the chain writes instead.</summary>
+    public string? UsableTextEngine(string? id) =>
+        string.IsNullOrWhiteSpace(id)
+            ? null
+            : registry.UsableTextProviders().Select(p => p.Id.Value)
+                .FirstOrDefault(value => string.Equals(value, id.Trim(), StringComparison.OrdinalIgnoreCase));
 
     public async Task<IReadOnlyList<StoryRun>> ListAsync(string userId, CancellationToken ct) =>
         await runs.ListByUserAsync(userId, Math.Max(options.CurrentValue.MaxListedRuns, 1), ct).ConfigureAwait(false);
@@ -160,8 +174,10 @@ public sealed partial class StoryRunService(
     // ------------------------------------------------------------------------------------------------ starting
 
     /// <param name="series">For a later part of a series: what its writer carries on from. Set by <see cref="StorySeriesService"/>.</param>
+    /// <param name="importedScript">The script an imported story file brought, read by the script stage. Set by <see cref="ImportAsync"/>.</param>
     public async Task<StoryRun> CreateAsync(
-        string userId, StoryBrief brief, StoryBuildOptions? build, CancellationToken ct, StorySeriesLink? series = null)
+        string userId, StoryBrief brief, StoryBuildOptions? build, CancellationToken ct, StorySeriesLink? series = null,
+        string? importedScript = null)
     {
         var settings = options.CurrentValue;
         if (!settings.Enabled) throw new StoryRunException(StoryRunErrorKind.NotFound, "story-agent-off", "The Story Agent is switched off on this server.");
@@ -187,6 +203,7 @@ public sealed partial class StoryRunService(
             Options = checkedOptions,
             Genre = genre,
             Series = series,
+            ImportedScript = importedScript,
             Status = StoryRunStatus.Researching,
             Stages = StoryRun.NewStages(),
             CreatedAtUtc = now,
@@ -198,6 +215,41 @@ public sealed partial class StoryRunService(
         logger.LogInformation("Story run {RunId} started for a {Writer} script in the {Genre} genre.", run.Id, run.Brief.Writer, genre.Id);
 
         await PruneAsync(userId, run.Id, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>
+    /// Starts a story from an exported story file: its brief and choices, and its script, which is read once the research
+    /// is in - so a file from another account or server is checked here exactly as a pasted reply would be. What belongs
+    /// to the file's account or server (a voice of theirs, an engine that is not on here) is left behind.
+    /// </summary>
+    public async Task<StoryRun> ImportAsync(string userId, StoryBrief brief, StoryBuildOptions? build, string? script, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(script))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "import-no-script", "That file has no script in it. Export the story again once it has one.", "script");
+        if (script.Length > MaxScriptReplyChars)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "script-too-long", "The script in that file is far longer than any story.", "script");
+
+        // A built-in pack's script is in the file, so the import is that script, not the pack.
+        if (brief.Writer == StoryWriterMode.BuiltIn) brief.Writer = StoryWriterMode.Manual;
+        brief.PackId = null;
+        brief.TextEngine = UsableTextEngine(brief.TextEngine);
+
+        if (build is { Narration: StoryNarrationMode.MyVoice })
+        {
+            var profile = build.VoiceProfileId is { } profileId && ProfileIdPattern().IsMatch(profileId.Trim())
+                ? await voices.GetAsync(profileId.Trim(), ct).ConfigureAwait(false)
+                : null;
+            if (profile is null || !string.Equals(profile.UserId, userId, StringComparison.Ordinal))
+            {
+                build.Narration = registry.SpeechChain().Count > 0 ? StoryNarrationMode.Stock : StoryNarrationMode.None;
+                build.VoiceProfileId = null;
+                build.ClosestToMyVoice = false;
+            }
+        }
+
+        var run = await CreateAsync(userId, brief, build, ct, importedScript: script).ConfigureAwait(false);
+        logger.LogInformation("Story run {RunId} was started from an imported story file.", run.Id);
         return run;
     }
 
@@ -472,7 +524,8 @@ public sealed partial class StoryRunService(
         content.Length >= 12 && content[4] == (byte)'f' && content[5] == (byte)'t' && content[6] == (byte)'y' && content[7] == (byte)'p';
 
     /// <summary>Throws the script away and asks again, with the same research. A rewrite is never answered from a cache.</summary>
-    public async Task<StoryRun> RewriteAsync(string userId, string id, StoryWriterMode? writer, CancellationToken ct)
+    /// <param name="textEngine">The engine to write it with: null keeps the run's, empty hands it back to the chain.</param>
+    public async Task<StoryRun> RewriteAsync(string userId, string id, StoryWriterMode? writer, CancellationToken ct, string? textEngine = null)
     {
         var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
         if (run.IsWorking || run.Research is null)
@@ -480,10 +533,14 @@ public sealed partial class StoryRunService(
         if (writer is StoryWriterMode.BuiltIn)
             throw new StoryRunException(StoryRunErrorKind.Invalid, "writer-invalid", "A built-in story is not rewritten; start a new one from your own title.", "writer");
 
+        var engine = textEngine is null ? run.Brief.TextEngine : CheckTextEngine(textEngine);
+
         await CheckCapacityAsync(userId, ct).ConfigureAwait(false);
         await DeleteScriptFilesAsync(run, ct).ConfigureAwait(false);
 
         if (writer is { } chosen) run.Brief.Writer = chosen;
+        run.Brief.TextEngine = engine;
+        run.ImportedScript = null;
         run.Script = null;
         run.ScriptApprovedAtUtc = null;
         ClearReviews(run);
@@ -919,9 +976,17 @@ public sealed partial class StoryRunService(
             Voicing = pack is null ? brief.Voicing : StoryVoicing.Narrated,
             PackId = pack?.Id,
             GenreId = genre.Id,
-            Mode = genre.Mode
+            Mode = genre.Mode,
+            TextEngine = CheckTextEngine(brief.TextEngine)
         };
     }
+
+    /// <summary>A named engine must be on and ready now; nothing named is the chain.</summary>
+    private string? CheckTextEngine(string? id) =>
+        string.IsNullOrWhiteSpace(id)
+            ? null
+            : UsableTextEngine(id) ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "text-engine-unavailable",
+                "That AI engine isn't turned on or isn't ready. Pick another, or choose Auto.", "textEngine");
 
     private async Task<StoryBuildOptions> CheckOptionsAsync(string userId, StoryBuildOptions o, CancellationToken ct)
     {

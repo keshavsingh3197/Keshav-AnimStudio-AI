@@ -1,6 +1,7 @@
 import {
   CitationStatus,
   StoryBasis,
+  StoryExportFile,
   StoryPublication,
   StoryReviewStage,
   StoryRunStatus,
@@ -344,4 +345,37 @@ export function saveBlob(blob: Blob, fileName: string): void {
 /** A title as a file name: no characters Windows refuses, and not so long that it is cut off by the folder. */
 export function fileNameOf(title: string, fallback = 'story'): string {
   return title.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 60) || fallback;
+}
+
+/** What the import's file picker offers. */
+export const STORY_FILE_ACCEPT = 'application/json,.json';
+
+/** Far more than any story's file, and under what the server takes for an import. */
+export const STORY_FILE_MAX_BYTES = 700 * 1024;
+
+export function saveStoryFile(file: StoryExportFile, title: string): void {
+  saveBlob(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }), `${fileNameOf(title)}.story.json`);
+}
+
+/**
+ * Reads a story file the person picked, or throws an Error whose message says why it is not one. Only its shape is
+ * checked here: the server reads the script with the same parser and checks as a pasted reply.
+ */
+export async function readStoryFile(file: File): Promise<StoryExportFile> {
+  if (file.size > STORY_FILE_MAX_BYTES) throw new Error(`"${file.name}" is too big to be a story file.`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch {
+    throw new Error(`"${file.name}" isn't a story file: it isn't JSON.`);
+  }
+  const story = parsed as Partial<StoryExportFile> | null;
+  if (!story || typeof story !== 'object' || story.kind !== 'animstudio-story' || typeof story.version !== 'number'
+      || !story.story || typeof story.story !== 'object') {
+    throw new Error(`"${file.name}" isn't a story file exported from AnimStudio.`);
+  }
+  if (!story.script || typeof story.script !== 'object' || !Array.isArray(story.script.scenes) || story.script.scenes.length === 0) {
+    throw new Error(`"${file.name}" has no script in it. Export the story again once it has one.`);
+  }
+  return story as StoryExportFile;
 }

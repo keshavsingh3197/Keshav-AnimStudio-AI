@@ -28,6 +28,7 @@ public sealed class ScriptStage(
     {
         var run = context.Run;
         if (run.Script is not null) return StoryStageOutcome.Completed("The script is already written.");
+        if (run.ImportedScript is not null) return ReadImported(run);
 
         return run.Brief.Writer switch
         {
@@ -52,6 +53,28 @@ public sealed class ScriptStage(
         {
             logger.LogError("The built-in pack {Pack} could not be read: {Code}", pack.Id, ex.Code);
             throw new StoryStageException("pack-invalid", "That built-in story could not be read. Please report this.");
+        }
+    }
+
+    /// <summary>
+    /// The script an imported story file brought, read like a pasted reply - so its citations are checked against this
+    /// run's research. A file that cannot be read leaves the story waiting for a script, with the reason beside it.
+    /// </summary>
+    private StoryStageOutcome ReadImported(StoryRun run)
+    {
+        var imported = run.ImportedScript;
+        run.ImportedScript = null;
+        try
+        {
+            var result = StoryScriptParser.Parse(imported, run.Brief, run.Research, "imported story file",
+                clock.GetUtcNow().UtcDateTime, tolerant: true);
+            Keep(run, result);
+            return StoryStageOutcome.Completed("The script was read from the imported story file.");
+        }
+        catch (StoryScriptException ex)
+        {
+            logger.LogWarning("The imported script of story run {RunId} could not be read: {Code}", run.Id, ex.Code);
+            return Wait(run, $"The script in the imported file could not be read ({ex.Message})");
         }
     }
 
@@ -82,7 +105,9 @@ public sealed class ScriptStage(
                 .ConfigureAwait(false);
 
             if (outcome.Kind == AiOutcomeKind.Unavailable)
-                return Wait(run, "No text model is turned on, so the script is waiting for you.");
+                return Wait(run, run.Brief.TextEngine is { } engine
+                    ? $"The AI engine picked for this story ({engine}) isn't available just now, so the script is waiting for you. Rewrite it with another engine, or paste one."
+                    : "No text model is turned on, so the script is waiting for you.");
             if (!outcome.IsSuccess)
                 return Wait(run, outcome.ErrorCode is { Length: > 0 } code
                     ? $"{outcome.Message ?? "The text model could not write the script."} ({code})"
@@ -126,7 +151,8 @@ public sealed class ScriptStage(
 
             // A rewrite, or a second try, must not be answered with the reply it is replacing.
             BypassCache = attempt > 1 || run.ScriptRevision > 0,
-            Seed = run.ScriptRevision > 0 ? run.ScriptRevision : null
+            Seed = run.ScriptRevision > 0 ? run.ScriptRevision : null,
+            ProviderId = run.Brief.TextEngine
         };
     }
 

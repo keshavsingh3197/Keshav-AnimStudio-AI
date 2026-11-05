@@ -273,6 +273,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'animate',
+    title: 'Animate Image - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/animate/animate-image.component').then((m) => m.AnimateImageComponent),
+  },
+
+  {
     path: 'collab',
     title: 'Collab Studio - AnimStudio AI',
     loadComponent: () =>

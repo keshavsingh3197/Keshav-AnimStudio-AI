@@ -16,6 +16,7 @@ import {
   StoryBudgetReport,
   StoryBuildOptionsBody,
   StoryCaptionsSent,
+  StoryExportFile,
   StoryReviewStage,
   StoryRun,
   StoryRunSummary,
@@ -68,8 +69,22 @@ export class StoryAgentService {
     return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/approve`, {}));
   }
 
-  rewrite(id: string, writer?: StoryWriterMode): Observable<StoryRun> {
-    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/rewrite`, writer ? { writer } : {}));
+  /** @param textEngine the engine to write it with: undefined keeps the story's, '' hands it back to the chain. */
+  rewrite(id: string, writer?: StoryWriterMode, textEngine?: string): Observable<StoryRun> {
+    const body: { writer?: StoryWriterMode; textEngine?: string } = {};
+    if (writer) body.writer = writer;
+    if (textEngine !== undefined) body.textEngine = textEngine;
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.run(id)}/script/rewrite`, body));
+  }
+
+  /** The story as a file - brief, choices and script - to keep, or to start again from with {@link importStory}. */
+  exportStory(id: string): Observable<StoryExportFile> {
+    return this.unwrap(this.http.get<ApiResponse<StoryExportFile>>(`${this.run(id)}/export`));
+  }
+
+  /** Starts a new story from an exported story file. Its script is read and checked once the research is in. */
+  importStory(file: StoryExportFile): Observable<StoryRun> {
+    return this.unwrap(this.http.post<ApiResponse<StoryRun>>(`${this.base}/runs/import`, file));
   }
 
   attachImage(id: string, scene: number, file: File): Observable<StoryRun> {

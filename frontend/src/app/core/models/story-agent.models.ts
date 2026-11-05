@@ -123,6 +123,14 @@ export interface StoryAgentOptions {
   myVoices: StoryMyVoice[];
   /** The genres offered for a new story, in order; the first is the default. */
   genres?: StoryGenreOption[];
+  /** The text engines that are on and ready, to pick one to write the script instead of the configured chain. */
+  textEngines?: StoryTextEngine[];
+}
+
+export interface StoryTextEngine {
+  id: string;
+  name: string;
+  runsLocally: boolean;
 }
 
 // ------------------------------------------------------------------------------------------------ a run
@@ -305,6 +313,8 @@ export interface StoryBrief {
   genreId?: string;
   genreName?: string | null;
   mode?: StoryGenreMode;
+  /** The engine picked to write the script; null walks the configured chain. */
+  textEngine?: string | null;
 }
 
 export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
@@ -564,7 +574,21 @@ export interface CreateStoryRunBody {
   packId?: string;
   /** The genre the story is made in; empty for the devotional one. */
   genreId?: string;
+  /** One of the options' text engines; left out, the configured chain writes it. */
+  textEngine?: string;
   options?: StoryBuildOptionsBody;
+}
+
+/**
+ * A story as a file, as the server exports it. The script is in the shape a chat's reply has, so importing it goes
+ * through the same parser and citation checks; the page only checks it is this kind of file before sending it.
+ */
+export interface StoryExportFile {
+  kind: 'animstudio-story';
+  version: number;
+  exportedAtUtc: string;
+  story: CreateStoryRunBody;
+  script: { title: string; scenes: unknown[] } & Record<string, unknown> | null;
 }
 
 export interface EditStorySourceBody {

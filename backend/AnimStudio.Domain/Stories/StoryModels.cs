@@ -82,6 +82,9 @@ public sealed class StoryBrief
 
     /// <summary>The genre's mode, copied here because the script parser and the prompt only see the brief.</summary>
     public StoryGenreMode Mode { get; set; } = StoryGenreMode.Scripture;
+
+    /// <summary>The one text engine that writes the script and the ideas for the next part; null walks the configured chain.</summary>
+    public string? TextEngine { get; set; }
 }
 
 /// <summary>How the video is made once the script is approved.</summary>
