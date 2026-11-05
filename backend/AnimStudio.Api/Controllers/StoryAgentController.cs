@@ -98,6 +98,7 @@ public sealed class StoryAgentController(
             TargetSeconds = request.TargetSeconds,
             Format = request.Format,
             Writer = request.Writer,
+            Voicing = request.Voicing,
             PackId = request.PackId,
             GenreId = request.GenreId
         };

@@ -38,21 +38,23 @@ public static class StoryScriptPrompt
 
     /// <summary>
     /// The template a run's script is written with, and its values: the Granth prompt for a scripture genre, the creative
-    /// one - with the genre's style guide as data - for the rest.
+    /// one - with the genre's style guide as data - for the rest. A story told only by its characters has its own
+    /// version of each, written without a narrator.
     /// </summary>
     public static (string TemplateKey, IReadOnlyDictionary<string, string?> Variables) For(StoryRun run)
     {
+        var charactersOnly = run.Brief.Voicing == StoryVoicing.CharactersOnly;
         if (run.Brief.Mode != StoryGenreMode.Creative)
         {
             var variables = new Dictionary<string, string?>(Variables(run.Brief, run.Research), StringComparer.Ordinal)
             {
                 ["notes"] = NotesFor(run)
             };
-            return (BuiltInPrompts.StoryScript, variables);
+            return (charactersOnly ? BuiltInPrompts.StoryScriptDialogue : BuiltInPrompts.StoryScript, variables);
         }
 
         var genre = StoryGenres.Of(run);
-        return (BuiltInPrompts.StoryScriptCreative, new Dictionary<string, string?>(StringComparer.Ordinal)
+        return (charactersOnly ? BuiltInPrompts.StoryScriptCreativeDialogue : BuiltInPrompts.StoryScriptCreative, new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["title"] = run.Brief.Title,
             ["language"] = LanguageName(run.Brief.Language),
@@ -209,8 +211,11 @@ public static class StoryScriptPrompt
 
         Reply with ONE JSON object and nothing else (no explanation, no code fence). Shape:
 
-        {ExampleJson}
+        {(IsCharactersOnly(rendered.TemplateKey) ? CharactersOnlyExampleJson : ExampleJson)}
         """;
+
+    private static bool IsCharactersOnly(string templateKey) =>
+        templateKey is BuiltInPrompts.StoryScriptDialogue or BuiltInPrompts.StoryScriptCreativeDialogue;
 
     private const string ExampleJson =
         """
@@ -224,6 +229,23 @@ public static class StoryScriptPrompt
               "sources": [ { "text": "bhagavata-purana", "ref": "10.59", "note": "..." } ],
               "imagePrompt": "...", "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
               "lines": [ { "speaker": "narrator", "text": "..." }, { "speaker": "...", "text": "..." } ]
+            }
+          ]
+        }
+        """;
+
+    private const string CharactersOnlyExampleJson =
+        """
+        {
+          "title": "...", "titleEnglish": "...", "summary": "...", "musicQuery": "sitar flute devotional",
+          "reviewNotes": ["..."],
+          "cast": [ { "name": "...", "gender": "male", "age": "elder" }, { "name": "...", "gender": "female", "age": "child" } ],
+          "scenes": [
+            {
+              "headline": "...", "narration": "...", "english": "...", "basis": "text",
+              "sources": [ { "text": "bhagavata-purana", "ref": "10.59", "note": "..." } ],
+              "imagePrompt": "...", "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
+              "lines": [ { "speaker": "...", "text": "..." }, { "speaker": "...", "text": "..." } ]
             }
           ]
         }

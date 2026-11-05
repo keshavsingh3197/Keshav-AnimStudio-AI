@@ -28,6 +28,9 @@ public sealed record CreateStoryRunRequest
     public StoryFormat Format { get; init; } = StoryFormat.Wide;
     public StoryWriterMode Writer { get; init; } = StoryWriterMode.Auto;
 
+    /// <summary><c>Narrated</c> (a narrator, with the characters speaking now and then) or <c>CharactersOnly</c> (no narrator).</summary>
+    public StoryVoicing Voicing { get; init; } = StoryVoicing.Narrated;
+
     /// <summary>The built-in story, when <see cref="Writer"/> is <c>BuiltIn</c>.</summary>
     [StringLength(64)]
     public string? PackId { get; init; }
@@ -422,7 +425,8 @@ public sealed record StoryKitResponse(
 
 public sealed record StoryBriefResponse(
     string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
-    string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture);
+    string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture,
+    StoryVoicing Voicing = StoryVoicing.Narrated);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
@@ -623,7 +627,7 @@ public static class StoryAgentMapper
         run.Id,
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
-            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode),
+            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,

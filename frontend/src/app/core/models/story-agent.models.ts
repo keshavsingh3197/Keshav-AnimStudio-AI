@@ -39,6 +39,8 @@ export type StoryTransition = (typeof STORY_TRANSITIONS)[number];
 
 export type StoryStageStatus = 'Pending' | 'Running' | 'Completed' | 'Skipped' | 'Failed';
 export type StoryWriterMode = 'Auto' | 'Manual' | 'BuiltIn';
+/** A narrator with the characters speaking now and then, or the characters alone with no narrator. */
+export type StoryVoicing = 'Narrated' | 'CharactersOnly';
 export type StoryFormat = 'Wide' | 'Vertical';
 export type StoryNarrationMode = 'None' | 'Stock' | 'MyVoice';
 export type StoryVisualMode = 'Auto' | 'UploadsOnly';
@@ -298,6 +300,7 @@ export interface StoryBrief {
   targetSeconds: number;
   format: StoryFormat;
   writer: StoryWriterMode;
+  voicing?: StoryVoicing;
   packId: string | null;
   genreId?: string;
   genreName?: string | null;
@@ -557,6 +560,7 @@ export interface CreateStoryRunBody {
   targetSeconds?: number;
   format?: StoryFormat;
   writer?: StoryWriterMode;
+  voicing?: StoryVoicing;
   packId?: string;
   /** The genre the story is made in; empty for the devotional one. */
   genreId?: string;

@@ -183,6 +183,23 @@
               </select>
             </div>
           </div>
+
+          <div class="sa-field">
+            <div class="sa-label" id="sa-voicing-label">Who tells it</div>
+            <div class="seg" role="radiogroup" aria-labelledby="sa-voicing-label">
+              <label [class.selected]="voicing() === 'Narrated'">
+                <input type="radio" name="sa-voicing" [checked]="voicing() === 'Narrated'" (change)="voicing.set('Narrated')" />
+                A narrator · characters speak now and then
+              </label>
+              <label [class.selected]="voicing() === 'CharactersOnly'">
+                <input type="radio" name="sa-voicing" [checked]="voicing() === 'CharactersOnly'" (change)="voicing.set('CharactersOnly')" />
+                Characters only · no narrator
+              </label>
+            </div>
+            @if (voicing() === 'CharactersOnly') {
+              <p class="sa-help">Every line is spoken by a character, from the first scene. Keep "a voice for each character" on so they don't all sound alike.</p>
+            }
+          </div>
         }
 
         <div class="sa-field">

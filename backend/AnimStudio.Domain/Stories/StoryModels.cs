@@ -23,6 +23,16 @@ public enum StoryWriterMode
     BuiltIn = 2
 }
 
+/// <summary>Who tells the story in the script.</summary>
+public enum StoryVoicing
+{
+    /// <summary>A narrator tells it, and the characters speak a few lines of their own along the way.</summary>
+    Narrated = 0,
+
+    /// <summary>No narrator: the characters tell the whole story in their own lines, from the first scene to the last.</summary>
+    CharactersOnly = 1
+}
+
 public enum StoryNarrationMode
 {
     /// <summary>Subtitles only.</summary>
@@ -60,6 +70,9 @@ public sealed class StoryBrief
 
     public StoryFormat Format { get; set; } = StoryFormat.Wide;
     public StoryWriterMode Writer { get; set; } = StoryWriterMode.Auto;
+
+    /// <summary>Whether a narrator tells the story or only its characters speak. A built-in pack is always narrated.</summary>
+    public StoryVoicing Voicing { get; set; } = StoryVoicing.Narrated;
 
     /// <summary>The id of a built-in story pack, when <see cref="Writer"/> is <see cref="StoryWriterMode.BuiltIn"/>.</summary>
     public string? PackId { get; set; }

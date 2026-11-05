@@ -40,6 +40,7 @@
           <span>· {{ r.brief.language === 'en' ? 'English' : 'Hindi' }}</span>
           <span>· {{ r.brief.format === 'Vertical' ? '9:16 vertical' : '16:9 wide' }}</span>
           @if (r.brief.writer === 'BuiltIn') { <span>· built-in story</span> }
+          @if (r.brief.voicing === 'CharactersOnly') { <span>· characters only</span> }
         </p>
       </div>
       <div class="sb-studio-actions">

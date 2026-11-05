@@ -140,10 +140,32 @@ public class StoryGenrePromptTests
     }
 
     [Fact]
-    public void Both_script_templates_promise_the_same_answer_shape()
+    public void Every_script_template_promises_the_same_answer_shape()
     {
-        Assert.Equal(BuiltInPrompts.Find(BuiltInPrompts.StoryScript)!.OutputJsonSchema,
-            BuiltInPrompts.Find(BuiltInPrompts.StoryScriptCreative)!.OutputJsonSchema);
+        var shape = BuiltInPrompts.Find(BuiltInPrompts.StoryScript)!.OutputJsonSchema;
+        Assert.Equal(shape, BuiltInPrompts.Find(BuiltInPrompts.StoryScriptCreative)!.OutputJsonSchema);
+        Assert.Equal(shape, BuiltInPrompts.Find(BuiltInPrompts.StoryScriptDialogue)!.OutputJsonSchema);
+        Assert.Equal(shape, BuiltInPrompts.Find(BuiltInPrompts.StoryScriptCreativeDialogue)!.OutputJsonSchema);
+    }
+
+    [Fact]
+    public void A_story_told_only_by_its_characters_uses_the_template_without_a_narrator()
+    {
+        var granth = new StoryRun { Brief = StorySamples.Brief(), Research = StorySamples.Research() };
+        granth.Brief.Voicing = StoryVoicing.CharactersOnly;
+        var creative = CreativeRun(StoryGenres.Funny());
+        creative.Brief.Voicing = StoryVoicing.CharactersOnly;
+
+        foreach (var (run, expected) in new[] { (granth, BuiltInPrompts.StoryScriptDialogue), (creative, BuiltInPrompts.StoryScriptCreativeDialogue) })
+        {
+            var (key, variables) = StoryScriptPrompt.For(run);
+
+            Assert.Equal(expected, key);
+            Assert.Equal(
+                BuiltInPrompts.Find(key)!.Variables.OrderBy(v => v, StringComparer.Ordinal),
+                variables.Keys.OrderBy(v => v, StringComparer.Ordinal));
+            Assert.Contains("Never use \"narrator\" as a speaker", BuiltInPrompts.Find(key)!.Body, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

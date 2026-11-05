@@ -899,6 +899,8 @@ public sealed partial class StoryRunService(
 
         if (!Enum.IsDefined(brief.Writer) || !Enum.IsDefined(brief.Format))
             throw new StoryRunException(StoryRunErrorKind.Invalid, "brief-invalid", "That writer or format is not one this app knows.", "writer");
+        if (!Enum.IsDefined(brief.Voicing))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "brief-invalid", "Choose a narrator or characters only.", "voicing");
 
         var language = pack?.Language ?? (string.IsNullOrWhiteSpace(brief.Language)
             ? genre.DefaultLanguage
@@ -913,6 +915,8 @@ public sealed partial class StoryRunService(
             TargetSeconds = seconds,
             Format = brief.Format,
             Writer = brief.Writer,
+            // A built-in pack is written for a narrator.
+            Voicing = pack is null ? brief.Voicing : StoryVoicing.Narrated,
             PackId = pack?.Id,
             GenreId = genre.Id,
             Mode = genre.Mode

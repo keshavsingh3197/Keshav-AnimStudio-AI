@@ -295,6 +295,28 @@ public class StoryScriptParserTests
         // Everything falls to the narrator, so the scene needs no lines at all.
         Assert.Empty(scene.Lines);
     }
+
+    [Fact]
+    public void A_story_with_no_narrator_warns_about_every_scene_a_narrator_would_still_read()
+    {
+        var brief = StorySamples.Brief();
+        brief.Voicing = StoryVoicing.CharactersOnly;
+
+        var warnings = StoryScriptParser.Parse(DialogueJson, brief, null, "x", StorySamples.Now, false).Warnings;
+
+        Assert.Contains(warnings, w => w.StartsWith("Scene 1 has words no character speaks", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.StartsWith("Scene 3 has words no character speaks", StringComparison.Ordinal));
+        // Scene 2's lines were dropped, and that already has its own warning.
+        Assert.DoesNotContain(warnings, w => w.StartsWith("Scene 2 has words", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_narrated_story_is_not_warned_about_its_narrator()
+    {
+        var warnings = StoryScriptParser.Parse(DialogueJson, StorySamples.Brief(), null, "x", StorySamples.Now, false).Warnings;
+
+        Assert.DoesNotContain(warnings, w => w.Contains("no character speaks", StringComparison.Ordinal));
+    }
 }
 
 public class StoryVoiceCastingTests

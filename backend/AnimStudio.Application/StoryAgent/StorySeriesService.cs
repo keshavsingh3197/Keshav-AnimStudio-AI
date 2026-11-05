@@ -244,6 +244,7 @@ public sealed class StorySeriesService(
             Format = previous.Brief.Format,
             // A built-in pack is one story; what comes after it is written.
             Writer = previous.Brief.Writer == StoryWriterMode.BuiltIn ? StoryWriterMode.Auto : previous.Brief.Writer,
+            Voicing = previous.Brief.Voicing,
             GenreId = previous.Brief.GenreId
         };
 

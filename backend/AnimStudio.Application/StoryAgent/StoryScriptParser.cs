@@ -185,6 +185,9 @@ public static class StoryScriptParser
             scene.Lines = NormalizeLines(scene, cast, out var mismatch);
             if (mismatch)
                 warnings.Add($"Scene {number}: the characters' lines did not match the narration, so the narrator reads all of it.");
+            else if (brief.Voicing == StoryVoicing.CharactersOnly
+                     && (scene.Lines.Count == 0 || scene.Lines.Any(l => l.Speaker == StoryCastMember.Narrator)))
+                warnings.Add($"Scene {number} has words no character speaks, so a narrator reads them. Give them to a character for a story with no narrator.");
 
             // A creative genre's story is the storyteller's own: it cites nothing and claims nothing about a text.
             if (brief.Mode == StoryGenreMode.Creative)

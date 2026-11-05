@@ -9,6 +9,7 @@ import {
   StoryAgentOptions,
   StoryBuildOptions,
   StoryFormat,
+  StoryVoicing,
   StoryGenreOption,
   StoryRunSummary,
   StoryTopic,
@@ -63,6 +64,7 @@ export class StoryAgentComponent {
   readonly minutes = signal(2.5);
   readonly format = signal<StoryFormat>('Wide');
   readonly writer = signal<StoryWriterMode>('Auto');
+  readonly voicing = signal<StoryVoicing>('Narrated');
   readonly packId = signal<string | null>(null);
   readonly genreId = signal<string | null>(null);
   readonly options = signal<StoryBuildOptions | null>(null);
@@ -233,6 +235,7 @@ export class StoryAgentComponent {
       targetSeconds: Math.round(this.minutes() * 60),
       format: this.format(),
       writer: this.writer(),
+      voicing: builtIn ? undefined : this.voicing(),
       packId: builtIn ? (this.packId() ?? undefined) : undefined,
       genreId: this.genre()?.id,
       options: this.options() ?? undefined,
