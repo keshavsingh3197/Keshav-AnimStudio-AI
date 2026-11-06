@@ -95,6 +95,9 @@ public sealed record StoryBuildOptionsRequest
     /// <summary>Let the app pick the speed from how fast the narration came out. Left out, it is on.</summary>
     public bool? AutoPace { get; init; }
 
+    /// <summary>The pace the voice is brought to; Auto picks by the video's shape and audience.</summary>
+    public StoryPaceStyle Pace { get; init; } = StoryPaceStyle.Auto;
+
     public StoryArtStyle ArtStyle { get; init; } = StoryArtStyle.Auto;
 
     public static StoryBuildOptionsRequest From(StoryBuildOptions o) => new()
@@ -121,6 +124,7 @@ public sealed record StoryBuildOptionsRequest
         AutoApprove = o.AutoApprove,
         VideoSpeed = o.VideoSpeed,
         AutoPace = o.AutoPace,
+        Pace = o.Pace,
         ArtStyle = o.ArtStyle
     };
 
@@ -148,6 +152,7 @@ public sealed record StoryBuildOptionsRequest
         AutoApprove = AutoApprove,
         VideoSpeed = VideoSpeed,
         AutoPace = AutoPace ?? true,
+        Pace = Pace,
         ArtStyle = ArtStyle
     };
 }
@@ -472,7 +477,8 @@ public sealed record StoryOptionsResponse(
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
     bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
     StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
-    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto);
+    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto,
+    StoryPaceStyle Pace = StoryPaceStyle.Auto);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -750,7 +756,7 @@ public static class StoryAgentMapper
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
-        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle);
+        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace);
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],

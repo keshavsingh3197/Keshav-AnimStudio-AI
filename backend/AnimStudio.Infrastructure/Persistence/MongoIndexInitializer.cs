@@ -140,6 +140,16 @@ public sealed class MongoIndexInitializer(
                 new CreateIndexModel<YouTubeChannelAnalysis>(Builders<YouTubeChannelAnalysis>.IndexKeys
                     .Ascending(a => a.UserId).Ascending(a => a.ChannelId)), cancellationToken: ct).ConfigureAwait(false);
 
+            // Saved YouTube details: the same input exactly, and a person's recent ones in a language to compare.
+            var savedSuggestions = mongo.GetCollection<YouTubeSavedSuggestion>(MongoCollections.YouTubeSavedSuggestions);
+            await savedSuggestions.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<YouTubeSavedSuggestion>(Builders<YouTubeSavedSuggestion>.IndexKeys
+                    .Ascending(s => s.UserId).Ascending(s => s.Fingerprint)),
+                new CreateIndexModel<YouTubeSavedSuggestion>(Builders<YouTubeSavedSuggestion>.IndexKeys
+                    .Ascending(s => s.UserId).Ascending(s => s.Language).Descending(s => s.CreatedAtUtc))
+            ], ct).ConfigureAwait(false);
+
             // The calendar lists one owner's posts by date and one topic's posts for planning;
             // the sync walks a date window across everyone.
             var contentTopics = mongo.GetCollection<ContentTopic>(MongoCollections.ContentTopics);

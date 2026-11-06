@@ -55,6 +55,13 @@ export class TransitionsInspectorComponent {
 
   readonly autoMessage = signal<string | null>(null);
 
+  useMusicVideoPool(): void {
+    this.cutPool.set(['ZoomIn', 'Blur', 'DiagonalWipe', 'CircleCrop', 'SlideUp', 'SlideDown']);
+    this.cutSeconds.set(0.45);
+    this.autoMode.set('cycle');
+    this.autoMessage.set('Music video pool selected. Choose Apply to place it on your target cuts. No beat detection or automatic flashes.');
+  }
+
   readonly cutTargetCount = computed(() => this.state.autoTargetJunctions().length);
   readonly imageTargetCount = computed(() => { this.state.timelineItems(); this.state.selectedTimelineItemIds(); this.state.selectedTimelineItemId(); return this.state.autoTargetItems('image').length; });
   readonly textTargetCount = computed(() => { this.state.timelineItems(); this.state.selectedTimelineItemIds(); this.state.selectedTimelineItemId(); return this.state.autoTargetItems('text').length; });

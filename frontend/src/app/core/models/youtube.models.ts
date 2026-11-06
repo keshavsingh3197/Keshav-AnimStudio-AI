@@ -128,6 +128,12 @@ export interface YouTubeSuggestion {
   topicId?: string | null;
   /** Plain lines about what the details could and couldn't be written from. */
   notes?: string[] | null;
+  /** When the details were first written, if they came from the saved library instead of an AI call. */
+  savedAtUtc?: string | null;
+  /** How alike the saved details' video is to this one, 0-1 (1: the same video). */
+  savedSimilarity?: number | null;
+  /** Titles written for earlier videos of the same kind, to pick from. */
+  savedTitles?: string[] | null;
 }
 
 export interface YouTubeUrlSeoResult {

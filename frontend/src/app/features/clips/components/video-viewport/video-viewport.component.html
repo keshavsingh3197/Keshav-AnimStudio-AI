@@ -63,11 +63,12 @@
         <video #videoMonitorA
                crossorigin="anonymous"
                [class]="'pv-monitor-layer ' + getMonitorLayerClass('A') + ' ' + state.monitorFitClass()"
-               [style.animation-duration.s]="liveTransitionDuration()"
-               [style.filter]="shotFilter(state.computedMonitorFilter())"
-               [style.transform]="shotTransform(state.activeClipTransform())"
-               [style.clip-path]="state.activeClipClipPath()"
-               [style.visibility]="state.currentClipHidesVideo() || state.inSlotGap() ? 'hidden' : null"
+               [style.opacity]="monitorTransitionFrame('A')?.opacity"
+               [style.z-index]="monitorTransitionFrame('A')?.zIndex"
+               [style.filter]="monitorLayerFilter('A')"
+               [style.transform]="monitorLayerTransform('A')"
+               [style.clip-path]="monitorLayerClipPath('A')"
+               [style.visibility]="monitorImages().A || state.currentClipHidesVideo() || state.inSlotGap() ? 'hidden' : null"
                [muted]="state.isMonitorMuted()"
                (loadedmetadata)="onVideoMetadata('A', $event)"
                playsinline preload="auto"></video>
@@ -75,11 +76,12 @@
         <video #videoMonitorB
                crossorigin="anonymous"
                [class]="'pv-monitor-layer ' + getMonitorLayerClass('B') + ' ' + state.monitorFitClass()"
-               [style.animation-duration.s]="liveTransitionDuration()"
-               [style.filter]="shotFilter(state.computedMonitorFilter())"
-               [style.transform]="shotTransform(state.activeClipTransform())"
-               [style.clip-path]="state.activeClipClipPath()"
-               [style.visibility]="state.currentClipHidesVideo() || state.inSlotGap() ? 'hidden' : null"
+               [style.opacity]="monitorTransitionFrame('B')?.opacity"
+               [style.z-index]="monitorTransitionFrame('B')?.zIndex"
+               [style.filter]="monitorLayerFilter('B')"
+               [style.transform]="monitorLayerTransform('B')"
+               [style.clip-path]="monitorLayerClipPath('B')"
+               [style.visibility]="monitorImages().B || state.currentClipHidesVideo() || state.inSlotGap() ? 'hidden' : null"
                [muted]="state.isMonitorMuted()"
                (loadedmetadata)="onVideoMetadata('B', $event)"
                playsinline preload="auto"></video>
@@ -116,16 +118,20 @@
         }
 
         <!-- Static Image Clip Monitor Layer -->
-        @if (state.activeClipIsImage() && !state.inSlotGap()) {
-          <img #imageMonitor crossorigin="anonymous"
-               [class]="'pv-monitor-layer layer-front ' + state.monitorFitClass() + (liveTransitionActive() ? ' ' + liveTransitionClass() : '')"
-               [style.animation-duration.s]="liveTransitionDuration()"
-               [src]="state.activeClipImageUrl()"
-               [style.filter]="shotFilter(state.computedMonitorFilter())"
-               [style.transform]="shotTransform(state.activeClipTransform())"
-               [style.clip-path]="state.activeClipClipPath()"
-               [style.object-fit]="state.monitorFitClass() === 'fit-cover' ? 'cover' : 'contain'"
-               alt="" />
+        @for (layer of monitorLayers; track layer) {
+          @if (monitorImages()[layer]; as imageUrl) {
+            @if (!state.inSlotGap()) {
+              <img #imageMonitor crossorigin="anonymous" [attr.data-layer]="layer"
+                   [class]="'pv-monitor-layer ' + getMonitorLayerClass(layer) + ' ' + state.monitorFitClass()"
+                   [src]="imageUrl"
+                   [style.opacity]="monitorTransitionFrame(layer)?.opacity"
+                   [style.z-index]="monitorTransitionFrame(layer)?.zIndex"
+                   [style.filter]="monitorLayerFilter(layer)"
+                   [style.transform]="monitorLayerTransform(layer)"
+                   [style.clip-path]="monitorLayerClipPath(layer)"
+                   alt="" />
+            }
+          }
         }
 
         <!-- Erase existing watermark: wipes the boxed marks on the playing clip, live. Sits
@@ -444,5 +450,3 @@
     </div>
   </div>
 </div>
-
-

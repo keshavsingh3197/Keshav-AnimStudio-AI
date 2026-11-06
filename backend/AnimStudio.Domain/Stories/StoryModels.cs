@@ -165,6 +165,9 @@ public sealed class StoryBuildOptions
     /// </summary>
     public bool AutoPace { get; set; }
 
+    /// <summary>The pace the voice is brought to when <see cref="AutoPace"/> is on.</summary>
+    public StoryPaceStyle Pace { get; set; } = StoryPaceStyle.Auto;
+
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
 
@@ -206,6 +209,25 @@ public enum StoryMusicSource
     Search = 2
 }
 
+/// <summary>How fast the narration should sound once the app has set the video's speed.</summary>
+public enum StoryPaceStyle
+{
+    /// <summary>From the story: gentle for children, brisk for a Short, a storyteller's pace otherwise.</summary>
+    Auto = 0,
+
+    /// <summary>Slow and clear, for children or devotional listening.</summary>
+    Gentle = 1,
+
+    /// <summary>Unhurried, every word clear: a long video watched from start to end.</summary>
+    Storyteller = 2,
+
+    /// <summary>Quicker, the pace most Shorts and Reels are told at.</summary>
+    Brisk = 3,
+
+    /// <summary>As fast as still sounds natural.</summary>
+    Fast = 4
+}
+
 /// <summary>The feel of the motion and the cuts the build picks for each scene.</summary>
 public enum StoryLookStyle
 {
@@ -219,7 +241,10 @@ public enum StoryLookStyle
     Cinematic = 2,
 
     /// <summary>Quicker moves and slides, for a Short that has to hold attention.</summary>
-    Lively = 3
+    Lively = 3,
+
+    /// <summary>Varied short-form zooms, blurred cuts, diagonal wipes and circular reveals; no automatic flashes.</summary>
+    MusicVideo = 4
 }
 
 public enum StorySourceConfidence

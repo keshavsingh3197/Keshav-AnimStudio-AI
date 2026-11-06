@@ -7,13 +7,14 @@
 
 <!-- Plays the scenes one after another (and the music under them); hidden, the controls are the buttons. -->
 @if (sequenceSrc(); as src) {
-  <audio class="rv-hidden" [src]="src" autoplay (ended)="next()" (error)="stopAll()"></audio>
+  <audio class="rv-hidden" [src]="src" autoplay [defaultPlaybackRate]="listenSpeed()" [playbackRate]="listenSpeed()"
+         (ended)="next()" (error)="stopAll()"></audio>
 }
 @if (bedSrc(); as src) {
   <audio #bed class="rv-hidden" [src]="src" autoplay loop [volume]="volume()"></audio>
 }
 
-@if (part() === 'sound') {
+@if (showVoice()) {
   <!-- ================================================================== the voice -->
   <section class="card rv-section" aria-labelledby="rv-voice-title" [class.rv-now]="waiting === 'narration'">
     <div class="rv-head">
@@ -21,7 +22,7 @@
         <h3 id="rv-voice-title">The voice</h3>
         <p class="muted rv-lede">
           @if (r.options.narration === 'None') {
-            This story has subtitles only. Turn narration on in the Build tab to give it a voice.
+            This story has subtitles only. Turn narration on in the Settings tab to give it a voice.
           } @else if (voiced().length === 0) {
             The narration is made after the pictures. It appears here to listen to as soon as it is ready.
           } @else {
@@ -44,9 +45,16 @@
         } @else {
           <button type="button" class="secondary small" (click)="playAll(false)">▶ Play every scene</button>
           @if (r.music) {
-            <button type="button" class="secondary small" (click)="playAll(true)" title="The voice with the music under it, at the level set below">▶ With the music</button>
+            <button type="button" class="secondary small" (click)="playAll(true)" title="The voice with the music under it, at the level set on the Music tab">▶ With the music</button>
           }
         }
+        <div class="rv-speeds" role="group" aria-label="Listening speed">
+          <span class="muted">Listen at</span>
+          @for (s of listenSpeeds; track s) {
+            <button type="button" class="rv-chip" [class.rv-chip-on]="listenSpeed() === s" [attr.aria-pressed]="listenSpeed() === s"
+                    (click)="listenSpeed.set(s)">{{ s }}×</button>
+          }
+        </div>
       </div>
 
       <ol class="rv-scenes">
@@ -63,7 +71,8 @@
             @if (scene.hasAudio) {
               <div class="row rv-scene-actions">
                 @if (audio()[sceneKey(scene)]; as src) {
-                  <audio controls preload="auto" [src]="src" [attr.aria-label]="'Narration of scene ' + scene.number"></audio>
+                  <audio controls preload="auto" [src]="src" [defaultPlaybackRate]="listenSpeed()" [playbackRate]="listenSpeed()"
+                         [attr.aria-label]="'Narration of scene ' + scene.number"></audio>
                 } @else {
                   <button type="button" class="secondary small" [disabled]="loadingAudio() === sceneKey(scene)" (click)="listen(scene)">
                     @if (loadingAudio() === sceneKey(scene)) { <span class="spinner" aria-hidden="true"></span> }
@@ -150,7 +159,9 @@
       }
     }
   </section>
+}
 
+@if (showMusic()) {
   <!-- ================================================================== the music -->
   <section class="card rv-section" aria-labelledby="rv-music-title" [class.rv-now]="waiting === 'music'">
     <div class="rv-head">
@@ -202,7 +213,7 @@
       <div class="rv-field">
         <label for="rv-volume">Level under the voice <span class="muted">{{ volume() * 100 | number: '1.0-0' }}%</span></label>
         <input id="rv-volume" type="range" min="0.05" max="0.5" step="0.01" [value]="volume()" (input)="setVolume(numeric($event))" />
-        <span class="muted rv-note">Play every scene "With the music" above to judge it by ear; the level is used when the video is built.</span>
+        <span class="muted rv-note">Play every scene "With the music" on the Voice tab to judge it by ear; the level is used when the video is built.</span>
       </div>
 
       <details class="rv-change" [open]="musicMissing() || musicOff()">

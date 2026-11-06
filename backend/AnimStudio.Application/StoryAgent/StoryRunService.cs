@@ -1051,6 +1051,7 @@ public sealed partial class StoryRunService(
             AutoApprove = o.AutoApprove,
             VideoSpeed = StoryVideoSpeed.Normalize(o.VideoSpeed),
             AutoPace = o.AutoPace,
+            Pace = Enum.IsDefined(o.Pace) ? o.Pace : StoryPaceStyle.Auto,
             ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto
         };
     }

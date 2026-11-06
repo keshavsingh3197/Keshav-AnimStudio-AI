@@ -2,7 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, input, model, signal } from '@angular/core';
 
 import { VoiceoverEngine, VoiceoverVoice } from '../../core/models/api.models';
-import { StoryAgentOptions, StoryArtStyle, StoryBuildOptions } from '../../core/models/story-agent.models';
+import { STORY_LOOK_STYLES, StoryAgentOptions, StoryArtStyle, StoryBuildOptions, StoryPaceStyle } from '../../core/models/story-agent.models';
 import { ApiService } from '../../core/services/api.service';
 
 let nextId = 0;
@@ -67,6 +67,15 @@ interface VoiceGroup {
  * twice - when a story is started, and again on the review page just before Build - so the two never disagree.
  * Choices this server cannot carry out are shown, switched off, with the reason, rather than hidden.
  */
+/** The paces offered, with roughly how many words a minute each aims for in Hindi. */
+const PACES: { id: StoryPaceStyle; label: string }[] = [
+  { id: 'Auto', label: 'Auto - brisk for a Short, a storyteller for a long video, gentle for children' },
+  { id: 'Gentle', label: 'Gentle (about 125 words a minute)' },
+  { id: 'Storyteller', label: 'Storyteller (about 140)' },
+  { id: 'Brisk', label: 'Brisk, for Shorts (about 165)' },
+  { id: 'Fast', label: 'Fast (about 185)' },
+];
+
 @Component({
   selector: 'app-story-options',
   imports: [DecimalPipe],
@@ -88,6 +97,8 @@ export class StoryOptionsComponent {
   readonly uid = `so${++nextId}`;
   /** The speeds the finished video can be made at; the video page offers the same ones. */
   readonly videoSpeeds = [0.75, 1, 1.25, 1.5, 1.75, 2];
+  /** The paces the voice can be brought to; Auto reads the story's shape and audience. */
+  readonly paces = PACES;
   private readonly voices = signal<VoiceoverVoice[]>([]);
   /** The speech engines that are on, in the configured order. */
   readonly engines = signal<VoiceoverEngine[]>([]);
@@ -96,6 +107,8 @@ export class StoryOptionsComponent {
   readonly castAvailable = computed(() => this.value().speechEngine !== 'piper-local');
   readonly styleSuggestions = STYLE_SUGGESTIONS;
   readonly artStyles = ART_STYLES;
+  readonly lookStyles = STORY_LOOK_STYLES;
+  readonly lookHint = computed(() => STORY_LOOK_STYLES.find((s) => s.id === (this.value().lookStyle ?? 'Auto'))?.hint ?? '');
   readonly artHint = computed(() => ART_STYLES.find((s) => s.id === (this.value().artStyle ?? 'Auto'))?.hint ?? '');
   readonly maxStyleChars = MAX_STYLE_CHARS;
   /** The engine whose voices are listed, so a slow answer for an earlier pick is dropped. */
@@ -175,6 +188,11 @@ export class StoryOptionsComponent {
     // My voice needs one of the person's voices picked; the first is the sensible start.
     const profile = narration === 'MyVoice' ? (this.value().voiceProfileId ?? caps.myVoices[0]?.id ?? null) : null;
     this.patch({ narration, voiceProfileId: profile });
+  }
+
+  setPace(event: Event): void {
+    const id = this.text(event);
+    this.patch({ pace: PACES.find((p) => p.id === id)?.id ?? 'Auto' });
   }
 
   text(event: Event): string {

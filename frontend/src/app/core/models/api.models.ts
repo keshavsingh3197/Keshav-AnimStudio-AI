@@ -1179,6 +1179,7 @@ export const TRANSITIONS = [
   'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight',
   'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose',
   'SlideUp', 'SlideDown', 'ZoomIn',
+  'Blur', 'FadeBlack', 'FadeWhite', 'CircleCrop', 'DiagonalWipe',
 ] as const;
 
 export const ANCHORS = [

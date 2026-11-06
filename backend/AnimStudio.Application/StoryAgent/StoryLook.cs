@@ -163,6 +163,7 @@ public static class StoryLook
             StoryLookStyle.Gentle => Math.Min(amount, 0.08),
             StoryLookStyle.Cinematic => amount * 1.15,
             StoryLookStyle.Lively => amount * 1.35,
+            StoryLookStyle.MusicVideo => amount * 1.4,
             _ => amount
         };
     }
@@ -178,6 +179,14 @@ public static class StoryLook
         (SceneTransition, double)[] choices = style switch
         {
             StoryLookStyle.Gentle => [(SceneTransition.Fade, 0.7), (SceneTransition.Fade, 0.9)],
+
+            StoryLookStyle.MusicVideo => to switch
+            {
+                Feel.Somber => [(SceneTransition.FadeBlack, 0.5), (SceneTransition.Blur, 0.45), (SceneTransition.Fade, 0.6)],
+                Feel.Wonder => [(SceneTransition.CircleCrop, 0.65), (SceneTransition.CircleOpen, 0.6), (SceneTransition.Blur, 0.45)],
+                _ => [(SceneTransition.ZoomIn, 0.35), (SceneTransition.Blur, 0.4), (SceneTransition.DiagonalWipe, 0.45),
+                      (SceneTransition.CircleCrop, 0.6), (slide, 0.35)]
+            },
 
             StoryLookStyle.Lively => to switch
             {
@@ -204,7 +213,8 @@ public static class StoryLook
             }
         };
 
-        return choices[take % choices.Length];
+        var choice = style == StoryLookStyle.MusicVideo ? (long)take + index : take;
+        return choices[(int)((choice % choices.Length + choices.Length) % choices.Length)];
     }
 
     private static double Duration(IReadOnlyList<double> durations, int index) =>
