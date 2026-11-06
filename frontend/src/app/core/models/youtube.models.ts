@@ -48,6 +48,8 @@ export interface YouTubePrefill {
   description?: string | null;
   tags?: readonly string[] | null;
   firstComment?: string | null;
+  /** A picture made for this video (a story's thumbnail), chosen as the thumbnail until the person picks another. */
+  thumbnail?: Blob | null;
 }
 
 /** YouTube's Music category; what makes an upload show up on YouTube Music. */

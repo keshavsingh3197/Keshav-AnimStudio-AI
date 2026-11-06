@@ -23,7 +23,8 @@ public sealed record StoryExportScript(
     string? MusicQuery,
     IReadOnlyList<string> ReviewNotes,
     IReadOnlyList<StoryExportCastMember> Cast,
-    IReadOnlyList<StoryExportScene> Scenes);
+    IReadOnlyList<StoryExportScene> Scenes,
+    string? ThumbnailPrompt = null);
 
 public sealed record StoryExportCastMember(string Name, string? Gender, string? Age);
 
@@ -38,7 +39,8 @@ public sealed record StoryExportScene(
     string? ImagePrompt,
     string? VideoPrompt,
     IReadOnlyList<string> ImageKeywords,
-    string? Mood);
+    string? Mood,
+    IReadOnlyList<string>? MoreImagePrompts = null);
 
 public sealed record StoryExportLine(string Speaker, string Text);
 
@@ -103,5 +105,7 @@ public static class StoryTransfer
             s.ImagePrompt,
             s.VideoPrompt,
             s.ImageKeywords,
-            s.Mood))]);
+            s.Mood,
+            [.. s.Shots.Select(shot => shot.ImagePrompt).OfType<string>()]))],
+        script.ThumbnailPrompt);
 }

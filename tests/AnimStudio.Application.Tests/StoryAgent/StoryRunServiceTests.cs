@@ -692,6 +692,54 @@ public sealed class StoryRunServiceTests
     }
 
     [Fact]
+    public async Task A_scenes_further_pictures_keep_their_files_when_reordered_and_a_removed_ones_file_is_deleted()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+        run.Script!.Scenes[0].Shots = [new StoryShot { ImagePrompt = "A face" }, new StoryShot { ImagePrompt = "The village" }];
+        world.Runs.Seed(run);
+        run = await world.Service.AttachShotImageAsync(User, run.Id, 1, 2, StoryTestData.Png(2), "face.png", CancellationToken.None);
+        run = await world.Service.AttachShotImageAsync(User, run.Id, 1, 3, StoryTestData.Png(3), "village.png", CancellationToken.None);
+        run = await world.Service.AttachShotImageAsync(User, run.Id, 1, 4, StoryTestData.Png(4), "river.png", CancellationToken.None);
+        var (face, village, river) = (run.Script!.Scenes[0].Shots[0].ImageKey, run.Script.Scenes[0].Shots[1].ImageKey, run.Script.Scenes[0].Shots[2].ImageKey);
+
+        // The village first, then the river; the face is taken out.
+        var result = await world.Service.UpdateScriptAsync(User, run.Id, Script(run,
+            [.. run.Script.Scenes.Select((s, i) => Edit(s, e => i == 0
+                ? e with { Shots = [new StoryShotEdit(3, "The whole village"), new StoryShotEdit(4, null)] }
+                : e))]), CancellationToken.None);
+
+        var shots = result.Script!.Scenes[0].Shots;
+        Assert.Equal(["The whole village", null], shots.Select(s => s.ImagePrompt));
+        Assert.Equal([village, river], shots.Select(s => s.ImageKey));
+        Assert.DoesNotContain(face!, world.Store.Keys);
+        Assert.Contains(village!, world.Store.Keys);
+    }
+
+    [Fact]
+    public async Task A_thumbnail_is_attached_kept_through_an_edit_and_removed_with_its_file()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.Completed);
+
+        run = await world.Service.AttachThumbnailAsync(User, run.Id, StoryTestData.Png(), "thumb.png", CancellationToken.None);
+        var key = run.Script!.ThumbnailKey;
+        Assert.True(StoryObjectKeys.Owns(run.Id, key));
+        Assert.Equal("upload", run.Script.ThumbnailSource);
+        // The thumbnail is not part of the video, so a finished story stays finished.
+        Assert.Equal(StoryRunStatus.Completed, run.Status);
+
+        run = await world.Service.UpdateScriptAsync(User, run.Id,
+            Script(run, [.. run.Script.Scenes.Select(s => Edit(s))]) with { ThumbnailPrompt = "A lamp, close and bright" }, CancellationToken.None);
+        Assert.Equal(key, run.Script!.ThumbnailKey);
+        Assert.Equal("A lamp, close and bright", run.Script.ThumbnailPrompt);
+
+        run = await world.Service.RemoveThumbnailAsync(User, run.Id, CancellationToken.None);
+        Assert.Null(run.Script!.ThumbnailKey);
+        Assert.DoesNotContain(key!, world.Store.Keys);
+    }
+
+    [Fact]
     public async Task Editing_twice_does_not_stack_the_edited_label()
     {
         var world = new World();

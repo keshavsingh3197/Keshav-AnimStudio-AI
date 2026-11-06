@@ -257,6 +257,83 @@ public sealed class StoryAgentController(
         return File(stream, ContentTypeOf(key!));
     }
 
+    /// <summary>
+    /// Multipart: <c>file</c> is one of a scene's further pictures. <paramref name="picture"/> counts the scene's own as 1,
+    /// so 2 is the first further one; one past the scene's last adds a picture.
+    /// </summary>
+    [HttpPut("runs/{id}/scenes/{number:int}/pictures/{picture:int}")]
+    [RequestSizeLimit(MaxImageRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxImageRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> AttachShot(
+        string id, int number, int picture, IFormFile? file, CancellationToken ct)
+    {
+        var bytes = await ReadPictureAsync(file, "Choose a picture for the scene.", ct);
+        return await DetailAsync(await stories.AttachShotImageAsync(currentUser.UserId, id, number, picture, bytes, file!.FileName, ct), ct);
+    }
+
+    [HttpDelete("runs/{id}/scenes/{number:int}/pictures/{picture:int}")]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RemoveShot(string id, int number, int picture, CancellationToken ct) =>
+        await DetailAsync(await stories.RemoveShotImageAsync(currentUser.UserId, id, number, picture, ct), ct);
+
+    /// <summary>One of a scene's further pictures, read through the run like the scene's own.</summary>
+    [HttpGet("runs/{id}/scenes/{number:int}/pictures/{picture:int}")]
+    public async Task<IActionResult> Shot(string id, int number, int picture, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        var shots = run.Script?.Scenes.FirstOrDefault(s => s.Number == number)?.Shots;
+        return await PictureAsync(run, picture >= 2 ? shots?.ElementAtOrDefault(picture - 2)?.ImageKey : null, "That picture is not there yet.", ct);
+    }
+
+    /// <summary>Multipart: <c>file</c> is the picture for the video's YouTube thumbnail.</summary>
+    [HttpPut("runs/{id}/thumbnail")]
+    [RequestSizeLimit(MaxImageRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxImageRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> AttachThumbnail(string id, IFormFile? file, CancellationToken ct)
+    {
+        var bytes = await ReadPictureAsync(file, "Choose a picture for the thumbnail.", ct);
+        return await DetailAsync(await stories.AttachThumbnailAsync(currentUser.UserId, id, bytes, file!.FileName, ct), ct);
+    }
+
+    [HttpDelete("runs/{id}/thumbnail")]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> RemoveThumbnail(string id, CancellationToken ct) =>
+        await DetailAsync(await stories.RemoveThumbnailAsync(currentUser.UserId, id, ct), ct);
+
+    [HttpGet("runs/{id}/thumbnail")]
+    public async Task<IActionResult> Thumbnail(string id, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        return await PictureAsync(run, run.Script?.ThumbnailKey, "The story has no thumbnail yet.", ct);
+    }
+
+    /// <summary>An uploaded picture's bytes, refused before reading when it is missing or too large.</summary>
+    private static async Task<byte[]> ReadPictureAsync(IFormFile? file, string missing, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "image-required", missing, "file");
+        if (file.Length > VisualsStage.MaxImageBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "image-too-large", $"A picture can be at most {VisualsStage.MaxImageBytes / 1024 / 1024} MB.", "file");
+
+        await using var input = file.OpenReadStream();
+        using var buffer = new MemoryStream();
+        await input.CopyToAsync(buffer, ct);
+        return buffer.ToArray();
+    }
+
+    /// <summary>A picture of the run's, by the key its document holds - never one the caller names - and only if it is the run's own.</summary>
+    private async Task<IActionResult> PictureAsync(StoryRun run, string? key, string missing, CancellationToken ct)
+    {
+        if (!StoryObjectKeys.Owns(run.Id, key))
+            throw new StoryRunException(StoryRunErrorKind.NotFound, "image-not-found", missing);
+
+        var stream = await store.OpenAsync(key!, ct)
+            ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "image-not-found", missing);
+
+        // The picture can be replaced at any time, so the browser is not to keep one.
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(stream, ContentTypeOf(key!));
+    }
+
     // ------------------------------------------------------------------------------------------------ building
 
     /// <summary>Approves the script and starts making the video. Options in the body replace the ones the run started with.</summary>

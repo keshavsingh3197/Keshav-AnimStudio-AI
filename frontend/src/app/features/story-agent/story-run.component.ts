@@ -286,8 +286,13 @@ export class StoryRunComponent {
   /** The story's own YouTube details, for the publish dialog to open with. */
   readonly prefill = computed<YouTubePrefill | null>(() => {
     const kit = this.run()?.kit;
-    return kit ? { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment } : null;
+    const thumbnail = this.thumbnail();
+    if (!kit) return thumbnail ? { thumbnail } : null;
+    return { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment, thumbnail };
   });
+
+  /** The story's thumbnail picture, fetched as the publish dialog opens so it starts out chosen. */
+  private readonly thumbnail = signal<Blob | null>(null);
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
@@ -730,10 +735,19 @@ export class StoryRunComponent {
 
   // ------------------------------------------------------------------------------------------------ YouTube and subtitles
 
-  openPublish(): void {
+  async openPublish(): Promise<void> {
     if (!this.signedIn()) {
       this.auth.openAuthModal();
       return;
+    }
+    const run = this.run();
+    this.thumbnail.set(null);
+    if (run?.script?.hasThumbnail) {
+      try {
+        this.thumbnail.set(await firstValueFrom(this.stories.thumbnailImage(run.id)));
+      } catch {
+        // The dialog opens without it; a thumbnail can still be picked there.
+      }
     }
     this.publishing.set(true);
   }

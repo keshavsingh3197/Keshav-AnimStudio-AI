@@ -97,6 +97,27 @@ export class StoryAgentService {
     return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/image`));
   }
 
+  /** One of a scene's further pictures: `picture` 2 is the first after the scene's own, and one past the last adds one. */
+  attachShot(id: string, scene: number, picture: number, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}`, form));
+  }
+
+  removeShot(id: string, scene: number, picture: number): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}`));
+  }
+
+  attachThumbnail(id: string, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/thumbnail`, form));
+  }
+
+  removeThumbnail(id: string): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/thumbnail`));
+  }
+
   attachVideo(id: string, scene: number, file: File): Observable<StoryRun> {
     const form = new FormData();
     form.append('file', file, file.name);
@@ -110,6 +131,14 @@ export class StoryAgentService {
   /** Fetched through HttpClient, not an <img src>, so the request carries the same identity as every other call. */
   sceneImage(id: string, scene: number): Observable<Blob> {
     return this.http.get(`${this.run(id)}/scenes/${scene}/image`, { responseType: 'blob' });
+  }
+
+  shotImage(id: string, scene: number, picture: number): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/scenes/${scene}/pictures/${picture}`, { responseType: 'blob' });
+  }
+
+  thumbnailImage(id: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/thumbnail`, { responseType: 'blob' });
   }
 
   /**

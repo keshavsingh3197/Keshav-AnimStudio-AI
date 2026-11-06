@@ -1866,6 +1866,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         if (given?.description?.trim()) this.description.set(given.description.trim());
         if (given?.tags?.length) this.tagsText.set(given.tags.join(', '));
         if (given?.firstComment?.trim()) this.firstComment.set(given.firstComment.trim());
+        if (given?.thumbnail) void this.usePrefillThumbnail(given.thumbnail);
 
         // A brand channel with a publishing setup decides; otherwise this browser's last choices.
         const brand = draft.channelId ? status.channels.find((c) => c.channelId === draft.channelId) : undefined;
@@ -2193,6 +2194,19 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.grabbing.set(--this.framesPending > 0);
       },
     });
+  }
+
+  /** The picture the opener made for this video, made fit for YouTube and chosen - unless the person already chose one. */
+  private async usePrefillThumbnail(picture: Blob): Promise<void> {
+    try {
+      const dataUrl = await this.libraryDataUrl(picture);
+      if (this.thumbMode() === 'auto' && !this.thumbImage()) {
+        this.thumbImage.set(dataUrl);
+        this.thumbMode.set('upload');
+      }
+    } catch {
+      // Only a head start: the person can still pick a thumbnail themselves.
+    }
   }
 
   onThumbFile(input: HTMLInputElement): void {

@@ -57,7 +57,7 @@
                   title="Copies every scene's picture prompt with its file number and what happens in it, to paste into Google Flow or any image tool">
             {{ copied() === 'all' ? '✓ Copied' : 'Copy all picture prompts' }}
           </button>
-          <button type="button" class="small" [disabled]="locked() || sending() !== null" (click)="bulk.click()"
+          <button type="button" class="small" [disabled]="locked() || busy()" (click)="bulk.click()"
                   title="Choose all the pictures at once. Files named 01, 02 … go onto those scenes; others go in file-name order.">
             Add all pictures…
           </button>
@@ -66,7 +66,7 @@
                   title="Copies an 8-second video prompt for every scene, numbered, to paste into Google Flow">
             {{ copied() === 'clips' ? '✓ Copied' : 'Copy all video prompts' }}
           </button>
-          <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="bulkClips.click()"
+          <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="bulkClips.click()"
                   title="Choose all the MP4 clips at once. Files named 01, 02 … go onto those scenes. A clip plays instead of the picture.">
             Add all clips…
           </button>
@@ -80,11 +80,58 @@
         <li><strong>Copy all picture prompts.</strong> Each one is numbered and says what happens in its scene, after a line about the whole story.</li>
         <li><strong>Make the pictures</strong> in Google Flow or any image tool, and save each one under its number: <span class="mono">01.png</span>, <span class="mono">02.png</span> …</li>
         <li><strong>Add all pictures</strong> in one go. Each file goes onto the scene with its number. A scene you leave empty gets an AI picture, or a plain background.</li>
+        <li><strong>More than one picture in a scene:</strong> a scene's further pictures are numbered after a dash (<span class="mono">01-2.png</span>, <span class="mono">01-3.png</span> …). They are shown one after another while its words are spoken, with the cuts between them made for you. Save the thumbnail as <span class="mono">{{ thumbnailFile }}.png</span>.</li>
         <li class="muted"><strong>Optional, moving clips:</strong> copy all video prompts, make 8-second clips in Google Flow (start from the scene's picture so they match), save them as <span class="mono">01.mp4</span> … and add them all. A scene with a clip plays it, looped if the narration is longer; the others keep their picture.</li>
       </ol>
       @if (dirty()) {
         <p class="notice se-note">Save your script changes first, so the scene numbers match the prompts.</p>
       }
+
+      <article class="card se-thumb" aria-label="YouTube thumbnail">
+        <header class="se-pic-head">
+          <span class="se-no" aria-hidden="true">▶</span>
+          <strong class="se-pic-title">YouTube thumbnail</strong>
+          <span class="mono se-file" title="Save the thumbnail under this name">{{ thumbnailFile }}.png</span>
+        </header>
+        <div class="se-thumb-body">
+          <div class="se-frame se-thumb-frame" [appFileDrop]="accept" [fileDropDisabled]="locked()" (filesDropped)="attachThumbnail($event[0])">
+            @if (thumbnailPicture(); as url) {
+              <img [src]="url" alt="The video's thumbnail" loading="lazy" />
+            } @else if (hasThumbnail()) {
+              <span class="spinner" role="status" aria-label="Loading the thumbnail"></span>
+            } @else {
+              <div class="se-empty">Drop {{ thumbnailFile }}.png here</div>
+            }
+            @if (sendingShot() === 'thumb') {
+              <div class="se-busy"><span class="spinner" role="status" aria-label="Sending the thumbnail"></span></div>
+            }
+          </div>
+          <div class="se-thumb-side">
+            <div class="row se-art-actions">
+              <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="pickThumb.click()">
+                {{ hasThumbnail() ? 'Replace' : 'Add thumbnail' }}
+              </button>
+              @if (hasThumbnail()) {
+                <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="detachThumbnail()">Remove</button>
+              }
+              <input #pickThumb type="file" hidden [accept]="accept" (change)="onPickedThumbnail($event)" />
+            </div>
+            @if (thumbnailNote(); as note) {
+              <div class="muted se-art-note">{{ note }}</div>
+            }
+            <div class="se-field">
+              <label for="se-thumb-prompt">Thumbnail prompt</label>
+              <textarea id="se-thumb-prompt" rows="3" maxlength="800" [disabled]="locked()" [ngModel]="meta().thumbnailPrompt"
+                        (ngModelChange)="setMeta('thumbnailPrompt', $event)"
+                        placeholder="The story's most striking moment, one or two faces large and close, bright colours"></textarea>
+              <button type="button" class="link small se-copy" [disabled]="!meta().thumbnailPrompt.trim()" (click)="copyThumbnailPrompt()">
+                {{ copied() === 'thumb' ? '✓ Copied' : 'Copy this prompt' }}
+              </button>
+            </div>
+            <p class="muted se-art-note">Always 16:9 wide. It starts out chosen as the thumbnail when you publish to YouTube. With an AI image engine on, one is drawn from the prompt when you build.</p>
+          </div>
+        </div>
+      </article>
     }
 
     <fieldset class="se-fields" [disabled]="locked()">
@@ -230,11 +277,11 @@
 
               @if (scene.number > 0) {
                 <div class="row se-art-actions">
-                  <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="pick.click()">
+                  <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="pick.click()">
                     {{ hasOwnPicture(scene.number) ? 'Replace' : 'Add picture' }}
                   </button>
                   @if (hasOwnPicture(scene.number)) {
-                    <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="detach(scene)">Remove</button>
+                    <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="detach(scene)">Remove</button>
                   }
                   <input #pick type="file" hidden [accept]="accept" (change)="onPicked(scene, $event)" />
                 </div>
@@ -256,6 +303,75 @@
                 </button>
               </div>
 
+              <section class="se-shots" [attr.aria-label]="'More pictures for scene ' + (i + 1)">
+                <div class="se-shots-head">
+                  <strong>More pictures in this scene</strong>
+                  <span class="muted">· shown one after another while its words are spoken; the cuts are made for you</span>
+                </div>
+                @if (hasClip(scene.number) && scene.shots.length > 0) {
+                  <p class="muted se-art-note">This scene plays its moving clip, so these pictures are not shown.</p>
+                }
+                @for (shot of scene.shots; track shot.key; let s = $index; let lastShot = $last) {
+                  <div class="se-shot">
+                    <div class="se-frame se-shot-frame" [class.se-vertical]="vertical()" [appFileDrop]="accept"
+                         [fileDropDisabled]="locked() || dirty() || shot.picture === 0" (filesDropped)="attachShot(scene, shot.picture, $event[0])">
+                      @if (shotPictureOf(scene.number, shot.picture); as url) {
+                        <img [src]="url" [alt]="'Picture ' + (s + 2) + ' for scene ' + (i + 1)" loading="lazy" />
+                      } @else if (shotOn(scene.number, shot.picture)?.hasImage) {
+                        <span class="spinner" role="status" aria-label="Loading the picture"></span>
+                      } @else {
+                        <div class="se-empty">{{ shot.picture === 0 ? 'Save to add its picture' : 'Drop ' + shotFile(i, s) + '.png' }}</div>
+                      }
+                      @if (sendingShot() === scene.number + '.' + shot.picture) {
+                        <div class="se-busy"><span class="spinner" role="status" aria-label="Sending the picture"></span></div>
+                      }
+                    </div>
+                    <div class="se-shot-body">
+                      <div class="se-shot-head">
+                        <span class="mono se-file" title="Save this picture under this name">{{ shotFile(i, s) }}.png</span>
+                        <div class="se-tools" role="group" [attr.aria-label]="'Picture ' + (s + 2) + ' actions'">
+                          <button type="button" class="icon" [disabled]="s === 0" (click)="moveShot(scene, s, -1)" title="Show earlier" aria-label="Show this picture earlier">↑</button>
+                          <button type="button" class="icon" [disabled]="lastShot" (click)="moveShot(scene, s, 1)" title="Show later" aria-label="Show this picture later">↓</button>
+                          <button type="button" class="icon" (click)="removeShot(scene, shot)" title="Take this picture out of the scene" aria-label="Take this picture out of the scene">✕</button>
+                        </div>
+                      </div>
+                      <textarea rows="2" maxlength="800" [attr.aria-label]="'Prompt for picture ' + (s + 2) + ' of scene ' + (i + 1)"
+                                [ngModel]="shot.prompt" (ngModelChange)="shot.prompt = $event; touch()"
+                                placeholder="Another view of the same moment: a close-up, the place, someone reacting"></textarea>
+                      <div class="row se-art-actions">
+                        @if (shot.picture > 0) {
+                          <button type="button" class="secondary small" [disabled]="locked() || busy() || dirty()" (click)="pickShot.click()"
+                                  [title]="dirty() ? 'Save your changes first' : ''">
+                            {{ shotOn(scene.number, shot.picture)?.hasImage ? 'Replace' : 'Add picture' }}
+                          </button>
+                          @if (shotOn(scene.number, shot.picture)?.hasImage) {
+                            <button type="button" class="secondary small" [disabled]="locked() || busy() || dirty()" (click)="detachShot(scene, shot)"
+                                    [title]="dirty() ? 'Save your changes first' : ''">Remove picture</button>
+                          }
+                          <input #pickShot type="file" hidden [accept]="accept" (change)="onPickedShot(scene, shot.picture, $event)" />
+                        }
+                        <button type="button" class="link small" [disabled]="!shot.prompt.trim()" (click)="copyShotPrompt(scene, i, shot, s)">
+                          {{ copied() === 'p' + shot.key ? '✓ Copied' : 'Copy this prompt' }}
+                        </button>
+                      </div>
+                      @if (shotNote(scene.number, shot.picture); as note) {
+                        <div class="muted se-art-note">{{ note }}</div>
+                      }
+                    </div>
+                  </div>
+                }
+                @if (scene.shots.length < maxShots) {
+                  <div class="row se-art-actions">
+                    <button type="button" class="link small" [disabled]="locked()" (click)="addShot(scene)">＋ Add a prompt</button>
+                    @if (scene.number > 0) {
+                      <button type="button" class="link small" [disabled]="locked() || busy() || dirty()" (click)="pickNewShot.click()"
+                              [title]="dirty() ? 'Save your changes first' : 'Add a picture of your own after the last one'">＋ Add a picture…</button>
+                      <input #pickNewShot type="file" hidden [accept]="accept" (change)="onPickedShot(scene, 0, $event)" />
+                    }
+                  </div>
+                }
+              </section>
+
               <details class="se-clip" [open]="hasClip(scene.number)">
                 <summary>
                   Moving clip
@@ -270,11 +386,11 @@
                 </summary>
                 @if (scene.number > 0) {
                   <div class="row se-art-actions">
-                    <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="pickClip.click()">
+                    <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="pickClip.click()">
                       {{ hasClip(scene.number) ? 'Replace clip' : 'Add clip (MP4)' }}
                     </button>
                     @if (hasClip(scene.number)) {
-                      <button type="button" class="secondary small" [disabled]="locked() || sending() !== null" (click)="detachClip(scene)">Remove clip</button>
+                      <button type="button" class="secondary small" [disabled]="locked() || busy()" (click)="detachClip(scene)">Remove clip</button>
                     }
                     <input #pickClip type="file" hidden [accept]="clipAccept" (change)="onPickedClip(scene, $event)" />
                   </div>

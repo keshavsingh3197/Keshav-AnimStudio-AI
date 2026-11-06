@@ -137,6 +137,34 @@ export function pictureFileName(index: number, count: number): string {
   return String(index + 1).padStart(Math.max(2, String(count).length), '0');
 }
 
+/**
+ * The file name of a scene's further picture: the scene's own number, then which of its pictures it is, the scene's own
+ * being 1 - so 03-2 is the second picture of scene 3.
+ */
+export function shotFileName(index: number, count: number, picture: number): string {
+  return `${pictureFileName(index, count)}-${picture}`;
+}
+
+/** The file name the thumbnail picture is saved under, so it is told apart from the scenes' pictures in a set. */
+export const THUMBNAIL_FILE = 'thumbnail';
+
+/** The most pictures a scene has after its own, as the server allows. */
+export const MAX_SHOTS = 5;
+
+/** True for a file named as the thumbnail ("thumbnail.png", "Thumb final.jpg"). */
+export function isThumbnailFile(fileName: string): boolean {
+  return /thumb/i.test(fileName.replace(/\.[^.]*$/, ''));
+}
+
+/** The scene and picture a further picture's file name gives - "03-2.png", "scene 3_4.jpg" - or null for any other name. */
+export function shotOf(fileName: string): { scene: number; picture: number } | null {
+  const match = /(\d+)\s*[-_]\s*(\d+)/.exec(fileName.replace(/\.[^.]*$/, ''));
+  if (!match) return null;
+  const scene = Number.parseInt(match[1], 10);
+  const picture = Number.parseInt(match[2], 10);
+  return Number.isSafeInteger(scene) && picture >= 2 && picture <= MAX_SHOTS + 1 ? { scene, picture } : null;
+}
+
 /** The longest bit of story put next to each picture prompt; enough to say what happens, short enough to paste. */
 const CONTEXT_CHARS = 240;
 
@@ -146,6 +174,8 @@ export interface PromptScene {
   imagePrompt: string | null;
   /** The English meaning (or, for an English story, the narration): what happens in the scene. */
   context: string | null;
+  /** The prompts of the scene's further pictures, in order. */
+  shots?: readonly (string | null)[];
 }
 
 /**
@@ -159,25 +189,44 @@ export function picturePrompts(
   scenes: readonly PromptScene[],
   style: string | null,
   vertical: boolean,
+  thumbnail: string | null = null,
 ): string {
-  const drawn = scenes.filter((scene) => scene.imagePrompt?.trim());
-  const lines = [`Picture prompts for "${title}" - ${drawn.length} pictures, ${vertical ? '9:16 vertical (portrait)' : '16:9 wide (landscape)'}`];
+  const drawn = scenes.reduce((sum, scene) =>
+    sum + (scene.imagePrompt?.trim() ? 1 : 0) + (scene.shots ?? []).filter((shot) => shot?.trim()).length, thumbnail?.trim() ? 1 : 0);
+  const lines = [`Picture prompts for "${title}" - ${drawn} pictures, ${vertical ? '9:16 vertical (portrait)' : '16:9 wide (landscape)'}`];
   if (summary?.trim()) lines.push(`The story: ${summary.trim()}`);
   if (style?.trim()) lines.push(`Style for every picture: ${style.trim()}`);
   lines.push(
     'Keep each character looking the same in every picture. No words, letters or watermarks in the pictures.',
     'Save each picture with its number as the file name (01.png, 02.png …) so they go onto the right scenes by themselves.',
+    'A scene with more than one picture numbers the rest after a dash (01-2.png, 01-3.png …): they are shown one after another while its words are spoken.',
     '',
   );
   scenes.forEach((scene, index) => {
-    const prompt = scene.imagePrompt?.trim();
-    if (!prompt) return;
     const file = pictureFileName(index, scenes.length);
-    lines.push(`${file} - file name: ${file}.png${scene.headline ? ` - ${scene.headline}` : ''}`);
     const context = scene.context?.replace(/\s+/g, ' ').trim();
-    if (context) lines.push(`What happens: ${context.length > CONTEXT_CHARS ? `${context.slice(0, CONTEXT_CHARS - 1).trimEnd()}…` : context}`);
-    lines.push(`Picture: ${prompt}`, '');
+    const happens = context ? `What happens: ${context.length > CONTEXT_CHARS ? `${context.slice(0, CONTEXT_CHARS - 1).trimEnd()}…` : context}` : '';
+    const prompt = scene.imagePrompt?.trim();
+    if (prompt) {
+      lines.push(`${file} - file name: ${file}.png${scene.headline ? ` - ${scene.headline}` : ''}`);
+      if (happens) lines.push(happens);
+      lines.push(`Picture: ${prompt}`, '');
+    }
+    (scene.shots ?? []).forEach((shot, at) => {
+      if (!shot?.trim()) return;
+      const name = shotFileName(index, scenes.length, at + 2);
+      lines.push(`${name} - file name: ${name}.png - ${scene.headline ? `${scene.headline}, ` : ''}picture ${at + 2}`);
+      if (happens && !prompt) lines.push(happens);
+      lines.push(`Picture: ${shot.trim()}`, '');
+    });
   });
+  if (thumbnail?.trim()) {
+    lines.push(
+      `${THUMBNAIL_FILE} - file name: ${THUMBNAIL_FILE}.png - the YouTube thumbnail, 16:9 wide (landscape) whatever the video's shape`,
+      `Picture: ${thumbnail.trim()}`,
+      '',
+    );
+  }
   return lines.join('\n').trimEnd();
 }
 

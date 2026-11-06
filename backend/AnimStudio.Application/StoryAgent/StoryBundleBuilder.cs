@@ -28,32 +28,56 @@ public sealed record StoryBundleScene(
 
     /// <summary>How the scene moves and cuts to the next; null for the builder's plain default.</summary>
     public StorySceneLook? Look { get; init; }
+
+    /// <summary>The scene's further pictures, in order, shown after its own while the narration plays on. Ignored with a clip.</summary>
+    public IReadOnlyList<StoryBundleShot> Shots { get; init; } = [];
 }
+
+/// <summary>One of a scene's further pictures.</summary>
+public sealed record StoryBundleShot(byte[] Image, string ImageMime, string ImageNote);
 
 /// <param name="ContentType"><c>audio/mpeg</c> or <c>audio/wav</c>.</param>
 public sealed record StoryBundleMusic(byte[] Content, string Attribution, string? SourceUrl, LicenseClass License, string ContentType = "audio/mpeg");
 
 /// <summary>The bundle, and where each scene lands on the finished video's timeline.</summary>
-/// <param name="SceneStarts">Start of each scene in seconds, with the overlap of the transitions taken out.</param>
+/// <param name="SceneStarts">Start of each scene of the script in seconds, with the overlap of the transitions taken out.</param>
 public sealed record StoryBundleOutput(
     ProjectBundle Bundle,
     IReadOnlyList<double> SceneStarts,
     double TotalSeconds,
-    int CaptionCount);
+    int CaptionCount)
+{
+    /// <summary>Further pictures that could not be shown, said for the person.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+
+    /// <summary>How many scenes the project has: one per picture, so more than the script when a scene has several.</summary>
+    public int ProjectScenes { get; init; }
+}
 
 /// <summary>
 /// Turns a script and what the build made into a project bundle: the same sheets and media folder a person
 /// would upload, so the project is created by the importer that already validates, stores and numbers everything.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Building through the bundle rather than writing scenes directly means a Story Agent project is an ordinary
 /// project in every respect - and that its production can be exported, edited in a spreadsheet and re-imported.
+/// </para>
+/// <para>
+/// A scene with several pictures becomes one project scene per picture, cut where the voice pauses. Each carries its
+/// stretch of the narration on through the transition into the next, and the renderer crossfades the two in a straight
+/// line - so over the overlap the same sound fades out of one as it fades into the other and the voice runs on unbroken.
+/// The script's scenes keep their timings: the pictures share the time the scene had.
+/// </para>
 /// </remarks>
 public static class StoryBundleBuilder
 {
     public const int FramesPerSecond = 30;
     public const double TransitionSeconds = 0.45;
     public const double EffectIntensity = 0.12;
+
+    /// <summary>The least time a picture is on screen; a scene too short for all of its pictures shows the first ones.</summary>
+    public const double MinShotSeconds = 2.0;
 
     private static readonly BackgroundEffect[] EffectCycle =
         [BackgroundEffect.ZoomIn, BackgroundEffect.PanRight, BackgroundEffect.ZoomOut, BackgroundEffect.PanLeft];
@@ -104,6 +128,8 @@ public static class StoryBundleBuilder
 
         var durationFrames = new List<int>();
         var transitionFrames = new List<int>();
+        var firstPart = new List<int>(scenes.Count);
+        var warnings = new List<string>();
         var captions = 0;
 
         for (var i = 0; i < scenes.Count; i++)
@@ -112,6 +138,7 @@ public static class StoryBundleBuilder
             var story = script.Scenes[i];
             var key = $"s{scene.Number:00}";
             var last = i == scenes.Count - 1;
+            var hasAudio = scene.Audio is { Length: > 0 };
 
             var imagePath = AddMedia(media, $"img-{key}", ImageExtension(scene.ImageMime), scene.Image, scene.ImageMime, AssetKind.Image);
             assetTable.Add(Row(WorkbookSchema.Assets,
@@ -122,55 +149,125 @@ public static class StoryBundleBuilder
             var backgroundPath = imagePath;
             var effect = scene.Look?.Effect ?? EffectCycle[i % EffectCycle.Length];
             var intensity = scene.Look?.Intensity ?? EffectIntensity;
-            if (scene.Video is { Length: > 0 })
+            var isClip = scene.Video is { Length: > 0 };
+            if (isClip)
             {
-                backgroundPath = AddMedia(media, $"clip-{key}", ".mp4", scene.Video, "video/mp4", AssetKind.Video);
+                backgroundPath = AddMedia(media, $"clip-{key}", ".mp4", scene.Video!, "video/mp4", AssetKind.Video);
                 assetTable.Add(Row(WorkbookSchema.Assets,
                     ("Name", $"clip-{key}"), ("File", backgroundPath), ("Kind", nameof(AssetKind.Video)),
                     ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(scene.VideoNote, 500))));
                 effect = BackgroundEffect.None;
             }
 
-            var audioPath = string.Empty;
-            if (scene.Audio is { Length: > 0 })
-            {
-                audioPath = AddMedia(media, $"narration-{key}", ".wav", scene.Audio, "audio/wav", AssetKind.Audio);
-                assetTable.Add(Row(WorkbookSchema.Assets,
-                    ("Name", $"narration-{key}"), ("File", audioPath), ("Kind", nameof(AssetKind.Audio)),
-                    ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(scene.AudioNote, 500))));
-            }
-
             var seconds = Math.Max(0.5, scene.DurationSeconds);
+            var totalFrames = Math.Max(1, (int)Math.Round(seconds * FramesPerSecond));
             var kind = last ? SceneTransition.None : scene.Look?.Transition ?? SceneTransition.Fade;
             var transition = kind == SceneTransition.None ? 0.0 : scene.Look?.TransitionSeconds ?? TransitionSeconds;
-            durationFrames.Add(Math.Max(1, (int)Math.Round(seconds * FramesPerSecond)));
-            transitionFrames.Add((int)Math.Round(transition * FramesPerSecond));
-
-            sceneTable.Add(Row(WorkbookSchema.Scenes,
-                ("SceneNumber", scene.Number.ToString(CultureInfo.InvariantCulture)),
-                ("Title", Truncate(story.Headline, 200)),
-                ("Description", Truncate(SceneDescription(story), 2000)),
-                ("DurationSeconds", seconds.ToString("0.00", CultureInfo.InvariantCulture)),
-                ("Background", backgroundPath),
-                ("Effect", effect.ToString()),
-                ("Intensity", intensity.ToString("0.000", CultureInfo.InvariantCulture)),
-                ("Transition", kind.ToString()),
-                ("TransitionSeconds", transition.ToString("0.00", CultureInfo.InvariantCulture)),
-                ("Audio", audioPath)));
 
             var chunks = StoryPacing.SplitCaptions(story.Narration);
-            var spans = scene.Audio is { Length: > 0 }
+            var spans = hasAudio
                 ? StoryPacing.Align(chunks, seconds, scene.Pauses)
                 : StoryPacing.Spread(chunks, seconds);
-            for (var line = 0; line < spans.Count; line++)
+
+            // The scene's pictures, and where the cut to each falls (in frames from the scene's start).
+            List<StoryBundleShot> shots = isClip ? [] : [.. scene.Shots.Take(Math.Max(0, (int)(seconds / MinShotSeconds) - 1))];
+            if (!isClip && shots.Count < scene.Shots.Count)
+                warnings.Add($"Scene {scene.Number} is too short for all of its pictures, so {scene.Shots.Count - shots.Count} of them are left out.");
+            var cuts = Cuts(shots.Count + 1, totalFrames, seconds, hasAudio ? scene.Pauses : null, spans);
+
+            var parts = new List<(int From, int To, int Overlap, string Background, BackgroundEffect Effect, SceneTransition Transition)>();
+            var previous = effect;
+            for (var p = 0; p <= shots.Count; p++)
             {
-                dialogueTable.Add(Row(WorkbookSchema.Dialogue,
-                    ("SceneNumber", scene.Number.ToString(CultureInfo.InvariantCulture)),
-                    ("Order", (line + 1).ToString(CultureInfo.InvariantCulture)),
-                    ("Text", Truncate(spans[line].Text, 1000)),
-                    ("StartSeconds", spans[line].Start.ToString("0.00", CultureInfo.InvariantCulture)),
-                    ("EndSeconds", spans[line].End.ToString("0.00", CultureInfo.InvariantCulture))));
-                captions++;
+                var from = cuts[p];
+                var to = cuts[p + 1];
+                var lastPart = p == shots.Count;
+                var background = backgroundPath;
+                var partEffect = effect;
+                if (p > 0)
+                {
+                    var shot = shots[p - 1];
+                    background = AddMedia(media, $"img-{key}-{p + 1}", ImageExtension(shot.ImageMime), shot.Image, shot.ImageMime, AssetKind.Image);
+                    assetTable.Add(Row(WorkbookSchema.Assets,
+                        ("Name", $"img-{key}-{p + 1}"), ("File", background), ("Kind", nameof(AssetKind.Image)),
+                        ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(shot.ImageNote, 500))));
+                    partEffect = StoryLook.ShotEffect(previous, p, brief.Format);
+                }
+
+                var (partKind, partSeconds) = lastPart ? (kind, transition) : StoryLook.ShotTransition(options.LookStyle, brief.Format, p + 1);
+                var overlap = partKind == SceneTransition.None ? 0 : (int)Math.Round(partSeconds * FramesPerSecond);
+                // Within the scene a cut never takes more than a third of either picture it joins.
+                if (!lastPart) overlap = Math.Clamp(overlap, 1, Math.Max(1, Math.Min(to - from, cuts[p + 2] - to) / 3));
+                parts.Add((from, to, lastPart ? 0 : overlap, background, partEffect, partKind));
+                previous = partEffect;
+            }
+
+            // Each part's stretch of the narration, running on through the cut into the next part.
+            var audioPaths = new string?[parts.Count];
+            if (hasAudio)
+            {
+                List<byte[]?> slices = parts.Count == 1
+                    ? [scene.Audio!]
+                    : [.. parts.Select(part => StoryWav.Slice(scene.Audio!, Seconds(part.From),
+                        part.Overlap > 0 ? Seconds(part.To + part.Overlap) : null))];
+                if (slices.Any(s => s is null))
+                {
+                    // Not plain PCM, so it cannot be cut: the scene stays on its first picture.
+                    warnings.Add($"Scene {scene.Number}'s narration could not be shared between its pictures, so it shows only the first.");
+                    parts = [parts[0] with { To = totalFrames, Overlap = 0, Transition = kind }];
+                    cuts = [0, totalFrames];
+                    slices = [scene.Audio!];
+                }
+
+                for (var p = 0; p < parts.Count; p++)
+                {
+                    var name = p == 0 ? $"narration-{key}" : $"narration-{key}-{p + 1}";
+                    audioPaths[p] = AddMedia(media, name, ".wav", slices[p]!, "audio/wav", AssetKind.Audio);
+                    assetTable.Add(Row(WorkbookSchema.Assets,
+                        ("Name", name), ("File", audioPaths[p]), ("Kind", nameof(AssetKind.Audio)),
+                        ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(scene.AudioNote, 500))));
+                }
+            }
+
+            firstPart.Add(durationFrames.Count);
+            for (var p = 0; p < parts.Count; p++)
+            {
+                var part = parts[p];
+                var lastPart = p == parts.Count - 1;
+                var number = (durationFrames.Count + 1).ToString(CultureInfo.InvariantCulture);
+                var length = part.To - part.From + part.Overlap;
+                var overlap = lastPart ? (int)Math.Round(transition * FramesPerSecond) : part.Overlap;
+                durationFrames.Add(length);
+                transitionFrames.Add(overlap);
+
+                sceneTable.Add(Row(WorkbookSchema.Scenes,
+                    ("SceneNumber", number),
+                    ("Title", Truncate(parts.Count == 1 ? story.Headline : $"{story.Headline} ({p + 1}/{parts.Count})", 200)),
+                    ("Description", Truncate(SceneDescription(story), 2000)),
+                    ("DurationSeconds", (parts.Count == 1 ? seconds : Seconds(length)).ToString("0.00", CultureInfo.InvariantCulture)),
+                    ("Background", part.Background),
+                    ("Effect", part.Effect.ToString()),
+                    ("Intensity", intensity.ToString("0.000", CultureInfo.InvariantCulture)),
+                    ("Transition", part.Transition.ToString()),
+                    ("TransitionSeconds", (lastPart ? transition : Seconds(overlap)).ToString("0.00", CultureInfo.InvariantCulture)),
+                    ("Audio", audioPaths[p] ?? string.Empty)));
+
+                // The subtitles under this picture, timed from its start. One the cut falls inside is shown on both sides of it.
+                var from = Seconds(part.From);
+                var to = lastPart ? seconds : Seconds(part.To);
+                var order = 0;
+                foreach (var span in spans)
+                {
+                    var (start, end) = parts.Count == 1 ? (span.Start, span.End) : (Math.Max(span.Start, from) - from, Math.Min(span.End, to) - from);
+                    if (parts.Count > 1 && end - start < 0.1) continue;
+                    dialogueTable.Add(Row(WorkbookSchema.Dialogue,
+                        ("SceneNumber", number),
+                        ("Order", (++order).ToString(CultureInfo.InvariantCulture)),
+                        ("Text", Truncate(span.Text, 1000)),
+                        ("StartSeconds", start.ToString("0.00", CultureInfo.InvariantCulture)),
+                        ("EndSeconds", end.ToString("0.00", CultureInfo.InvariantCulture))));
+                    captions++;
+                }
             }
         }
 
@@ -181,16 +278,56 @@ public static class StoryBundleBuilder
 
         // Each scene starts where the one before ends, less the overlap of the fade between them: the same
         // arithmetic the importer and the renderer use, in whole frames, so chapters land on the right second.
-        var starts = new List<double>(scenes.Count);
+        var partStarts = new List<double>(durationFrames.Count);
         var frames = 0;
         for (var i = 0; i < durationFrames.Count; i++)
         {
-            starts.Add(Math.Round((double)frames / FramesPerSecond, 2));
+            partStarts.Add(Math.Round((double)frames / FramesPerSecond, 2));
             frames += durationFrames[i] - transitionFrames[i];
         }
 
         var bundle = new ProjectBundle { Workbook = document, Media = media };
-        return new StoryBundleOutput(bundle, starts, Math.Round((double)frames / FramesPerSecond, 2), captions);
+        return new StoryBundleOutput(bundle, [.. firstPart.Select(p => partStarts[p])], Math.Round((double)frames / FramesPerSecond, 2), captions)
+        {
+            Warnings = warnings,
+            ProjectScenes = durationFrames.Count
+        };
+    }
+
+    private static double Seconds(int frames) => (double)frames / FramesPerSecond;
+
+    /// <summary>
+    /// Where a scene of <paramref name="totalFrames"/> is cut to show <paramref name="pieces"/> pictures, as frame
+    /// offsets from 0 to the end. Each cut goes to the pause in the voice (or the gap between subtitles) nearest an even
+    /// share, so a picture changes between words; with none near, at the even share itself.
+    /// </summary>
+    private static int[] Cuts(int pieces, int totalFrames, double seconds, IReadOnlyList<StoryPause>? pauses, IReadOnlyList<CaptionSpan> spans)
+    {
+        var cuts = new int[pieces + 1];
+        cuts[pieces] = totalFrames;
+        if (pieces == 1) return cuts;
+
+        var quiet = pauses is { Count: > 0 }
+            ? pauses.Select(p => (p.Start + p.End) / 2).ToList()
+            : spans.Zip(spans.Skip(1), (a, b) => (a.End + b.Start) / 2).ToList();
+        var share = seconds / pieces;
+        var least = (int)Math.Round(MinShotSeconds * FramesPerSecond);
+
+        for (var k = 1; k < pieces; k++)
+        {
+            var even = share * k;
+            var low = cuts[k - 1] + least;
+            var high = totalFrames - least * (pieces - k);
+            var best = quiet
+                .Select(q => (int)Math.Round(q * FramesPerSecond))
+                .Where(f => f >= low && f <= high && Math.Abs(Seconds(f) - even) <= share / 2)
+                .OrderBy(f => Math.Abs(Seconds(f) - even))
+                .Cast<int?>()
+                .FirstOrDefault();
+            cuts[k] = best ?? Math.Clamp((int)Math.Round(even * FramesPerSecond), low, Math.Max(low, high));
+        }
+
+        return cuts;
     }
 
     private static string AddMedia(

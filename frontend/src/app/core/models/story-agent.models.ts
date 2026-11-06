@@ -202,6 +202,19 @@ export interface StoryScene {
   transitionSeconds?: number | null;
   /** The person set the effect and transition; a new look leaves them. */
   lookPinned?: boolean;
+  /** More pictures of the scene, shown after its own while the narration plays on; the build cuts between them. */
+  shots?: StoryShot[];
+}
+
+/** One of a scene's further pictures. */
+export interface StoryShot {
+  /** Counts the scene's own picture as 1, so the first further picture is 2. Names the picture to the server. */
+  picture: number;
+  imagePrompt: string | null;
+  hasImage: boolean;
+  /** "upload", or the image engine that drew it. */
+  imageSource: string | null;
+  imageName: string | null;
 }
 
 export interface StoryLine {
@@ -230,6 +243,12 @@ export interface StoryScript {
   reviewNotes: string[];
   writtenBy: string | null;
   estimatedSeconds: number;
+  /** What the YouTube thumbnail shows, for an image tool. */
+  thumbnailPrompt?: string | null;
+  hasThumbnail?: boolean;
+  /** "upload", or the image engine that drew it. */
+  thumbnailSource?: string | null;
+  thumbnailName?: string | null;
 }
 
 export interface StoryTopicMatch {
@@ -621,6 +640,14 @@ export interface EditStorySceneBody {
   videoPrompt?: string | null;
   imageKeywords: string[];
   mood: string | null;
+  /** The scene's further pictures in their new order; left out, they are kept as they are. */
+  shots?: EditStoryShotBody[];
+}
+
+export interface EditStoryShotBody {
+  /** The picture number it had, so its picture stays with it; 0 for a new one. */
+  picture: number;
+  imagePrompt: string | null;
 }
 
 export interface EditStoryScriptBody {
@@ -628,6 +655,8 @@ export interface EditStoryScriptBody {
   titleEnglish: string | null;
   summary: string | null;
   musicQuery: string | null;
+  /** Left out keeps it; empty clears it. */
+  thumbnailPrompt?: string | null;
   scenes: EditStorySceneBody[];
 }
 

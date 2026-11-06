@@ -388,6 +388,12 @@ public sealed class StoryScene
     public List<string> ImageKeywords { get; set; } = [];
     public string? Mood { get; set; }
 
+    /// <summary>
+    /// More pictures of the scene, shown one after another after its own while the narration plays on; the build cuts
+    /// between them with a transition. Empty for a scene told over one picture.
+    /// </summary>
+    public List<StoryShot> Shots { get; set; } = [];
+
     /// <summary>A guess at how long the narration takes, used until real audio exists.</summary>
     public double EstimatedSeconds { get; set; }
 
@@ -451,6 +457,21 @@ public sealed class StoryScene
     public bool LookPinned { get; set; }
 }
 
+/// <summary>One more picture of a scene: what it shows, and the file once there is one.</summary>
+public sealed class StoryShot
+{
+    /// <summary>What the picture shows, in English, for an image model.</summary>
+    public string? ImagePrompt { get; set; }
+
+    /// <summary>Object-store key of the picture, once there is one. A shot without one is left out of the video.</summary>
+    public string? ImageKey { get; set; }
+
+    /// <summary><c>upload</c>, or the image engine that drew it.</summary>
+    public string? ImageSource { get; set; }
+
+    public string? ImageName { get; set; }
+}
+
 /// <summary>Part of a scene's narration and who says it.</summary>
 public sealed class StoryLine
 {
@@ -504,6 +525,17 @@ public sealed class StoryScript
 
     /// <summary>Things the writer wants checked before this is published.</summary>
     public List<string> ReviewNotes { get; set; } = [];
+
+    /// <summary>What the video's YouTube thumbnail shows, in English, for an image model.</summary>
+    public string? ThumbnailPrompt { get; set; }
+
+    /// <summary>Object-store key of the thumbnail picture, once there is one.</summary>
+    public string? ThumbnailKey { get; set; }
+
+    /// <summary><c>upload</c>, or the image engine that drew it.</summary>
+    public string? ThumbnailSource { get; set; }
+
+    public string? ThumbnailName { get; set; }
 
     /// <summary>The text engine that wrote it, <c>manual</c> for a pasted reply, or <c>built-in</c>.</summary>
     public string? WrittenBy { get; set; }

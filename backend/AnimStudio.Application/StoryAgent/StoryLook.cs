@@ -88,6 +88,49 @@ public static class StoryLook
         return looks;
     }
 
+    /// <summary>
+    /// The motion of a scene's further picture (<paramref name="shot"/> counts from 1): a move that answers the one before
+    /// it rather than repeating it, up and down on a tall frame.
+    /// </summary>
+    public static BackgroundEffect ShotEffect(BackgroundEffect previous, int shot, StoryFormat format)
+    {
+        BackgroundEffect[] cycle = format == StoryFormat.Vertical
+            ? [BackgroundEffect.ZoomOut, BackgroundEffect.PanUp, BackgroundEffect.ZoomIn, BackgroundEffect.PanDown]
+            : [BackgroundEffect.ZoomOut, BackgroundEffect.PanRight, BackgroundEffect.ZoomIn, BackgroundEffect.PanLeft];
+        for (var step = 0; step < cycle.Length; step++)
+        {
+            var pick = cycle[(shot + step) % cycle.Length];
+            if (pick != previous) return pick;
+        }
+
+        return cycle[0];
+    }
+
+    /// <summary>
+    /// The cut from one picture of a scene to the next (<paramref name="shot"/> counts from 1). The words carry on across
+    /// it, so it is softer than a cut between scenes: a dissolve, except in the quicker feels.
+    /// </summary>
+    public static (SceneTransition Kind, double Seconds) ShotTransition(StoryLookStyle style, StoryFormat format, int shot)
+    {
+        var slide = format == StoryFormat.Vertical
+            ? (shot % 2 == 1 ? SceneTransition.SlideUp : SceneTransition.SlideDown)
+            : (shot % 2 == 1 ? SceneTransition.SlideLeft : SceneTransition.SlideRight);
+
+        return style switch
+        {
+            StoryLookStyle.Gentle => (SceneTransition.Fade, 0.6),
+            StoryLookStyle.Cinematic => (SceneTransition.Fade, 0.7),
+            StoryLookStyle.Lively => (slide, 0.35),
+            StoryLookStyle.MusicVideo => (shot % 3) switch
+            {
+                1 => (SceneTransition.ZoomIn, 0.35),
+                2 => (SceneTransition.Blur, 0.4),
+                _ => (SceneTransition.DiagonalWipe, 0.45)
+            },
+            _ => (SceneTransition.Fade, 0.45)
+        };
+    }
+
     /// <summary>A pinned scene's own choices, read back from the names saved with it; null when it has none that parse.</summary>
     private static StorySceneLook? Pinned(StoryScene scene)
     {

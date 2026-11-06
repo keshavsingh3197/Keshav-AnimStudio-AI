@@ -38,7 +38,11 @@ public sealed record StorySceneEdit(
     string? ImagePrompt,
     IReadOnlyList<string>? ImageKeywords,
     string? Mood,
-    string? VideoPrompt = null);
+    string? VideoPrompt = null,
+    IReadOnlyList<StoryShotEdit>? Shots = null);
+
+/// <summary>One of a scene's further pictures as edited: the picture number it had (0 for a new one), so its picture stays with it.</summary>
+public sealed record StoryShotEdit(int Picture, string? ImagePrompt);
 
 /// <summary>
 /// Make the narration again. <paramref name="Scenes"/> are retaken as they are (a new take of the same words); a changed
@@ -70,12 +74,18 @@ public sealed record StoryLookRedo(
     IReadOnlyList<StorySceneLookEdit>? Scenes = null);
 
 /// <summary>The script as the person edited it. Scenes carry the number they had, so what was made for them can be kept; files are never named by the client.</summary>
+/// <remarks>
+/// A null <see cref="ThumbnailPrompt"/>, or a scene's null <see cref="StorySceneEdit.Shots"/>, keeps what the script has,
+/// so an older page that does not know them leaves them alone. A scene's shots are its further pictures in their new
+/// order; each named by the picture number it had keeps its picture, and the pictures of shots left out are deleted.
+/// </remarks>
 public sealed record StoryScriptEdit(
     string? Title,
     string? TitleEnglish,
     string? Summary,
     string? MusicQuery,
-    IReadOnlyList<StorySceneEdit>? Scenes);
+    IReadOnlyList<StorySceneEdit>? Scenes,
+    string? ThumbnailPrompt = null);
 
 /// <summary>What the page needs to know to offer the right choices.</summary>
 public sealed record StoryAgentCapabilities(
@@ -321,6 +331,12 @@ public sealed partial class StoryRunService(
             Language = run.Brief.Language,
             Summary = AiOutputSanitizer.ToSafeLine(edit.Summary, 600),
             MusicQuery = AiOutputSanitizer.ToSafeLine(edit.MusicQuery, 80),
+            ThumbnailPrompt = edit.ThumbnailPrompt is null
+                ? current.ThumbnailPrompt
+                : AiOutputSanitizer.ToSafeLine(edit.ThumbnailPrompt, StoryScriptParser.MaxPromptChars),
+            ThumbnailKey = current.ThumbnailKey,
+            ThumbnailSource = current.ThumbnailSource,
+            ThumbnailName = current.ThumbnailName,
             ReviewNotes = current.ReviewNotes,
             // The cast is the writer's; the editor changes words, and lines that no longer match them are dropped below.
             Cast = current.Cast,
@@ -330,6 +346,7 @@ public sealed partial class StoryRunService(
 
         var before = current.Scenes.ToDictionary(s => s.Number);
         var kept = new HashSet<int>();
+        var dropped = new List<string?>();
         foreach (var incoming in (edit.Scenes ?? []).Take(StoryScriptParser.MaxScenes))
         {
             var narration = AiOutputSanitizer.ToSafeLine(incoming.Narration, StoryScriptParser.MaxNarrationChars);
@@ -374,6 +391,11 @@ public sealed partial class StoryRunService(
                 scene.AudioSource = old.AudioSource;
                 scene.Pauses = old.Pauses;
                 scene.Lines = old.Lines;
+                scene.Shots = incoming.Shots is null ? old.Shots : KeepShots(old.Shots, incoming.Shots, dropped);
+            }
+            else if (incoming.Shots is not null)
+            {
+                scene.Shots = KeepShots([], incoming.Shots, dropped);
             }
 
             script.Scenes.Add(scene);
@@ -389,9 +411,10 @@ public sealed partial class StoryRunService(
             throw new StoryRunException(StoryRunErrorKind.Invalid, ex.Code, ex.Message, "scenes");
         }
 
-        // Pictures and narration of scenes that were taken out go with them.
+        // Pictures and narration of scenes that were taken out go with them, and so do further pictures taken out of a scene.
         foreach (var gone in before.Values.Where(s => !kept.Contains(s.Number)))
-            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey, .. gone.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
+        await DeleteFilesAsync(run, dropped, ct).ConfigureAwait(false);
 
         run.Script = result.Script;
         run.ScriptWarnings = [.. result.Warnings];
@@ -476,6 +499,124 @@ public sealed partial class StoryRunService(
         ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;
+    }
+
+    /// <summary>
+    /// Attaches the person's picture as one of a scene's further pictures. <paramref name="picture"/> counts the scene's own
+    /// picture as 1, so 2 is its first further picture; one past the last adds a new one.
+    /// </summary>
+    public async Task<StoryRun> AttachShotImageAsync(
+        string userId, string id, int sceneNumber, int picture, byte[] image, string? fileName, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var scene = RequireScene(RequireEditableScript(run), sceneNumber);
+        var index = picture - 2;
+        if (index < 0 || index > scene.Shots.Count || index >= StoryScriptParser.MaxShots)
+        {
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "shot-invalid",
+                $"A scene can have up to {StoryScriptParser.MaxShots + 1} pictures, added in order.", "picture");
+        }
+
+        var mime = RequirePicture(image);
+        var key = StoryObjectKeys.ShotImage(run.Id, scene.Number, picture, StoryBundleBuilder.ImageExtension(mime));
+        await using (var content = new MemoryStream(image, writable: false))
+            await store.SaveAsync(key, content, mime, ct).ConfigureAwait(false);
+
+        if (index == scene.Shots.Count) scene.Shots.Add(new StoryShot());
+        var shot = scene.Shots[index];
+        await DeleteFilesAsync(run, [shot.ImageKey], ct).ConfigureAwait(false);
+        shot.ImageKey = key;
+        shot.ImageSource = "upload";
+        shot.ImageName = SafeFileLabel(fileName) ?? $"Scene {scene.Number}, picture {picture}";
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>Takes a further picture off a scene. A shot with no prompt to draw it again from goes with it.</summary>
+    public async Task<StoryRun> RemoveShotImageAsync(string userId, string id, int sceneNumber, int picture, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var scene = RequireScene(RequireEditableScript(run), sceneNumber);
+        var shot = scene.Shots.ElementAtOrDefault(picture - 2)
+            ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "shot-not-found", "That picture is not in the scene.");
+
+        await DeleteFilesAsync(run, [shot.ImageKey], ct).ConfigureAwait(false);
+        shot.ImageKey = null;
+        shot.ImageSource = null;
+        shot.ImageName = null;
+        if (string.IsNullOrWhiteSpace(shot.ImagePrompt)) scene.Shots.Remove(shot);
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>Attaches the person's picture as the video's YouTube thumbnail, replacing whatever it had.</summary>
+    public async Task<StoryRun> AttachThumbnailAsync(string userId, string id, byte[] image, string? fileName, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireEditableScript(run);
+
+        var mime = RequirePicture(image);
+        var key = StoryObjectKeys.Thumbnail(run.Id, StoryBundleBuilder.ImageExtension(mime));
+        await using (var content = new MemoryStream(image, writable: false))
+            await store.SaveAsync(key, content, mime, ct).ConfigureAwait(false);
+
+        await DeleteFilesAsync(run, [script.ThumbnailKey], ct).ConfigureAwait(false);
+        script.ThumbnailKey = key;
+        script.ThumbnailSource = "upload";
+        script.ThumbnailName = SafeFileLabel(fileName) ?? "Thumbnail";
+        // The thumbnail is not in the video, so changing it sends nothing back to the build.
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    public async Task<StoryRun> RemoveThumbnailAsync(string userId, string id, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireEditableScript(run);
+
+        await DeleteFilesAsync(run, [script.ThumbnailKey], ct).ConfigureAwait(false);
+        script.ThumbnailKey = null;
+        script.ThumbnailSource = null;
+        script.ThumbnailName = null;
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>The kind of picture <paramref name="image"/> is, refusing one too large or not a PNG, JPEG or WebP.</summary>
+    private static string RequirePicture(byte[] image)
+    {
+        if (image.Length > VisualsStage.MaxImageBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "image-too-large", $"A picture can be at most {VisualsStage.MaxImageBytes / 1024 / 1024} MB.", "image");
+        return AiImageValidator.Sniff(image)
+            ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "image-invalid", "That is not a PNG, JPEG or WebP picture.", "image");
+    }
+
+    /// <summary>
+    /// A scene's further pictures as edited, in their new order. Each one named by the picture number it had keeps its
+    /// picture - only the server's record says which file that is - and the pictures of shots left out are added to
+    /// <paramref name="dropped"/> to be deleted.
+    /// </summary>
+    private static List<StoryShot> KeepShots(IReadOnlyList<StoryShot> old, IReadOnlyList<StoryShotEdit> edits, List<string?> dropped)
+    {
+        var used = new HashSet<int>();
+        var shots = new List<StoryShot>();
+        foreach (var edit in edits.Take(StoryScriptParser.MaxShots))
+        {
+            var index = edit.Picture - 2;
+            var had = index >= 0 && index < old.Count && used.Add(index) ? old[index] : null;
+            shots.Add(new StoryShot
+            {
+                ImagePrompt = AiOutputSanitizer.ToSafeLine(edit.ImagePrompt, StoryScriptParser.MaxPromptChars),
+                ImageKey = had?.ImageKey,
+                ImageSource = had?.ImageSource,
+                ImageName = had?.ImageName
+            });
+        }
+
+        dropped.AddRange(old.Where((_, i) => !used.Contains(i)).Select(s => s.ImageKey));
+        return shots;
     }
 
     /// <summary>The largest moving clip a scene takes: an 8-second 1080p clip from Google Flow is well under this.</summary>
@@ -1243,7 +1384,8 @@ public sealed partial class StoryRunService(
     private async Task DeleteScriptFilesAsync(StoryRun run, CancellationToken ct)
     {
         foreach (var scene in run.Script?.Scenes ?? [])
-            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey, .. scene.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
+        await DeleteFilesAsync(run, [run.Script?.ThumbnailKey], ct).ConfigureAwait(false);
     }
 
     private async Task DeleteAllFilesAsync(StoryRun run, CancellationToken ct) =>
