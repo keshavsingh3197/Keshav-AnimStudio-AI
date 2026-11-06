@@ -37,6 +37,7 @@
             <span class="pill" [class]="latest.tone">▶ {{ latest.label }}</span>
           }
           <span>Started {{ ago(r.createdAtUtc) }}</span>
+          @if (channelName(r.brief.brandChannelId); as channel) { <span>· for {{ channel }}</span> }
           <span>· {{ r.brief.language === 'en' ? 'English' : 'Hindi' }}</span>
           <span>· {{ r.brief.format === 'Vertical' ? '9:16 vertical' : '16:9 wide' }}</span>
           @if (r.brief.writer === 'BuiltIn') { <span>· built-in story</span> }

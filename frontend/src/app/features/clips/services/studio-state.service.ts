@@ -9,7 +9,7 @@ import {
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
   EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
   ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
-  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset,
+  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset, SceneTimeline,
 } from '../../../core/models/api.models';
 import { ActivityService, formatBytes } from '../../../core/services/activity.service';
 import { ApiService } from '../../../core/services/api.service';
@@ -44,6 +44,7 @@ import {
   CinematicImage, DEFAULT_CINEMATIC, cinemaBarPercent, cinematicFields, cinematicOf,
 } from './cinematic-image';
 import { SlotLayout, isSlotItem, layoutSlots, normalizeSlots, remapSlots } from './sequence-slots';
+import { SCENE_ITEM_PREFIX, SCENE_MUSIC_PREFIX, SCENE_VOICE_PREFIX, SceneLayout, layOutScenes } from './scene-layout';
 import {
   CELEBRATION_DEFAULT_SECONDS, CelebrationKind, CelebrationSettings, celebrationOption, defaultCelebrationMode, isCelebrationKind,
 } from './celebration';
@@ -9350,36 +9351,9 @@ export class StudioStateService implements OnDestroy {
 
         if (startsEmpty) return;
 
-        // If no draft exists, initialize image overlays on IMG1
-        const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
-        if (initialImages.length > 0 && this.timelineItems().length === 0) {
-          let startT = 0;
-          const imgItems: TimelineItem[] = initialImages.map((img) => {
-            const dur = this.imageDurationSeconds();
-            const item: TimelineItem = {
-              id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-              type: 'image',
-              trackId: 'IMG1',
-              startTime: startT,
-              duration: dur,
-              src: img.id,
-              name: img.name,
-              transform: {
-                scale: 1.0,
-                x: 0,
-                y: 0,
-                opacity: 1.0,
-                transitionIn: 'fade',
-                transitionInDuration: 0.5,
-                transitionOut: 'fade',
-                transitionOutDuration: 0.5,
-              },
-            };
-            startT += dur;
-            return item;
-          });
-          this.timelineItems.set(imgItems);
-        }
+        // A project made of scenes (a story, an imported bundle) opens with them laid out on the lanes, as the render
+        // plays them. Only a project without scenes starts with its pictures in a row.
+        this.seedFromScenes(projectId, loadingEditId, () => this.seedPictures(studio));
 
         // Load latest render / export job so previous generations are immediately visible
         this.api.listJobs(projectId).subscribe({
@@ -9402,6 +9376,147 @@ export class StudioStateService implements OnDestroy {
         this.status.error.set('Failed to load clip studio');
       },
     });
+  }
+
+  /** A cut with no timeline and a project without scenes: its pictures in a row on IMG1. */
+  private seedPictures(studio: ClipStudio): void {
+    const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
+    if (initialImages.length === 0 || this.timelineItems().length > 0) return;
+    let startT = 0;
+    const imgItems: TimelineItem[] = initialImages.map((img) => {
+      const dur = this.imageDurationSeconds();
+      const item: TimelineItem = {
+        id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'image',
+        trackId: 'IMG1',
+        startTime: startT,
+        duration: dur,
+        src: img.id,
+        name: img.name,
+        transform: {
+          scale: 1.0,
+          x: 0,
+          y: 0,
+          opacity: 1.0,
+          transitionIn: 'fade',
+          transitionInDuration: 0.5,
+          transitionOut: 'fade',
+          transitionOutDuration: 0.5,
+        },
+      };
+      startT += dur;
+      return item;
+    });
+    this.timelineItems.set(imgItems);
+  }
+
+  // --- a project's scenes, on the lanes ---
+
+  readonly layingOutScenes = signal(false);
+
+  /** The scenes laid out by `layOutScenes`, with the library looked up from the open studio. */
+  private sceneLayout(timeline: SceneTimeline) {
+    const clips = this.studio()?.clips ?? [];
+    return layOutScenes(timeline, {
+      media: (assetId) => {
+        const clip = clips.find((c) => (c.assetId || c.id) === assetId);
+        if (!clip) return null;
+        const kind = this.getClipType(clip);
+        return kind === 'image' || kind === 'video' ? { id: clip.id, name: clip.name, kind } : null;
+      },
+      audioSeconds: (assetId) => this.studio()?.musicCandidates?.find((m) => m.id === assetId)?.durationSeconds ?? undefined,
+    });
+  }
+
+  /**
+   * A new cut of a project made of scenes starts with them on the lanes, and is saved straight away so every other
+   * screen sees the same timeline. `fallback` runs when there are no scenes, or they cannot be read.
+   */
+  private seedFromScenes(projectId: string, editId: string, fallback: () => void): void {
+    this.api.sceneTimeline(projectId).subscribe({
+      next: (timeline) => {
+        if (this.destroyed || this.loadedProjectId !== projectId || this.loadedEditId !== editId) return;
+        // Something already went on the timeline while the scenes were asked for: that is the person's, keep it. (The
+        // library's videos start in the cut by default; the layout takes them out, as the render never plays them.)
+        if (this.timelineItems().length > 0 || this.musicTracks().length > 0) return;
+        const laid = timeline.scenes.length > 0 ? this.sceneLayout(timeline) : null;
+        if (!laid || laid.pictures === 0) {
+          fallback();
+          return;
+        }
+        this.applySceneLayout(laid);
+        this.resetHistory();
+        const built = JSON.stringify(this.buildDraftData());
+        this.writeLocalDraft(projectId, editId, built);
+        this.persistEditDraft(projectId, editId, built).subscribe({
+          next: (saved) => {
+            if (this.loadedEditId !== editId) return;
+            this.currentEdit.set(saved);
+            this.hasUnsavedChanges.set(false);
+            this.lastSavedTime.set(new Date().toISOString());
+          },
+          error: (err) => console.warn('Failed to save the timeline laid out from the scenes', err),
+        });
+        this.status.notify([this.sceneLayoutSummary(laid)]);
+      },
+      error: () => {
+        if (this.destroyed || this.loadedProjectId !== projectId || this.loadedEditId !== editId) return;
+        fallback();
+      },
+    });
+  }
+
+  /**
+   * Lays the project's scenes out again - after the story was rebuilt, say - replacing what an earlier layout put on
+   * the lanes. What the person added themselves stays, and one Undo brings the old layout back.
+   */
+  layOutFromScenes(): void {
+    const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
+    if (!this.ownsCurrentProject(projectId) || !editId || this.layingOutScenes()) return;
+    this.layingOutScenes.set(true);
+    this.api.sceneTimeline(projectId).subscribe({
+      next: (timeline) => {
+        this.layingOutScenes.set(false);
+        if (this.loadedProjectId !== projectId || this.loadedEditId !== editId) return;
+        const laid = timeline.scenes.length > 0 ? this.sceneLayout(timeline) : null;
+        if (!laid || laid.pictures === 0) {
+          this.status.notify(['This project has no scenes with pictures to lay out.']);
+          return;
+        }
+        this.closeHistoryBurst();
+        this.applySceneLayout(laid);
+        this.markDirty();
+        this.closeHistoryBurst();
+        this.seekTo(0);
+        this.status.notify([this.sceneLayoutSummary(laid)]);
+      },
+      error: (err: unknown) => {
+        this.layingOutScenes.set(false);
+        this.status.error.set(err instanceof ApiFailure && err.message ? err.message : "The project's scenes could not be read.");
+      },
+    });
+  }
+
+  /**
+   * Puts a layout on the lanes in place of an earlier one. The V1 clips step out of the cut: the scenes play the whole
+   * video, as in the render, and a clip a scene shows is on V2 at its place.
+   */
+  private applySceneLayout(laid: SceneLayout): void {
+    const isLaid = (key: string) => key.startsWith(SCENE_ITEM_PREFIX) || key.startsWith(SCENE_VOICE_PREFIX) || key.startsWith(SCENE_MUSIC_PREFIX);
+    this.rows.update((rows) => rows.map((row) => (row.included ? { ...row, included: false } : row)));
+    this.timelineItems.update((items) => [...items.filter((it) => !isLaid(it.id)), ...laid.items]);
+    this.musicTracks.update((tracks) => [...tracks.filter((t) => !isLaid(t.key)), ...laid.musicTracks]);
+    this.explicitlyShownTracks.update((set) => new Set([...set, ...laid.lanes]));
+  }
+
+  private sceneLayoutSummary(laid: SceneLayout): string {
+    const parts = [`${laid.pictures} picture${laid.pictures === 1 ? '' : 's'}`];
+    if (laid.narration > 0) parts.push(`${laid.narration} narration clip${laid.narration === 1 ? '' : 's'}`);
+    if (laid.captions > 0) parts.push(`${laid.captions} subtitle${laid.captions === 1 ? '' : 's'}`);
+    if (laid.music > 0) parts.push('the music');
+    const missing = laid.missing > 0 ? ` ${laid.missing} scene${laid.missing === 1 ? ' has' : 's have'} no picture in the library and ${laid.missing === 1 ? 'was' : 'were'} left out.` : '';
+    return `Laid out from the scenes: ${parts.join(', ')}.${missing}`;
   }
 
   reload(firstLoad = false, then?: () => void): void {

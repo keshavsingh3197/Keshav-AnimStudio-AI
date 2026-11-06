@@ -25,6 +25,7 @@ namespace AnimStudio.Application.StoryAgent.Stages;
 /// </remarks>
 public sealed class AssembleStage(
     IProjectRepository projects,
+    IAiSettingsRepository aiSettings,
     WorkbookImportService importer,
     ProjectStatusService status,
     IObjectStore store,
@@ -159,6 +160,11 @@ public sealed class AssembleStage(
             if (existing is not null && string.Equals(existing.UserId, run.UserId, StringComparison.Ordinal)) return existing;
         }
 
+        // The channel picked when the story was started, while it still exists; the default channel otherwise.
+        var channelId = BrandChannel.IsDefault(run.Brief.BrandChannelId)
+            ? null
+            : (await aiSettings.GetAsync(ct).ConfigureAwait(false))?.FindChannel(run.Brief.BrandChannelId)?.Id;
+
         var now = clock.GetUtcNow().UtcDateTime;
         var vertical = run.Brief.Format == StoryFormat.Vertical;
         var project = new Project
@@ -176,6 +182,7 @@ public sealed class AssembleStage(
                 DistributionIntent = DistributionIntent.Monetized,
                 ContentType = ProjectContentType.Video,
                 DefaultWatermark = new WatermarkSettings(),
+                BrandChannelId = channelId,
                 FollowChannelWatermark = true
             },
             CreatedAt = now,

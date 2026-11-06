@@ -85,6 +85,12 @@ public sealed class StoryBrief
 
     /// <summary>The one text engine that writes the script and the ideas for the next part; null walks the configured chain.</summary>
     public string? TextEngine { get; set; }
+
+    /// <summary>
+    /// The brand channel the story is made for, chosen before it starts; its project publishes under it. Null is the
+    /// default channel - and a channel deleted since is too, when the project is built.
+    /// </summary>
+    public string? BrandChannelId { get; set; }
 }
 
 /// <summary>How the video is made once the script is approved.</summary>

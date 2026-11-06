@@ -344,6 +344,8 @@ export interface StoryBrief {
   mode?: StoryGenreMode;
   /** The engine picked to write the script; null walks the configured chain. */
   textEngine?: string | null;
+  /** The brand channel the story is made for; 'default' for the default one. */
+  brandChannelId?: string | null;
 }
 
 export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
@@ -607,6 +609,8 @@ export interface CreateStoryRunBody {
   genreId?: string;
   /** One of the options' text engines; left out, the configured chain writes it. */
   textEngine?: string;
+  /** The brand channel the story is made for; its project publishes under it. Left out is the default channel. */
+  brandChannelId?: string;
   options?: StoryBuildOptionsBody;
 }
 

@@ -173,6 +173,33 @@
             @switch (step()) {
               @case ('story') {
                 <!-- ---------------------------------------------------------- 1. the story -->
+                @if (choosesChannel()) {
+                  <div class="sa-field">
+                    <div class="sa-label" id="sa-channel-label">Which channel is it for?</div>
+                    <div class="sa-genres sa-channels" role="radiogroup" aria-labelledby="sa-channel-label">
+                      @for (ch of channels(); track ch.id) {
+                        <label class="sa-genre" [class.selected]="channelId() === ch.id"
+                               [title]="ch.youTubeChannelTitle ? 'Publishes to ' + ch.youTubeChannelTitle + ' on YouTube' : 'Not linked to a YouTube channel yet'">
+                          <input type="radio" name="sa-channel" [checked]="channelId() === ch.id" (change)="pickChannel(ch.id)" />
+                          @if (ch.youTubeThumbnailUrl) {
+                            <img class="sa-channel-pic" [src]="ch.youTubeThumbnailUrl" alt="" width="22" height="22" referrerpolicy="no-referrer" />
+                          } @else {
+                            <span class="sa-genre-icon" aria-hidden="true">📺</span>
+                          }
+                          <span class="sa-genre-name">{{ ch.name }}</span>
+                        </label>
+                      }
+                    </div>
+                    <p class="sa-help">
+                      @if (channel(); as ch) {
+                        The project is made for {{ ch.name }}: its watermark and end card{{ ch.youTubeChannelTitle ? ', and it publishes to ' + ch.youTubeChannelTitle : '' }}.
+                      } @else {
+                        Pick one first - the project, its watermark, end card and YouTube channel all follow it.
+                      }
+                    </p>
+                  </div>
+                }
+
                 @if (genres().length > 0) {
                   <div class="sa-field">
                     <div class="sa-label" id="sa-genre-label">What kind of story?</div>

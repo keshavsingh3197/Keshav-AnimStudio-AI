@@ -1118,7 +1118,9 @@ public sealed partial class StoryRunService(
             PackId = pack?.Id,
             GenreId = genre.Id,
             Mode = genre.Mode,
-            TextEngine = CheckTextEngine(brief.TextEngine)
+            TextEngine = CheckTextEngine(brief.TextEngine),
+            // Checked by the caller against who may use it; a channel deleted since falls back to the default at the build.
+            BrandChannelId = string.IsNullOrWhiteSpace(brief.BrandChannelId) ? null : brief.BrandChannelId.Trim()
         };
     }
 

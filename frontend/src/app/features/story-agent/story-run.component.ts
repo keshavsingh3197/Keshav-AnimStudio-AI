@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom, lastValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { BrandChannel, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import {
   StoryAgentOptions,
   StoryBudgetReport,
@@ -301,11 +302,15 @@ export class StoryRunComponent {
   /** The story whose prompt has been asked for, so a second look at it does not ask again. */
   private promptFor: string | null = null;
 
+  /** The brand channels, to name the one a story is for; only worth saying when there is more than one. */
+  private readonly channels = signal<BrandChannel[]>([]);
+
   constructor() {
     effect(() => {
       const id = this.runId();
       untracked(() => this.open(id));
     });
+    this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => this.channels.set([]) });
 
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
@@ -659,6 +664,14 @@ export class StoryRunComponent {
     this.promptFor = null;
     const engine = writer === 'Auto' ? (this.rewriteEngine() ?? undefined) : undefined;
     await this.act('rewrite', () => firstValueFrom(this.stories.rewrite(run.id, writer, engine)));
+  }
+
+  /** The channel the story is for, by name, when there is a choice of channels. */
+  channelName(id: string | null | undefined): string | null {
+    const list = this.channels();
+    if (list.length < 2) return null;
+    const wanted = id || DEFAULT_BRAND_CHANNEL;
+    return list.find((c) => c.id === wanted)?.name ?? null;
   }
 
   /** The name of the engine picked for this story, or null when it walks the server's order. */

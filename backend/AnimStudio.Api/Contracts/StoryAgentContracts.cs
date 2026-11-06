@@ -3,6 +3,7 @@ using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 
 namespace AnimStudio.Api.Contracts;
@@ -42,6 +43,10 @@ public sealed record CreateStoryRunRequest
     /// <summary>The text engine that writes the script, from the options' list; empty walks the chain.</summary>
     [StringLength(40)]
     public string? TextEngine { get; init; }
+
+    /// <summary>The brand channel the story is for; empty or <c>default</c> is the default channel.</summary>
+    [StringLength(64)]
+    public string? BrandChannelId { get; init; }
 
     public StoryBuildOptionsRequest? Options { get; init; }
 }
@@ -494,7 +499,7 @@ public sealed record StoryKitResponse(
 public sealed record StoryBriefResponse(
     string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
     string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture,
-    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null);
+    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null, string? BrandChannelId = null);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
@@ -697,7 +702,8 @@ public static class StoryAgentMapper
         run.Id,
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
-            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine),
+            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine,
+            run.Brief.BrandChannelId ?? BrandChannel.DefaultId),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,

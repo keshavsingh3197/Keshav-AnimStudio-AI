@@ -45,6 +45,26 @@ public sealed class ScenesController(
         return File(System.Text.Encoding.UTF8.GetBytes(srt), "application/x-subrip", "subtitles.srt");
     }
 
+    /// <summary>
+    /// The project's scenes laid end to end as the render plays them - each picture, its stretch of the narration and its
+    /// subtitles at their place on the finished video - with the background music. The Video editor builds a timeline
+    /// from it, so a story or an imported project opens there already put together.
+    /// </summary>
+    [HttpGet("api/projects/{projectId}/scenes/timeline")]
+    public async Task<ActionResult<ApiResponse<SceneTimelineResponse>>> Timeline(string projectId, CancellationToken ct)
+    {
+        var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
+        if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException();
+
+        var list = await editing.ListAsync(projectId, currentUser.UserId, ct);
+        var laid = SceneTimelineLayout.Build(list, project.Settings.ToCanvas().FrameRate);
+        return Ok(ApiResponse<SceneTimelineResponse>.Ok(new SceneTimelineResponse(
+            laid.Scenes, laid.TotalSeconds,
+            string.IsNullOrWhiteSpace(project.Settings.BackgroundMusicAssetId) ? null : project.Settings.BackgroundMusicAssetId,
+            Math.Clamp(project.Settings.BackgroundMusicVolume, 0, 1))));
+    }
+
     [HttpGet("api/scenes/{sceneId}")]
     public async Task<ActionResult<ApiResponse<SceneDetailResponse>>> Get(
         string sceneId, CancellationToken ct)

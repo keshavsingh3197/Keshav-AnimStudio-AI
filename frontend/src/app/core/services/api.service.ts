@@ -11,7 +11,7 @@ import {
   BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, AutoShortsPreview, AutoShortsResult, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody, CreateSubProjectBody, SetParentBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
-  PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
+  PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail, SceneTimeline,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
   WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
   ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody, DriveSyncReport,
@@ -399,6 +399,12 @@ export class ApiService {
   listScenes(projectId: string): Observable<Scene[]> {
     return this.unwrap(
       this.http.get<ApiResponse<Scene[]>>(`${this.base}/api/projects/${projectId}/scenes`));
+  }
+
+  /** The scenes laid end to end as the render plays them, with the music - what the Video editor builds lanes from. */
+  sceneTimeline(projectId: string): Observable<SceneTimeline> {
+    return this.unwrap(
+      this.http.get<ApiResponse<SceneTimeline>>(`${this.base}/api/projects/${projectId}/scenes/timeline`));
   }
 
   /** Direct link to a .srt built from the project's dialogue, timed as it renders. */

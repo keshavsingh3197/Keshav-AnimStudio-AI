@@ -108,6 +108,7 @@
 .sa-genre input { position: absolute; opacity: 0; pointer-events: none; }
 .sa-genre-icon { font-size: 1.2rem; flex: 0 0 auto; }
 .sa-genre-name { min-width: 0; overflow-wrap: anywhere; }
+.sa-channel-pic { flex: 0 0 auto; border-radius: 50%; object-fit: cover; }
 
 /* ---- ideas ------------------------------------------------------------------- */
 .sa-topics { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }

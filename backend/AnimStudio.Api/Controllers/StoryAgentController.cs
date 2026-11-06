@@ -10,6 +10,7 @@ using AnimStudio.Application.Security;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -30,6 +31,7 @@ public sealed class StoryAgentController(
     StoryRunService stories,
     IRenderJobRepository jobs,
     IProjectRepository projects,
+    IAiSettingsRepository aiSettings,
     IObjectStore store,
     IOptionsMonitor<AdminOptions> adminOptions,
     ICurrentUser currentUser,
@@ -90,6 +92,7 @@ public sealed class StoryAgentController(
         [FromBody] CreateStoryRunRequest request, CancellationToken ct)
     {
         if (await GuestRefusalAsync(ct) is { } refused) return refused;
+        if (await ChannelRefusalAsync(request.BrandChannelId, ct) is { } badChannel) return badChannel;
 
         var brief = new StoryBrief
         {
@@ -102,7 +105,8 @@ public sealed class StoryAgentController(
             Voicing = request.Voicing,
             PackId = request.PackId,
             GenreId = request.GenreId,
-            TextEngine = request.TextEngine
+            TextEngine = request.TextEngine,
+            BrandChannelId = BrandChannel.IsDefault(request.BrandChannelId) ? null : request.BrandChannelId!.Trim()
         };
 
         var run = await stories.CreateAsync(currentUser.UserId, brief, request.Options?.ToOptions(), ct);
@@ -564,6 +568,30 @@ public sealed class StoryAgentController(
     /// A story makes a project, so a guest is held to the same rule as when they make one by hand. Stories still being
     /// made count as projects, or a guest could start several at once and step over the limit.
     /// </summary>
+    /// <summary>
+    /// The same rule as a project's channel: only an administrator may make a story for a studio brand channel, and the
+    /// channel must exist. The default channel is everyone's.
+    /// </summary>
+    private async Task<ObjectResult?> ChannelRefusalAsync(string? channelId, CancellationToken ct)
+    {
+        if (BrandChannel.IsDefault(channelId)) return null;
+
+        if (!currentUser.IsAdmin)
+        {
+            const string message = "Only an administrator can make a story for a studio brand channel.";
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<StoryRunResponse>.Fail(message, new ApiError("channel-forbidden", message)));
+        }
+
+        if ((await aiSettings.GetAsync(ct))?.FindChannel(channelId!.Trim()) is null)
+        {
+            const string message = "That channel no longer exists. Pick another.";
+            return BadRequest(ApiResponse<StoryRunResponse>.Fail(message, new ApiError("unknown-channel", message, "brandChannelId")));
+        }
+
+        return null;
+    }
+
     private async Task<ObjectResult?> GuestRefusalAsync(CancellationToken ct)
     {
         if (currentUser.IsAuthenticated) return null;

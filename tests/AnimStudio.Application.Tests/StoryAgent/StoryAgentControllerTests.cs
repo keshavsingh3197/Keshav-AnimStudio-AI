@@ -9,8 +9,10 @@ using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Tests.Ai;
 using AnimStudio.Application.Tests.Editing;
 using AnimStudio.Application.Tests.Rendering;
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.Voices;
 using Microsoft.AspNetCore.Http;
@@ -29,13 +31,13 @@ public sealed class StoryAgentControllerTests
     private const string Someone = "user-2";
     private const string ProfileId = "vp_0123456789abcdef0123456789abcdef";
 
-    private sealed class TestUser(string id, bool authenticated) : ICurrentUser
+    private sealed class TestUser(string id, bool authenticated, bool admin = false) : ICurrentUser
     {
         public string UserId => id;
         public string? DisplayName => null;
         public string? Email => null;
         public bool IsAuthenticated => authenticated;
-        public bool IsAdmin => false;
+        public bool IsAdmin => admin;
         public IReadOnlyList<string> Roles => [];
     }
 
@@ -58,6 +60,14 @@ public sealed class StoryAgentControllerTests
         public Task<bool> RenameAsync(string jobId, string name, CancellationToken ct) => throw new NotSupportedException();
     }
 
+    private sealed class MemorySettings : IAiSettingsRepository
+    {
+        public AiSettings? Value { get; set; }
+
+        public Task<AiSettings?> GetAsync(CancellationToken ct) => Task.FromResult(Value);
+        public Task SaveAsync(AiSettings settings, CancellationToken ct) => throw new NotSupportedException();
+    }
+
     private sealed class World
     {
         public StoryAgentController Controller { get; }
@@ -70,9 +80,10 @@ public sealed class StoryAgentControllerTests
         public AdminOptions Admin { get; } = new();
         public StoryAgentOptions Options { get; } = new();
         public FakeStoryPublishing Publishing { get; } = new();
+        public MemorySettings Settings { get; } = new();
         public string UserId { get; }
 
-        public World(string userId = Me, bool authenticated = true)
+        public World(string userId = Me, bool authenticated = true, bool admin = false)
         {
             UserId = userId;
             var service = new StoryRunService(Runs, Queue, new FakePrompts(), Store, Voices, new StubRegistry(text: 1, image: 0, speech: 1),
@@ -81,8 +92,8 @@ public sealed class StoryAgentControllerTests
 
             var captions = new StoryCaptionPublisher(service, Publishing, new StoryClock(new DateTimeOffset(StorySamples.Now)),
                 NullLogger<StoryCaptionPublisher>.Instance);
-            Controller = new StoryAgentController(service, Jobs, Projects, Store, new StaticOptionsMonitor<AdminOptions>(Admin),
-                new TestUser(userId, authenticated), Publishing, captions)
+            Controller = new StoryAgentController(service, Jobs, Projects, Settings, Store, new StaticOptionsMonitor<AdminOptions>(Admin),
+                new TestUser(userId, authenticated, admin), Publishing, captions)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
@@ -159,6 +170,52 @@ public sealed class StoryAgentControllerTests
         Assert.Equal(StoryWriterMode.Manual, shown.Brief.Writer);
         Assert.Equal(StoryNarrationMode.None, shown.Options.Narration);
         Assert.False(shown.Options.Music);
+    }
+
+    [Fact]
+    public async Task A_story_is_made_for_the_channel_picked_before_it_starts()
+    {
+        var world = new World(admin: true);
+        world.Settings.Value = new AiSettings { Channels = [new BrandChannel { Id = "kids", Name = "Kids" }] };
+
+        var shown = Data(await world.Controller.Create(new CreateStoryRunRequest { Title = "The clever crow", BrandChannelId = "kids" }, CancellationToken.None));
+
+        Assert.Equal("kids", shown.Brief.BrandChannelId);
+        Assert.Equal("kids", world.Runs.Read(shown.Id)!.Brief.BrandChannelId);
+    }
+
+    [Fact]
+    public async Task No_channel_is_the_default_channel()
+    {
+        var world = new World();
+
+        var shown = Data(await world.Controller.Create(new CreateStoryRunRequest { Title = "The clever crow", BrandChannelId = "default" }, CancellationToken.None));
+
+        Assert.Equal(BrandChannel.DefaultId, shown.Brief.BrandChannelId);
+        Assert.Null(world.Runs.Read(shown.Id)!.Brief.BrandChannelId);
+    }
+
+    [Fact]
+    public async Task Only_an_administrator_makes_a_story_for_a_studio_channel()
+    {
+        var world = new World();
+        world.Settings.Value = new AiSettings { Channels = [new BrandChannel { Id = "kids", Name = "Kids" }] };
+
+        var refusal = RefusalOf(await world.Controller.Create(new CreateStoryRunRequest { Title = "The clever crow", BrandChannelId = "kids" }, CancellationToken.None), 403);
+
+        Assert.Equal("channel-forbidden", refusal.Code);
+        Assert.Empty(world.Queue.Enqueued);
+    }
+
+    [Fact]
+    public async Task A_channel_that_does_not_exist_is_refused()
+    {
+        var world = new World(admin: true);
+
+        var refusal = RefusalOf(await world.Controller.Create(new CreateStoryRunRequest { Title = "The clever crow", BrandChannelId = "gone" }, CancellationToken.None), 400);
+
+        Assert.Equal("unknown-channel", refusal.Code);
+        Assert.Empty(world.Queue.Enqueued);
     }
 
     [Fact]
