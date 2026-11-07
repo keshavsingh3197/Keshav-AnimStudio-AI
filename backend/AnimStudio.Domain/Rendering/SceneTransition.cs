@@ -22,7 +22,12 @@ public enum SceneTransition
     SlideDown = 10,
 
     /// <summary>The last shot rushes towards the camera into the next.</summary>
-    ZoomIn = 11
+    ZoomIn = 11,
+    Blur = 12,
+    FadeBlack = 13,
+    FadeWhite = 14,
+    CircleCrop = 15,
+    DiagonalWipe = 16
 }
 
 public sealed record TransitionSettings(SceneTransition Kind, FrameCount Duration)
@@ -46,6 +51,11 @@ public sealed record TransitionSettings(SceneTransition Kind, FrameCount Duratio
         SceneTransition.SlideUp => "slideup",
         SceneTransition.SlideDown => "slidedown",
         SceneTransition.ZoomIn => "zoomin",
+        SceneTransition.Blur => "hblur",
+        SceneTransition.FadeBlack => "fadeblack",
+        SceneTransition.FadeWhite => "fadewhite",
+        SceneTransition.CircleCrop => "circlecrop",
+        SceneTransition.DiagonalWipe => "diagbr",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown scene transition.")
     };
 }

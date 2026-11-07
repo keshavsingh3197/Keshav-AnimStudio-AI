@@ -237,3 +237,11 @@
 .sr-budget-lines { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 8px; }
 .sr-budget-over { color: #dc2626; }
 .sr-engine { width: auto; max-width: 16rem; padding: .3rem .5rem; font-size: .84rem; }
+
+/* A step being made, at the top of its own tab. */
+.sr-live { display: grid; gap: .45rem; margin: 0 0 1rem; border-color: var(--brand-glow); }
+.sr-live-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.sr-live-figures { margin-left: auto; font-variant-numeric: tabular-nums; }
+.sr-live-text { margin: 0; font-size: .85rem; overflow-wrap: anywhere; }
+.sr-stage-time { font-variant-numeric: tabular-nums; }
+.sr-follow { margin: 0 0 .75rem; }

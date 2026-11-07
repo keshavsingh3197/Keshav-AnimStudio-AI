@@ -59,6 +59,7 @@ public sealed partial class YouTubePublishController(
     YouTubeThumbnailService thumbnails,
     YouTubeTranscriptFetcher transcriptFetcher,
     ContentPlanningService planning,
+    YouTubeSuggestionLibrary suggestionLibrary,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
     /// <summary>Brand channels are studio-wide settings, so only an admin's connections change them.</summary>
@@ -309,6 +310,17 @@ public sealed partial class YouTubePublishController(
         // Without this a new take is the same prompt again, and a model answers it with near-identical
         // titles. The offered titles ride in the summary, which the prompt fences as data.
         var avoid = YouTubeMetadataSuggester.CleanAvoidTitles(request?.AvoidTitles);
+
+        // Details already written for this video, or one of the same kind, come from the database instead of a model
+        // call. A new take always asks the model, and its answer replaces what was saved.
+        var source = new YouTubeSuggestionSource(summary, style, language, request?.Tone, brief, transcriptText);
+        var library = await suggestionLibrary.LookAsync(currentUser.UserId, source, request?.Fresh != true && avoid.Count == 0, ct);
+        if (library.Reused is { } saved)
+        {
+            logger.LogInformation("Suggested YouTube details for {Subject} from the saved library.", subject);
+            return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
+                YouTubeSuggestionLibrary.ToSuggestion(saved), YouTubeSuggestionLibrary.ProviderId, composer, library)));
+        }
         if (avoid.Count > 0)
             summary += "\nTitles already offered for this video (write new ones with different opening words and angles; " +
                        "do not repeat or lightly reword any of these):\n- " + string.Join("\n- ", avoid);
@@ -318,7 +330,7 @@ public sealed partial class YouTubePublishController(
         {
             var localSuggestion = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                localSuggestion, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
+                localSuggestion, YouTubeFreeSeoEngine.FreeLocalProviderId, composer, library)));
         }
 
         var isPollinationsFree = string.Equals(requestedProvider, YouTubeFreeSeoEngine.FreePollinationsProviderId, StringComparison.OrdinalIgnoreCase);
@@ -369,22 +381,23 @@ public sealed partial class YouTubePublishController(
             if (freeParsed is not null)
             {
                 var completed = YouTubeFreeSeoEngine.EnsureComplete(freeParsed, summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
+                await suggestionLibrary.SaveAsync(currentUser.UserId, source, completed, YouTubeFreeSeoEngine.FreePollinationsProviderId, ct);
                 logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.", subject, YouTubeFreeSeoEngine.FreePollinationsProviderId);
                 return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                    completed, YouTubeFreeSeoEngine.FreePollinationsProviderId, composer)));
+                    completed, YouTubeFreeSeoEngine.FreePollinationsProviderId, composer, library)));
             }
 
             var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             logger.LogInformation("Suggested YouTube details for {Subject} with {Provider} (fallback).", subject, YouTubeFreeSeoEngine.FreeLocalProviderId);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
+                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composer, library)));
         }
 
         if (rendered is null)
         {
             var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
+                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composer, library)));
         }
 
         if (!await SuggestSlots.WaitAsync(TimeSpan.FromSeconds(30), ct))
@@ -429,14 +442,15 @@ public sealed partial class YouTubePublishController(
             logger.LogInformation("Suggested YouTube details for {Subject} with {Provider} (auto fallback).",
                 subject, YouTubeFreeSeoEngine.FreeLocalProviderId);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                autoFallback, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
+                autoFallback, YouTubeFreeSeoEngine.FreeLocalProviderId, composer, library)));
         }
 
         var fullSuggestion = YouTubeFreeSeoEngine.EnsureComplete(suggestion, summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
+        await suggestionLibrary.SaveAsync(currentUser.UserId, source, fullSuggestion, outcome.Value!.Provenance.ProviderId, ct);
         logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.",
             subject, outcome.Value!.Provenance.ProviderId);
         return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-            fullSuggestion, outcome.Value.Provenance.ProviderId, composer)));
+            fullSuggestion, outcome.Value.Provenance.ProviderId, composer, library)));
     }
 
     /// <summary>What a suggestion's description and comment go through before the user sees them.</summary>
@@ -458,7 +472,7 @@ public sealed partial class YouTubePublishController(
             brand);
 
     private static YouTubeSuggestResponse ToSuggestResponse(
-        YouTubeMetadataSuggestion suggestion, string providerId, SuggestComposer composer)
+        YouTubeMetadataSuggestion suggestion, string providerId, SuggestComposer composer, YouTubeLibraryLookup? library = null)
     {
         var have = new HashSet<string>(suggestion.Tags.Concat(suggestion.TagIdeas), StringComparer.OrdinalIgnoreCase);
         var ideas = suggestion.TagIdeas.Concat(composer.Branding.Tags.Where(t => have.Add(t))).ToList();
@@ -472,7 +486,15 @@ public sealed partial class YouTubePublishController(
             ideas,
             composer.Comment(suggestion.PinnedComment),
             suggestion.EngagementComment,
-            suggestion.TranscriptText);
+            suggestion.TranscriptText)
+        {
+            SavedAtUtc = library?.Reused?.CreatedAtUtc,
+            SavedSimilarity = library?.Reused is null ? null : library.Similarity,
+            // Titles from earlier videos of the same kind, without the ones this answer already offers.
+            SavedTitles = library is null ? null :
+                [.. library.Titles.Where(t => !string.Equals(t, suggestion.Title, StringComparison.OrdinalIgnoreCase)
+                                              && !suggestion.TitleOptions.Contains(t, StringComparer.OrdinalIgnoreCase))]
+        };
     }
 
     /// <summary>Checks everything, then queues the upload. Returns at once with an upload to poll.</summary>
@@ -848,7 +870,17 @@ public sealed record YouTubeSuggestResponse(
     string? TranscriptText = null,
     string? TranscriptSource = null,
     string? TopicId = null,
-    IReadOnlyList<string>? Notes = null);
+    IReadOnlyList<string>? Notes = null)
+{
+    /// <summary>When the details were first written, if they came from the saved library instead of a model call.</summary>
+    public DateTime? SavedAtUtc { get; init; }
+
+    /// <summary>How alike the saved details' video is to this one, 0-1 (1: the same video); null when written afresh.</summary>
+    public double? SavedSimilarity { get; init; }
+
+    /// <summary>Titles written for earlier videos of the same kind, to pick from.</summary>
+    public IReadOnlyList<string>? SavedTitles { get; init; }
+}
 public sealed record YouTubeSuggestEngine(string Id, string Name, bool RunsLocally);
 public sealed record YouTubeSuggestOptionsResponse(IReadOnlyList<YouTubeSuggestEngine> Engines, IReadOnlyList<string> Tones);
 

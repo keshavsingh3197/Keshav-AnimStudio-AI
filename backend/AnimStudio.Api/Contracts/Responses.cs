@@ -116,6 +116,16 @@ public sealed record SceneResponse(
     double TransitionDurationSeconds, string? AudioAssetId, bool HasAudioSlice,
     int CharacterCount, string Origin, bool IsUserEdited);
 
+/// <summary>
+/// A scene-based project laid end to end as the render plays it, with its music, for the Video editor to build its lanes
+/// from. See <see cref="AnimStudio.Application.Scenes.SceneTimelineLayout"/>.
+/// </summary>
+public sealed record SceneTimelineResponse(
+    IReadOnlyList<AnimStudio.Application.Scenes.SceneTimelineScene> Scenes,
+    double TotalSeconds,
+    string? MusicAssetId,
+    double MusicVolume);
+
 /// <summary>One scene with everything the scene editor needs to draw its form.</summary>
 public sealed record SceneDetailResponse(
     string Id, string ProjectId, int SceneNumber, string? Title, string? Description,

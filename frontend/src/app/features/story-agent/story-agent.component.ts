@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { BrandChannel, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import {
   CreateStoryRunBody,
   StoryAgentOptions,
@@ -15,6 +16,7 @@ import {
   StoryTopic,
   StoryWriterMode,
 } from '../../core/models/story-agent.models';
+import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { StoryImportDialogComponent } from './story-import-dialog.component';
@@ -84,6 +86,7 @@ export class StoryAgentComponent {
   private readonly stories = inject(StoryAgentService);
   private readonly router = inject(Router);
   private readonly status = inject(StatusService);
+  private readonly api = inject(ApiService);
 
   readonly caps = signal<StoryAgentOptions | null>(null);
   readonly capsError = signal<string | null>(null);
@@ -107,6 +110,13 @@ export class StoryAgentComponent {
   readonly showAllTopics = signal(false);
   /** The engine that writes the script; '' walks the server's chain. */
   readonly textEngine = signal('');
+  /** The brand channels this person may make a story for; only the default one for someone who is not an administrator. */
+  readonly channels = signal<BrandChannel[]>([]);
+  /**
+   * The channel the story is for. Null until the person picks one when there is a choice: a story's project, watermark,
+   * end card and YouTube channel all follow it, so it is never guessed.
+   */
+  readonly channelId = signal<string | null>(null);
 
   /** Null until the person or the first list answer decides, so an empty list can open on a new story. */
   readonly view = signal<StoryAgentView | null>(null);
@@ -141,12 +151,17 @@ export class StoryAgentComponent {
   });
   readonly pack = computed(() => this.packs().find((pack) => pack.id === this.packId()) ?? null);
   readonly titleTooShort = computed(() => this.writer() !== 'BuiltIn' && this.title().trim().length < 3);
+  /** A choice of channel is offered only when there is more than one. */
+  readonly choosesChannel = computed(() => this.channels().length > 1);
+  readonly channel = computed(() => this.channels().find((c) => c.id === this.channelId()) ?? null);
+  readonly channelMissing = computed(() => this.choosesChannel() && !this.channel());
 
   /** Why Start is not pressed yet, in words, or null when it can be. */
   readonly missing = computed(() => {
     const caps = this.caps();
     if (!caps) return 'Loading…';
     if (!caps.enabled) return 'The Story Agent is switched off on this server.';
+    if (this.channelMissing()) return 'Pick the channel this story is for.';
     if (this.writer() === 'BuiltIn') return this.pack() ? null : 'Pick one of the built-in stories.';
     return this.titleTooShort() ? 'Give the story a title.' : null;
   });
@@ -159,7 +174,7 @@ export class StoryAgentComponent {
 
   /** Which steps still need something before Start, so the step strip can mark them. */
   readonly stepMissing = computed<Record<NewStoryStep, boolean>>(() => ({
-    story: this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort(),
+    story: this.channelMissing() || (this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort()),
     telling: false,
     making: false,
     start: this.missing() !== null,
@@ -190,6 +205,7 @@ export class StoryAgentComponent {
       : this.writer() === 'Manual' ? 'You, from a chat' : 'A built-in story';
     const length = LENGTHS.find((l) => l.minutes === this.minutes())?.label ?? `${this.minutes()} minutes`;
     return [
+      ...(this.choosesChannel() ? [{ label: 'Channel', value: this.channel()?.name ?? '—', step: 'story' as NewStoryStep }] : []),
       { label: 'Kind', value: this.genre()?.name ?? 'Devotional', step: 'story' as NewStoryStep },
       { label: builtIn ? 'Story' : 'Title', value: (builtIn ? this.pack()?.titleEnglish : this.title().trim()) || '—', step: 'story' as NewStoryStep },
       { label: 'Written by', value: writer, step: 'story' as NewStoryStep },
@@ -226,6 +242,7 @@ export class StoryAgentComponent {
       error: (failure: unknown) => this.capsError.set(failure instanceof ApiFailure ? failure.message : 'The Story Agent could not be reached.'),
     });
     this.refresh();
+    this.loadChannels(query.get('channel'));
 
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
@@ -280,6 +297,32 @@ export class StoryAgentComponent {
     const packs = this.packs();
     this.packId.set(packs[0]?.id ?? null);
     if (this.writer() === 'BuiltIn' && packs.length === 0) this.writer.set(this.caps()?.textModel ? 'Auto' : 'Manual');
+  }
+
+  /**
+   * The channels to choose from. With only one there is nothing to choose; with more, none is picked unless the link
+   * names one (`?channel=`), so the person decides before the story starts.
+   */
+  private loadChannels(wanted: string | null): void {
+    this.api.listBrandChannels().subscribe({
+      next: (channels) => {
+        if (this.destroyed) return;
+        this.channels.set(channels);
+        if (channels.length === 1) this.channelId.set(channels[0].id);
+        else if (wanted && channels.some((c) => c.id === wanted)) this.channelId.set(wanted);
+      },
+      // Without the list the story is made for the default channel, as it always was.
+      error: () => {
+        if (this.destroyed) return;
+        this.channels.set([]);
+        this.channelId.set(null);
+      },
+    });
+  }
+
+  pickChannel(id: string): void {
+    this.channelId.set(id);
+    this.startError.set(null);
   }
 
   // ------------------------------------------------------------------------------------------------ the list
@@ -381,6 +424,7 @@ export class StoryAgentComponent {
       packId: builtIn ? (this.packId() ?? undefined) : undefined,
       genreId: this.genre()?.id,
       textEngine: this.writer() !== 'BuiltIn' && this.textEngine() ? this.textEngine() : undefined,
+      brandChannelId: this.channel() && this.channel()!.id !== DEFAULT_BRAND_CHANNEL ? this.channel()!.id : undefined,
       options: this.options() ?? undefined,
     };
 

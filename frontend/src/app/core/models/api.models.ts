@@ -436,6 +436,35 @@ export interface Scene {
   isUserEdited: boolean;
 }
 
+/**
+ * A scene-based project (a story, an imported bundle) laid end to end as the render plays it. Every time is in seconds
+ * on the finished video; each scene holds the screen until the next one starts.
+ */
+export interface SceneTimeline {
+  scenes: SceneTimelineScene[];
+  totalSeconds: number;
+  musicAssetId: string | null;
+  musicVolume: number;
+}
+
+export interface SceneTimelineScene {
+  sceneId: string;
+  number: number;
+  title: string | null;
+  startSeconds: number;
+  seconds: number;
+  backgroundAssetId: string | null;
+  /** The render's camera move: None, ZoomIn, ZoomOut, PanLeft, PanRight, PanUp, PanDown. */
+  effect: string;
+  effectIntensity: number;
+  /** The cut into the next scene; None for a straight cut and for the last scene. */
+  transition: string;
+  transitionSeconds: number;
+  /** The scene's narration: which file, and the stretch of it that plays. */
+  audio: { assetId: string; startSeconds: number; trimStartSeconds: number; seconds: number } | null;
+  captions: { text: string; speaker: string | null; startSeconds: number; endSeconds: number }[];
+}
+
 export interface DialogueLine {
   index: number;
   speakerCharacterId?: string;
@@ -1179,6 +1208,7 @@ export const TRANSITIONS = [
   'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight',
   'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose',
   'SlideUp', 'SlideDown', 'ZoomIn',
+  'Blur', 'FadeBlack', 'FadeWhite', 'CircleCrop', 'DiagonalWipe',
 ] as const;
 
 export const ANCHORS = [

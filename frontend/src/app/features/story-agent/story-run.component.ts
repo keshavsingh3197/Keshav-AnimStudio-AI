@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom, lastValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { BrandChannel, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import {
   StoryAgentOptions,
   StoryBudgetReport,
@@ -13,6 +14,7 @@ import {
   StoryPublication,
   StoryRun,
   StoryStage,
+  StoryStageId,
   StoryWriterMode,
 } from '../../core/models/story-agent.models';
 import { YouTubePrefill, YouTubeUpload } from '../../core/models/youtube.models';
@@ -44,8 +46,8 @@ import {
   whenLabel,
 } from './story-agent.utils';
 
-/** How often a story being made is asked about, and how long to wait after a failed ask. */
-const POLL_MS = 2000;
+/** How often a story being made is asked about (the server saves a step's progress twice a second), and how long to wait after a failed ask. */
+const POLL_MS = 1000;
 const RETRY_MAX_MS = 10_000;
 
 /** The speeds offered for the video, as multiples of the pace it was built at. */
@@ -57,16 +59,42 @@ const sameSpeed = (a: number, b: number): boolean => Math.abs(a - b) < 0.001;
 type Action = 'cancel' | 'retry' | 'delete' | 'build' | 'rewrite' | 'paste' | 'approve' | 'speed';
 
 /** The story page's tabs, in the order a story goes through them. */
-export type StoryTab = 'overview' | 'script' | 'pictures' | 'build' | 'review' | 'publish';
+export type StoryTab = 'overview' | 'script' | 'pictures' | 'build' | 'voice' | 'music' | 'publish';
 
+/**
+ * In the order a story goes through them, which is the order the server makes things: the pictures (added before the
+ * build, or made first in it), the settings where Build is pressed, then the voice, the music and the video.
+ */
 const TABS: { id: StoryTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'script', label: 'Script' },
   { id: 'pictures', label: 'Pictures' },
-  { id: 'build', label: 'Build' },
-  { id: 'review', label: 'Voice & music' },
+  { id: 'build', label: 'Settings' },
+  { id: 'voice', label: 'Voice' },
+  { id: 'music', label: 'Music' },
   { id: 'publish', label: 'Video & YouTube' },
 ];
+
+/** The tab that shows each step's work, so the page can follow a build from one step to the next. */
+const STAGE_TAB: Record<StoryStageId, StoryTab> = {
+  research: 'overview',
+  script: 'script',
+  visuals: 'pictures',
+  narration: 'voice',
+  music: 'music',
+  assemble: 'publish',
+  render: 'publish',
+  kit: 'publish',
+};
+
+/** The steps that make the video itself, shown together on the Video tab. */
+const VIDEO_STAGES: StoryStageId[] = ['assemble', 'render', 'kit'];
+
+/** Tab names from before the voice and the music had a tab each, so old links still open. */
+const OLD_TABS: Record<string, StoryTab> = { review: 'voice' };
+
+const isDone = (stage?: StoryStage): boolean => stage?.status === 'Completed' || stage?.status === 'Skipped';
+const hasBegun = (stage?: StoryStage): boolean => !!stage && stage.status !== 'Pending';
 
 /** How a tab reads in the bar: finished, the one that needs the person now, not reachable yet, or neither. */
 type TabState = 'done' | 'now' | 'locked' | 'todo';
@@ -110,6 +138,8 @@ export class StoryRunComponent {
   readonly busy = signal<Action | null>(null);
   readonly actionError = signal<string | null>(null);
   readonly selected = signal<StoryTab>('overview');
+  /** When the server last answered, so a running step's time moves on with every answer. */
+  readonly heardAt = signal(Date.now());
 
   /**
    * Someone who is not signed in is a guest, and a <video> or a download link cannot send the header that says so. For
@@ -169,6 +199,7 @@ export class StoryRunComponent {
   readonly clock = clock;
   readonly when = whenLabel;
   readonly videoState = publicationState;
+  readonly videoStages = VIDEO_STAGES;
 
   readonly terminal = computed(() => {
     const run = this.run();
@@ -193,24 +224,38 @@ export class StoryRunComponent {
     if (!run) return [];
     const hasScript = !!run.script;
     const waiting = run.status === 'AwaitingReview' ? run.review ?? null : null;
+    const stage = (id: StoryStageId) => run.stages.find((s) => s.id === id);
+    const visuals = stage('visuals');
+    const narration = stage('narration');
+    const music = stage('music');
+    const video = VIDEO_STAGES.map(stage);
+    const videoRunning = video.some((s) => s?.status === 'Running');
+    const started = hasBegun(visuals) && run.status !== 'ScriptReady' && run.status !== 'AwaitingScript';
     const states: Record<StoryTab, TabState> = {
       overview: run.working || run.status === 'Failed' ? 'now' : 'todo',
       script: run.scriptApprovedAtUtc ? 'done' : run.status === 'AwaitingScript' || run.status === 'ScriptReady' ? 'now' : 'todo',
-      pictures: !hasScript ? 'locked' : this.pictured() === this.sceneCount() ? 'done' : run.scriptApprovedAtUtc && run.status === 'ScriptReady' ? 'now' : 'todo',
-      build: !hasScript || run.status === 'AwaitingScript' ? 'locked' : run.status === 'Completed' ? 'done' : run.status === 'Building' ? 'now' : 'todo',
-      review: !this.soundStarted(run) ? 'locked'
-        : waiting === 'narration' || waiting === 'music' ? 'now'
-        : run.voiceApprovedAtUtc && (run.musicApprovedAtUtc || !run.options.music) ? 'done' : 'todo',
-      publish: !run.projectId && !run.render ? 'locked' : run.publications.length > 0 ? 'done'
-        : run.status === 'Completed' || waiting === 'render' ? 'now' : 'todo',
+      pictures: !hasScript ? 'locked' : visuals?.status === 'Running' ? 'now'
+        : this.pictured() === this.sceneCount() || isDone(visuals) ? 'done' : run.scriptApprovedAtUtc && run.status === 'ScriptReady' ? 'now' : 'todo',
+      build: !hasScript || run.status === 'AwaitingScript' ? 'locked' : started ? 'done'
+        : run.scriptApprovedAtUtc && run.status === 'ScriptReady' ? 'now' : 'todo',
+      voice: !hasBegun(narration) && !this.voiced(run) ? 'locked'
+        : waiting === 'narration' || narration?.status === 'Running' ? 'now' : isDone(narration) ? 'done' : 'todo',
+      music: !hasBegun(music) && !run.music ? 'locked'
+        : waiting === 'music' || music?.status === 'Running' ? 'now' : isDone(music) ? 'done' : 'todo',
+      publish: !run.projectId && !run.render && !video.some(hasBegun) ? 'locked' : run.publications.length > 0 ? 'done'
+        : run.status === 'Completed' || waiting === 'render' || videoRunning ? 'now' : 'todo',
     };
     const notes: Record<StoryTab, string> = {
       overview: run.working ? `${this.overall(run)}%` : '',
       script: run.scriptApprovedAtUtc ? 'Approved' : hasScript ? 'To approve' : '',
-      pictures: hasScript ? `${this.pictured()}/${this.sceneCount()}` : '',
-      build: run.status === 'Building' ? 'Making' : '',
-      review: waiting === 'narration' || waiting === 'music' ? 'Listen' : '',
-      publish: waiting === 'render' ? 'Watch' : run.publications.length > 0 ? `${run.publications.length} on YouTube` : '',
+      pictures: visuals?.status === 'Running' ? `${visuals.progress}%` : hasScript ? `${this.pictured()}/${this.sceneCount()}` : '',
+      build: started && run.working ? 'Started' : '',
+      voice: narration?.status === 'Running' ? `${narration.progress}%` : waiting === 'narration' ? 'Listen'
+        : narration?.status === 'Skipped' ? 'None' : '',
+      music: music?.status === 'Running' ? `${music.progress}%` : waiting === 'music' ? 'Listen'
+        : music?.code === 'music-off' ? 'Off' : '',
+      publish: videoRunning ? `Making ${this.progressOf(run, VIDEO_STAGES)}%` : waiting === 'render' ? 'Watch'
+        : run.publications.length > 0 ? `${run.publications.length} on YouTube` : '',
     };
     return TABS.map((tab, index) => ({ ...tab, step: index, state: states[tab.id], note: notes[tab.id] }));
   });
@@ -227,8 +272,8 @@ export class StoryRunComponent {
           : { text: 'The script is written. Read it, fix anything, and approve it to move on.', tab: 'script', action: 'Read and approve' };
       case 'AwaitingReview':
         switch (run.review) {
-          case 'narration': return { text: 'The voice is ready. Listen to each scene, then approve it or ask for any scene again.', tab: 'review', action: 'Listen to the voice' };
-          case 'music': return { text: 'The music is ready. Listen to it with the voice, then approve it, ask for another, or add your own.', tab: 'review', action: 'Listen to the music' };
+          case 'narration': return { text: 'The voice is ready. Listen to each scene, then approve it or ask for any scene again.', tab: 'voice', action: 'Listen to the voice' };
+          case 'music': return { text: 'The music is ready. Listen to it with the voice, then approve it, ask for another, or add your own.', tab: 'music', action: 'Listen to the music' };
           default: return { text: 'The video is rendered. Watch it, then approve it or ask for a new look.', tab: 'publish', action: 'Watch the video' };
         }
       case 'Completed':
@@ -242,8 +287,13 @@ export class StoryRunComponent {
   /** The story's own YouTube details, for the publish dialog to open with. */
   readonly prefill = computed<YouTubePrefill | null>(() => {
     const kit = this.run()?.kit;
-    return kit ? { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment } : null;
+    const thumbnail = this.thumbnail();
+    if (!kit) return thumbnail ? { thumbnail } : null;
+    return { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment, thumbnail };
   });
+
+  /** The story's thumbnail picture, fetched as the publish dialog opens so it starts out chosen. */
+  private readonly thumbnail = signal<Blob | null>(null);
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
@@ -252,11 +302,15 @@ export class StoryRunComponent {
   /** The story whose prompt has been asked for, so a second look at it does not ask again. */
   private promptFor: string | null = null;
 
+  /** The brand channels, to name the one a story is for; only worth saying when there is more than one. */
+  private readonly channels = signal<BrandChannel[]>([]);
+
   constructor() {
     effect(() => {
       const id = this.runId();
       untracked(() => this.open(id));
     });
+    this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => this.channels.set([]) });
 
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
@@ -326,6 +380,7 @@ export class StoryRunComponent {
     if (this.destroyed || run.id !== this.runId()) return;
     const before = this.previous;
     this.previous = run;
+    this.heardAt.set(Date.now());
     this.run.set(run);
 
     // The build choices start as the story's own, and start again whenever a fresh script has just arrived to be read.
@@ -335,15 +390,16 @@ export class StoryRunComponent {
 
     // The first look opens the tab asked for, or the one the story needs; a change of step moves on with it.
     if (before === null) {
-      const asked = TABS.find((tab) => tab.id === this.tab())?.id;
+      const named = this.tab() ?? '';
+      const asked = OLD_TABS[named] ?? TABS.find((tab) => tab.id === named)?.id;
       this.selected.set(asked && this.tabs().find((tab) => tab.id === asked)?.state !== 'locked' ? asked : this.defaultTab(run));
-    } else if (before.status !== run.status) {
+    } else if (before.status !== run.status && run.status !== 'Building') {
       if (run.status === 'Failed') this.go('overview');
-      // A redo asked for from a review tab is followed there; a build started elsewhere is followed on the overview.
-      else if (run.status === 'Building' && this.selected() !== 'review' && this.selected() !== 'publish') this.go('overview');
-      else if (run.status === 'AwaitingReview') this.go(run.review === 'render' ? 'publish' : 'review');
+      else if (run.status === 'AwaitingReview') this.go(this.reviewTab(run));
       else if (run.status === 'Completed' && before.status === 'Building') this.go('publish');
       else if (run.status === 'ScriptReady' || run.status === 'AwaitingScript') this.go('script');
+    } else {
+      this.follow(before, run);
     }
 
     if (run.status === 'AwaitingScript' && this.prompt() === null && this.promptError() === null && this.promptFor !== run.id) this.loadPrompt(run.id);
@@ -353,12 +409,38 @@ export class StoryRunComponent {
     this.schedule();
   }
 
+  /**
+   * When one step of a build finishes and the next begins, moves to the new step's tab - but only for someone watching
+   * the step that just finished (or the Settings tab they pressed Build on). Anyone reading something else is left
+   * where they are, and the overview follows the whole story by itself.
+   */
+  private follow(before: StoryRun, run: StoryRun): void {
+    const to = this.workTab(run);
+    if (to === null) return;
+    const from = this.workTab(before) ?? (before.status === 'AwaitingReview' ? this.reviewTab(before) : null);
+    if (to === from) return;
+    const watching = this.selected() === 'build' || (from !== null && this.selected() === from);
+    if (watching) this.go(to);
+  }
+
+  /** The tab of the step being made now, or null when nothing is. */
+  private workTab(run: StoryRun): StoryTab | null {
+    const running = run.stages.find((stage) => stage.status === 'Running');
+    return running ? STAGE_TAB[running.id] : null;
+  }
+
+  /** The tab where the person checks what the build stopped for. */
+  private reviewTab(run: StoryRun): StoryTab {
+    return run.review === 'render' ? 'publish' : run.review === 'music' ? 'music' : 'voice';
+  }
+
   private defaultTab(run: StoryRun): StoryTab {
     switch (run.status) {
       case 'AwaitingScript': return 'script';
       case 'ScriptReady': return run.scriptApprovedAtUtc ? 'pictures' : 'script';
-      case 'AwaitingReview': return run.review === 'render' ? 'publish' : 'review';
+      case 'AwaitingReview': return this.reviewTab(run);
       case 'Completed': return 'publish';
+      case 'Building': return this.workTab(run) ?? 'overview';
       default: return 'overview';
     }
   }
@@ -584,6 +666,14 @@ export class StoryRunComponent {
     await this.act('rewrite', () => firstValueFrom(this.stories.rewrite(run.id, writer, engine)));
   }
 
+  /** The channel the story is for, by name, when there is a choice of channels. */
+  channelName(id: string | null | undefined): string | null {
+    const list = this.channels();
+    if (list.length < 2) return null;
+    const wanted = id || DEFAULT_BRAND_CHANNEL;
+    return list.find((c) => c.id === wanted)?.name ?? null;
+  }
+
   /** The name of the engine picked for this story, or null when it walks the server's order. */
   engineName(id: string | null | undefined): string | null {
     return id ? (this.engines().find((e) => e.id === id)?.name ?? id) : null;
@@ -658,10 +748,19 @@ export class StoryRunComponent {
 
   // ------------------------------------------------------------------------------------------------ YouTube and subtitles
 
-  openPublish(): void {
+  async openPublish(): Promise<void> {
     if (!this.signedIn()) {
       this.auth.openAuthModal();
       return;
+    }
+    const run = this.run();
+    this.thumbnail.set(null);
+    if (run?.script?.hasThumbnail) {
+      try {
+        this.thumbnail.set(await firstValueFrom(this.stories.thumbnailImage(run.id)));
+      } catch {
+        // The dialog opens without it; a thumbnail can still be picked there.
+      }
     }
     this.publishing.set(true);
   }
@@ -806,18 +905,35 @@ export class StoryRunComponent {
     return local && local.jobId === jobId ? local.url : null;
   }
 
-  /** The narration step has begun at least once, so there is (or soon will be) something to listen to. */
-  private soundStarted(run: StoryRun): boolean {
-    return run.stages.some((s) => (s.id === 'narration' || s.id === 'music') && s.status !== 'Pending') || !!run.music;
+  /** Some scene has narration already, from this build or an earlier one. */
+  private voiced(run: StoryRun): boolean {
+    return (run.script?.scenes ?? []).some((scene) => scene.hasAudio);
   }
 
   /** A progress figure for the whole story, as the list shows it. */
   overall(run: StoryRun): number {
-    if (run.stages.length === 0) return 0;
-    const done = run.stages.reduce((sum, stage) => {
-      if (stage.status === 'Completed' || stage.status === 'Skipped') return sum + 100;
+    return this.progressOf(run, run.stages.map((stage) => stage.id));
+  }
+
+  /** How far the given steps have got together, 0-100. */
+  progressOf(run: StoryRun, ids: StoryStageId[]): number {
+    const stages = run.stages.filter((stage) => ids.includes(stage.id));
+    if (stages.length === 0) return 0;
+    const done = stages.reduce((sum, stage) => {
+      if (isDone(stage)) return sum + 100;
       return stage.status === 'Running' ? sum + stage.progress : sum;
     }, 0);
-    return Math.round(done / run.stages.length);
+    return Math.round(done / stages.length);
+  }
+
+  /** The given steps that are being made right now, for a tab to show live. */
+  live(run: StoryRun, ids: StoryStageId[]): StoryStage[] {
+    return run.stages.filter((stage) => stage.status === 'Running' && ids.includes(stage.id));
+  }
+
+  /** How long a step has been running, as m:ss, from its start and the last time the server answered. */
+  elapsed(stage: StoryStage): string {
+    const started = stage.startedAtUtc ? Date.parse(stage.startedAtUtc) : NaN;
+    return Number.isNaN(started) ? '' : this.clock(Math.max(0, (this.heardAt() - started) / 1000));
   }
 }

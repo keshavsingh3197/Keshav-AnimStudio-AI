@@ -37,6 +37,7 @@
             <span class="pill" [class]="latest.tone">▶ {{ latest.label }}</span>
           }
           <span>Started {{ ago(r.createdAtUtc) }}</span>
+          @if (channelName(r.brief.brandChannelId); as channel) { <span>· for {{ channel }}</span> }
           <span>· {{ r.brief.language === 'en' ? 'English' : 'Hindi' }}</span>
           <span>· {{ r.brief.format === 'Vertical' ? '9:16 vertical' : '16:9 wide' }}</span>
           @if (r.brief.writer === 'BuiltIn') { <span>· built-in story</span> }
@@ -96,18 +97,8 @@
     }
 
     <div class="sr-panel" id="sr-panel" role="tabpanel" [attr.aria-labelledby]="'sr-tab-' + selected()">
-      <!-- ================================================================== overview -->
-      @if (selected() === 'overview') {
-        @if (next(); as n) {
-          <section class="card sr-next" aria-label="What is next">
-            <div>
-              <strong>Next</strong>
-              <p>{{ n.text }}</p>
-            </div>
-            <button type="button" (click)="go(n.tab)">{{ n.action }} →</button>
-          </section>
-        }
-
+      <!-- Every step of the story with its progress: the overview, and the Settings tab while the build runs. -->
+      <ng-template #stageList>
         <section class="card sr-progress" aria-label="Progress">
           <ol class="sr-stages">
             @for (stage of r.stages; track stage.id) {
@@ -120,6 +111,7 @@
                     <div class="bar" role="progressbar" [attr.aria-valuenow]="stage.progress" aria-valuemin="0" aria-valuemax="100">
                       <i [style.width.%]="stage.progress"></i>
                     </div>
+                    <span class="muted sr-stage-time">{{ stage.progress }}% · {{ elapsed(stage) }}</span>
                   }
                 </div>
                 <span class="sr-only">{{ stage.status }}</span>
@@ -127,6 +119,38 @@
             }
           </ol>
         </section>
+      </ng-template>
+
+      <!-- The steps a tab is about, while they are being made: what is happening now, how far, for how long. -->
+      <ng-template #liveStages let-ids>
+        @for (stage of live(r, ids); track stage.id) {
+          <section class="card sr-live" role="status" [attr.aria-label]="info[stage.id].label + ', being made'">
+            <div class="sr-live-head">
+              <span class="spinner" aria-hidden="true"></span>
+              <strong>{{ info[stage.id].label }}</strong>
+              <span class="muted sr-live-figures">{{ stage.progress }}% · {{ elapsed(stage) }}</span>
+            </div>
+            <p class="muted sr-live-text">{{ stage.message || info[stage.id].hint }}</p>
+            <div class="bar" role="progressbar" [attr.aria-valuenow]="stage.progress" aria-valuemin="0" aria-valuemax="100">
+              <i [style.width.%]="stage.progress"></i>
+            </div>
+          </section>
+        }
+      </ng-template>
+
+      <!-- ================================================================== overview -->
+      @if (selected() === 'overview') {
+        @if (next(); as n) {
+          <section class="card sr-next" aria-label="What is next">
+            <div>
+              <strong>Next</strong>
+              <p>{{ n.text }}</p>
+            </div>
+            <button type="button" (click)="go(n.tab)">{{ n.action }} →</button>
+          </section>
+        }
+
+        <ng-container [ngTemplateOutlet]="stageList" />
 
         @if (r.status === 'Failed') {
           <div class="notice error sr-problem" role="alert">
@@ -306,6 +330,7 @@
       }
 
       @if (selected() === 'pictures' && r.script) {
+        <ng-container [ngTemplateOutlet]="liveStages" [ngTemplateOutletContext]="{ $implicit: ['visuals'] }" />
         <div class="sr-section-head">
           <div>
             <h3>Pictures for each scene</h3>
@@ -404,20 +429,21 @@
             }
           </section>
         } @else if (r.working) {
-          <div class="card empty sr-center sr-wait">
-            <span class="spinner" role="status" aria-label="Working"></span> The video is being made. Follow it on the Overview tab.
-          </div>
+          <p class="muted sr-follow">The video is being made with these settings. Each step opens on its own tab as it starts.</p>
+          <ng-container [ngTemplateOutlet]="stageList" />
         }
       }
 
-      <!-- ================================================================== the voice and the music -->
-      @if (selected() === 'review') {
-        <app-story-review [run]="r" [caps]="caps()" part="sound" (runChange)="take($event)" />
-        @if (r.working) {
-          <div class="card empty sr-center sr-wait">
-            <span class="spinner" role="status" aria-label="Working"></span> Being made. What is ready to listen to appears here.
-          </div>
-        }
+      <!-- ================================================================== the voice -->
+      @if (selected() === 'voice') {
+        <ng-container [ngTemplateOutlet]="liveStages" [ngTemplateOutletContext]="{ $implicit: ['narration'] }" />
+        <app-story-review [run]="r" [caps]="caps()" part="voice" (runChange)="take($event)" />
+      }
+
+      <!-- ================================================================== the music -->
+      @if (selected() === 'music') {
+        <ng-container [ngTemplateOutlet]="liveStages" [ngTemplateOutletContext]="{ $implicit: ['music'] }" />
+        <app-story-review [run]="r" [caps]="caps()" part="music" (runChange)="take($event)" />
       }
 
       <!-- ================================================================== the video, its subtitles, YouTube -->
@@ -473,6 +499,7 @@
       </ng-template>
 
       @if (selected() === 'publish') {
+        <ng-container [ngTemplateOutlet]="liveStages" [ngTemplateOutletContext]="{ $implicit: videoStages }" />
         <section class="card sr-result" aria-labelledby="sr-result-title">
           <h3 id="sr-result-title">The video</h3>
 

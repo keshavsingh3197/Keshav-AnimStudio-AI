@@ -85,3 +85,6 @@
 }
 .rv-cut { gap: .35rem; align-items: center; flex-wrap: nowrap; }
 .rv-seconds { width: 4.2rem; }
+
+/* How fast the narration plays on this page. */
+.rv-speeds { display: inline-flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin-left: auto; }

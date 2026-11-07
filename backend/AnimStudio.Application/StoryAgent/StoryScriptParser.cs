@@ -33,6 +33,11 @@ public static class StoryScriptParser
     /// <summary>More speaking characters than this in a short video is a crowd; the rest are read by the narrator.</summary>
     public const int MaxCast = 8;
 
+    /// <summary>The most pictures a scene has after its own; the build gives each at least <see cref="StoryBundleBuilder.MinShotSeconds"/>.</summary>
+    public const int MaxShots = 5;
+
+    public const int MaxPromptChars = 800;
+
     private const int MaxLinesPerScene = 24;
     private const int MaxNameChars = 60;
 
@@ -88,6 +93,7 @@ public static class StoryScriptParser
                 Language = brief.Language,
                 Summary = AiOutputSanitizer.ToSafeLine(Text(root, "summary"), 600),
                 MusicQuery = AiOutputSanitizer.ToSafeLine(Text(root, "musicQuery"), 80),
+                ThumbnailPrompt = AiOutputSanitizer.ToSafeLine(Text(root, "thumbnailPrompt"), MaxPromptChars),
                 WrittenBy = writtenBy,
                 CreatedAtUtc = nowUtc
             };
@@ -181,6 +187,9 @@ public static class StoryScriptParser
             scene.Mood = AiOutputSanitizer.ToSafeLine(scene.Mood, 30)?.ToLowerInvariant();
             scene.ImageKeywords = [.. scene.ImageKeywords
                 .Select(k => AiOutputSanitizer.ToSafeLine(k, 40)).OfType<string>().Take(8)];
+            foreach (var shot in scene.Shots) shot.ImagePrompt = AiOutputSanitizer.ToSafeLine(shot.ImagePrompt, MaxPromptChars);
+            // A shot with neither a prompt nor a picture has nothing to show.
+            scene.Shots = [.. scene.Shots.Where(s => s.ImagePrompt is not null || !string.IsNullOrEmpty(s.ImageKey)).Take(MaxShots)];
             scene.EstimatedSeconds = StoryPacing.EstimateSeconds(scene.Narration);
             scene.Lines = NormalizeLines(scene, cast, out var mismatch);
             if (mismatch)
@@ -247,6 +256,7 @@ public static class StoryScriptParser
         script.TitleEnglish = AiOutputSanitizer.ToSafeLine(script.TitleEnglish, 200);
         script.Summary = AiOutputSanitizer.ToSafeLine(script.Summary, 600);
         script.MusicQuery = AiOutputSanitizer.ToSafeLine(script.MusicQuery, 80);
+        script.ThumbnailPrompt = AiOutputSanitizer.ToSafeLine(script.ThumbnailPrompt, MaxPromptChars);
         script.ReviewNotes = [.. script.ReviewNotes
             .Select(n => AiOutputSanitizer.ToSafeLine(n, 300)).OfType<string>().Take(8)];
 
@@ -340,6 +350,15 @@ public static class StoryScriptParser
                 .Select(k => k.ValueKind == JsonValueKind.String ? AiOutputSanitizer.ToSafeLine(k.GetString(), 40) : null)
                 .OfType<string>().Take(8)];
         }
+
+        // Further pictures of the same moment. "imagePrompts" is the same idea as a list, its first being the scene's own.
+        var more = Strings(element, "moreImagePrompts");
+        if (more.Count == 0 && Strings(element, "imagePrompts") is { Count: > 0 } all)
+        {
+            scene.ImagePrompt ??= all[0];
+            more = [.. all.Skip(1)];
+        }
+        scene.Shots = [.. more.Take(MaxShots).Select(p => new StoryShot { ImagePrompt = p })];
 
         var sources = new List<StorySourceRef>();
         if (Property(element, "sources") is { ValueKind: JsonValueKind.Array } list)
@@ -493,6 +512,14 @@ public static class StoryScriptParser
 
     private static string? Text(JsonElement element, string name) =>
         Property(element, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
+
+    /// <summary>The prompts in a list of strings, made safe; empty when there is no such list.</summary>
+    private static List<string> Strings(JsonElement element, string name) =>
+        Property(element, name) is { ValueKind: JsonValueKind.Array } list
+            ? [.. list.EnumerateArray().Take(MaxShots + 1)
+                .Select(p => p.ValueKind == JsonValueKind.String ? AiOutputSanitizer.ToSafeLine(p.GetString(), MaxPromptChars) : null)
+                .OfType<string>()]
+            : [];
 
     private static IReadOnlyList<string> Cap(List<string> warnings) =>
         [.. warnings.Distinct(StringComparer.Ordinal).Take(MaxWarnings)];

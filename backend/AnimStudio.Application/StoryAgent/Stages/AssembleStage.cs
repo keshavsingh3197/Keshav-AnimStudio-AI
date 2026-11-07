@@ -25,6 +25,7 @@ namespace AnimStudio.Application.StoryAgent.Stages;
 /// </remarks>
 public sealed class AssembleStage(
     IProjectRepository projects,
+    IAiSettingsRepository aiSettings,
     WorkbookImportService importer,
     ProjectStatusService status,
     IObjectStore store,
@@ -54,8 +55,20 @@ public sealed class AssembleStage(
             // A clip the build animated plays only while animation is on; turning it off goes back to the picture.
             var clip = PlaysClip(run, scene) ? await ReadAsync(run, scene.VideoKey, ct).ConfigureAwait(false) : null;
 
+            // The scene's further pictures; one that is missing or not a picture is left out rather than stopping the build.
+            var shots = new List<StoryBundleShot>();
+            if (clip is null)
+            {
+                foreach (var shot in scene.Shots)
+                {
+                    if (await ReadAsync(run, shot.ImageKey, ct).ConfigureAwait(false) is not { } bytes
+                        || AiImageValidator.Sniff(bytes) is not { } shotMime) continue;
+                    shots.Add(new StoryBundleShot(bytes, shotMime, ImageNote(shot.ImageSource)));
+                }
+            }
+
             scenes.Add(new StoryBundleScene(
-                scene.Number, image, mime, ImageNote(scene),
+                scene.Number, image, mime, ImageNote(scene.ImageSource),
                 audio, audio is null ? null : $"Narration in {scene.AudioSource}",
                 audio is not null && scene.AudioSeconds is > 0 ? scene.AudioSeconds.Value : scene.EstimatedSeconds,
                 scene.Pauses)
@@ -63,7 +76,8 @@ public sealed class AssembleStage(
                 Video = clip,
                 VideoNote = clip is null ? null
                     : scene.HasAttachedClip ? "A moving clip the person attached to the Story Agent."
-                    : $"The scene's picture brought to life by the {scene.VideoSource} video engine (AI)."
+                    : $"The scene's picture brought to life by the {scene.VideoSource} video engine (AI).",
+                Shots = shots
             });
         }
 
@@ -100,12 +114,14 @@ public sealed class AssembleStage(
         run.TimingSpeed = 1.0;
         run.SourceRenderJobId = null;
         run.RenderJobId = null;
+        StoryRunWarnings.AddRange(run, built.Warnings);
         StoryRunWarnings.AddRange(run, result.Warnings);
 
-        logger.LogInformation("Story run {RunId} built project {ProjectId}: {Scenes} scenes, {Seconds:0}s.",
-            run.Id, project.Id, script.Scenes.Count, built.TotalSeconds);
+        logger.LogInformation("Story run {RunId} built project {ProjectId}: {Scenes} scenes, {Pictures} pictures, {Seconds:0}s.",
+            run.Id, project.Id, script.Scenes.Count, built.ProjectScenes, built.TotalSeconds);
+        var pictures = built.ProjectScenes > script.Scenes.Count ? $" ({built.ProjectScenes} pictures)" : string.Empty;
         return StoryStageOutcome.Completed(
-            $"Project built: {script.Scenes.Count} scenes, {built.CaptionCount} subtitles, about {Duration(built.TotalSeconds)}.");
+            $"Project built: {script.Scenes.Count} scenes{pictures}, {built.CaptionCount} subtitles, about {Duration(built.TotalSeconds)}.");
     }
 
     /// <summary>True when the scene's clip, not its picture, is what the video shows.</summary>
@@ -144,6 +160,11 @@ public sealed class AssembleStage(
             if (existing is not null && string.Equals(existing.UserId, run.UserId, StringComparison.Ordinal)) return existing;
         }
 
+        // The channel picked when the story was started, while it still exists; the default channel otherwise.
+        var channelId = BrandChannel.IsDefault(run.Brief.BrandChannelId)
+            ? null
+            : (await aiSettings.GetAsync(ct).ConfigureAwait(false))?.FindChannel(run.Brief.BrandChannelId)?.Id;
+
         var now = clock.GetUtcNow().UtcDateTime;
         var vertical = run.Brief.Format == StoryFormat.Vertical;
         var project = new Project
@@ -161,6 +182,7 @@ public sealed class AssembleStage(
                 DistributionIntent = DistributionIntent.Monetized,
                 ContentType = ProjectContentType.Video,
                 DefaultWatermark = new WatermarkSettings(),
+                BrandChannelId = channelId,
                 FollowChannelWatermark = true
             },
             CreatedAt = now,
@@ -179,7 +201,7 @@ public sealed class AssembleStage(
         return name.Length <= MaxProjectNameChars ? name : name[..MaxProjectNameChars].TrimEnd();
     }
 
-    private static string ImageNote(StoryScene scene) => scene.ImageSource switch
+    private static string ImageNote(string? source) => source switch
     {
         "upload" => "A picture the person attached to the Story Agent.",
         "placeholder" => "A plain background made by the Story Agent.",

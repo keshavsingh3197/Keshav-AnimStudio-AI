@@ -1,8 +1,18 @@
 import { TimelineItemTransform } from '../../core/models/api.models';
 import { EffectClip } from '../../core/models/effects.models';
 
-/** Where the user asked for the effect: at the needle, or finishing with the video. */
-export type EffectPlacementMode = 'playhead' | 'end';
+/** At the needle, finishing with the video, or centred on a cut. */
+export type EffectPlacementMode = 'playhead' | 'end' | 'cut';
+
+export function effectCutTime(
+  cuts: readonly { key: string; seconds: number }[], selectedKey: string | null, playhead: number,
+): number | null {
+  const selected = cuts.find((cut) => cut.key === selectedKey);
+  if (selected) return selected.seconds;
+  const nearest = cuts.reduce<(typeof cuts)[number] | null>((best, cut) =>
+    !best || Math.abs(cut.seconds - playhead) < Math.abs(best.seconds - playhead) ? cut : best, null);
+  return nearest?.seconds ?? null;
+}
 
 export interface EffectPlacement {
   /** Lane the effect goes on: V2 for pictures, A1/A2 for sounds. */
@@ -28,12 +38,21 @@ export function planEffectPlacement(
   playhead: number,
   timelineEnd: number,
   imageSeconds: number,
+  cutSeconds?: number | null,
 ): EffectPlacement {
   const length = effect.kind === 'Image' ? imageSeconds : Math.max(0.1, effect.durationSeconds ?? imageSeconds);
   const end = Math.max(0, timelineEnd);
-  const start = mode === 'end'
+  let start: number;
+  if (mode === 'cut') {
+    if (cutSeconds == null || !Number.isFinite(cutSeconds)) {
+      throw new RangeError('Select a cut before placing a transition effect.');
+    }
+    start = Math.max(0, Math.min(cutSeconds - length / 2, Math.max(0, end - length)));
+  } else {
+    start = mode === 'end'
     ? Math.max(0, end - length)
     : Math.max(0, Math.min(playhead, end > 0 ? end : playhead));
+  }
 
   if (effect.kind === 'Audio') {
     return { trackId: 'A1', start };

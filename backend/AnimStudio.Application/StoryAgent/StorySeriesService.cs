@@ -248,7 +248,9 @@ public sealed class StorySeriesService(
             Voicing = previous.Brief.Voicing,
             GenreId = previous.Brief.GenreId,
             // The engine the series was written with, while it is still on; the chain otherwise.
-            TextEngine = stories.UsableTextEngine(previous.Brief.TextEngine)
+            TextEngine = stories.UsableTextEngine(previous.Brief.TextEngine),
+            // Every part of a series goes out on the channel the first was made for.
+            BrandChannelId = previous.Brief.BrandChannelId
         };
 
         var created = await stories.CreateAsync(userId, brief, request.Options ?? SameAs(previous.Options), ct, link).ConfigureAwait(false);

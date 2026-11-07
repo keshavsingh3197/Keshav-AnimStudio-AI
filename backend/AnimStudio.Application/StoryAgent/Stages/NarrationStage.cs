@@ -84,7 +84,7 @@ public sealed class NarrationStage(
     private string Pace(StoryRun run, StoryScript script)
     {
         var measured = StoryNarrationPace.Measure(script, run.Brief.Language, StoryGenres.Of(run).MadeForKids,
-            (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
+            (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime, run.Brief.Format, run.Options.Pace);
         run.Pace = measured;
         if (measured is null) return string.Empty;
 

@@ -200,4 +200,52 @@ public sealed class StoryLookTests
         Assert.Equal(0.9, looks[1].TransitionSeconds);
         Assert.Equal(BackgroundEffect.None, looks[2].Effect);
     }
+
+    [Fact]
+    public void Music_video_varies_same_mood_cuts_deterministically_without_flashes()
+    {
+        var scenes = Scenes("calm", "calm", "calm", "calm", "calm", "calm", "calm");
+        var first = Plan(scenes, StoryLookStyle.MusicVideo, format: StoryFormat.Vertical);
+        var again = Plan(scenes, StoryLookStyle.MusicVideo, format: StoryFormat.Vertical);
+        var retake = Plan(scenes, StoryLookStyle.MusicVideo, take: 1, format: StoryFormat.Vertical);
+
+        Assert.Equal(first, again);
+        Assert.NotEqual(first[0].Transition, retake[0].Transition);
+        Assert.Contains(first, look => look.Transition == SceneTransition.Blur);
+        Assert.Contains(first, look => look.Transition == SceneTransition.CircleCrop);
+        Assert.Contains(first, look => look.Transition == SceneTransition.DiagonalWipe);
+        Assert.DoesNotContain(first, look => look.Transition == SceneTransition.FadeWhite);
+        Assert.DoesNotContain(first, look => look.Transition is SceneTransition.SlideLeft or SceneTransition.SlideRight);
+        Assert.Equal(SceneTransition.None, first[^1].Transition);
+        Assert.Equal(0, first[^1].TransitionSeconds);
+        Assert.All(first, look => Assert.InRange(look.Intensity, StoryLook.MinIntensity, StoryLook.MaxIntensity));
+    }
+
+    [Theory]
+    [InlineData("somber", SceneTransition.FadeBlack)]
+    [InlineData("wonder", SceneTransition.CircleCrop)]
+    public void Music_video_respects_the_mood_and_short_scene_limits(string mood, SceneTransition expected)
+    {
+        var looks = Plan(Scenes(mood, mood, mood), StoryLookStyle.MusicVideo, seconds: 1.2);
+        Assert.Equal(expected, looks[0].Transition);
+        Assert.All(looks.Take(2), look => Assert.InRange(look.TransitionSeconds, 0.2, 0.4));
+    }
+
+    [Fact]
+    public void Music_video_keeps_pinned_custom_choices_and_does_not_add_camera_motion_to_video()
+    {
+        var scenes = Scenes("joyful", "wonder", "calm");
+        scenes[0].LookPinned = true;
+        scenes[0].Effect = nameof(BackgroundEffect.PanDown);
+        scenes[0].Transition = nameof(SceneTransition.DiagonalWipe);
+        scenes[0].TransitionSeconds = 0.8;
+        scenes[1].VideoKey = "attached.mp4";
+
+        var looks = Plan(scenes, StoryLookStyle.MusicVideo, take: 4);
+
+        Assert.Equal(BackgroundEffect.PanDown, looks[0].Effect);
+        Assert.Equal(SceneTransition.DiagonalWipe, looks[0].Transition);
+        Assert.Equal(0.8, looks[0].TransitionSeconds);
+        Assert.Equal(BackgroundEffect.None, looks[1].Effect);
+    }
 }

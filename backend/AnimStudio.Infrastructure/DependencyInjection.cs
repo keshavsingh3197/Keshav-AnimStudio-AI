@@ -146,6 +146,7 @@ public static class DependencyInjection
             services.AddScoped<IStoryRunRepository, SqlStoryRunRepository>();
             services.AddScoped<IStoryGenreRepository, SqlStoryGenreRepository>();
             services.AddScoped<IYouTubeChannelAnalysisRepository, SqlYouTubeChannelAnalysisRepository>();
+            services.AddScoped<IYouTubeSavedSuggestionRepository, SqlYouTubeSavedSuggestionRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -192,6 +193,7 @@ public static class DependencyInjection
             services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
             services.AddScoped<IStoryGenreRepository, MongoStoryGenreRepository>();
             services.AddScoped<IYouTubeChannelAnalysisRepository, MongoYouTubeChannelAnalysisRepository>();
+            services.AddScoped<IYouTubeSavedSuggestionRepository, MongoYouTubeSavedSuggestionRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
@@ -393,6 +395,7 @@ public static class DependencyInjection
         services.AddSingleton<YouTubeDashboardCache>();
         services.AddScoped<YouTubeDashboardService>();
         services.AddScoped<YouTubeChannelAnalysisService>();
+        services.AddScoped<AnimStudio.Application.Publishing.YouTubeSuggestionLibrary>();
 
         // The music picker: royalty-free, licence-checked tracks imported as audio assets.
         services.Configure<MusicLibraryOptions>(configuration.GetSection(MusicLibraryOptions.Section));

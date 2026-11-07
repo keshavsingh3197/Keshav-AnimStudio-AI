@@ -109,6 +109,9 @@ public static class MongoMappingRegistrar
             // "yca_{guid}" - the last analysis of one of a person's YouTube channels.
             MapWithLiteralId<YouTubeChannelAnalysis>();
 
+            // "yss_{guid}" - YouTube details a model wrote, kept to be used again for the same kind of video.
+            MapWithLiteralId<YouTubeSavedSuggestion>();
+
             // App-assigned GUIDs - the content calendar's topics, posts and saved links.
             MapWithLiteralId<ContentTopic>();
             MapWithLiteralId<ContentPlanItem>();

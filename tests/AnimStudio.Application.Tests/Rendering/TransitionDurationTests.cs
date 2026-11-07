@@ -15,6 +15,61 @@ public class TransitionDurationTests
     private static FfmpegFilterGraphBuilder NewBuilder(params RenderFeature[] unsupported) =>
         new(new FakeCapabilities(unsupported));
 
+    [Theory]
+    [InlineData(SceneTransition.Blur, "hblur")]
+    [InlineData(SceneTransition.FadeBlack, "fadeblack")]
+    [InlineData(SceneTransition.FadeWhite, "fadewhite")]
+    [InlineData(SceneTransition.CircleCrop, "circlecrop")]
+    [InlineData(SceneTransition.DiagonalWipe, "diagbr")]
+    public void Reference_style_transitions_use_allowlisted_filters_and_preserve_padded_timing(SceneTransition kind, string filter)
+    {
+        var transition = new TransitionSettings(kind, new FrameCount(15));
+        var plan = new MergePlan
+        {
+            Canvas = Canvas.Hd1080p30,
+            Scenes =
+            [
+                new MergeSceneInput("a.mp4", new FrameCount(308), transition),
+                new MergeSceneInput("b.mp4", new FrameCount(307), TransitionSettings.None)
+            ],
+            OutputRelativePath = "out.mp4"
+        };
+
+        var built = NewBuilder().BuildMerge(plan);
+
+        Assert.Equal(filter, transition.ToXfadeName());
+        Assert.Equal(600, built.ExpectedFrames.Value);
+        Assert.Contains($"xfade=transition={filter}:duration=0.5:offset=9.766667", built.FilterComplex);
+        Assert.Contains("acrossfade", built.FilterComplex);
+        Assert.False(built.IsStreamCopy);
+
+        var cut = NewBuilder().BuildMerge(plan with
+        {
+            Scenes =
+            [
+                plan.Scenes[0] with { TransitionToNext = new TransitionSettings(kind, FrameCount.Zero) },
+                plan.Scenes[1]
+            ]
+        });
+        Assert.True(cut.IsStreamCopy);
+        Assert.Equal(615, cut.ExpectedFrames.Value);
+    }
+
+    [Fact]
+    public void Every_transition_has_a_unique_filter_name_and_existing_numeric_values_are_stable()
+    {
+        Assert.Equal(11, (int)SceneTransition.ZoomIn);
+        Assert.Equal(0, (int)SceneTransition.None);
+        var names = Enum.GetValues<SceneTransition>()
+            .Where(kind => kind != SceneTransition.None)
+            .Select(kind => new TransitionSettings(kind, new FrameCount(15)).ToXfadeName())
+            .ToList();
+        Assert.DoesNotContain(names, name => string.IsNullOrEmpty(name));
+        Assert.Equal(names.Count, names.Distinct().Count());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new TransitionSettings((SceneTransition)999, new FrameCount(15)).ToXfadeName());
+    }
+
     [Fact]
     public void Duration_is_preserved_when_transitions_borrow_from_spare_media()
     {

@@ -3,6 +3,7 @@ using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 
 namespace AnimStudio.Api.Contracts;
@@ -42,6 +43,10 @@ public sealed record CreateStoryRunRequest
     /// <summary>The text engine that writes the script, from the options' list; empty walks the chain.</summary>
     [StringLength(40)]
     public string? TextEngine { get; init; }
+
+    /// <summary>The brand channel the story is for; empty or <c>default</c> is the default channel.</summary>
+    [StringLength(64)]
+    public string? BrandChannelId { get; init; }
 
     public StoryBuildOptionsRequest? Options { get; init; }
 }
@@ -95,6 +100,9 @@ public sealed record StoryBuildOptionsRequest
     /// <summary>Let the app pick the speed from how fast the narration came out. Left out, it is on.</summary>
     public bool? AutoPace { get; init; }
 
+    /// <summary>The pace the voice is brought to; Auto picks by the video's shape and audience.</summary>
+    public StoryPaceStyle Pace { get; init; } = StoryPaceStyle.Auto;
+
     public StoryArtStyle ArtStyle { get; init; } = StoryArtStyle.Auto;
 
     public static StoryBuildOptionsRequest From(StoryBuildOptions o) => new()
@@ -121,6 +129,7 @@ public sealed record StoryBuildOptionsRequest
         AutoApprove = o.AutoApprove,
         VideoSpeed = o.VideoSpeed,
         AutoPace = o.AutoPace,
+        Pace = o.Pace,
         ArtStyle = o.ArtStyle
     };
 
@@ -148,6 +157,7 @@ public sealed record StoryBuildOptionsRequest
         AutoApprove = AutoApprove,
         VideoSpeed = VideoSpeed,
         AutoPace = AutoPace ?? true,
+        Pace = Pace,
         ArtStyle = ArtStyle
     };
 }
@@ -304,6 +314,17 @@ public sealed record EditStorySceneRequest
     [StringLength(800)] public string? VideoPrompt { get; init; }
     [MaxLength(8)] public List<string>? ImageKeywords { get; init; }
     [StringLength(30)] public string? Mood { get; init; }
+
+    /// <summary>The scene's further pictures, in order; null keeps the ones it has.</summary>
+    [MaxLength(StoryScriptParser.MaxShots)] public List<EditStoryShotRequest>? Shots { get; init; }
+}
+
+public sealed record EditStoryShotRequest
+{
+    /// <summary>The picture number it had (2 is the scene's first further picture), so its picture stays with it; 0 for a new one.</summary>
+    public int Picture { get; init; }
+
+    [StringLength(StoryScriptParser.MaxPromptChars)] public string? ImagePrompt { get; init; }
 }
 
 public sealed record EditStoryScriptRequest
@@ -313,6 +334,9 @@ public sealed record EditStoryScriptRequest
     [StringLength(600)] public string? Summary { get; init; }
     [StringLength(80)] public string? MusicQuery { get; init; }
 
+    /// <summary>What the YouTube thumbnail shows; null keeps it, empty clears it.</summary>
+    [StringLength(StoryScriptParser.MaxPromptChars)] public string? ThumbnailPrompt { get; init; }
+
     [MaxLength(StoryScriptParser.MaxScenes)]
     public List<EditStorySceneRequest>? Scenes { get; init; }
 
@@ -320,7 +344,9 @@ public sealed record EditStoryScriptRequest
         [.. (Scenes ?? []).Select(s => new StorySceneEdit(
             s.Number, s.Headline, s.Narration, s.English, s.Basis,
             [.. (s.Sources ?? []).Select(x => new StorySourceEdit(x.Text, x.Ref, x.Note))],
-            s.ImagePrompt, s.ImageKeywords, s.Mood, s.VideoPrompt))]);
+            s.ImagePrompt, s.ImageKeywords, s.Mood, s.VideoPrompt,
+            s.Shots is null ? null : [.. s.Shots.Select(x => new StoryShotEdit(x.Picture, x.ImagePrompt))]))],
+        ThumbnailPrompt);
 }
 
 /// <summary>Which of a story's YouTube videos gets its subtitles, and in which languages (none: every one it has).</summary>
@@ -399,7 +425,11 @@ public sealed record StorySceneResponse(
     double? TransitionSeconds = null,
     bool LookPinned = false,
     string? AnimationPrompt = null,
-    bool Speaks = false);
+    bool Speaks = false,
+    IReadOnlyList<StoryShotResponse>? Shots = null);
+
+/// <summary>One of a scene's further pictures. <paramref name="Picture"/> counts the scene's own picture as 1.</summary>
+public sealed record StoryShotResponse(int Picture, string? ImagePrompt, bool HasImage, string? ImageSource, string? ImageName);
 
 /// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
 public sealed record StoryLineResponse(string Speaker, string Text);
@@ -417,7 +447,11 @@ public sealed record StoryScriptResponse(
     IReadOnlyList<string> ReviewNotes,
     string? WrittenBy,
     double EstimatedSeconds,
-    IReadOnlyList<StoryCastMemberResponse> Cast);
+    IReadOnlyList<StoryCastMemberResponse> Cast,
+    string? ThumbnailPrompt = null,
+    bool HasThumbnail = false,
+    string? ThumbnailSource = null,
+    string? ThumbnailName = null);
 
 public sealed record StoryTopicResponse(string TopicId, string Name, string? Summary, IReadOnlyList<StorySourceResponse> Sources);
 
@@ -465,14 +499,15 @@ public sealed record StoryKitResponse(
 public sealed record StoryBriefResponse(
     string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
     string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture,
-    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null);
+    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null, string? BrandChannelId = null);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
     bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
     StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
-    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto);
+    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto,
+    StoryPaceStyle Pace = StoryPaceStyle.Auto);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -667,7 +702,8 @@ public static class StoryAgentMapper
         run.Id,
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
-            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine),
+            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine,
+            run.Brief.BrandChannelId ?? BrandChannel.DefaultId),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,
@@ -750,7 +786,7 @@ public static class StoryAgentMapper
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
-        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle);
+        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace);
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],
@@ -771,9 +807,12 @@ public static class StoryAgentMapper
             [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))],
             scene.VideoPrompt, StoryObjectKeys.Owns(runId, scene.VideoKey) && scene.HasAttachedClip, scene.VideoName,
             scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned,
-            StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene)))],
+            StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene),
+            [.. scene.Shots.Select((shot, i) => new StoryShotResponse(
+                i + 2, shot.ImagePrompt, StoryObjectKeys.Owns(runId, shot.ImageKey), shot.ImageSource, shot.ImageName))]))],
         s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
-        [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))]);
+        [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))],
+        s.ThumbnailPrompt, StoryObjectKeys.Owns(runId, s.ThumbnailKey), s.ThumbnailSource, s.ThumbnailName);
 
     private static StorySourceResponse ToResponse(StorySourceRef s) =>
         new(s.TextId, s.TextName, s.Ref, s.Note, s.Confidence, s.Url, s.Check, s.Grounded, s.CheckMessage);

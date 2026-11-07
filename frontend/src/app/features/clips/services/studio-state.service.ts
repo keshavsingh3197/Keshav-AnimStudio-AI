@@ -9,7 +9,7 @@ import {
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
   EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
   ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
-  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset,
+  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset, SceneTimeline,
 } from '../../../core/models/api.models';
 import { ActivityService, formatBytes } from '../../../core/services/activity.service';
 import { ApiService } from '../../../core/services/api.service';
@@ -18,7 +18,8 @@ import { StatusService } from '../../../core/services/status.service';
 import { MediaToolsService } from '../../../core/services/media-tools.service';
 import { EffectsService } from '../../../core/services/effects.service';
 import { EffectClip } from '../../../core/models/effects.models';
-import { EffectPlacementMode, planEffectPlacement } from '../../effects/effect-placement';
+import { EffectPlacementMode, effectCutTime, planEffectPlacement } from '../../effects/effect-placement';
+import { transitionPreviewFrame } from './transition-preview';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
@@ -43,6 +44,7 @@ import {
   CinematicImage, DEFAULT_CINEMATIC, cinemaBarPercent, cinematicFields, cinematicOf,
 } from './cinematic-image';
 import { SlotLayout, isSlotItem, layoutSlots, normalizeSlots, remapSlots } from './sequence-slots';
+import { SCENE_ITEM_PREFIX, SCENE_MUSIC_PREFIX, SCENE_VOICE_PREFIX, SceneLayout, layOutScenes } from './scene-layout';
 import {
   CELEBRATION_DEFAULT_SECONDS, CelebrationKind, CelebrationSettings, celebrationOption, defaultCelebrationMode, isCelebrationKind,
 } from './celebration';
@@ -7648,94 +7650,43 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Dynamic visual transition styles
-  previewClipAOpacity(): string {
+  previewFrame(incoming: boolean) {
     const phase = this.previewPhase();
-    if (phase === 'preroll') return '1';
-    if (phase === 'postroll' || phase === 'finished') return '0';
-    const p = this.previewTransitionProgress();
-    const trans = this.previewJunction()?.transition;
-    if (trans === 'Dissolve') return (1 - p).toFixed(3);
-    if (trans === 'Fade') return p <= 0.5 ? (1 - 2 * p).toFixed(3) : '0';
-    if (trans === 'None') return p < 0.5 ? '1' : '0';
-    return '1';
+    const progress = phase === 'preroll' ? 0
+      : phase === 'postroll' || phase === 'finished' ? 1 : this.previewTransitionProgress();
+    return transitionPreviewFrame(this.previewJunction()?.transition ?? 'None', progress, incoming);
+  }
+
+  previewClipAOpacity(): string {
+    return String(this.previewFrame(false).opacity);
   }
 
   previewClipBOpacity(): string {
-    const phase = this.previewPhase();
-    if (phase === 'preroll') return '0';
-    if (phase === 'postroll' || phase === 'finished') return '1';
-    const p = this.previewTransitionProgress();
-    const trans = this.previewJunction()?.transition;
-    if (trans === 'Dissolve') return p.toFixed(3);
-    if (trans === 'Fade') return p > 0.5 ? (2 * (p - 0.5)).toFixed(3) : '0';
-    if (trans === 'None') return p >= 0.5 ? '1' : '0';
-    return '1';
+    return String(this.previewFrame(true).opacity);
   }
 
   previewClipATransform(): string {
-    const phase = this.previewPhase();
-    if (phase !== 'transition') return 'none';
-    const p = this.previewTransitionProgress();
-    const trans = this.previewJunction()?.transition;
-    if (trans === 'SlideLeft') return `translateX(${(-100 * p).toFixed(2)}%)`;
-    if (trans === 'SlideRight') return `translateX(${(100 * p).toFixed(2)}%)`;
-    if (trans === 'SlideUp') return `translateY(${(-100 * p).toFixed(2)}%)`;
-    if (trans === 'SlideDown') return `translateY(${(100 * p).toFixed(2)}%)`;
-    return 'none';
+    return this.previewFrame(false).transform;
   }
 
   previewClipBTransform(): string {
-    const phase = this.previewPhase();
-    if (phase !== 'transition') return 'none';
-    const p = this.previewTransitionProgress();
-    const trans = this.previewJunction()?.transition;
-    if (trans === 'SlideLeft') return `translateX(${(100 * (1 - p)).toFixed(2)}%)`;
-    if (trans === 'SlideRight') return `translateX(${(-100 * (1 - p)).toFixed(2)}%)`;
-    if (trans === 'SlideUp') return `translateY(${(100 * (1 - p)).toFixed(2)}%)`;
-    if (trans === 'SlideDown') return `translateY(${(-100 * (1 - p)).toFixed(2)}%)`;
-    return 'none';
+    return this.previewFrame(true).transform;
   }
 
   previewClipAClipPath(): string {
-    const phase = this.previewPhase();
-    if (phase !== 'transition') return 'none';
-    const p = this.previewTransitionProgress();
-    const trans = this.previewJunction()?.transition;
-    if (trans === 'CircleClose') return `circle(${Math.max(0, (1 - p) * 150).toFixed(2)}% at 50% 50%)`;
-    return 'none';
+    return this.previewFrame(false).clipPath;
   }
 
   previewClipBClipPath(): string {
-    const phase = this.previewPhase();
-    if (phase !== 'transition') return 'none';
-    const p = this.previewTransitionProgress();
-    const trans = this.previewJunction()?.transition;
-    if (trans === 'WipeLeft') return `inset(0 0 0 ${Math.max(0, (1 - p) * 100).toFixed(2)}%)`;
-    if (trans === 'WipeRight') return `inset(0 ${Math.max(0, (1 - p) * 100).toFixed(2)}% 0 0)`;
-    if (trans === 'CircleOpen') return `circle(${Math.min(150, p * 150).toFixed(2)}% at 50% 50%)`;
-    return 'none';
+    return this.previewFrame(true).clipPath;
   }
 
   previewClipAZIndex(): number {
-    const phase = this.previewPhase();
-    if (phase === 'preroll') return 2;
-    if (phase === 'transition') {
-      const trans = this.previewJunction()?.transition;
-      if (trans === 'CircleClose') return 3;
-      return 1;
-    }
-    return 1;
+    return this.previewFrame(false).zIndex;
   }
 
   previewClipBZIndex(): number {
-    const phase = this.previewPhase();
-    if (phase === 'postroll' || phase === 'finished') return 2;
-    if (phase === 'transition') {
-      const trans = this.previewJunction()?.transition;
-      if (trans === 'CircleClose') return 1;
-      return 2;
-    }
-    return 1;
+    return this.previewFrame(true).zIndex;
   }
 
   previewOutClass(): string {
@@ -8161,6 +8112,15 @@ export class StudioStateService implements OnDestroy {
   /** Effects being copied into this project right now, so their buttons can say so. */
   readonly addingEffectIds = signal<ReadonlySet<string>>(new Set());
 
+  readonly effectCutSeconds = computed(() => {
+    const schedule = this.clipSchedule();
+    const cuts = this.junctionsList().filter((j) => !j.slotted).flatMap((j) => {
+      const right = schedule.find((s) => s.clip.id === j.right.id);
+      return right ? [{ key: j.key, seconds: right.startSeconds }] : [];
+    });
+    return effectCutTime(cuts, this.selectedJunctionKey(), this.currentTime());
+  });
+
   /**
    * Adds an effect from the user's library: the server copies it into this project once (a
    * second use reuses that copy), then it is placed - pictures full-frame on V2, sounds on
@@ -8174,6 +8134,11 @@ export class StudioStateService implements OnDestroy {
       return;
     }
     if (this.addingEffectIds().has(effect.id)) return;
+    const cutSeconds = mode === 'cut' ? this.effectCutSeconds() : null;
+    if (mode === 'cut' && cutSeconds == null) {
+      this.status.notify(['Add at least two adjacent clips before placing a transition at a cut.']);
+      return;
+    }
     if (this.isPlaying()) this.pause();
 
     const setAdding = (on: boolean) => this.addingEffectIds.update((ids) => {
@@ -8188,7 +8153,7 @@ export class StudioStateService implements OnDestroy {
         setAdding(false);
         // The user may have opened another project while the copy was made.
         if (this.loadedProjectId !== projectId) return;
-        this.placeEffectAsset(effect, asset, mode, at);
+        this.placeEffectAsset(effect, asset, mode, at, cutSeconds);
         this.store.refreshAssets();
       },
       error: (err: unknown) => {
@@ -8198,9 +8163,9 @@ export class StudioStateService implements OnDestroy {
     });
   }
 
-  private placeEffectAsset(effect: EffectClip, asset: Asset, mode: EffectPlacementMode, at?: { trackId: string; time: number }): void {
+  private placeEffectAsset(effect: EffectClip, asset: Asset, mode: EffectPlacementMode, at?: { trackId: string; time: number }, cutSeconds?: number | null): void {
     const videoEnd = this.totalSeconds() > 0 ? this.totalSeconds() : this.contentDurationSeconds();
-    const plan = planEffectPlacement(effect, mode, at?.time ?? this.currentTime(), videoEnd, this.imageDurationSeconds());
+    const plan = planEffectPlacement(effect, mode, at?.time ?? this.currentTime(), videoEnd, this.imageDurationSeconds(), cutSeconds);
 
     if (effect.kind === 'Audio') {
       // Joins the studio's audio list in place, as library music does: a reload would
@@ -9386,36 +9351,9 @@ export class StudioStateService implements OnDestroy {
 
         if (startsEmpty) return;
 
-        // If no draft exists, initialize image overlays on IMG1
-        const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
-        if (initialImages.length > 0 && this.timelineItems().length === 0) {
-          let startT = 0;
-          const imgItems: TimelineItem[] = initialImages.map((img) => {
-            const dur = this.imageDurationSeconds();
-            const item: TimelineItem = {
-              id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-              type: 'image',
-              trackId: 'IMG1',
-              startTime: startT,
-              duration: dur,
-              src: img.id,
-              name: img.name,
-              transform: {
-                scale: 1.0,
-                x: 0,
-                y: 0,
-                opacity: 1.0,
-                transitionIn: 'fade',
-                transitionInDuration: 0.5,
-                transitionOut: 'fade',
-                transitionOutDuration: 0.5,
-              },
-            };
-            startT += dur;
-            return item;
-          });
-          this.timelineItems.set(imgItems);
-        }
+        // A project made of scenes (a story, an imported bundle) opens with them laid out on the lanes, as the render
+        // plays them. Only a project without scenes starts with its pictures in a row.
+        this.seedFromScenes(projectId, loadingEditId, () => this.seedPictures(studio));
 
         // Load latest render / export job so previous generations are immediately visible
         this.api.listJobs(projectId).subscribe({
@@ -9438,6 +9376,147 @@ export class StudioStateService implements OnDestroy {
         this.status.error.set('Failed to load clip studio');
       },
     });
+  }
+
+  /** A cut with no timeline and a project without scenes: its pictures in a row on IMG1. */
+  private seedPictures(studio: ClipStudio): void {
+    const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
+    if (initialImages.length === 0 || this.timelineItems().length > 0) return;
+    let startT = 0;
+    const imgItems: TimelineItem[] = initialImages.map((img) => {
+      const dur = this.imageDurationSeconds();
+      const item: TimelineItem = {
+        id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'image',
+        trackId: 'IMG1',
+        startTime: startT,
+        duration: dur,
+        src: img.id,
+        name: img.name,
+        transform: {
+          scale: 1.0,
+          x: 0,
+          y: 0,
+          opacity: 1.0,
+          transitionIn: 'fade',
+          transitionInDuration: 0.5,
+          transitionOut: 'fade',
+          transitionOutDuration: 0.5,
+        },
+      };
+      startT += dur;
+      return item;
+    });
+    this.timelineItems.set(imgItems);
+  }
+
+  // --- a project's scenes, on the lanes ---
+
+  readonly layingOutScenes = signal(false);
+
+  /** The scenes laid out by `layOutScenes`, with the library looked up from the open studio. */
+  private sceneLayout(timeline: SceneTimeline) {
+    const clips = this.studio()?.clips ?? [];
+    return layOutScenes(timeline, {
+      media: (assetId) => {
+        const clip = clips.find((c) => (c.assetId || c.id) === assetId);
+        if (!clip) return null;
+        const kind = this.getClipType(clip);
+        return kind === 'image' || kind === 'video' ? { id: clip.id, name: clip.name, kind } : null;
+      },
+      audioSeconds: (assetId) => this.studio()?.musicCandidates?.find((m) => m.id === assetId)?.durationSeconds ?? undefined,
+    });
+  }
+
+  /**
+   * A new cut of a project made of scenes starts with them on the lanes, and is saved straight away so every other
+   * screen sees the same timeline. `fallback` runs when there are no scenes, or they cannot be read.
+   */
+  private seedFromScenes(projectId: string, editId: string, fallback: () => void): void {
+    this.api.sceneTimeline(projectId).subscribe({
+      next: (timeline) => {
+        if (this.destroyed || this.loadedProjectId !== projectId || this.loadedEditId !== editId) return;
+        // Something already went on the timeline while the scenes were asked for: that is the person's, keep it. (The
+        // library's videos start in the cut by default; the layout takes them out, as the render never plays them.)
+        if (this.timelineItems().length > 0 || this.musicTracks().length > 0) return;
+        const laid = timeline.scenes.length > 0 ? this.sceneLayout(timeline) : null;
+        if (!laid || laid.pictures === 0) {
+          fallback();
+          return;
+        }
+        this.applySceneLayout(laid);
+        this.resetHistory();
+        const built = JSON.stringify(this.buildDraftData());
+        this.writeLocalDraft(projectId, editId, built);
+        this.persistEditDraft(projectId, editId, built).subscribe({
+          next: (saved) => {
+            if (this.loadedEditId !== editId) return;
+            this.currentEdit.set(saved);
+            this.hasUnsavedChanges.set(false);
+            this.lastSavedTime.set(new Date().toISOString());
+          },
+          error: (err) => console.warn('Failed to save the timeline laid out from the scenes', err),
+        });
+        this.status.notify([this.sceneLayoutSummary(laid)]);
+      },
+      error: () => {
+        if (this.destroyed || this.loadedProjectId !== projectId || this.loadedEditId !== editId) return;
+        fallback();
+      },
+    });
+  }
+
+  /**
+   * Lays the project's scenes out again - after the story was rebuilt, say - replacing what an earlier layout put on
+   * the lanes. What the person added themselves stays, and one Undo brings the old layout back.
+   */
+  layOutFromScenes(): void {
+    const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
+    if (!this.ownsCurrentProject(projectId) || !editId || this.layingOutScenes()) return;
+    this.layingOutScenes.set(true);
+    this.api.sceneTimeline(projectId).subscribe({
+      next: (timeline) => {
+        this.layingOutScenes.set(false);
+        if (this.loadedProjectId !== projectId || this.loadedEditId !== editId) return;
+        const laid = timeline.scenes.length > 0 ? this.sceneLayout(timeline) : null;
+        if (!laid || laid.pictures === 0) {
+          this.status.notify(['This project has no scenes with pictures to lay out.']);
+          return;
+        }
+        this.closeHistoryBurst();
+        this.applySceneLayout(laid);
+        this.markDirty();
+        this.closeHistoryBurst();
+        this.seekTo(0);
+        this.status.notify([this.sceneLayoutSummary(laid)]);
+      },
+      error: (err: unknown) => {
+        this.layingOutScenes.set(false);
+        this.status.error.set(err instanceof ApiFailure && err.message ? err.message : "The project's scenes could not be read.");
+      },
+    });
+  }
+
+  /**
+   * Puts a layout on the lanes in place of an earlier one. The V1 clips step out of the cut: the scenes play the whole
+   * video, as in the render, and a clip a scene shows is on V2 at its place.
+   */
+  private applySceneLayout(laid: SceneLayout): void {
+    const isLaid = (key: string) => key.startsWith(SCENE_ITEM_PREFIX) || key.startsWith(SCENE_VOICE_PREFIX) || key.startsWith(SCENE_MUSIC_PREFIX);
+    this.rows.update((rows) => rows.map((row) => (row.included ? { ...row, included: false } : row)));
+    this.timelineItems.update((items) => [...items.filter((it) => !isLaid(it.id)), ...laid.items]);
+    this.musicTracks.update((tracks) => [...tracks.filter((t) => !isLaid(t.key)), ...laid.musicTracks]);
+    this.explicitlyShownTracks.update((set) => new Set([...set, ...laid.lanes]));
+  }
+
+  private sceneLayoutSummary(laid: SceneLayout): string {
+    const parts = [`${laid.pictures} picture${laid.pictures === 1 ? '' : 's'}`];
+    if (laid.narration > 0) parts.push(`${laid.narration} narration clip${laid.narration === 1 ? '' : 's'}`);
+    if (laid.captions > 0) parts.push(`${laid.captions} subtitle${laid.captions === 1 ? '' : 's'}`);
+    if (laid.music > 0) parts.push('the music');
+    const missing = laid.missing > 0 ? ` ${laid.missing} scene${laid.missing === 1 ? ' has' : 's have'} no picture in the library and ${laid.missing === 1 ? 'was' : 'were'} left out.` : '';
+    return `Laid out from the scenes: ${parts.join(', ')}.${missing}`;
   }
 
   reload(firstLoad = false, then?: () => void): void {
@@ -11273,4 +11352,3 @@ export const STUDIO_STYLE_PRESETS: readonly StudioStylePreset[] = [
     },
   },
 ];
-

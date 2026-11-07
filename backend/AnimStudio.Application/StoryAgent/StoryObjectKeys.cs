@@ -14,6 +14,13 @@ public static class StoryObjectKeys
     public static string Image(string runId, int scene, string extension) =>
         $"{Root(runId)}/images/s{scene:00}-{Guid.NewGuid().ToString("N")[..12]}{extension}";
 
+    /// <summary>A scene's further picture; <paramref name="shot"/> counts from 2, the scene's own picture being the first.</summary>
+    public static string ShotImage(string runId, int scene, int shot, string extension) =>
+        $"{Root(runId)}/images/s{scene:00}-{shot}-{Guid.NewGuid().ToString("N")[..12]}{extension}";
+
+    public static string Thumbnail(string runId, string extension) =>
+        $"{Root(runId)}/images/thumbnail-{Guid.NewGuid().ToString("N")[..12]}{extension}";
+
     public static string Narration(string runId, int scene, string fingerprint) =>
         $"{Root(runId)}/narration/s{scene:00}-{fingerprint}.wav";
 
@@ -35,7 +42,10 @@ public static class StoryObjectKeys
             if (!string.IsNullOrEmpty(scene.ImageKey)) keys.Add(scene.ImageKey);
             if (!string.IsNullOrEmpty(scene.AudioKey)) keys.Add(scene.AudioKey);
             if (!string.IsNullOrEmpty(scene.VideoKey)) keys.Add(scene.VideoKey);
+            keys.AddRange(scene.Shots.Select(s => s.ImageKey).OfType<string>().Where(k => k.Length > 0));
         }
+
+        if (!string.IsNullOrEmpty(run.Script?.ThumbnailKey)) keys.Add(run.Script.ThumbnailKey);
 
         if (!string.IsNullOrEmpty(run.Music?.StorageKey)) keys.Add(run.Music.StorageKey);
         return [.. keys.Distinct(StringComparer.Ordinal)];

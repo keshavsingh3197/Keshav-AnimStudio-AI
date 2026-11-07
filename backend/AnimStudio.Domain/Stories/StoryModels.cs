@@ -85,6 +85,12 @@ public sealed class StoryBrief
 
     /// <summary>The one text engine that writes the script and the ideas for the next part; null walks the configured chain.</summary>
     public string? TextEngine { get; set; }
+
+    /// <summary>
+    /// The brand channel the story is made for, chosen before it starts; its project publishes under it. Null is the
+    /// default channel - and a channel deleted since is too, when the project is built.
+    /// </summary>
+    public string? BrandChannelId { get; set; }
 }
 
 /// <summary>How the video is made once the script is approved.</summary>
@@ -165,6 +171,9 @@ public sealed class StoryBuildOptions
     /// </summary>
     public bool AutoPace { get; set; }
 
+    /// <summary>The pace the voice is brought to when <see cref="AutoPace"/> is on.</summary>
+    public StoryPaceStyle Pace { get; set; } = StoryPaceStyle.Auto;
+
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
 
@@ -206,6 +215,25 @@ public enum StoryMusicSource
     Search = 2
 }
 
+/// <summary>How fast the narration should sound once the app has set the video's speed.</summary>
+public enum StoryPaceStyle
+{
+    /// <summary>From the story: gentle for children, brisk for a Short, a storyteller's pace otherwise.</summary>
+    Auto = 0,
+
+    /// <summary>Slow and clear, for children or devotional listening.</summary>
+    Gentle = 1,
+
+    /// <summary>Unhurried, every word clear: a long video watched from start to end.</summary>
+    Storyteller = 2,
+
+    /// <summary>Quicker, the pace most Shorts and Reels are told at.</summary>
+    Brisk = 3,
+
+    /// <summary>As fast as still sounds natural.</summary>
+    Fast = 4
+}
+
 /// <summary>The feel of the motion and the cuts the build picks for each scene.</summary>
 public enum StoryLookStyle
 {
@@ -219,7 +247,10 @@ public enum StoryLookStyle
     Cinematic = 2,
 
     /// <summary>Quicker moves and slides, for a Short that has to hold attention.</summary>
-    Lively = 3
+    Lively = 3,
+
+    /// <summary>Varied short-form zooms, blurred cuts, diagonal wipes and circular reveals; no automatic flashes.</summary>
+    MusicVideo = 4
 }
 
 public enum StorySourceConfidence
@@ -363,6 +394,12 @@ public sealed class StoryScene
     public List<string> ImageKeywords { get; set; } = [];
     public string? Mood { get; set; }
 
+    /// <summary>
+    /// More pictures of the scene, shown one after another after its own while the narration plays on; the build cuts
+    /// between them with a transition. Empty for a scene told over one picture.
+    /// </summary>
+    public List<StoryShot> Shots { get; set; } = [];
+
     /// <summary>A guess at how long the narration takes, used until real audio exists.</summary>
     public double EstimatedSeconds { get; set; }
 
@@ -426,6 +463,21 @@ public sealed class StoryScene
     public bool LookPinned { get; set; }
 }
 
+/// <summary>One more picture of a scene: what it shows, and the file once there is one.</summary>
+public sealed class StoryShot
+{
+    /// <summary>What the picture shows, in English, for an image model.</summary>
+    public string? ImagePrompt { get; set; }
+
+    /// <summary>Object-store key of the picture, once there is one. A shot without one is left out of the video.</summary>
+    public string? ImageKey { get; set; }
+
+    /// <summary><c>upload</c>, or the image engine that drew it.</summary>
+    public string? ImageSource { get; set; }
+
+    public string? ImageName { get; set; }
+}
+
 /// <summary>Part of a scene's narration and who says it.</summary>
 public sealed class StoryLine
 {
@@ -479,6 +531,17 @@ public sealed class StoryScript
 
     /// <summary>Things the writer wants checked before this is published.</summary>
     public List<string> ReviewNotes { get; set; } = [];
+
+    /// <summary>What the video's YouTube thumbnail shows, in English, for an image model.</summary>
+    public string? ThumbnailPrompt { get; set; }
+
+    /// <summary>Object-store key of the thumbnail picture, once there is one.</summary>
+    public string? ThumbnailKey { get; set; }
+
+    /// <summary><c>upload</c>, or the image engine that drew it.</summary>
+    public string? ThumbnailSource { get; set; }
+
+    public string? ThumbnailName { get; set; }
 
     /// <summary>The text engine that wrote it, <c>manual</c> for a pasted reply, or <c>built-in</c>.</summary>
     public string? WrittenBy { get; set; }

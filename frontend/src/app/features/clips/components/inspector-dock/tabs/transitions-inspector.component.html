@@ -204,6 +204,8 @@
         <strong>🎞 Video cuts</strong>
         <span class="auto-count">{{ cutTargetCount() }} cut{{ cutTargetCount() === 1 ? '' : 's' }}</span>
       </div>
+      <button type="button" class="trans-dur-preset-btn" (click)="useMusicVideoPool()">Music video preset</button>
+      <p class="auto-msg">Dip to white is manual only in the Music video preset. Avoid rapid repeated flashes.</p>
       <div class="auto-chips">
         @for (c of cutChoices; track c) {
           <button type="button" class="trans-dur-preset-btn" [class.active]="cutPool().includes(c)" (click)="togglePool(cutPool, c)">{{ label(c) }}</button>

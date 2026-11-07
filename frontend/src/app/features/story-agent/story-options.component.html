@@ -238,6 +238,16 @@
       }
     </div>
     <p class="so-note">{{ artHint() }}</p>
+    <div class="so-title so-subtitle" [id]="uid + '-motion'">Motion &amp; transitions</div>
+    <div class="seg" role="radiogroup" [attr.aria-labelledby]="uid + '-motion'">
+      @for (s of lookStyles; track s.id) {
+        <label [class.selected]="(v.lookStyle ?? 'Auto') === s.id">
+          <input type="radio" [name]="uid + '-motion'" [checked]="(v.lookStyle ?? 'Auto') === s.id" (change)="patch({ lookStyle: s.id })" />
+          {{ s.label }}
+        </label>
+      }
+    </div>
+    <p class="so-note">{{ lookHint() }}</p>
     <div class="so-field">
       <label [for]="uid + '-style'">Picture style <span class="muted">(optional)</span></label>
       <input [id]="uid + '-style'" type="text" maxlength="300" [value]="v.imageStyle ?? ''"
@@ -307,8 +317,19 @@
         <input type="checkbox" [checked]="v.autoPace !== false"
                (change)="patch(checked($event) ? { autoPace: true, videoSpeed: 1 } : { autoPace: false })" />
         <span class="track"></span>
-        <span>Set the pace from the voice: if the narration comes out too slow or too fast, speed the video up or down to a comfortable pace</span>
+        <span>Set the pace from the voice: if the narration comes out too slow or too fast, speed the video up or down to the pace below</span>
       </label>
+      @if (v.autoPace !== false) {
+        <div class="so-field">
+          <label [for]="uid + '-pace'">Voice pace</label>
+          <select [id]="uid + '-pace'" (change)="setPace($event)">
+            @for (p of paces; track p.id) {
+              <option [value]="p.id" [selected]="p.id === (v.pace ?? 'Auto')">{{ p.label }}</option>
+            }
+          </select>
+          <p class="so-note">Shorts and Reels hold viewers with a quicker voice; a long story can take its time. English aims about 10 words a minute faster.</p>
+        </div>
+      }
     }
     @if (v.renderWhenReady && c.renderer && v.autoPace === false) {
       <div class="so-field">

@@ -17,7 +17,7 @@ import { parseUtc, relativeTime } from './admin-format';
 type Note = { tone: 'ok' | 'err'; text: string };
 type ListField = 'moods' | 'tags' | 'hashtags';
 
-const LOOKS: readonly StoryLookStyle[] = ['Auto', 'Gentle', 'Cinematic', 'Lively'];
+const LOOKS: readonly StoryLookStyle[] = ['Auto', 'Gentle', 'Cinematic', 'Lively', 'MusicVideo'];
 const FORMATS: readonly StoryFormat[] = ['Wide', 'Vertical'];
 const CONFIDENCES: readonly StorySourceConfidence[] = ['High', 'Medium', 'Low'];
 
