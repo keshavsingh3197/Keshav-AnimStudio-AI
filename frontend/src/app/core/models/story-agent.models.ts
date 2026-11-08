@@ -221,6 +221,8 @@ export interface StoryLine {
   /** "narrator" or a cast member's name. */
   speaker: string;
   text: string;
+  /** How it is said and the face that goes with it (see STORY_EMOTIONS); null for a plain line. */
+  emotion?: string | null;
 }
 
 export interface StoryCastMember {
@@ -646,6 +648,8 @@ export interface EditStorySceneBody {
   mood: string | null;
   /** The scene's further pictures in their new order; left out, they are kept as they are. */
   shots?: EditStoryShotBody[];
+  /** An emotion for each of the scene's lines, in order (null: plain); left out, they are kept as they are. */
+  lineEmotions?: (string | null)[] | null;
 }
 
 export interface EditStoryShotBody {

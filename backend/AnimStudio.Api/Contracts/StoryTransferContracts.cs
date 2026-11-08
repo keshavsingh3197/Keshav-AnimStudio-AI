@@ -42,7 +42,7 @@ public sealed record StoryExportScene(
     string? Mood,
     IReadOnlyList<string>? MoreImagePrompts = null);
 
-public sealed record StoryExportLine(string Speaker, string Text);
+public sealed record StoryExportLine(string Speaker, string Text, string? Emotion = null);
 
 /// <param name="Text">The catalogue id when the text is one the catalogue knows, its name otherwise - as a writer cites it.</param>
 public sealed record StoryExportSource(string Text, string Ref, string? Note);
@@ -98,7 +98,7 @@ public static class StoryTransfer
             s.Number,
             s.Headline,
             s.Narration,
-            [.. s.Lines.Select(l => new StoryExportLine(l.Speaker, l.Text))],
+            [.. s.Lines.Select(l => new StoryExportLine(l.Speaker, l.Text, l.Emotion))],
             s.English,
             s.Basis.ToString().ToLowerInvariant(),
             [.. s.Sources.Select(r => new StoryExportSource(r.TextId.Length > 0 ? r.TextId : r.TextName, r.Ref, r.Note))],

@@ -39,7 +39,8 @@ public sealed record StorySceneEdit(
     IReadOnlyList<string>? ImageKeywords,
     string? Mood,
     string? VideoPrompt = null,
-    IReadOnlyList<StoryShotEdit>? Shots = null);
+    IReadOnlyList<StoryShotEdit>? Shots = null,
+    IReadOnlyList<string?>? LineEmotions = null);
 
 /// <summary>One of a scene's further pictures as edited: the picture number it had (0 for a new one), so its picture stays with it.</summary>
 public sealed record StoryShotEdit(int Picture, string? ImagePrompt);
@@ -390,7 +391,7 @@ public sealed partial class StoryRunService(
                 scene.AudioName = old.AudioName;
                 scene.AudioSource = old.AudioSource;
                 scene.Pauses = old.Pauses;
-                scene.Lines = old.Lines;
+                scene.Lines = WithEmotions(old.Lines, incoming.LineEmotions);
                 scene.Shots = incoming.Shots is null ? old.Shots : KeepShots(old.Shots, incoming.Shots, dropped);
             }
             else if (incoming.Shots is not null)
@@ -591,6 +592,16 @@ public sealed partial class StoryRunService(
             throw new StoryRunException(StoryRunErrorKind.Invalid, "image-too-large", $"A picture can be at most {VisualsStage.MaxImageBytes / 1024 / 1024} MB.", "image");
         return AiImageValidator.Sniff(image)
             ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "image-invalid", "That is not a PNG, JPEG or WebP picture.", "image");
+    }
+
+    /// <summary>
+    /// The scene's own lines with the emotions the person chose, one per line in order. The words and speakers always come
+    /// from the server's record; a list that does not name one per line changes nothing.
+    /// </summary>
+    private static List<StoryLine> WithEmotions(List<StoryLine> lines, IReadOnlyList<string?>? emotions)
+    {
+        if (emotions is null || emotions.Count != lines.Count) return lines;
+        return [.. lines.Select((l, i) => new StoryLine { Speaker = l.Speaker, Text = l.Text, Emotion = StoryEmotions.Normalize(emotions[i]) })];
     }
 
     /// <summary>

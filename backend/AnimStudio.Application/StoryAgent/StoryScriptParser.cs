@@ -38,7 +38,7 @@ public static class StoryScriptParser
 
     public const int MaxPromptChars = 800;
 
-    private const int MaxLinesPerScene = 24;
+    public const int MaxLinesPerScene = 24;
     private const int MaxNameChars = 60;
 
     private const int MaxWarnings = 60;
@@ -387,7 +387,8 @@ public static class StoryScriptParser
                 scene.Lines.Add(new StoryLine
                 {
                     Speaker = Text(line, "speaker") ?? StoryCastMember.Narrator,
-                    Text = Text(line, "text") ?? string.Empty
+                    Text = Text(line, "text") ?? string.Empty,
+                    Emotion = StoryEmotions.Normalize(Text(line, "emotion"))
                 });
             }
         }
@@ -454,10 +455,15 @@ public static class StoryScriptParser
 
             var name = line.Speaker?.Trim() ?? string.Empty;
             var speaker = cast.FirstOrDefault(c => SameName(c.Name, name))?.Name ?? StoryCastMember.Narrator;
+            var emotion = StoryEmotions.Normalize(line.Emotion);
 
-            // Two lines in a row by the same voice are one line.
-            if (lines.Count > 0 && lines[^1].Speaker == speaker) lines[^1].Text += " " + text;
-            else lines.Add(new StoryLine { Speaker = speaker, Text = text });
+            // Two lines in a row by the same voice are one line, said with the first emotion either of them had.
+            if (lines.Count > 0 && lines[^1].Speaker == speaker)
+            {
+                lines[^1].Text += " " + text;
+                lines[^1].Emotion ??= emotion;
+            }
+            else lines.Add(new StoryLine { Speaker = speaker, Text = text, Emotion = emotion });
         }
 
         if (lines.All(l => l.Speaker == StoryCastMember.Narrator)) return [];

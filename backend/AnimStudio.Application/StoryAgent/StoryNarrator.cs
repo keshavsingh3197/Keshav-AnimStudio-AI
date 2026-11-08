@@ -154,13 +154,19 @@ public sealed partial class StoryNarrator(
     /// </summary>
     public static string Fingerprint(NarrationPlan plan, StoryScene scene) =>
         Fingerprint(plan, (UsesCast(plan, scene)
-                ? scene.Narration + "\ncast:" + string.Join('\n', scene.Lines.Select(l => $"{VoiceOf(plan, l) ?? "-"}|{l.Text}"))
+                ? scene.Narration + "\ncast:" + string.Join('\n', scene.Lines.Select(l =>
+                    // The emotion only when it is spoken, so narration made before emotions existed is still found.
+                    $"{VoiceOf(plan, l) ?? "-"}|{l.Text}" + (EmotionOf(plan, l) is { } emotion ? $"|{emotion}" : string.Empty)))
                 : scene.Narration)
             + (scene.AudioTake > 0 ? $"\ntake:{scene.AudioTake}" : string.Empty));
 
     /// <summary>The character's voice, or null for the narrator's.</summary>
     private static string? VoiceOf(NarrationPlan plan, StoryLine line) =>
         plan.Cast is { } cast && cast.TryGetValue(line.Speaker, out var voice) ? voice : null;
+
+    /// <summary>The line's emotion when the engine can be asked to say it that way; null otherwise.</summary>
+    private static string? EmotionOf(NarrationPlan plan, StoryLine line) =>
+        SupportsStyle(plan.Engine) ? StoryEmotions.Find(line.Emotion)?.Id : null;
 
     /// <summary>
     /// A short stable name for what a line sounds like, so a scene's narration is only made again when the words or the voice
@@ -192,7 +198,6 @@ public sealed partial class StoryNarrator(
                 Rate = plan.Rate,
                 ProviderId = plan.Engine,
                 Model = plan.Model,
-                Style = plan.Style,
                 BypassCache = fresh
             }, new AiCallContext(null, userId), ct).ConfigureAwait(false);
             Check(outcome, plan);
@@ -215,7 +220,7 @@ public sealed partial class StoryNarrator(
     /// </summary>
     private static IEnumerable<AiSpeechRequest> Dialogue(NarrationPlan plan, IReadOnlyList<StoryLine> lines, int maxVoices)
     {
-        var chunk = new List<(string? Voice, string Text)>();
+        var chunk = new List<(string? Voice, string Text, string? Emotion)>();
         foreach (var line in lines)
         {
             var voice = VoiceOf(plan, line);
@@ -224,13 +229,13 @@ public sealed partial class StoryNarrator(
                 yield return Request(plan, chunk);
                 chunk = [];
             }
-            chunk.Add((voice, line.Text));
+            chunk.Add((voice, line.Text, EmotionOf(plan, line)));
         }
 
         if (chunk.Count > 0) yield return Request(plan, chunk);
     }
 
-    private static AiSpeechRequest Request(NarrationPlan plan, List<(string? Voice, string Text)> chunk)
+    private static AiSpeechRequest Request(NarrationPlan plan, List<(string? Voice, string Text, string? Emotion)> chunk)
     {
         var voices = chunk.Select(t => t.Voice).Distinct().ToList();
         if (voices.Count == 1)
@@ -239,7 +244,8 @@ public sealed partial class StoryNarrator(
             {
                 Text = string.Join(' ', chunk.Select(t => t.Text)),
                 VoiceId = voices[0] ?? plan.VoiceId,
-                ReplicatedVoiceId = voices[0] is null ? plan.ReplicatedVoiceId : null
+                ReplicatedVoiceId = voices[0] is null ? plan.ReplicatedVoiceId : null,
+                Style = StoryEmotions.Delivery(plan.Style, chunk.Select(t => t.Emotion))
             };
         }
 
@@ -249,7 +255,11 @@ public sealed partial class StoryNarrator(
         {
             Text = string.Join('\n', chunk.Select(t => $"{labels[voices.IndexOf(t.Voice)]}: {t.Text}")),
             VoiceId = plan.VoiceId,
-            Speakers = [.. voices.Select((v, i) => new AiSpeechSpeaker(labels[i], v ?? plan.VoiceId, v is null ? plan.ReplicatedVoiceId : null))]
+            Speakers = [.. voices.Select((v, i) => new AiSpeechSpeaker(labels[i], v ?? plan.VoiceId, v is null ? plan.ReplicatedVoiceId : null))],
+            Style = plan.Style,
+            LineStyles = chunk.Any(t => t.Emotion is not null)
+                ? [.. chunk.Select(t => t.Emotion is null ? null : StoryEmotions.Delivery(plan.Style, t.Emotion))]
+                : null
         };
     }
 

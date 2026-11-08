@@ -142,3 +142,16 @@ fieldset.se-fields:disabled { opacity: .72; }
 @media (max-width: 560px) {
   .se-thumb-body { grid-template-columns: 1fr; }
 }
+
+/* Who says which line, and how. */
+.se-lines { display: grid; gap: .35rem; margin: 0; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.se-lines legend { padding: 0 .3rem; font-size: .85rem; }
+.se-line { display: grid; grid-template-columns: auto minmax(4.5rem, auto) minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+.se-line-face { font-size: 1.15rem; line-height: 1; }
+.se-line-who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 9rem; }
+.se-line-text { min-width: 0; overflow-wrap: anywhere; }
+.se-line select { width: auto; min-height: 36px; }
+@media (max-width: 560px) {
+  .se-line { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .se-line-text { grid-column: 1 / -1; order: 3; }
+}

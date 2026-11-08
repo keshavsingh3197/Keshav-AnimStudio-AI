@@ -317,6 +317,12 @@ public sealed record EditStorySceneRequest
 
     /// <summary>The scene's further pictures, in order; null keeps the ones it has.</summary>
     [MaxLength(StoryScriptParser.MaxShots)] public List<EditStoryShotRequest>? Shots { get; init; }
+
+    /// <summary>
+    /// An emotion for each of the scene's lines, in order (empty for a plain line); null keeps the ones they have. Applied
+    /// only when it names one per line; a word the app does not know leaves the line plain.
+    /// </summary>
+    [MaxLength(StoryScriptParser.MaxLinesPerScene)] public List<string?>? LineEmotions { get; init; }
 }
 
 public sealed record EditStoryShotRequest
@@ -345,7 +351,8 @@ public sealed record EditStoryScriptRequest
             s.Number, s.Headline, s.Narration, s.English, s.Basis,
             [.. (s.Sources ?? []).Select(x => new StorySourceEdit(x.Text, x.Ref, x.Note))],
             s.ImagePrompt, s.ImageKeywords, s.Mood, s.VideoPrompt,
-            s.Shots is null ? null : [.. s.Shots.Select(x => new StoryShotEdit(x.Picture, x.ImagePrompt))]))],
+            s.Shots is null ? null : [.. s.Shots.Select(x => new StoryShotEdit(x.Picture, x.ImagePrompt))],
+            s.LineEmotions))],
         ThumbnailPrompt);
 }
 
@@ -432,7 +439,8 @@ public sealed record StorySceneResponse(
 public sealed record StoryShotResponse(int Picture, string? ImagePrompt, bool HasImage, string? ImageSource, string? ImageName);
 
 /// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
-public sealed record StoryLineResponse(string Speaker, string Text);
+/// <param name="Emotion">How it is said (<c>laughing</c>, <c>angry</c>...), or null for a plain line.</param>
+public sealed record StoryLineResponse(string Speaker, string Text, string? Emotion = null);
 
 /// <param name="VoiceId">The voice they were given when the narration was last made; null before that.</param>
 public sealed record StoryCastMemberResponse(string Name, string? Gender, string? Age, string? VoiceId);
@@ -804,7 +812,7 @@ public static class StoryAgentMapper
             scene.ImagePrompt, scene.ImageKeywords, scene.Mood, scene.EstimatedSeconds,
             StoryObjectKeys.Owns(runId, scene.ImageKey), scene.ImageSource, scene.ImageName,
             StoryObjectKeys.Owns(runId, scene.AudioKey), scene.AudioSeconds,
-            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))],
+            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text, l.Emotion))],
             scene.VideoPrompt, StoryObjectKeys.Owns(runId, scene.VideoKey) && scene.HasAttachedClip, scene.VideoName,
             scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned,
             StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene),

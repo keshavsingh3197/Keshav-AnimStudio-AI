@@ -21,6 +21,7 @@ import {
   CLIP_ACCEPT,
   MAX_SHOTS,
   PICTURE_ACCEPT,
+  STORY_EMOTIONS,
   THUMBNAIL_FILE,
   basisLabel,
   clipPrompts,
@@ -63,6 +64,14 @@ interface DraftScene {
   imageKeywords: string[];
   mood: string | null;
   shots: DraftShot[];
+  /** Who says which part of the narration, as the server split it; only each line's emotion is edited here. */
+  lines: DraftLine[];
+}
+
+interface DraftLine {
+  speaker: string;
+  text: string;
+  emotion: string | null;
 }
 
 /** One of a scene's further pictures as edited. `picture` is the number the server gave it (0: added here), which keeps its picture with it. */
@@ -208,6 +217,7 @@ export class StoryScriptEditorComponent {
       imageKeywords: [...scene.imageKeywords],
       mood: scene.mood,
       shots: (scene.shots ?? []).map((shot) => ({ key: ++this.nextKey, picture: shot.picture, prompt: shot.imagePrompt ?? '' })),
+      lines: (scene.lines ?? []).map((line) => ({ speaker: line.speaker, text: line.text, emotion: line.emotion ?? null })),
     };
   }
 
@@ -219,6 +229,21 @@ export class StoryScriptEditorComponent {
 
   badge = checkBadge;
   basis = basisLabel;
+  readonly emotions = STORY_EMOTIONS;
+
+  /** "Narrator" for the narrator's lines, the character's name otherwise. */
+  speakerLabel(line: DraftLine): string {
+    return line.speaker === 'narrator' ? 'Narrator' : line.speaker;
+  }
+
+  emojiOf(emotion: string | null): string {
+    return this.emotions.find((e) => e.id === emotion)?.emoji ?? '💬';
+  }
+
+  setEmotion(line: DraftLine, emotion: string): void {
+    line.emotion = emotion || null;
+    this.touch();
+  }
 
   /** How long a scene takes: the real narration when it exists and the words are unchanged, otherwise an estimate. */
   seconds(scene: DraftScene): number {
@@ -254,7 +279,7 @@ export class StoryScriptEditorComponent {
     if (!this.canAdd()) return;
     const scene: DraftScene = {
       key: ++this.nextKey, number: 0, headline: '', narration: '', english: '', basis: 'Reflection',
-      sources: [], imagePrompt: '', videoPrompt: '', imageKeywords: [], mood: null, shots: [],
+      sources: [], imagePrompt: '', videoPrompt: '', imageKeywords: [], mood: null, shots: [], lines: [],
     };
     this.draft.update((list) => [...list.slice(0, after + 1), scene, ...list.slice(after + 1)]);
     this.touch();
@@ -340,6 +365,7 @@ export class StoryScriptEditorComponent {
       imageKeywords: draft.imageKeywords,
       mood: draft.mood,
       shots: draft.shots.map((shot) => ({ picture: shot.picture, imagePrompt: shot.prompt.trim() || null })),
+      lineEmotions: draft.lines.length ? draft.lines.map((line) => line.emotion) : null,
     });
 
     return {

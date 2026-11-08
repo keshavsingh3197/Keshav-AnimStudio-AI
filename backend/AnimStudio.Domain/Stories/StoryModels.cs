@@ -485,6 +485,12 @@ public sealed class StoryLine
     public string Speaker { get; set; } = StoryCastMember.Narrator;
 
     public string Text { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How the line is said and the face that goes with it (<c>laughing</c>, <c>angry</c>, <c>surprised</c>...), one of
+    /// the app's own emotion names; null for a plain line. It shapes the voice's delivery and the acting in the animation prompt.
+    /// </summary>
+    public string? Emotion { get; set; }
 }
 
 /// <summary>A character who speaks in the story.</summary>

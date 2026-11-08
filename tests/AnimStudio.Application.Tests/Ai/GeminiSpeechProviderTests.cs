@@ -118,6 +118,25 @@ public class GeminiSpeechProviderTests
     }
 
     [Fact]
+    public async Task Each_dialogue_turn_takes_its_own_delivery_and_the_others_keep_the_requests()
+    {
+        var (provider, handler) = Build();
+        handler.RespondJson(AudioResponse(new byte[4_800]));
+
+        await provider.SynthesizeAsync(new AiSpeechRequest
+        {
+            Text = "Narrator: He said,\nSpeaker2: Let us go!",
+            VoiceId = "Charon",
+            Style = "playful",
+            Speakers = [new AiSpeechSpeaker("Narrator", "Charon"), new AiSpeechSpeaker("Speaker2", "Puck")],
+            LineStyles = [null, "playful; excitedly"]
+        }, CancellationToken.None);
+
+        var parts = handler.Sent().GetProperty("contents")[0].GetProperty("parts").EnumerateArray().ToList();
+        Assert.Equal(["playful", "playful; excitedly"], parts.Select(p => p.GetProperty("speechMetadata").GetProperty("style").GetString()));
+    }
+
+    [Fact]
     public async Task A_dialogue_line_without_one_of_its_speakers_is_refused()
     {
         var (provider, handler) = Build();

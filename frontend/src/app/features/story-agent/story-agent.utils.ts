@@ -148,6 +148,25 @@ export function shotFileName(index: number, count: number, picture: number): str
 /** The file name the thumbnail picture is saved under, so it is told apart from the scenes' pictures in a set. */
 export const THUMBNAIL_FILE = 'thumbnail';
 
+/** How a character's line can be said: shapes the voice (Gemini) and the acting in the animation prompt. The server keeps only these ids. */
+export const STORY_EMOTIONS: readonly { id: string; label: string; emoji: string }[] = [
+  { id: 'happy', label: 'Happy', emoji: '😄' },
+  { id: 'excited', label: 'Excited', emoji: '🤩' },
+  { id: 'laughing', label: 'Laughing', emoji: '😂' },
+  { id: 'sad', label: 'Sad', emoji: '😢' },
+  { id: 'angry', label: 'Angry', emoji: '😠' },
+  { id: 'scared', label: 'Scared', emoji: '😱' },
+  { id: 'surprised', label: 'Surprised', emoji: '😲' },
+  { id: 'confused', label: 'Confused', emoji: '🤔' },
+  { id: 'shy', label: 'Shy', emoji: '😳' },
+  { id: 'proud', label: 'Proud', emoji: '😎' },
+  { id: 'sarcastic', label: 'Sarcastic', emoji: '😏' },
+  { id: 'whispering', label: 'Whispering', emoji: '🤫' },
+  { id: 'shouting', label: 'Shouting', emoji: '📢' },
+  { id: 'worried', label: 'Worried', emoji: '😟' },
+  { id: 'calm', label: 'Calm', emoji: '😌' },
+];
+
 /** The most pictures a scene has after its own, as the server allows. */
 export const MAX_SHOTS = 5;
 

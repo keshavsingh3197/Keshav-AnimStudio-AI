@@ -187,6 +187,26 @@
                   <div class="se-count muted" [class.se-over]="characters(scene) > 1400">{{ characters(scene) }} / 1600</div>
                 </div>
 
+                @if (scene.lines.length) {
+                  <fieldset class="se-lines">
+                    <legend>Who says what <span class="muted">· the feeling shapes the voice (Gemini) and the faces in the animation prompt</span></legend>
+                    @for (line of scene.lines; track $index) {
+                      <div class="se-line">
+                        <span class="se-line-face" aria-hidden="true">{{ emojiOf(line.emotion) }}</span>
+                        <span class="se-line-who">{{ speakerLabel(line) }}</span>
+                        <span class="se-line-text" [attr.lang]="s.language">{{ line.text }}</span>
+                        <select [attr.aria-label]="'How ' + speakerLabel(line) + ' says it'" [disabled]="locked()"
+                                [ngModel]="line.emotion ?? ''" (ngModelChange)="setEmotion(line, $event)">
+                          <option value="">Plain</option>
+                          @for (e of emotions; track e.id) {
+                            <option [value]="e.id">{{ e.emoji }} {{ e.label }}</option>
+                          }
+                        </select>
+                      </div>
+                    }
+                  </fieldset>
+                }
+
                 <div class="se-field">
                   <label [for]="'se-en-' + scene.key">What it means in English <span class="muted">· the English subtitles, and the picture's context</span></label>
                   <textarea [id]="'se-en-' + scene.key" rows="2" maxlength="1600" [ngModel]="scene.english"

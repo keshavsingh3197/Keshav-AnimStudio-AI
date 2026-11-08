@@ -107,7 +107,8 @@ public static class BuiltInPrompts
                              "items": { "type": "object", "required": ["speaker", "text"], "additionalProperties": true,
                                         "properties": {
                                           "speaker": { "type": "string", "maxLength": 60 },
-                                          "text": { "type": "string", "maxLength": 1600 }
+                                          "text": { "type": "string", "maxLength": 1600 },
+                                          "emotion": { "type": "string", "maxLength": 24 }
                                         } } }
                 }
               }
@@ -463,7 +464,7 @@ public static class BuiltInPrompts
         new()
         {
             TemplateKey = StoryScript,
-            Version = 5,
+            Version = 6,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
@@ -509,7 +510,7 @@ public static class BuiltInPrompts
                 - "videoPrompt": English, for an 8-second video clip that brings the picture to life: what each character does, in order - their gesture, where they look, how their face and head move, any step they take (a sage raises his hand in blessing and smiles; she turns her head towards him and folds her hands) - what moves around them (a flame flickers, cloth and hair stir, petals fall), and one slow camera move (a gentle push in, a slow pan). Movement stays graceful and reverent. Do not write the spoken words here; who speaks is taken from "lines". No letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one of devotional, joyful, solemn, epic, serene.
-                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything.
+                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything. Give every line an "emotion": how it is said, one of calm, happy, sad, proud, surprised, worried or angry. Keep it reverent, never comic.
 
                 Give the characters their own voice. When the story has characters - a deity, a sage, a brother and a sister - let them speak in direct speech in two to four scenes: the narrator introduces them ("यमराज बोले," / "Yama said,") and they say a short sentence in their own words, such as a promise, a prayer, a question or a blessing. Put it in "lines". Their words must carry only what the text or the tradition says they said - a faithful rendering, never a new event or teaching. The narrator still tells most of the story, and the hook, the meaning and the closing blessing stay with the narrator.
 
@@ -526,7 +527,7 @@ public static class BuiltInPrompts
 new()
         {
             TemplateKey = StoryScriptCreative,
-            Version = 3,
+            Version = 4,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
@@ -572,7 +573,7 @@ new()
                 - "videoPrompt": English, for an 8-second video clip that brings the picture to life: what each character does, in order - their gesture, where they look, their facial expression, how their head and body move, any step, jump or run (the fox tiptoes forward, freezes, then grins at the crow) - what moves around them (leaves blow, water ripples), and one simple camera move. Describe the acting clearly enough to animate. Do not write the spoken words here; who speaks is taken from "lines". No letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one word, from the moods the genre lists when it lists any.
-                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything.
+                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything. Give every line an "emotion": how it is said and the face that goes with it, one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud, sarcastic, whispering, shouting, worried or calm. Let it follow the story and change from line to line; a funny story needs big, clear reactions.
 
                 Let the characters speak in two to four scenes, in short direct sentences, introduced by the narrator. Give "cast": every character who speaks in a line, once: {"name": as written in the lines, "gender": "male" or "female", "age": "child", "young", "adult" or "elder"}. Leave it empty when no character speaks.
 
@@ -587,7 +588,7 @@ new()
         new()
         {
             TemplateKey = StoryScriptDialogue,
-            Version = 2,
+            Version = 3,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
@@ -635,7 +636,7 @@ new()
                 - "videoPrompt": English, for an 8-second video clip that brings the picture to life: what each character does, in order - their gesture, where they look, how their face and head move, any step they take (a sage raises his hand in blessing and smiles; she turns her head towards him and folds her hands) - what moves around them (a flame flickers, cloth and hair stir, petals fall), and one slow camera move (a gentle push in, a slow pan). Movement stays graceful and reverent. Do not write the spoken words here; who speaks is taken from "lines". No letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one of devotional, joyful, solemn, epic, serene.
-                - "lines": always, in every scene. The scene's narration split, in order and word for word, into what each character says: {"speaker": a cast name, "text": ...}. Joined, the lines must give back the narration exactly. Never use "narrator" as a speaker.
+                - "lines": always, in every scene. The scene's narration split, in order and word for word, into what each character says: {"speaker": a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Never use "narrator" as a speaker. Give every line an "emotion": how it is said, one of calm, happy, sad, proud, surprised, worried or angry. Keep it reverent, never comic.
 
                 Give "cast": every character who speaks in a line, once: {"name": as written in the lines, "gender": "male" or "female", "age": "child", "young", "adult" or "elder"}.
 
@@ -650,7 +651,7 @@ new()
         new()
         {
             TemplateKey = StoryScriptCreativeDialogue,
-            Version = 2,
+            Version = 3,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
@@ -698,7 +699,7 @@ new()
                 - "videoPrompt": English, for an 8-second video clip that brings the picture to life: what each character does, in order - their gesture, where they look, their facial expression, how their head and body move, any step, jump or run (the fox tiptoes forward, freezes, then grins at the crow) - what moves around them (leaves blow, water ripples), and one simple camera move. Describe the acting clearly enough to animate. Do not write the spoken words here; who speaks is taken from "lines". No letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one word, from the moods the genre lists when it lists any.
-                - "lines": always, in every scene. The scene's narration split, in order and word for word, into what each character says: {"speaker": a cast name, "text": ...}. Joined, the lines must give back the narration exactly. Never use "narrator" as a speaker.
+                - "lines": always, in every scene. The scene's narration split, in order and word for word, into what each character says: {"speaker": a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Never use "narrator" as a speaker. Give every line an "emotion": how it is said and the face that goes with it, one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud, sarcastic, whispering, shouting, worried or calm. Let it follow the story and change from line to line; a funny story needs big, clear reactions.
 
                 Give "cast": every character who speaks in a line, once: {"name": as written in the lines, "gender": "male" or "female", "age": "child", "young", "adult" or "elder"}.
 

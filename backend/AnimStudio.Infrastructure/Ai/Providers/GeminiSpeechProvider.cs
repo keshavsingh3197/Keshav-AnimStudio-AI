@@ -169,16 +169,22 @@ public sealed partial class GeminiSpeechProvider(
         if (request.Speakers is { Count: > 0 } turnSpeakers)
         {
             // Gemini 3.8 reads text as a verbatim transcript: each turn is its own part, its speaker named in the metadata.
-            foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            var turns = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (var turn = 0; turn < turns.Length; turn++)
             {
+                var line = turns[turn];
                 var colon = line.IndexOf(':');
                 var label = colon > 0 ? line[..colon] : null;
                 var words = colon > 0 ? line[(colon + 1)..].Trim() : string.Empty;
                 if (label is null || words.Length == 0 || !turnSpeakers.Any(s => string.Equals(s.Label, label, StringComparison.Ordinal)))
                     throw new AiProviderException("speakers-invalid", "Each line of a Gemini dialogue starts with one of its speakers' labels.");
 
+                // The line's own delivery (its emotion) when the caller gave one, else the request's.
+                var turnStyle = request.LineStyles is { } lineStyles && turn < lineStyles.Count && !string.IsNullOrWhiteSpace(lineStyles[turn])
+                    ? DeliveryOf(lineStyles[turn], request.Rate)
+                    : style;
                 var metadata = new Dictionary<string, object> { ["speaker"] = label };
-                if (style is not null) metadata["style"] = style;
+                if (turnStyle is not null) metadata["style"] = turnStyle;
                 parts.Add(new Dictionary<string, object> { ["text"] = words, ["speechMetadata"] = metadata });
             }
         }

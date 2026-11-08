@@ -14,6 +14,9 @@ public static class StoryGenres
     /// <summary>What a run with no genre is: every run before genres existed was devotional.</summary>
     public const string DefaultId = "devotional";
 
+    /// <summary>The funny genre, whose scenes are animated for laughs.</summary>
+    public const string FunnyId = "funny";
+
     public static IReadOnlyList<StoryGenre> All() =>
         [Devotional(), Funny(), Kids(), Bedtime(), Motivational(), Explainer(), Folk()];
 
@@ -71,7 +74,7 @@ public static class StoryGenres
 
     public static StoryGenre Funny() => new()
     {
-        Id = "funny",
+        Id = FunnyId,
         Name = "Funny stories",
         NameHindi = "मज़ेदार कहानियाँ",
         Description = "Light, clean comedy for the whole family: everyday mix-ups, clever twists and a punchline at the end.",

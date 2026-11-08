@@ -692,6 +692,32 @@ public sealed class StoryRunServiceTests
     }
 
     [Fact]
+    public async Task The_person_can_change_each_lines_emotion_but_never_its_words_or_speaker()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+        run.Script!.Cast = [new StoryCastMember { Name = "राम", Gender = "male" }];
+        var scene = run.Script.Scenes[0];
+        scene.Narration = "राम ने कहा, चलो।";
+        scene.Lines = [new StoryLine { Speaker = "narrator", Text = "राम ने कहा," }, new StoryLine { Speaker = "राम", Text = "चलो।" }];
+        world.Runs.Seed(run);
+
+        var result = await world.Service.UpdateScriptAsync(User, run.Id, Script(run,
+            [.. run.Script.Scenes.Select((s, i) => Edit(s, e => i == 0 ? e with { LineEmotions = [null, "Excited"] } : e))]),
+            CancellationToken.None);
+
+        var lines = result.Script!.Scenes[0].Lines;
+        Assert.Equal(["narrator", "राम"], lines.Select(l => l.Speaker));
+        Assert.Equal([null, "excited"], lines.Select(l => l.Emotion));
+
+        // A list that does not name one emotion per line changes nothing.
+        var again = await world.Service.UpdateScriptAsync(User, run.Id, Script(result,
+            [.. result.Script.Scenes.Select((s, i) => Edit(s, e => i == 0 ? e with { LineEmotions = ["sad"] } : e))]),
+            CancellationToken.None);
+        Assert.Equal([null, "excited"], again.Script!.Scenes[0].Lines.Select(l => l.Emotion));
+    }
+
+    [Fact]
     public async Task A_scenes_further_pictures_keep_their_files_when_reordered_and_a_removed_ones_file_is_deleted()
     {
         var world = new World();
