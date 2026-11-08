@@ -137,7 +137,8 @@
             }
             <p class="muted ls-small-print">
               Links are checked now and downloaded on the server while the stream is prepared, so you'll see each one
-              before it goes out. Only stream what you have the rights to.
+              before it goes out. YouTube links preview in YouTube's own player, and "Create on YouTube" can link the
+              broadcast's description to every original. Only stream what you have the rights to.
             </p>
           </div>
         }
@@ -280,7 +281,8 @@
       </div>
 
       @if (form.keyMode === 'youtube') {
-        <app-youtube-live-setup kind="playlist" [initial]="youTubeBroadcast()" [disabled]="!!submitting()" (broadcastChange)="youTubeBroadcast.set($event)" />
+        <app-youtube-live-setup kind="playlist" [initial]="youTubeBroadcast()" [disabled]="!!submitting()" [sourceVideos]="sourceVideos()"
+                                (broadcastChange)="youTubeBroadcast.set($event)" />
       } @else if (form.keyMode === 'channel') {
         <div class="ls-field">
           <label for="ls-channel">Channel</label>

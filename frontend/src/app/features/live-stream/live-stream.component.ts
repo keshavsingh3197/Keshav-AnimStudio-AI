@@ -27,6 +27,7 @@ import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { environment } from '../../../environments/environment';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { parseVideoList } from '../youtube/video-details.component';
 import { MediaPreview, MediaPreviewDialogComponent } from '../../shared/media-preview-dialog.component';
 import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent } from '../../shared/youtube-live-setup.component';
 
@@ -64,6 +65,11 @@ const POLL_MS = 2000;
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const REMEMBER_KEY = 'animstudio.live.settings';
 const MAX_LINKS_PER_PASTE = 50;
+
+/** The video id of a YouTube watch / Shorts / youtu.be / live link; undefined for any other site. */
+function youTubeVideoIdOf(url: string | undefined): string | undefined {
+  return url ? parseVideoList(url).videos[0]?.videoId : undefined;
+}
 
 @Component({
   selector: 'app-live-stream',
@@ -133,6 +139,19 @@ export class LiveStreamComponent {
     this.playlist().reduce((sum, e) => sum + (e.durationSeconds ?? 0), 0));
   readonly unknownDurations = computed(() => this.playlist().some((e) => e.durationSeconds == null));
   readonly activeCount = computed(() => this.streams().filter((s) => BUSY_STATES.includes(s.state)).length);
+  /** YouTube videos in the playlist, so the broadcast's description can link viewers to the originals. */
+  readonly sourceVideos = computed(() => {
+    const seen = new Set<string>();
+    const videos: { videoId: string; title: string }[] = [];
+    for (const e of this.playlist()) {
+      const videoId = e.source === 'Url' ? youTubeVideoIdOf(e.url) : undefined;
+      if (videoId && !seen.has(videoId)) {
+        seen.add(videoId);
+        videos.push({ videoId, title: e.title });
+      }
+    }
+    return videos;
+  });
 
   private poll: ReturnType<typeof setInterval> | null = null;
   private nextKey = 0;
@@ -542,7 +561,10 @@ export class LiveStreamComponent {
         break;
       }
       case 'Url':
-        this.openSourcePreview({ ...base, type: entry.typeLabel, externalUrl: entry.url, thumbnailUrl: entry.thumbnailUrl });
+        this.openSourcePreview({
+          ...base, type: entry.typeLabel, externalUrl: entry.url, thumbnailUrl: entry.thumbnailUrl,
+          youTubeVideoId: youTubeVideoIdOf(entry.url),
+        });
         break;
     }
   }

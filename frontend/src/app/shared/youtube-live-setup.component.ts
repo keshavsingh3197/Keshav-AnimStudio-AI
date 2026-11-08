@@ -7,7 +7,7 @@ import { firstValueFrom } from 'rxjs';
 import { ApiFailure } from '../core/interceptors/api-error.interceptor';
 import {
   YouTubeCategory, YouTubeChannel, YouTubeLiveBroadcast, YouTubeLiveKind, YouTubeLiveSetup, YouTubePrivacy, YouTubeSuggestEngine,
-  parseYouTubeTags, youTubeTagsLength,
+  MAX_RELATED_VIDEOS, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 import { toneLabel } from '../features/youtube/checkup-draft';
@@ -161,6 +161,14 @@ const PREFS_KEY = 'animstudio.youtube.live';
           <label>Description
             <textarea rows="5" [(ngModel)]="description"></textarea>
           </label>
+          @if (sourceVideos().length) {
+            <div class="yl-chips">
+              <button type="button" class="yl-chip" (click)="addSourceLinks()" [disabled]="hasSourceLinks()">
+                {{ hasSourceLinks() ? '✓ Links to the original videos added' : '+ Link the ' + sourceVideos().length + ' original YouTube video' + (sourceVideos().length === 1 ? '' : 's') }}
+              </button>
+              <span class="yl-muted">Viewers who open them watch the originals on their own pages.</span>
+            </div>
+          }
           @if (descriptionOptions().length) {
             <div class="yl-chips" aria-label="Other descriptions">
               @for (d of descriptionOptions(); track $index) {
@@ -288,6 +296,8 @@ export class YouTubeLiveSetupComponent implements OnInit {
   readonly initial = input<SelectedYouTubeBroadcast | null>(null);
   /** While on air the choice is locked. */
   readonly disabled = input(false);
+  /** YouTube videos being restreamed, offered as links in the description. */
+  readonly sourceVideos = input<{ videoId: string; title: string }[]>([]);
   readonly broadcastChange = output<SelectedYouTubeBroadcast | null>();
 
   readonly maxTitle = 100;
@@ -436,6 +446,22 @@ export class YouTubeLiveSetupComponent implements OnInit {
   addTag(tag: string): void {
     const tags = parseYouTubeTags(`${this.tagsText},${tag}`);
     if (youTubeTagsLength(tags) <= 500) this.tagsText = tags.join(', ');
+  }
+
+  /** The block linking to the restreamed videos, in the same form uploads use for related videos. */
+  sourceLinksBlock(): string {
+    return relatedVideosBlock(this.sourceVideos().slice(0, MAX_RELATED_VIDEOS));
+  }
+
+  hasSourceLinks(): boolean {
+    const block = this.sourceLinksBlock();
+    return !!block && this.description.includes(block);
+  }
+
+  addSourceLinks(): void {
+    const block = this.sourceLinksBlock();
+    if (!block || this.hasSourceLinks()) return;
+    this.description = this.description.trim() ? `${this.description.trim()}\n\n${block}` : block;
   }
 
   createProblem(): string | null {

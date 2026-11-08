@@ -1,4 +1,7 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+
+const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 /** What the dialog plays and describes. Exactly one of `src` (playable) or `externalUrl` (a link) is normally set. */
 export interface MediaPreview {
@@ -13,6 +16,8 @@ export interface MediaPreview {
   /** A link that can't be played here; shown with its thumbnail and opened on its own site. */
   externalUrl?: string;
   thumbnailUrl?: string;
+  /** A YouTube link's video id: played in YouTube's own player instead of the thumbnail. */
+  youTubeVideoId?: string;
   /** Known up front; replaced by the player's own measurement once it loads. */
   durationSeconds?: number;
   /** Extra facts, e.g. "1920×1080", "48 MB", "From RAM NAM KI MAHIMA". */
@@ -63,6 +68,9 @@ export interface MediaPreview {
             @if (failed()) {
               <p class="mp-err">This file can't be played in the browser. It can still be streamed - converting it is part of preparing.</p>
             }
+          } @else if (youTubeEmbed(); as embed) {
+            <iframe class="mp-embed" [src]="embed" [title]="preview().title"
+                    allow="encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
           } @else if (preview().externalUrl; as url) {
             <div class="mp-link">
               @if (preview().thumbnailUrl; as thumb) {
@@ -83,6 +91,12 @@ export interface MediaPreview {
           @for (f of preview().facts ?? []; track f) { <div><dt></dt><dd>{{ f }}</dd></div> }
         </dl>
         @if (preview().note) { <p class="mp-muted mp-note">{{ preview().note }}</p> }
+        @if (youTubeEmbed() && preview().externalUrl; as url) {
+          <p class="mp-muted mp-note">
+            Playing in YouTube's own player. The stream itself uses a copy downloaded on the server when it's prepared.
+            <a [href]="url" target="_blank" rel="noopener noreferrer">Open on YouTube ↗</a>
+          </p>
+        }
 
         <div class="mp-actions">
           <button type="button" class="secondary" (click)="closed.emit()">Close</button>
@@ -112,6 +126,7 @@ export interface MediaPreview {
     .mp-audio audio { width: min(520px, 100%); }
     .mp-cover { width: min(240px, 60vw); aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.45); }
     .mp-cover-none { display: grid; place-items: center; font-size: 3rem; background: var(--surface-2); }
+    .mp-embed { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 60vh; border: 0; background: #000; }
     .mp-link { display: grid; justify-items: center; gap: .7rem; padding: 1.4rem; text-align: center; }
     .mp-link img { max-width: 100%; max-height: 50vh; border-radius: 8px; }
     .mp-err { color: var(--err); font-size: .85rem; padding: .6rem .85rem; margin: 0; background: var(--err-dim); }
@@ -125,6 +140,8 @@ export interface MediaPreview {
   `],
 })
 export class MediaPreviewDialogComponent {
+  private readonly sanitizer = inject(DomSanitizer);
+
   readonly preview = input.required<MediaPreview>();
   readonly canAdd = input(false);
 
@@ -138,6 +155,13 @@ export class MediaPreviewDialogComponent {
   private readonly measuredSize = signal<string | null>(null);
 
   readonly duration = computed(() => this.measuredDuration() ?? this.preview().durationSeconds ?? null);
+  /** Only a strict 11-character id reaches the embed URL, so nothing else can be framed. */
+  readonly youTubeEmbed = computed<SafeResourceUrl | null>(() => {
+    const id = this.preview().youTubeVideoId;
+    return id && YOUTUBE_VIDEO_ID.test(id)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube.com/embed/${id}?rel=0&playsinline=1`)
+      : null;
+  });
   readonly size = computed(() => this.measuredSize());
 
   measure(event: Event): void {
