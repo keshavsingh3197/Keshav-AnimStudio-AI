@@ -665,7 +665,7 @@
               @for (s of r.subtitles; track s.language) {
                 <li>
                   <span class="sr-sub-lang">{{ s.label }}</span>
-                  <span class="muted">{{ s.source === 'narration' ? 'what the voice says' : 'the English meaning of each scene' }} · {{ s.cues }} lines</span>
+                  <span class="muted">{{ s.source === 'narration' ? 'what the voice says' : 'the ' + s.label + ' meaning of each scene' }} · {{ s.cues }} lines</span>
                   <button type="button" class="secondary small" [disabled]="subtitleBusy() !== null" (click)="downloadSubtitles(s.language)">
                     @if (subtitleBusy() === s.language) { <span class="spinner" aria-hidden="true"></span> }
                     ⬇ {{ s.language }}.srt
@@ -675,6 +675,39 @@
             </ul>
           }
         </section>
+
+        <!-- The dub: the other language as a second audio track on the same YouTube video -->
+        @if (r.dub; as dub) {
+          <section class="card sr-subs" aria-labelledby="sr-dub-title">
+            <h3 id="sr-dub-title">{{ dub.label }} dub (multi-language audio)</h3>
+            @if (dub.trackReady) {
+              <p class="muted">One video for everyone: viewers whose YouTube is set to {{ dub.label }} hear this track, everyone
+                else hears the original. Views, likes and comments all stay on the one video.</p>
+              <ol class="sr-dub-steps">
+                <li>Publish the video above (its language is set to {{ r.brief.language === 'en' ? 'English' : 'Hindi' }}).</li>
+                <li>Download the dub track below.</li>
+                <li>In YouTube Studio open the video → <strong>Languages</strong> → <strong>Add language</strong>
+                  ({{ dub.label }}) → <strong>Dub</strong> → <strong>Add</strong>, and choose the file.</li>
+              </ol>
+              <p class="muted">YouTube has no API for audio tracks, so this one step is done in Studio. Multi-language audio
+                needs the channel's Advanced features. Add the {{ dub.label }} subtitles too, from the list above.</p>
+              <div class="sr-dub-actions">
+                <button type="button" class="secondary small" [disabled]="dubBusy()" (click)="downloadDub()">
+                  @if (dubBusy()) { <span class="spinner" aria-hidden="true"></span> }
+                  ⬇ {{ dub.language }}-dub.wav
+                </button>
+                @if (dub.projectId) {
+                  <a class="sr-btn sr-btn-secondary" [routerLink]="['/projects', dub.projectId, 'scenes']">Open the dub project</a>
+                }
+              </div>
+            } @else if (dub.scenesSpoken < dub.scenesTotal) {
+              <p class="muted">{{ dub.scenesSpoken }} of {{ dub.scenesTotal }} scenes are spoken in {{ dub.label }}. The dub
+                is made with the narration, then rendered after the video; the warnings say why if it stopped.</p>
+            } @else {
+              <p class="muted">The {{ dub.label }} voice is ready; the dub track is made once the video is rendered.</p>
+            }
+          </section>
+        }
 
         @if (r.kit; as kit) {
           <app-story-kit [kit]="kit" [music]="r.music" />

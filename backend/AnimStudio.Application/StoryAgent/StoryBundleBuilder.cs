@@ -26,6 +26,8 @@ public sealed record StoryBundleScene(
 
     public string? VideoNote { get; init; }
 
+    public bool VideoHasAudio { get; init; }
+
     /// <summary>How the scene moves and cuts to the next; null for the builder's plain default.</summary>
     public StorySceneLook? Look { get; init; }
 
@@ -250,7 +252,8 @@ public static class StoryBundleBuilder
                     ("Intensity", intensity.ToString("0.000", CultureInfo.InvariantCulture)),
                     ("Transition", part.Transition.ToString()),
                     ("TransitionSeconds", (lastPart ? transition : Seconds(overlap)).ToString("0.00", CultureInfo.InvariantCulture)),
-                    ("Audio", audioPaths[p] ?? string.Empty)));
+                    ("Audio", audioPaths[p] ?? string.Empty),
+                    ("BackgroundAudio", isClip && scene.VideoHasAudio && options.KeepClipAudio ? "TRUE" : "FALSE")));
 
                 // The subtitles under this picture, timed from its start. One the cut falls inside is shown on both sides of it.
                 var from = Seconds(part.From);

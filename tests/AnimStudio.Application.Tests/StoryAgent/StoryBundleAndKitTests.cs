@@ -1,6 +1,7 @@
 using System.Text;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Publishing;
@@ -10,6 +11,28 @@ namespace AnimStudio.Application.Tests.StoryAgent;
 
 public class StoryBundleBuilderTests
 {
+    [Fact]
+    public void Attached_clip_timing_uses_four_seconds_instead_of_longer_estimates_or_voice()
+    {
+        Assert.Equal(4, AssembleStage.SceneDuration(15, 13, 4));
+        Assert.Equal(13, AssembleStage.SceneDuration(15, 13, null));
+        Assert.Equal(15, AssembleStage.SceneDuration(15, null, null));
+    }
+
+    [Fact]
+    public void Four_four_second_clips_produce_sixteen_seconds_before_transition_overlap()
+    {
+        var script = StorySamples.Script();
+        script.Scenes = script.Scenes.Take(4).ToList();
+        var media = SceneMedia(script, withAudio: false)
+            .Select(s => s with { Video = [0, 0, 0, 24, 102, 116, 121, 112], DurationSeconds = 4 }).ToList();
+        var result = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions(), "Story", media, null);
+        var data = WorkbookReader.Read(result.Bundle.Workbook);
+
+        Assert.All(data.Scenes, scene => Assert.Equal(4, scene.Number("DurationSeconds")));
+        Assert.InRange(result.TotalSeconds, 14.5, 16);
+    }
+
     private static readonly byte[] Jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46];
     private static readonly byte[] Wav = Encoding.ASCII.GetBytes("RIFF....WAVEfmt ");
 
@@ -67,6 +90,22 @@ public class StoryBundleBuilderTests
         Assert.Equal(AssetKind.Video, output.Bundle.Media["media/clip-s02.mp4"].Kind);
         Assert.Contains(output.Bundle.Media.Keys, k => k.StartsWith("media/img-s02", StringComparison.Ordinal));
         Assert.NotEqual("None", data.Scenes[0].Text("Effect"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Attached_clip_audio_choice_is_written_to_the_project_bundle(bool keepAudio)
+    {
+        var script = StorySamples.Script();
+        var media = SceneMedia(script);
+        media[0] = media[0] with { Video = Encoding.ASCII.GetBytes("\0\0\0\u0018ftypmp42"), VideoHasAudio = true };
+        var output = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions { KeepClipAudio = keepAudio }, "Story", media, null);
+        var data = WorkbookReader.Read(output.Bundle.Workbook);
+
+        Assert.Empty(data.Errors);
+        Assert.Equal(keepAudio, data.Scenes[0].Flag("BackgroundAudio"));
+        Assert.False(data.Scenes[1].Flag("BackgroundAudio"));
     }
 
     [Fact]

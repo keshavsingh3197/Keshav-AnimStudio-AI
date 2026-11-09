@@ -7,16 +7,17 @@ namespace AnimStudio.Application.StoryAgent;
 /// <summary>One subtitle track a finished story can offer.</summary>
 /// <param name="Language">The language code YouTube and players know it by: <c>hi</c>, <c>en</c>.</param>
 /// <param name="Label">The language's name, for the page and for YouTube's track name.</param>
-/// <param name="Source"><c>narration</c> for the words the voice says, <c>translation</c> for the English meaning of them.</param>
+/// <param name="Source"><c>narration</c> for the words the voice says, <c>translation</c> for their meaning in the story's other language.</param>
 public sealed record StoryCaptionTrack(string Language, string Label, string Source, int Cues);
 
 /// <summary>One subtitle on the finished video's own timeline, in seconds.</summary>
 public sealed record StoryCaptionCue(double Start, double End, string Text);
 
 /// <summary>
-/// The story's subtitles as SRT files: the narration in the story's own language, and - for a story not told in
-/// English - the English meaning of each scene, timed to the same scenes. Both are worked out from the run itself, the
-/// way the build placed them in the project, so they line up with the rendered video.
+/// The story's subtitles as SRT files: the narration in the story's own language, and its meaning in the other one -
+/// English for a Hindi story, Hindi for an English story that has it (from its dub) - timed to the same scenes. Both are
+/// worked out from the run itself, the way the build placed them in the project, so they line up with the rendered video.
+/// When the dub was spoken, the translation follows the dub's voice, so it matches the dub track too.
 /// </summary>
 /// <remarks>
 /// Timings exist only once the project has been built (<see cref="StoryRun.SceneStarts"/>). A script edited after that
@@ -37,26 +38,25 @@ public static class StoryCaptions
         var spoken = Build(run, language);
         if (spoken.Count > 0) tracks.Add(new StoryCaptionTrack(language, LabelOf(language), Narration, spoken.Count));
 
-        if (language != "en")
-        {
-            var english = Build(run, "en");
-            if (english.Count > 0) tracks.Add(new StoryCaptionTrack("en", LabelOf("en"), Translation, english.Count));
-        }
+        var other = language == "en" ? "hi" : "en";
+        var translated = Build(run, other);
+        if (translated.Count > 0) tracks.Add(new StoryCaptionTrack(other, LabelOf(other), Translation, translated.Count));
 
         return tracks;
     }
 
     /// <summary>
-    /// The cues of one track, in order, never overlapping. The story's own language is the narration; English for a story
-    /// told in another language is each scene's English meaning. Any other language has none.
+    /// The cues of one track, in order, never overlapping. The story's own language is the narration; the other of Hindi
+    /// and English is each scene's meaning in it. Any other language has none.
     /// </summary>
     public static IReadOnlyList<StoryCaptionCue> Build(StoryRun run, string language)
     {
         if (!HasTimings(run)) return [];
 
         var spoken = LanguageOf(run);
-        var translated = language == "en" && spoken != "en";
+        var translated = language != spoken && language is "en" or "hi";
         if (language != spoken && !translated) return [];
+        var dubbed = translated && StoryDub.IsSpoken(run);
 
         var scenes = run.Script!.Scenes;
         // Narration lengths and pauses are measured at the project's own pace; the scene starts at the video's speed.
@@ -66,14 +66,15 @@ public static class StoryCaptions
         {
             var scene = scenes[i];
             var start = run.SceneStarts[i];
-            var seconds = Math.Max(0.5, HasAudio(run, scene) ? scene.AudioSeconds!.Value : scene.EstimatedSeconds);
+            var seconds = Math.Max(0.5, dubbed ? scene.DubAudioSeconds!.Value
+                : HasAudio(run, scene) ? scene.AudioSeconds!.Value : scene.EstimatedSeconds);
             // The next scene fades in before this one ends; a subtitle stops where the next scene starts.
             var limit = i + 1 < scenes.Count ? run.SceneStarts[i + 1] : Math.Max(run.TotalSeconds, start + seconds / pace);
 
-            var text = translated ? scene.English : scene.Narration;
+            var text = translated ? StoryDub.TextOf(scene, language) : scene.Narration;
             var chunks = StoryPacing.SplitCaptions(text);
-            var spans = !translated && HasAudio(run, scene)
-                ? StoryPacing.Align(chunks, seconds, scene.Pauses)
+            var spans = dubbed ? StoryPacing.Align(chunks, seconds, scene.DubPauses)
+                : !translated && HasAudio(run, scene) ? StoryPacing.Align(chunks, seconds, scene.Pauses)
                 : StoryPacing.Spread(chunks, seconds);
 
             foreach (var span in spans)

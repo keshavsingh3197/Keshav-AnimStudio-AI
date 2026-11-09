@@ -25,6 +25,12 @@ public sealed record YouTubeVideoMetadata
     /// honours it; the details-only check ignores it.
     /// </summary>
     public DateTime? PublishAt { get; init; }
+
+    /// <summary>
+    /// The language spoken in the video, <c>hi</c> or <c>en</c>: YouTube labels the original audio track with it, and a dub
+    /// added later in Studio sits beside it. Left out, YouTube guesses.
+    /// </summary>
+    public string? Language { get; init; }
 }
 
 /// <summary>The metadata after trimming and normalizing, exactly as it will be sent.</summary>
@@ -36,7 +42,8 @@ public sealed record NormalizedYouTubeMetadata(
     string Privacy,
     bool MadeForKids,
     bool NotifySubscribers,
-    DateTime? PublishAt = null);
+    DateTime? PublishAt = null,
+    string? Language = null);
 
 /// <summary>The facts about the file that YouTube's own limits depend on.</summary>
 public sealed record YouTubeVideoFacts(
@@ -202,10 +209,16 @@ public static class YouTubePublishValidator
             errors.Add(new("madeForKids", "audience-missing",
                 "Say whether this video is made for kids - YouTube requires it for every upload."));
 
+        // Only the languages the studio makes videos in; anything else is refused rather than sent on.
+        var language = string.IsNullOrWhiteSpace(input.Language) ? null : input.Language.Trim().ToLowerInvariant();
+        if (language is not null and not ("hi" or "en"))
+            errors.Add(new("language", "language-invalid", "The video's language must be Hindi or English."));
+
         if (errors.Count > 0) return new(null, errors, warnings);
 
         return new(
-            new NormalizedYouTubeMetadata(title, description, tags, categoryId, privacy, input.MadeForKids!.Value, input.NotifySubscribers),
+            new NormalizedYouTubeMetadata(title, description, tags, categoryId, privacy, input.MadeForKids!.Value, input.NotifySubscribers,
+                Language: language),
             errors, warnings);
     }
 

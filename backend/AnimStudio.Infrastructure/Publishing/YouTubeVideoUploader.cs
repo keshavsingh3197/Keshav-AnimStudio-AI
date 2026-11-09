@@ -215,7 +215,10 @@ public sealed class YouTubeVideoUploader : IDisposable
                 title = metadata.Title,
                 description = metadata.Description,
                 tags = metadata.Tags,
-                categoryId = metadata.CategoryId
+                categoryId = metadata.CategoryId,
+                // The title's language and the original audio track's; a dub added in Studio is offered beside it.
+                defaultLanguage = metadata.Language,
+                defaultAudioLanguage = metadata.Language
             },
             status = new
             {

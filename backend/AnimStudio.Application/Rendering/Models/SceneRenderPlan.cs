@@ -40,6 +40,7 @@ public sealed record SceneRenderPlan
     public required string BackgroundRelativePath { get; init; }
     /// <summary>The background is a moving clip (looped to the scene), not a still.</summary>
     public bool BackgroundIsVideo { get; init; }
+    public bool BackgroundHasAudio { get; init; }
     public AnimationSettings BackgroundAnimation { get; init; } = AnimationSettings.None;
 
     public IReadOnlyList<SpritePlan> Sprites { get; init; } = [];

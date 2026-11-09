@@ -81,6 +81,8 @@ public sealed class Scene
     public int DurationFrames { get; set; }
 
     public string? BackgroundAssetId { get; set; }
+    /// <summary>Mix the video background's sound with the scene audio.</summary>
+    public bool BackgroundAudio { get; set; }
     public List<CharacterPlacement> Characters { get; set; } = [];
     public List<DialogueLine> Dialogue { get; set; } = [];
     public SceneAudio Audio { get; set; } = new();

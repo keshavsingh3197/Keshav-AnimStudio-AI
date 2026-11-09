@@ -338,13 +338,16 @@ export function clipPrompts(
   scenes: readonly ClipPromptScene[],
   style: string | null,
   vertical: boolean,
+  acted = false,
 ): string {
   const shot = scenes.filter((scene) => scene.videoPrompt?.trim() || scene.imagePrompt?.trim());
   const lines = [`Video clip prompts for "${title}" - ${shot.length} clips of ${CLIP_SECONDS} seconds, ${vertical ? '9:16 vertical (portrait)' : '16:9 wide (landscape)'}`];
   if (summary?.trim()) lines.push(`The story: ${summary.trim()}`);
   if (style?.trim()) lines.push(`Look of every clip: ${style.trim()}`);
   lines.push(
-    'Keep each character looking the same in every clip. Slow, calm motion; no speech, no music, no words, letters or watermarks.',
+    acted
+      ? 'Keep each character looking the same in every clip. Show expressive character actions and reactions; no speech, no music, no words, letters or watermarks.'
+      : 'Keep each character looking the same in every clip. Slow, calm motion; no speech, no music, no words, letters or watermarks.',
     'Tip: in Google Flow, start each clip from that scene\'s picture (Frames to Video) so the clips match the pictures.',
     'Save each clip with its number as the file name (01.mp4, 02.mp4 …) so they go onto the right scenes by themselves.',
     '',
@@ -354,12 +357,12 @@ export function clipPrompts(
     const picture = scene.imagePrompt?.trim();
     if (!motion && !picture) return;
     const file = pictureFileName(index, scenes.length);
-    const loops = scene.seconds > CLIP_SECONDS + 1 ? ` - the scene runs ${Math.round(scene.seconds)}s, so the clip loops; make it calm` : '';
+    const loops = scene.seconds > CLIP_SECONDS + 1 ? ` - the scene runs ${Math.round(scene.seconds)}s, so the clip loops${acted ? '; check the repeated action' : '; make it calm'}` : '';
     lines.push(`${file} - file name: ${file}.mp4${scene.headline ? ` - ${scene.headline}` : ''}${loops}`);
     const context = scene.context?.replace(/\s+/g, ' ').trim();
     if (context) lines.push(`What happens: ${context.length > CONTEXT_CHARS ? `${context.slice(0, CONTEXT_CHARS - 1).trimEnd()}…` : context}`);
     if (picture) lines.push(`Shot: ${picture}`);
-    lines.push(`Motion: ${motion || 'a gentle, slow push in; light and cloth move softly'}`, '');
+    lines.push(`Motion: ${motion || (acted ? 'characters act and react expressively' : 'a gentle, slow push in; light and cloth move softly')}`, '');
   });
   return lines.join('\n').trimEnd();
 }

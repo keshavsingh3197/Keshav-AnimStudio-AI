@@ -216,7 +216,9 @@ public static class WorkbookSchema
                 Help: "Length of that transition.", Example: "0.5", Minimum: 0, Maximum: 10),
             new("Audio", WorkbookCellType.Reference,
                 Help: "Audio for this scene: an Assets row name or a media/ file.",
-                Example: "media/scene-01.wav")
+                Example: "media/scene-01.wav"),
+            new("BackgroundAudio", WorkbookCellType.Boolean,
+                Help: "Mix the video background's original audio with the scene audio.", Example: "FALSE")
         ],
         "One row per scene, in the order they play. SceneNumber is the identity, so you can "
         + "sort this sheet however you like without breaking anything.");

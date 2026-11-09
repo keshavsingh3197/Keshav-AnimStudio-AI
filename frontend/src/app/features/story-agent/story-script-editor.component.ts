@@ -893,6 +893,7 @@ export class StoryScriptEditorComponent {
       })),
       run.options.imageStyle,
       this.vertical(),
+      run.brief.voicing === 'CharactersOnly',
     );
     await this.flash('clips', text, 'The video clip prompts are copied, numbered. Save each clip under its number (01.mp4 …), then add them all at once.');
   }
@@ -901,7 +902,7 @@ export class StoryScriptEditorComponent {
     const style = this.run().options.imageStyle?.trim();
     const parts = [
       scene.imagePrompt.trim() ? `Shot: ${scene.imagePrompt.trim()}` : '',
-      `Motion: ${scene.videoPrompt.trim() || 'a gentle, slow push in; light and cloth move softly'}`,
+      `Motion: ${scene.videoPrompt.trim() || (this.run().brief.voicing === 'CharactersOnly' ? 'characters act and react expressively' : 'a gentle, slow push in; light and cloth move softly')}`,
       style ? `Look: ${style}` : '',
       `8 seconds, ${this.vertical() ? '9:16 vertical' : '16:9 wide'}, no speech, no words or letters. Save as ${this.fileName(index)}.mp4`,
     ];

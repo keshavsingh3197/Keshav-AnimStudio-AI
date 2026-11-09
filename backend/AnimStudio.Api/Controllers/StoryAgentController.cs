@@ -443,6 +443,36 @@ public sealed class StoryAgentController(
         return await OwnedFileAsync(run, key, "audio-not-found", "That scene has no narration yet.", ct);
     }
 
+    /// <summary>A scene's dub narration, to listen to beside the story's own.</summary>
+    [HttpGet("runs/{id}/scenes/{number:int}/dub-audio")]
+    public async Task<IActionResult> DubNarration(string id, int number, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        var key = run.Script?.Scenes.FirstOrDefault(s => s.Number == number)?.DubAudioKey;
+        return await OwnedFileAsync(run, key, "audio-not-found", "That scene has no dub yet.", ct);
+    }
+
+    /// <summary>
+    /// The dub track: a WAV the length of the story's video, to add in YouTube Studio as the video's second audio track
+    /// (Languages, Add language, Add dub). YouTube has no API for audio tracks, so this step is the person's.
+    /// </summary>
+    [HttpGet("runs/{id}/dub")]
+    public async Task<IActionResult> DubTrack(string id, CancellationToken ct)
+    {
+        var run = await stories.GetAsync(currentUser.UserId, id, ct);
+        var language = run.DubLanguage is "en" or "hi" ? run.DubLanguage : null;
+        if (language is null || string.IsNullOrEmpty(run.RenderJobId) || !StoryObjectKeys.Owns(run.Id, run.DubAudioKey))
+            throw new StoryRunException(StoryRunErrorKind.NotFound, "dub-not-found", "This story has no dub track yet.");
+
+        var stream = await store.OpenAsync(run.DubAudioKey!, ct)
+            ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "dub-not-found", "This story has no dub track yet.");
+
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        // The name is built here from the run's id and a checked code, never from the title.
+        return File(stream, "audio/wav", $"{run.Id}.{language}-dub.wav");
+    }
+
     /// <summary>The background track, to listen to before approving it.</summary>
     [HttpGet("runs/{id}/music")]
     public async Task<IActionResult> Music(string id, CancellationToken ct)

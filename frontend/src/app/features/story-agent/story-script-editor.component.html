@@ -81,7 +81,7 @@
         <li><strong>Make the pictures</strong> in Google Flow or any image tool, and save each one under its number: <span class="mono">01.png</span>, <span class="mono">02.png</span> …</li>
         <li><strong>Add all pictures</strong> in one go. Each file goes onto the scene with its number. A scene you leave empty gets an AI picture, or a plain background.</li>
         <li><strong>More than one picture in a scene:</strong> a scene's further pictures are numbered after a dash (<span class="mono">01-2.png</span>, <span class="mono">01-3.png</span> …). They are shown one after another while its words are spoken, with the cuts between them made for you. Save the thumbnail as <span class="mono">{{ thumbnailFile }}.png</span>.</li>
-        <li class="muted"><strong>Optional, moving clips:</strong> copy all video prompts, make 8-second clips in Google Flow (start from the scene's picture so they match), save them as <span class="mono">01.mp4</span> … and add them all. A scene with a clip plays it, looped if the narration is longer; the others keep their picture.</li>
+        <li class="muted"><strong>Optional, moving clips:</strong> copy video prompts, make clips in your video tool, save them as <span class="mono">01.mp4</span> … and add them all. In build settings choose whether scenes match clip length and whether clip sound is included. Without clip-length timing, clips loop to fill their scenes.</li>
       </ol>
       @if (dirty()) {
         <p class="notice se-note">Save your script changes first, so the scene numbers match the prompts.</p>

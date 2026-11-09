@@ -48,7 +48,22 @@ public sealed class ComedyWorkspaceControllerTests
         using var data = JsonDocument.Parse(prompt[(prompt.LastIndexOf("Creator data:", StringComparison.Ordinal) + "Creator data:".Length)..]);
         Assert.Equal(Input.Material, data.RootElement.GetProperty("material").GetString());
         Assert.Equal(Input.Reference, data.RootElement.GetProperty("reference").GetString());
+        Assert.Equal(60, data.RootElement.GetProperty("targetSeconds").GetInt32());
+        Assert.Equal("Narrated", data.RootElement.GetProperty("voicing").GetString());
         Assert.Empty(ai.TextCalls);
+    }
+
+    [Fact]
+    public void Prompt_requests_acted_dialogue_and_thirty_second_target()
+    {
+        var request = Input with { TargetSeconds = 30, Voicing = "CharactersOnly" };
+        var controller = new ComedyWorkspaceController(new FakeAi(), new Access(false), new User());
+        var response = Assert.IsType<OkObjectResult>(controller.Prompt(request).Result);
+        var prompt = Assert.IsType<ApiResponse<ComedyPromptResponse>>(response.Value).Data!.Prompt;
+        Assert.Contains("no narrator, descriptive voiceover", prompt);
+        using var data = JsonDocument.Parse(prompt[(prompt.LastIndexOf("Creator data:", StringComparison.Ordinal) + "Creator data:".Length)..]);
+        Assert.Equal(30, data.RootElement.GetProperty("targetSeconds").GetInt32());
+        Assert.Equal("CharactersOnly", data.RootElement.GetProperty("voicing").GetString());
     }
 
     [Fact]
@@ -79,9 +94,9 @@ public sealed class ComedyWorkspaceControllerTests
     [Fact]
     public void Request_validation_refuses_oversized_and_unsupported_fields()
     {
-        var invalid = Input with { Material = new string('x', 20001), Language = "fr", Style = "live" };
+        var invalid = Input with { Material = new string('x', 20001), Language = "fr", Style = "live", TargetSeconds = 29, Voicing = "invalid" };
         var errors = new List<ValidationResult>();
         Assert.False(Validator.TryValidateObject(invalid, new ValidationContext(invalid), errors, true));
-        Assert.Equal(3, errors.Count);
+        Assert.Equal(5, errors.Count);
     }
 }

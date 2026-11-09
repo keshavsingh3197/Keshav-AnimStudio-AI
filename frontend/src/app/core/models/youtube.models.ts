@@ -50,6 +50,8 @@ export interface YouTubePrefill {
   firstComment?: string | null;
   /** A picture made for this video (a story's thumbnail), chosen as the thumbnail until the person picks another. */
   thumbnail?: Blob | null;
+  /** The language spoken in the video ('hi' or 'en'), so YouTube labels its original audio track. */
+  language?: 'hi' | 'en' | null;
 }
 
 /** YouTube's Music category; what makes an upload show up on YouTube Music. */
@@ -75,6 +77,8 @@ export interface YouTubeVideoMetadata {
    * null or absent uploads with the chosen visibility straight away.
    */
   publishAt?: string | null;
+  /** The language spoken in the video, 'hi' or 'en'; YouTube labels the original audio track with it. */
+  language?: 'hi' | 'en' | null;
 }
 
 export interface YouTubeDraft {

@@ -421,6 +421,7 @@ public static class DependencyInjection
         // Each stage is a scoped service the executor walks in order; the worker owns the queue the API talks to.
         services.AddSingleton<IStoryAudioFinisher, FfmpegStoryAudioFinisher>();
         services.AddScoped<StoryNarrator>();
+        services.AddScoped<StoryDubTranslator>();
         services.AddScoped<StoryBudgetService>();
         services.AddScoped<IStoryStage, ResearchStage>();
         services.AddScoped<IStoryStage, ScriptStage>();

@@ -106,6 +106,10 @@ public sealed class FfprobeMediaProbeService(
 
             if (string.Equals(type, "video", StringComparison.Ordinal))
             {
+                if (stream.TryGetProperty("duration", out var videoDuration)
+                    && videoDuration.ValueKind == JsonValueKind.String
+                    && double.TryParse(videoDuration.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var videoSeconds))
+                    probe.VideoDurationSeconds = videoSeconds;
                 probe.Width = stream.TryGetProperty("width", out var w) ? w.GetInt32() : null;
                 probe.Height = stream.TryGetProperty("height", out var h) ? h.GetInt32() : null;
                 probe.VideoCodec = stream.TryGetProperty("codec_name", out var c) ? c.GetString() : null;

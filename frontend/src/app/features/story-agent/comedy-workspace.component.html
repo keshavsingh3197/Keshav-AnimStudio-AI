@@ -2,9 +2,19 @@
   <header>
     <a routerLink="/story-agent">← Story Agent</a>
     <h1>Comedy workspace</h1>
-    <p>Turn your ideas or several scripts into one vertical comedy compilation. Review the script before making a video.</p>
+    <p>Make an acted comedy short with characters, dialogue and visual jokes. Review the script before making a video.</p>
     <a routerLink="/memes">Manage your memes &amp; reactions</a>
   </header>
+
+  <section class="card cw-section">
+    <h2>Start with a story template</h2>
+    <p>Download an example JSON file, fill it yourself or give it to another AI, then upload or paste the completed file below.
+      The example includes two sample scenes: replace them with your own. Choose language, style, length and voicing below before downloading.</p>
+    <button type="button" class="secondary" (click)="downloadTemplate()">Download story template (.json)</button>
+    <p class="muted">Keep the field names and at least two scenes. The required JSON field "narration" contains the spoken words, not necessarily a narrator.
+      The lines should join to the same words,
+      and each character who speaks must appear in cast. Actual timing depends on the voice. Review all generated material and media rights.</p>
+  </section>
 
   <section class="card cw-section">
     <h2>1. Your material</h2>
@@ -13,7 +23,7 @@
     <label for="cw-material">Your ideas or scripts</label>
     <textarea id="cw-material" rows="12" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
       placeholder="Paste multiple scripts, characters, dialogue and scene descriptions here."></textarea>
-    <span class="muted">{{ material().length }} / 20000 characters. Scripts are combined into one Short; check the resulting duration.</span>
+    <span class="muted">{{ material().length }} / 20000 characters. Ideas are combined into one Short; choose only what fits.</span>
     <label>Or load a text file <input type="file" accept=".txt,text/plain" (change)="pickScript($event)" /></label>
     <label for="cw-reference">Reference link or your observations <span class="muted">(optional)</span></label>
     <input id="cw-reference" maxlength="1000" [ngModel]="reference()" (ngModelChange)="reference.set($event)"
@@ -23,6 +33,17 @@
       <label>Language
         <select [ngModel]="language()" (ngModelChange)="language.set($event)">
           <option value="hi">Hindi</option><option value="en">English</option>
+        </select>
+      </label>
+      <label>Target length
+        <select [ngModel]="targetSeconds()" (ngModelChange)="targetSeconds.set($event)">
+          <option [ngValue]="30">About 30 seconds</option><option [ngValue]="60">About 60 seconds</option>
+        </select>
+      </label>
+      <label>How the story is spoken
+        <select [ngModel]="voicing()" (ngModelChange)="voicing.set($event)">
+          <option value="CharactersOnly">Characters speak and act (no narrator)</option>
+          <option value="Narrated">Narrated story</option>
         </select>
       </label>
       <label>Visual style
@@ -52,17 +73,57 @@
 
   <section class="card cw-section">
     <h2>3. Review and import</h2>
+    <p class="muted">Loading a file replaces the story JSON below and updates the title, language, supported length, voicing and style above.
+      Your original ideas and reference are not changed. Import uses the JSON below; changing the form above does not edit it.</p>
+    <label>Upload a completed story JSON or text file
+      <input type="file" accept=".json,.txt,application/json,text/plain" [disabled]="busy()" (change)="pickStory($event)" />
+    </label>
     <label for="cw-reply">Story JSON from the configured AI or another tool</label>
-    <textarea id="cw-reply" rows="12" [ngModel]="reply()" (ngModelChange)="reply.set($event)"
+    <textarea id="cw-reply" rows="12" [ngModel]="reply()" (ngModelChange)="updateReply($event)"
       placeholder="Paste the complete animstudio-story JSON response here."></textarea>
     <p class="muted">Check the dialogue, scene count, visual prompts and actual duration. Import checks the script again; you approve it before building.
       Generated output is not guaranteed to be original or copyright-safe. Use only media you have rights to.</p>
     <div class="cw-actions">
+      <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="loadPastedStory()">Load and review script</button>
       <button type="button" [disabled]="!reply().trim() || busy()" (click)="importStory()">Import into Story Agent</button>
       <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="downloadStory()">Download story JSON</button>
     </div>
-    <p class="muted">For moving characters, attach your own clips or use Motion Copy with a driving video. The app does not automatically place memes or publish.</p>
   </section>
+  @if (review(); as script) {
+    <section class="card cw-section">
+      <h2>Review the performance: {{ script.title }}</h2>
+      <p>@if (script.targetSeconds) { Target: about {{ script.targetSeconds }} seconds. } @else { No target duration specified. }
+        Read the dialogue and actions, and revise the JSON above if needed;
+        reload it to refresh this review. Timing is an estimate, not a guarantee.</p>
+      @if (script.warnings.length) {
+        <div class="notice error" role="alert">
+          <strong>Check before producing:</strong>
+          <ul>@for (warning of script.warnings; track $index) { <li>{{ warning }}</li> }</ul>
+        </div>
+      }
+      @for (scene of script.scenes; track $index) {
+        <article class="cw-review-scene">
+          <h3>{{ $index + 1 }}. {{ scene.headline }}</h3>
+          <p class="cw-dialogue"><strong>Dialogue:</strong> {{ scene.dialogue || 'Missing dialogue' }}</p>
+          <p><strong>Setting:</strong> {{ scene.image || 'Not specified' }}</p>
+          <p><strong>Action:</strong> {{ scene.action || 'Not specified' }}</p>
+        </article>
+      }
+      <button type="button" class="secondary" [disabled]="script.warnings.length > 0" (click)="prepareVideoPrompt()">I reviewed this — prepare video prompt</button>
+      <p class="muted">This prepares text for Google Flow or another video tool; it does not generate video.
+        External tools may require shorter clips and may not follow dialogue or lip-sync exactly. Check and edit the result.</p>
+      @if (videoPrompt()) {
+        <label for="cw-video-prompt">Video generation prompt</label>
+        <textarea id="cw-video-prompt" rows="12" readonly [value]="videoPrompt()"></textarea>
+        <div class="cw-actions">
+          <button type="button" class="secondary" (click)="copyVideoPrompt()">Copy video prompt</button>
+          <button type="button" class="secondary" (click)="downloadVideoPrompt()">Download video prompt</button>
+        </div>
+      }
+      <p class="muted">Story Agent can use attached moving clips, but its character voices require a supported speech engine and
+        cast voices enabled. It does not automatically lip-sync those voices to the clips; review the final result.</p>
+    </section>
+  }
   @if (error(); as problem) { <div class="notice error" role="alert">{{ problem }}</div> }
   @if (notice(); as message) { <div class="notice" role="status">{{ message }}</div> }
 </section>

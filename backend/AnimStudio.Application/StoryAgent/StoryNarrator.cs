@@ -132,6 +132,24 @@ public sealed partial class StoryNarrator(
             profile is not null && replicated is null && options.ClosestToMyVoice, model, style, replicated, cast);
     }
 
+    /// <summary>
+    /// Who speaks the dub in <paramref name="language"/>: a stock voice of the same engine, at the same rate and delivery.
+    /// A Gemini voice speaks every language, so the dub keeps the story's narrator; other engines' voices belong to one
+    /// language, so the dub gets that language's default. The person's own voice and the character voices stay with the
+    /// story's language: the dub's narrator reads every line.
+    /// </summary>
+    public static NarrationPlan PlanDub(NarrationPlan story, string language)
+    {
+        var engine = story.Profile is not null && story.ReplicatedVoiceId is null ? null : story.Engine;
+        var gemini = KnownAiProviders.Find(engine ?? string.Empty)?.Family == AiProviderFamily.GeminiSpeech;
+        var voiceId = gemini
+            ? story.Profile is null ? story.VoiceId : DefaultGeminiVoice
+            : language == "en" ? DefaultEnglishVoice : DefaultHindiVoice;
+
+        return new NarrationPlan(StoryNarrationMode.Stock, voiceId, engine, story.Rate, null, false,
+            engine is null ? null : story.Model, SupportsStyle(engine) ? story.Style : null);
+    }
+
     /// <summary>Engines that take a delivery instruction with a line; the rest would ignore it.</summary>
     public static bool SupportsStyle(string? engine) =>
         engine is not null && KnownAiProviders.Find(engine)?.Family == AiProviderFamily.GeminiSpeech;

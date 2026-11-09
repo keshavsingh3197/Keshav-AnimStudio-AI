@@ -65,6 +65,7 @@ const LIST_POLL_MS = 4000;
 
 /** Lengths a story is offered in. The script is written to about this; it is a target, not a promise. */
 const LENGTHS: { minutes: number; label: string }[] = [
+  { minutes: 0.5, label: 'About 30 seconds' },
   { minutes: 1, label: 'About 1 minute' },
   { minutes: 2.5, label: 'About 2½ minutes' },
   { minutes: 4, label: 'About 4 minutes' },
@@ -266,6 +267,8 @@ export class StoryAgentComponent {
     const mine = caps.speechEngine ? caps.myVoices.find((voice) => voice.tuned) : undefined;
     this.options.set({
       narration: mine ? 'MyVoice' : caps.speechEngine ? 'Stock' : 'None',
+      matchClipDuration: true,
+      keepClipAudio: false,
       voiceProfileId: mine?.id ?? null,
       voiceId: null,
       speechEngine: null,

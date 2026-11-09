@@ -149,6 +149,11 @@ export class StoryAgentService {
     return this.http.get(`${environment.apiUrl}/api/render-jobs/${encodeURIComponent(jobId)}/download`, { responseType: 'blob' });
   }
 
+  /** The dub track as a WAV, for YouTube Studio's multi-language audio. Fetched through HttpClient so it carries the caller's identity. */
+  dubTrack(id: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/dub`, { responseType: 'blob' });
+  }
+
   /** One subtitle track as an SRT file (UTF-8). Fetched through HttpClient so it carries the caller's identity. */
   subtitleFile(id: string, language: string): Observable<Blob> {
     return this.http.get(`${this.run(id)}/subtitles/${encodeURIComponent(language)}`, { responseType: 'blob' });

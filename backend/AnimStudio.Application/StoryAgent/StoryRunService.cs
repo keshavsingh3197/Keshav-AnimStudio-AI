@@ -133,7 +133,7 @@ public sealed partial class StoryRunService(
     public const int MinTitleChars = 3;
     public const int MaxTitleChars = 160;
     public const int MaxNotesChars = 2_000;
-    public const int MinTargetSeconds = 45;
+    public const int MinTargetSeconds = 30;
     public const int MaxTargetSeconds = 600;
     public const int MaxScriptReplyChars = 120_000;
 
@@ -391,6 +391,12 @@ public sealed partial class StoryRunService(
                 scene.AudioName = old.AudioName;
                 scene.AudioSource = old.AudioSource;
                 scene.Pauses = old.Pauses;
+                // The dub's voice stays with the scene (narrating again replaces it if its words changed); a Hindi
+                // translation only while the words it was made from are the same.
+                scene.DubAudioKey = old.DubAudioKey;
+                scene.DubAudioSeconds = old.DubAudioSeconds;
+                scene.DubPauses = old.DubPauses;
+                scene.Hindi = old.Narration == narration ? old.Hindi : null;
                 scene.Lines = WithEmotions(old.Lines, incoming.LineEmotions);
                 scene.Shots = incoming.Shots is null ? old.Shots : KeepShots(old.Shots, incoming.Shots, dropped);
             }
@@ -414,7 +420,7 @@ public sealed partial class StoryRunService(
 
         // Pictures and narration of scenes that were taken out go with them, and so do further pictures taken out of a scene.
         foreach (var gone in before.Values.Where(s => !kept.Contains(s.Number)))
-            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey, .. gone.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey, gone.DubAudioKey, .. gone.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
         await DeleteFilesAsync(run, dropped, ct).ConfigureAwait(false);
 
         run.Script = result.Script;
@@ -648,7 +654,8 @@ public sealed partial class StoryRunService(
         await using (var content = new MemoryStream(video, writable: false))
             await store.SaveAsync(key, content, "video/mp4", ct).ConfigureAwait(false);
 
-        await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
+        if (!string.Equals(scene.VideoKey, key, StringComparison.Ordinal))
+            await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
         scene.VideoKey = key;
         scene.VideoName = SafeFileLabel(fileName) ?? $"Scene {scene.Number} clip";
         scene.VideoSource = StoryScene.AttachedClip;
@@ -1183,6 +1190,8 @@ public sealed partial class StoryRunService(
         return new StoryBuildOptions
         {
             Narration = o.Narration,
+            MatchClipDuration = o.MatchClipDuration,
+            KeepClipAudio = o.KeepClipAudio,
             VoiceProfileId = profileId,
             VoiceId = voiceId,
             SpeechEngine = engine,
@@ -1206,7 +1215,9 @@ public sealed partial class StoryRunService(
             VideoSpeed = StoryVideoSpeed.Normalize(o.VideoSpeed),
             AutoPace = o.AutoPace,
             Pace = Enum.IsDefined(o.Pace) ? o.Pace : StoryPaceStyle.Auto,
-            ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto
+            ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto,
+            // A dub is a second voice: nothing to dub when the story has none.
+            Dub = o.Dub && o.Narration != StoryNarrationMode.None
         };
     }
 
@@ -1397,7 +1408,7 @@ public sealed partial class StoryRunService(
     private async Task DeleteScriptFilesAsync(StoryRun run, CancellationToken ct)
     {
         foreach (var scene in run.Script?.Scenes ?? [])
-            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey, .. scene.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey, scene.DubAudioKey, .. scene.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
         await DeleteFilesAsync(run, [run.Script?.ThumbnailKey], ct).ConfigureAwait(false);
     }
 

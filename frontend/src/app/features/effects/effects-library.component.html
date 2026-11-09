@@ -18,6 +18,49 @@
     </div>
   </header>
 
+  @if (reactionsPage) {
+    <section class="card fx-create">
+      <h3>Create an original reaction</h3>
+      <p class="muted">Draw a transparent PNG in your browser, then download it or save it to your library. Use your own caption.</p>
+      <div class="fx-create-fields">
+        <label>Expression
+          <select class="form-select" [ngModel]="reactionExpression()" (ngModelChange)="updateReactionExpression($event)">
+            <option value="surprised">Surprised</option>
+            <option value="laughing">Laughing</option>
+            <option value="confused">Confused</option>
+            <option value="unimpressed">Unimpressed</option>
+          </select>
+        </label>
+        <label>Caption (optional)
+          <input type="text" maxlength="40" [ngModel]="reactionCaption()" (ngModelChange)="updateReactionCaption($event)" placeholder="Write your own punchline" />
+        </label>
+        <button type="button" (click)="makeReaction()">Create preview</button>
+      </div>
+      @if (reactionPreview(); as preview) {
+        <div class="fx-reaction-result">
+          <img [src]="preview" alt="Preview of your original reaction graphic" />
+          <div class="fx-actions">
+            <button type="button" [disabled]="uploading()" (click)="saveReaction()">Save to meme library</button>
+            <a class="fx-btn" [href]="preview" [download]="'reaction-' + reactionExpression() + '.png'">Download PNG</a>
+          </div>
+        </div>
+      }
+      <p class="muted">These are still images, not video or sound. Add them manually from the editor's Effects panel.
+        No service can guarantee that YouTube will never issue a claim; check your caption and all other media too.</p>
+    </section>
+    <section class="card fx-create">
+      <h3>Find inspiration on Pinterest</h3>
+      <div class="fx-create-fields">
+        <label>Search Pinterest
+          <input type="search" maxlength="100" [ngModel]="reactionSearch()" (ngModelChange)="reactionSearch.set($event)" placeholder="Funny reaction ideas" />
+        </label>
+        <a class="fx-btn" [href]="pinterestSearchUrl()" target="_blank" rel="noopener noreferrer">Open Pinterest search</a>
+      </div>
+      <p class="muted">Search opens Pinterest in a new tab; your search is sent to Pinterest. Pins are not automatically downloaded.
+        A pin being public or edited does not grant permission to reuse it. Check the original creator's license, commercial-use terms and attribution requirements before downloading or uploading any media.</p>
+    </section>
+  }
+
   <!-- Upload: drop, paste or pick; the category and green-screen flag apply to this batch. -->
   <div class="fx-upload" [appFileDrop]="accept" [fileDropMultiple]="true" [fileDropDisabled]="uploading()"
        (filesDropped)="uploadFiles($event)">

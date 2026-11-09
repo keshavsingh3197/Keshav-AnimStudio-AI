@@ -168,6 +168,24 @@ public sealed class StoryRun
     /// </summary>
     public double TimingSpeed { get; set; } = 1.0;
 
+    /// <summary>
+    /// The project the dub was built as: the story's own scenes, pictures and timings with the other language's voice.
+    /// Set as soon as it exists so a rebuild replaces its scenes rather than adding a second project.
+    /// </summary>
+    public string? DubProjectId { get; set; }
+
+    /// <summary>The dub project's own render, at the pace it was built; the dub track is taken from it.</summary>
+    public string? DubSourceRenderJobId { get; set; }
+
+    /// <summary>
+    /// The dub as an audio file the length of the story's video, at its speed: what is added to the YouTube video as its
+    /// second audio track. Null until the render made it.
+    /// </summary>
+    public string? DubAudioKey { get; set; }
+
+    /// <summary>The language <see cref="DubAudioKey"/> is spoken in: <c>en</c> or <c>hi</c>.</summary>
+    public string? DubLanguage { get; set; }
+
     public StoryPublishKit? Kit { get; set; }
 
     /// <summary>The series this run is a part of; null for a story nobody has continued.</summary>

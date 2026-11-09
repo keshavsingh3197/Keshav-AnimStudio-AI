@@ -179,7 +179,8 @@ public sealed class StoryRunServiceTests
     [Theory]
     [InlineData("EN", 150, "en", 150)]
     [InlineData("fr", 150, "hi", 150)]
-    [InlineData(null, 10, "hi", 45)]
+    [InlineData(null, 10, "hi", 30)]
+    [InlineData("hi", 30, "hi", 30)]
     [InlineData("hi", 5_000, "hi", 600)]
     [InlineData("hi", 0, "hi", 150)]
     [InlineData("hi", -20, "hi", 150)]
@@ -890,6 +891,23 @@ public sealed class StoryRunServiceTests
     }
 
     // ----------------------------------------------------------------------------------------------- pictures
+
+    [Fact]
+    public async Task Replacing_an_attached_clip_keeps_the_new_file()
+    {
+        var world = new World();
+        var run = await world.Seed(StoryRunStatus.ScriptReady);
+        byte[] first = [0, 0, 0, 24, 102, 116, 121, 112, 1, 2, 3, 0];
+        byte[] second = [0, 0, 0, 24, 102, 116, 121, 112, 4, 5, 6, 0];
+        await world.Service.AttachVideoAsync(User, run.Id, 1, first, "first.mp4", CancellationToken.None);
+        var updated = await world.Service.AttachVideoAsync(User, run.Id, 1, second, "second.mp4", CancellationToken.None);
+        var key = updated.Script!.Scenes[0].VideoKey!;
+        await using var saved = await world.Store.OpenAsync(key);
+        Assert.NotNull(saved);
+        using var buffer = new MemoryStream();
+        await saved.CopyToAsync(buffer);
+        Assert.Equal(second, buffer.ToArray());
+    }
 
     [Fact]
     public async Task A_picture_is_kept_under_the_run_replaces_the_old_one_and_is_named_after_the_file_without_its_path()

@@ -33,6 +33,9 @@ public static class BuiltInPrompts
     /// <summary>Ideas for the next part of a story told over several videos.</summary>
     public const string StoryNextParts = "story-next-parts";
 
+    /// <summary>A story's narration in its other language (Hindi or English), scene by scene, for the dub.</summary>
+    public const string StoryDubTranslate = "story-dub-translate";
+
     /// <summary>What a channel's numbers say, and what to make and do next.</summary>
     public const string YouTubeChannelPlan = "youtube-channel-plan";
 
@@ -754,6 +757,47 @@ new()
                           "title": { "type": "string", "minLength": 1, "maxLength": 160 },
                           "notes": { "type": "string", "minLength": 1, "maxLength": 1500 },
                           "hook": { "type": "string", "maxLength": 400 }
+                        }
+                      }
+                    }
+                  }
+                }
+                """
+        },
+
+        new()
+        {
+            TemplateKey = StoryDubTranslate,
+            Version = 1,
+            Capability = AiCapability.Text,
+            SystemPrompt =
+                """
+                You translate the narration of a short story video so it can be dubbed: the same pictures play while a voice reads your words, so each scene's translation is read aloud in about the time the original takes. Keep the meaning, the names, the feeling and the storyteller's warmth; never add, drop or explain anything, and never change who does what. Write the way people speak, in short sentences a voice reads naturally. Hindi is written in Devanagari only, with no Latin letters, and numbers are written as words. English is plain, simple English with numbers written as words.
+                """ + " " + DataFenceRule,
+            Body =
+                """
+                Translate each scene's narration into {{language}}. The scenes, each with its number and narration:
+
+                {{scenes}}
+
+                Reply as {"scenes": [{"number": 1, "text": "..."}, ...]}, one entry for every scene given, in the same order, keeping each scene's number.
+                """,
+            Variables = ["language", "scenes"],
+            LiteralVariables = ["language"],
+            OutputJsonSchema =
+                """
+                {
+                  "type": "object",
+                  "required": ["scenes"],
+                  "additionalProperties": true,
+                  "properties": {
+                    "scenes": {
+                      "type": "array", "minItems": 1, "maxItems": 60,
+                      "items": {
+                        "type": "object", "required": ["number", "text"], "additionalProperties": true,
+                        "properties": {
+                          "number": { "type": "integer", "minimum": 1, "maximum": 999 },
+                          "text": { "type": "string", "minLength": 1, "maxLength": 1600 }
                         }
                       }
                     }

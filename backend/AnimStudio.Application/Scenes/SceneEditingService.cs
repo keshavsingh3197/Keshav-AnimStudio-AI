@@ -105,6 +105,7 @@ public sealed class SceneEditingService(
             Description = source.Description,
             DurationFrames = source.DurationFrames,
             BackgroundAssetId = source.BackgroundAssetId,
+            BackgroundAudio = source.BackgroundAudio,
             Animation = source.Animation,
             TransitionToNext = source.TransitionToNext,
             TransitionDurationFrames = source.TransitionDurationFrames,
@@ -264,6 +265,7 @@ public sealed class SceneEditingService(
         await EnsureUsableAssetAsync(assetId, project.Id, AssetKind.Image, ct).ConfigureAwait(false);
 
         scene.BackgroundAssetId = assetId;
+        scene.BackgroundAudio = false;
 
         // Recorded so a later regeneration refreshes everything except what a human chose.
         MarkEdited(scene, nameof(Scene.BackgroundAssetId));
@@ -291,6 +293,7 @@ public sealed class SceneEditingService(
         foreach (var scene in list)
         {
             scene.BackgroundAssetId = assetId;
+            scene.BackgroundAudio = false;
             Touch(scene);
             await scenes.ReplaceAsync(scene, ct).ConfigureAwait(false);
         }

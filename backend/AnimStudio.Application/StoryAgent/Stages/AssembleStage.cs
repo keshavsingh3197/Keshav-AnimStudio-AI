@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Ai;
@@ -22,6 +23,11 @@ namespace AnimStudio.Application.StoryAgent.Stages;
 /// <remarks>
 /// Running this stage again (a rebuild) replaces the same project's scenes rather than adding a second project, and the
 /// project's id is saved before anything goes into it so a crash in between leaves nothing orphaned.
+/// <para>
+/// With a dub spoken (<see cref="StoryDub"/>), each scene is as long as the longer of its two voices, and a second project
+/// is built the same way with the dub's voice and words: same pictures, looks, music and lengths, so the dub's render has
+/// the story's timeline.
+/// </para>
 /// </remarks>
 public sealed class AssembleStage(
     IProjectRepository projects,
@@ -29,6 +35,7 @@ public sealed class AssembleStage(
     WorkbookImportService importer,
     ProjectStatusService status,
     IObjectStore store,
+    IMediaProbeService probe,
     TimeProvider clock,
     ILogger<AssembleStage> logger) : IStoryStage
 {
@@ -43,6 +50,8 @@ public sealed class AssembleStage(
 
         await context.Report(5, "Collecting the pictures and narration").ConfigureAwait(false);
         var scenes = new List<StoryBundleScene>(script.Scenes.Count);
+        var dubbed = StoryDub.IsSpoken(run);
+        var dubAudio = new List<byte[]?>(script.Scenes.Count);
         foreach (var scene in script.Scenes)
         {
             ct.ThrowIfCancellationRequested();
@@ -52,8 +61,34 @@ public sealed class AssembleStage(
             var mime = AiImageValidator.Sniff(image)
                 ?? throw new StoryStageException("picture-invalid", $"The picture for scene {scene.Number} is not a PNG, JPEG or WebP.");
             var audio = await ReadAsync(run, scene.AudioKey, ct).ConfigureAwait(false);
+            var dub = dubbed ? await ReadAsync(run, scene.DubAudioKey, ct).ConfigureAwait(false) : null;
+            dubAudio.Add(dub);
             // A clip the build animated plays only while animation is on; turning it off goes back to the picture.
             var clip = PlaysClip(run, scene) ? await ReadAsync(run, scene.VideoKey, ct).ConfigureAwait(false) : null;
+            if (PlaysClip(run, scene) && clip is null)
+                throw new StoryStageException("clip-missing", $"Scene {scene.Number}'s attached clip is missing. Attach it again before building.");
+            MediaProbe? clipInfo = null;
+            double? clipSeconds = null;
+            if (clip is not null && (run.Options.MatchClipDuration || run.Options.KeepClipAudio))
+            {
+                clipInfo = await probe.ProbeAsync(scene.VideoKey!, ct).ConfigureAwait(false);
+                clipSeconds = clipInfo.VideoDurationSeconds is > 0 ? clipInfo.VideoDurationSeconds : clipInfo.DurationSeconds;
+                if (string.IsNullOrEmpty(clipInfo.VideoCodec) || clipSeconds is not > 0
+                    || !double.IsFinite(clipSeconds.Value))
+                    throw new StoryStageException("clip-probe-failed", $"Cannot read scene {scene.Number}'s clip duration or video stream. Check the MP4 and try again.");
+                if (run.Options.MatchClipDuration && clipInfo.VideoDurationSeconds is not > 0)
+                    StoryRunWarnings.AddRange(run, [$"Scene {scene.Number}: video-stream duration was unavailable; using the container duration. Check its timing."]);
+            }
+            var duration = SceneDuration(scene.EstimatedSeconds,
+                StoryDub.LongerVoice(audio is not null ? scene.AudioSeconds : null, dub is not null ? scene.DubAudioSeconds : null),
+                run.Options.MatchClipDuration ? clipSeconds : null);
+            if (run.Options.MatchClipDuration && clipSeconds is > 0)
+            {
+                if (audio is not null && scene.AudioSeconds > duration)
+                    StoryRunWarnings.AddRange(run, [$"Scene {scene.Number}: generated voice is longer than its clip and will be cut off. Shorten it or turn off clip-length timing."]);
+            }
+            if (clipInfo is not null && run.Options.KeepClipAudio && string.IsNullOrEmpty(clipInfo.AudioCodec))
+                StoryRunWarnings.AddRange(run, [$"Scene {scene.Number}: the attached clip has no audio track."]);
 
             // The scene's further pictures; one that is missing or not a picture is left out rather than stopping the build.
             var shots = new List<StoryBundleShot>();
@@ -70,10 +105,11 @@ public sealed class AssembleStage(
             scenes.Add(new StoryBundleScene(
                 scene.Number, image, mime, ImageNote(scene.ImageSource),
                 audio, audio is null ? null : $"Narration in {scene.AudioSource}",
-                audio is not null && scene.AudioSeconds is > 0 ? scene.AudioSeconds.Value : scene.EstimatedSeconds,
+                duration,
                 scene.Pauses)
             {
                 Video = clip,
+                VideoHasAudio = !string.IsNullOrEmpty(clipInfo?.AudioCodec),
                 VideoNote = clip is null ? null
                     : scene.HasAttachedClip ? "A moving clip the person attached to the Story Agent."
                     : $"The scene's picture brought to life by the {scene.VideoSource} video engine (AI).",
@@ -97,7 +133,8 @@ public sealed class AssembleStage(
 
         var music = await ReadMusicAsync(run, ct).ConfigureAwait(false);
         var name = ProjectName(script);
-        var project = await EnsureProjectAsync(run, name, ct).ConfigureAwait(false);
+        var project = await EnsureProjectAsync(run, run.ProjectId, name, ct).ConfigureAwait(false);
+        run.ProjectId = project.Id;
 
         // The project exists from here on, and the run says so before anything goes into it.
         await context.Save().ConfigureAwait(false);
@@ -105,8 +142,21 @@ public sealed class AssembleStage(
         await context.Report(40, "Building the project").ConfigureAwait(false);
         var built = StoryBundleBuilder.Build(script, run.Brief, run.Options, name, scenes, music);
         var result = await importer.ApplyAsync(project.Id, built.Bundle,
-            new WorkbookImportOptions { OverwriteUserEdits = true, RemoveMissingScenes = true }, ct).ConfigureAwait(false);
+            new WorkbookImportOptions { OverwriteUserEdits = true, RemoveMissingScenes = true, ClearEmptySceneAudio = true }, ct).ConfigureAwait(false);
         await status.RefreshAsync(project.Id, null, ct).ConfigureAwait(false);
+
+        // The dub is built only when every scene's dub voice was found; one missing file means none.
+        dubbed = dubbed && dubAudio.All(a => a is not null);
+        run.DubSourceRenderJobId = null;
+        if (dubbed)
+        {
+            await context.Report(70, $"Building the {StoryCaptions.LabelOf(StoryDub.LanguageOf(run))} dub").ConfigureAwait(false);
+            await BuildDubAsync(context, script, scenes, dubAudio, music, name, ct).ConfigureAwait(false);
+        }
+        else if (run.Options.Dub && run.Options.Narration != StoryNarrationMode.None)
+        {
+            StoryRunWarnings.AddRange(run, ["The dub was not built: some scenes have no dub voice. Build again to speak them."]);
+        }
 
         run.SceneStarts = [.. built.SceneStarts];
         run.TotalSeconds = built.TotalSeconds;
@@ -124,9 +174,47 @@ public sealed class AssembleStage(
             $"Project built: {script.Scenes.Count} scenes{pictures}, {built.CaptionCount} subtitles, about {Duration(built.TotalSeconds)}.");
     }
 
+    /// <summary>
+    /// The dub's project: the story's scenes as they were just built - pictures, clips, looks and lengths - with the dub's
+    /// voice and words, and the same music, so its render has the story's timeline.
+    /// </summary>
+    private async Task BuildDubAsync(
+        StoryStageContext context, StoryScript script, IReadOnlyList<StoryBundleScene> scenes, IReadOnlyList<byte[]?> dubAudio,
+        StoryBundleMusic? music, string name, CancellationToken ct)
+    {
+        var run = context.Run;
+        var language = StoryDub.LanguageOf(run);
+        var label = StoryCaptions.LabelOf(language);
+        var dubScript = StoryDub.ScriptFor(script, language);
+        var dubScenes = scenes.Select((scene, i) => scene with
+        {
+            Audio = dubAudio[i],
+            AudioNote = $"{label} dub narration",
+            Pauses = script.Scenes[i].DubPauses
+        }).ToList();
+
+        var dubName = Truncate($"{name} · {label} dub", MaxProjectNameChars);
+        var project = await EnsureProjectAsync(run, run.DubProjectId, dubName, ct).ConfigureAwait(false);
+        run.DubProjectId = project.Id;
+        await context.Save().ConfigureAwait(false);
+
+        var brief = new StoryBrief { Title = run.Brief.Title, Language = language, Format = run.Brief.Format };
+        var built = StoryBundleBuilder.Build(dubScript, brief, run.Options, dubName, dubScenes, music);
+        await importer.ApplyAsync(project.Id, built.Bundle,
+            new WorkbookImportOptions { OverwriteUserEdits = true, RemoveMissingScenes = true, ClearEmptySceneAudio = true }, ct).ConfigureAwait(false);
+        await status.RefreshAsync(project.Id, null, ct).ConfigureAwait(false);
+
+        logger.LogInformation("Story run {RunId} built its {Language} dub as project {ProjectId}.", run.Id, language, project.Id);
+    }
+
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max].TrimEnd();
+
     /// <summary>True when the scene's clip, not its picture, is what the video shows.</summary>
     public static bool PlaysClip(StoryRun run, StoryScene scene) =>
         scene.HasAttachedClip;
+
+    public static double SceneDuration(double estimatedSeconds, double? voiceSeconds, double? clipSeconds) =>
+        clipSeconds is > 0 ? clipSeconds.Value : voiceSeconds is > 0 ? voiceSeconds.Value : estimatedSeconds;
 
     private async Task<byte[]?> ReadAsync(StoryRun run, string? key, CancellationToken ct)
     {
@@ -152,11 +240,12 @@ public sealed class AssembleStage(
             pick.ContentType == AiAudioValidator.Wav ? AiAudioValidator.Wav : AiAudioValidator.Mp3);
     }
 
-    private async Task<Project> EnsureProjectAsync(StoryRun run, string name, CancellationToken ct)
+    /// <summary>The run's project <paramref name="existingId"/> while it is still the owner's; a new one otherwise.</summary>
+    private async Task<Project> EnsureProjectAsync(StoryRun run, string? existingId, string name, CancellationToken ct)
     {
-        if (!string.IsNullOrEmpty(run.ProjectId))
+        if (!string.IsNullOrEmpty(existingId))
         {
-            var existing = await projects.GetAsync(run.ProjectId, ct).ConfigureAwait(false);
+            var existing = await projects.GetAsync(existingId, ct).ConfigureAwait(false);
             if (existing is not null && string.Equals(existing.UserId, run.UserId, StringComparison.Ordinal)) return existing;
         }
 
@@ -190,7 +279,6 @@ public sealed class AssembleStage(
         };
 
         await projects.InsertAsync(project, ct).ConfigureAwait(false);
-        run.ProjectId = project.Id;
         return project;
     }
 

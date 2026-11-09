@@ -11,6 +11,7 @@ import {
 import { EffectsService } from '../../core/services/effects.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { drawReaction, ReactionExpression } from './reaction-graphic';
 
 /** The inline editor's working copy of one card. */
 interface EffectDraft {
@@ -60,6 +61,12 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   readonly uploadDone = signal(0);
   readonly uploadTotal = signal(0);
   readonly uploadPercent = signal(0);
+  readonly reactionExpression = signal<ReactionExpression>('surprised');
+  readonly reactionCaption = signal('');
+  readonly reactionPreview = signal<string | null>(null);
+  readonly reactionSearch = signal('');
+  readonly pinterestSearchUrl = computed(() =>
+    `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(this.reactionSearch().trim() || 'funny reaction memes')}`);
 
   /** The card whose video is playing, or whose sound is. One at a time. */
   readonly previewId = signal<string | null>(null);
@@ -134,7 +141,7 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   }
 
   /** One at a time, so a long video doesn't starve the rest and each failure names its file. */
-  uploadFiles(files: File[]): void {
+  uploadFiles(files: File[], category = this.uploadCategory(), green = this.uploadGreen()): void {
     if (files.length === 0 || this.uploading()) return;
     this.uploading.set(true);
     this.uploadDone.set(0);
@@ -155,8 +162,8 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
       this.uploadPercent.set(0);
       this.api.upload({
         file: files[index],
-        category: this.uploadCategory() || null,
-        isGreenScreen: this.uploadGreen(),
+        category: category || null,
+        isGreenScreen: green,
       }, (p) => this.uploadPercent.set(p)).subscribe({
         next: (effect) => {
           this.effects.update((list) => [effect, ...list.filter((e) => e.id !== effect.id)]);
@@ -171,6 +178,41 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
       });
     };
     next(0);
+  }
+
+  updateReactionExpression(value: ReactionExpression): void {
+    this.reactionExpression.set(value);
+    this.reactionPreview.set(null);
+  }
+
+  updateReactionCaption(value: string): void {
+    this.reactionCaption.set(value);
+    this.reactionPreview.set(null);
+  }
+
+  makeReaction(): void {
+    try {
+      const canvas = document.createElement('canvas');
+      drawReaction(canvas, this.reactionExpression(), this.reactionCaption());
+      const preview = canvas.toDataURL('image/png');
+      if (!preview.startsWith('data:image/png;base64,')) throw new Error('PNG encoding failed.');
+      this.reactionPreview.set(preview);
+    } catch (error) {
+      this.reactionPreview.set(null);
+      this.status.notify([this.errorText(error, 'Could not create the reaction graphic in this browser.')]);
+    }
+  }
+
+  saveReaction(): void {
+    const preview = this.reactionPreview();
+    if (!preview || this.uploading()) return;
+    try {
+      const bytes = Uint8Array.from(atob(preview.split(',')[1]), (character) => character.charCodeAt(0));
+      const file = new File([bytes], `reaction-${this.reactionExpression()}.png`, { type: 'image/png' });
+      this.uploadFiles([file], 'Reaction', false);
+    } catch (error) {
+      this.status.notify([this.errorText(error, 'Could not prepare the reaction for upload.')]);
+    }
   }
 
   // ---------------------------------------------------------------- preview

@@ -97,6 +97,25 @@ export function expandBroadcastTokens(text: string, at = new Date()): string {
               <a [href]="s.broadcast.watchUrl" target="_blank" rel="noopener noreferrer">Watch page ↗</a>
               <a [href]="s.broadcast.studioUrl" target="_blank" rel="noopener noreferrer">YouTube Studio ↗</a>
             </p>
+            <div class="yl-notify">
+              <strong>Let viewers know</strong>
+              @if (s.broadcast.privacy === 'public') {
+                <p>Share the watch page and ask viewers to set a reminder for an upcoming stream.</p>
+              } @else if (s.broadcast.privacy === 'unlisted') {
+                <p>This stream is unlisted. Share the watch page directly with people you want to invite.</p>
+              } @else {
+                <p>This stream is private. A watch link alone will not make it public; check access in YouTube Studio.</p>
+              }
+              <label>Watch link
+                <input #watchLink type="text" readonly [value]="s.broadcast.watchUrl" (focus)="watchLink.select()" />
+              </label>
+              <button type="button" class="secondary" (click)="copyWatchLink(s.broadcast.watchUrl)">Copy watch link</button>
+              @if (copyMessage(); as message) { <p class="yl-muted" role="status">{{ message }}</p> }
+              <p class="yl-muted">YouTube decides who receives notifications based on viewer and channel settings.
+                AnimStudio cannot turn live subscriber notifications on or confirm delivery. Viewers can choose the channel bell;
+                reminder notifications are unavailable for streams marked made for kids.</p>
+              @if (kind() === 'camera') { <p class="yl-muted">Copy the link before starting the camera stream, or open the watch page while live.</p> }
+            </div>
           </div>
           <button type="button" class="secondary" (click)="clear()" [disabled]="disabled()">Change</button>
         </div>
@@ -232,6 +251,19 @@ export function expandBroadcastTokens(text: string, at = new Date()): string {
             }
             <label class="yl-check"><input type="checkbox" [(ngModel)]="enableDvr" /> Viewers can rewind</label>
           </div>
+          <div class="yl-notify">
+            <strong>Subscriber notifications</strong>
+            <p class="yl-muted">YouTube controls live notifications; its live API does not provide an on/off switch.
+              A public upcoming broadcast gives viewers a page to find and set a reminder on. Scheduling creates the page;
+              you still need to start streaming. Notifications are not guaranteed.</p>
+            @if (privacy !== 'public') {
+              <p class="yl-warn">This broadcast is {{ privacy }}; check its visibility before sharing it with subscribers.</p>
+            }
+            @if (madeForKids) {
+              <p class="yl-warn">YouTube disables reminder notifications for upcoming streams marked made for kids.
+                Choose the audience accurately, not just to enable notifications.</p>
+            }
+          </div>
 
           @if (createProblem(); as p) { <p class="yl-muted">To create it: {{ p }}.</p> }
           <button type="button" (click)="create()" [disabled]="!!createProblem() || creating() || disabled()">
@@ -260,6 +292,9 @@ export function expandBroadcastTokens(text: string, at = new Date()): string {
     .yl-box p { margin: 0; }
     .yl-warnbox { border-color: rgba(245, 158, 11, 0.35); background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04)); }
     .yl-ready { border-color: rgba(52, 211, 153, 0.38); background: linear-gradient(135deg, rgba(52, 211, 153, 0.14), rgba(52, 211, 153, 0.04)); }
+    .yl-notify { display: grid; gap: 8px; margin-top: 10px; }
+    .yl-notify input { width: 100%; }
+    .yl-notify button { justify-self: start; }
     .yl-links { display: flex; gap: 12px; margin-top: 6px !important; font-size: 0.82rem; }
     .yl-tabs {
       display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
@@ -324,6 +359,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
   readonly tab = signal<'new' | 'existing'>('new');
   readonly selected = signal<SelectedYouTubeBroadcast | null>(null);
   readonly error = signal<string | null>(null);
+  readonly copyMessage = signal<string | null>(null);
   readonly busy = signal(false);
   readonly suggesting = signal(false);
   readonly creating = signal(false);
@@ -360,7 +396,10 @@ export class YouTubeLiveSetupComponent implements OnInit {
     // The page owns the choice: a broadcast it sets (or clears after streaming to it) shows here.
     effect(() => {
       const initial = this.initial();
-      untracked(() => this.selected.set(initial));
+      untracked(() => {
+        this.selected.set(initial);
+        this.copyMessage.set(null);
+      });
     });
     effect(() => {
       const draft = this.draft();
@@ -438,6 +477,15 @@ export class YouTubeLiveSetupComponent implements OnInit {
     } catch (err: unknown) {
       this.error.set(this.message(err, 'Could not start connecting the channel.'));
       this.busy.set(false);
+    }
+  }
+
+  async copyWatchLink(url: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      this.copyMessage.set('Watch link copied. Share it with your viewers.');
+    } catch {
+      this.copyMessage.set('Could not copy the link. Select and copy the watch link above instead.');
     }
   }
 
@@ -562,6 +610,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
         categoryId: this.categoryId,
         privacy: this.privacy,
         madeForKids: this.madeForKids,
+        // This upload-metadata field is not a live-broadcast notification control.
         notifySubscribers: true,
       }, this.startMode === 'later' ? new Date(this.startAt).toISOString() : null, this.enableDvr));
       this.select({ channelId: channel.channelId, channelTitle: channel.channelTitle, broadcast });
@@ -579,6 +628,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
 
   clear(): void {
     this.selected.set(null);
+    this.copyMessage.set(null);
     this.broadcastChange.emit(null);
     // A fresh list, so a broadcast just created shows under "Upcoming".
     void this.pickChannel(this.channelId());
@@ -590,6 +640,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
 
   private select(selection: SelectedYouTubeBroadcast): void {
     this.selected.set(selection);
+    this.copyMessage.set(null);
     this.broadcastChange.emit(selection);
   }
 

@@ -543,9 +543,15 @@ public sealed class WorkbookImportService(
             if (AssetId(media, row.Text("Background")) is { } background)
                 scene.BackgroundAssetId = background;
 
+            scene.BackgroundAudio = row.Flag("BackgroundAudio") ?? scene.BackgroundAudio;
+
             if (AssetId(media, row.Text("Audio")) is { } audio)
             {
                 scene.Audio = new SceneAudio { AssetId = audio };
+            }
+            else if (options.ClearEmptySceneAudio && row.Text("Audio") is null)
+            {
+                scene.Audio = new SceneAudio();
             }
 
             scene.Animation = new AnimationSettings(

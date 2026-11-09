@@ -100,6 +100,26 @@ public class SceneGraphBuilderTests
         Assert.Contains("format=yuv444p[bg]", result.FilterComplex);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Clip_sound_is_only_mixed_when_selected(bool clipSound, bool voice)
+    {
+        var plan = Plan() with
+        {
+            BackgroundRelativePath = "in/clip.mp4",
+            BackgroundIsVideo = true,
+            BackgroundHasAudio = clipSound,
+            AudioRelativePath = voice ? "in/voice.wav" : null
+        };
+        var result = NewBuilder().BuildScene(plan);
+        Assert.Equal(clipSound, result.FilterComplex.Contains("[0:a]", StringComparison.Ordinal));
+        Assert.Equal(clipSound, result.FilterComplex.Contains("amix=inputs=2", StringComparison.Ordinal));
+        Assert.Equal(voice, result.Inputs.Any(i => i.RelativePath == "in/voice.wav"));
+    }
+
     [Fact]
     public void Supersamples_the_background_then_composites_in_4_4_4()
     {

@@ -8,3 +8,4 @@
 .cw textarea { width: 100%; resize: vertical; }
 .cw-row, .cw-actions { display: flex; flex-wrap: wrap; gap: .7rem; align-items: end; }
 .cw-row label { flex: 1 1 12rem; }
+.cw-dialogue { white-space: pre-line; }

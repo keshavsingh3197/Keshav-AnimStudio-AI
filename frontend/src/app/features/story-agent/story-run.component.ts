@@ -187,6 +187,7 @@ export class StoryRunComponent {
   readonly captionBusy = signal<string | null>(null);
   readonly captionResults = signal<{ videoId: string; results: StoryCaptionResult[] } | null>(null);
   readonly subtitleBusy = signal<string | null>(null);
+  readonly dubBusy = signal(false);
 
   readonly editor = viewChild(StoryScriptEditorComponent);
 
@@ -286,10 +287,12 @@ export class StoryRunComponent {
 
   /** The story's own YouTube details, for the publish dialog to open with. */
   readonly prefill = computed<YouTubePrefill | null>(() => {
-    const kit = this.run()?.kit;
+    const run = this.run();
+    const kit = run?.kit;
     const thumbnail = this.thumbnail();
-    if (!kit) return thumbnail ? { thumbnail } : null;
-    return { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment, thumbnail };
+    const language = run?.brief.language === 'en' ? 'en' : 'hi';
+    if (!kit) return { thumbnail, language };
+    return { title: kit.titleOptions[0] ?? null, description: kit.description, tags: kit.tags, firstComment: kit.pinnedComment, thumbnail, language };
   });
 
   /** The story's thumbnail picture, fetched as the publish dialog opens so it starts out chosen. */
@@ -804,6 +807,21 @@ export class StoryRunComponent {
   /** The languages this story has that a video does not have yet. */
   missingCaptions(video: StoryPublication): string[] {
     return (this.run()?.subtitles ?? []).map((s) => s.language).filter((language) => !video.captions.includes(language));
+  }
+
+  /** The dub track: a WAV the length of the video, added in YouTube Studio as a second audio track. */
+  async downloadDub(): Promise<void> {
+    const run = this.run();
+    if (!run?.dub?.trackReady || this.dubBusy()) return;
+    this.dubBusy.set(true);
+    try {
+      const blob = await lastValueFrom(this.stories.dubTrack(run.id));
+      saveBlob(blob, `${fileNameOf(run.script?.titleEnglish || run.title)}.${run.dub.language}-dub.wav`);
+    } catch (failure: unknown) {
+      this.status.showError(failure instanceof ApiFailure ? failure.message : 'The dub track could not be downloaded.');
+    } finally {
+      this.dubBusy.set(false);
+    }
   }
 
   async downloadSubtitles(language: string): Promise<void> {

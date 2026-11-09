@@ -2321,6 +2321,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
       publishAt: publishAt ? publishAt.toISOString() : null,
+      language: this.prefill()?.language ?? null,
     }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice(),
     this.selectedPlan()?.id ?? null).subscribe({
       next: (upload) => {

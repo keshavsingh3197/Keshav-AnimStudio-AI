@@ -54,6 +54,8 @@ public sealed record CreateStoryRunRequest
 public sealed record StoryBuildOptionsRequest
 {
     public StoryNarrationMode Narration { get; init; } = StoryNarrationMode.Stock;
+    public bool MatchClipDuration { get; init; }
+    public bool KeepClipAudio { get; init; }
 
     [StringLength(64)]
     public string? VoiceProfileId { get; init; }
@@ -105,9 +107,14 @@ public sealed record StoryBuildOptionsRequest
 
     public StoryArtStyle ArtStyle { get; init; } = StoryArtStyle.Auto;
 
+    /// <summary>Also make the other language's dub (Hindi ⇄ English) for YouTube's multi-language audio.</summary>
+    public bool Dub { get; init; }
+
     public static StoryBuildOptionsRequest From(StoryBuildOptions o) => new()
     {
         Narration = o.Narration,
+        MatchClipDuration = o.MatchClipDuration,
+        KeepClipAudio = o.KeepClipAudio,
         VoiceProfileId = o.VoiceProfileId,
         VoiceId = o.VoiceId,
         SpeechEngine = o.SpeechEngine,
@@ -130,12 +137,15 @@ public sealed record StoryBuildOptionsRequest
         VideoSpeed = o.VideoSpeed,
         AutoPace = o.AutoPace,
         Pace = o.Pace,
-        ArtStyle = o.ArtStyle
+        ArtStyle = o.ArtStyle,
+        Dub = o.Dub
     };
 
     public StoryBuildOptions ToOptions() => new()
     {
         Narration = Narration,
+        MatchClipDuration = MatchClipDuration,
+        KeepClipAudio = KeepClipAudio,
         VoiceProfileId = VoiceProfileId,
         VoiceId = VoiceId,
         SpeechEngine = SpeechEngine,
@@ -158,7 +168,8 @@ public sealed record StoryBuildOptionsRequest
         VideoSpeed = VideoSpeed,
         AutoPace = AutoPace ?? true,
         Pace = Pace,
-        ArtStyle = ArtStyle
+        ArtStyle = ArtStyle,
+        Dub = Dub
     };
 }
 
@@ -515,7 +526,15 @@ public sealed record StoryOptionsResponse(
     bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
     StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
     double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto,
-    StoryPaceStyle Pace = StoryPaceStyle.Auto);
+    StoryPaceStyle Pace = StoryPaceStyle.Auto, bool MatchClipDuration = false, bool KeepClipAudio = false, bool Dub = false);
+
+/// <summary>The story's dub in its other language, for YouTube's multi-language audio.</summary>
+/// <param name="Language"><c>en</c> for a Hindi story, <c>hi</c> for an English one.</param>
+/// <param name="ScenesSpoken">Scenes whose dub voice exists, of <paramref name="ScenesTotal"/>.</param>
+/// <param name="ProjectId">The dub's own project, once built; it opens and renders like any other.</param>
+/// <param name="TrackReady">The dub track - an audio file the length of the video - can be downloaded.</param>
+public sealed record StoryDubResponse(
+    string Language, string Label, int ScenesSpoken, int ScenesTotal, string? ProjectId, bool TrackReady);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -576,7 +595,8 @@ public sealed record StoryRunResponse(
     IReadOnlyList<StoryNextPartIdeaResponse>? NextParts = null,
     string? NextPartsBy = null,
     string? NextRunId = null,
-    StoryPaceResponse? Pace = null);
+    StoryPaceResponse? Pace = null,
+    StoryDubResponse? Dub = null);
 
 /// <summary>A run in the list and on the storyboard: enough to draw a card, place it in its column and open it.</summary>
 /// <param name="CoverScene">The first scene with a picture of its own, for the card; null when there is none yet.</param>
@@ -744,7 +764,8 @@ public static class StoryAgentMapper
         run.NextPartsBy,
         run.NextRunId,
         run.Pace is null ? null : new StoryPaceResponse(run.Pace.WordsPerMinute, run.Pace.TargetWordsPerMinute,
-            run.Pace.SuggestedSpeed, run.Pace.Verdict, run.Pace.Applied));
+            run.Pace.SuggestedSpeed, run.Pace.Verdict, run.Pace.Applied),
+        DubOf(run));
 
     private static StorySeriesLinkResponse ToResponse(StorySeriesLink s) =>
         new(s.Id, s.Name, s.Part, s.PreviousRunId, s.AutoContinueTo, !string.IsNullOrWhiteSpace(s.StorySoFar));
@@ -794,7 +815,20 @@ public static class StoryAgentMapper
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
-        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace);
+        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace, o.MatchClipDuration, o.KeepClipAudio, o.Dub);
+
+    /// <summary>The dub, when one was asked for; the track only once the story's video it belongs with is rendered.</summary>
+    private static StoryDubResponse? DubOf(StoryRun run)
+    {
+        if (!run.Options.Dub || run.Script is null) return null;
+
+        var language = StoryDub.LanguageOf(run);
+        var ready = StoryObjectKeys.Owns(run.Id, run.DubAudioKey) && run.DubLanguage == language
+            && !string.IsNullOrEmpty(run.RenderJobId) && run.Stage(StoryStageIds.Render).Status == StoryStageStatus.Completed;
+        return new StoryDubResponse(language, StoryCaptions.LabelOf(language),
+            run.Script.Scenes.Count(s => StoryObjectKeys.Owns(run.Id, s.DubAudioKey) && s.DubAudioSeconds is > 0),
+            run.Script.Scenes.Count, run.DubProjectId, ready);
+    }
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],

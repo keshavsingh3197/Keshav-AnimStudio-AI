@@ -758,6 +758,7 @@ export class LiveStreamComponent {
         categoryId: y.categoryId,
         privacy: y.privacy,
         madeForKids: y.madeForKids,
+        // This upload-metadata field is not a live-broadcast notification control.
         notifySubscribers: true,
       }, null, y.enableDvr));
       this.youTubeBroadcast.set({ channelId: y.channelId, channelTitle: '', broadcast });

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Rendering.Models;
@@ -153,6 +155,48 @@ public sealed class SceneRenderTests : IAsyncLifetime
         Assert.True(probed.Contains("pix_fmt=yuv420p") || probed.Contains("pix_fmt=yuvj420p"),
             $"Expected yuv420p or yuvj420p but probed: {probed}");
         Assert.Contains("nb_read_frames=60", probed);
+    }
+
+    [FfmpegFact]
+    public async Task Attached_clip_audio_can_be_muted_used_alone_or_mixed_with_voice()
+    {
+        var plan = BuildPlan(0, durationFrames: 120, withSprite: false, withAudio: true, withSubtitles: false);
+        RenderFixtures.MakeVideo(Path_("in/clip.mp4"), 4, withAudio: true);
+        var clipPlan = plan with { BackgroundRelativePath = "in/clip.mp4", BackgroundIsVideo = true };
+        var choices = new[]
+        {
+            (Clip: false, Voice: false),
+            (Clip: true, Voice: false),
+            (Clip: false, Voice: true),
+            (Clip: true, Voice: true)
+        };
+        foreach (var choice in choices)
+        {
+            var result = await _service.RenderSceneAsync(clipPlan with
+            {
+                BackgroundHasAudio = choice.Clip,
+                AudioRelativePath = choice.Voice ? "in/voice.wav" : null,
+                OutputRelativePath = $"scenes/audio-{choice.Clip}-{choice.Voice}.mp4"
+            }, _workspace, null, Ct);
+            Assert.Equal(120, result.Frames.Value);
+            var output = _workspace.Resolve(result.RelativePath);
+            var duration = FfmpegLocator.Probe($"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{output}\"");
+            Assert.InRange(double.Parse(duration.Trim(), CultureInfo.InvariantCulture), 3.95, 4.1);
+            using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
+            {
+                Arguments = $"-hide_banner -i \"{output}\" -af volumedetect -vn -f null -",
+                RedirectStandardError = true,
+                UseShellExecute = false
+            })!;
+            var stderr = await process.StandardError.ReadToEndAsync(Ct);
+            await process.WaitForExitAsync(Ct);
+            Assert.Equal(0, process.ExitCode);
+            var match = Regex.Match(stderr, @"mean_volume:\s*(-?[\d.]+)\s*dB");
+            Assert.True(match.Success, stderr);
+            var volume = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (choice.Clip || choice.Voice) Assert.True(volume > -50, $"Expected audible output, got {volume} dB");
+            else Assert.True(volume < -80, $"Expected silence, got {volume} dB");
+        }
     }
 
     [FfmpegFact]

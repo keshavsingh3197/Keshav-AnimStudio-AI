@@ -67,6 +67,7 @@ public sealed class MediaProbe
     public string? PixelFormat { get; set; }
     public bool HasAlpha { get; set; }
     public double? DurationSeconds { get; set; }
+    public double? VideoDurationSeconds { get; set; }
     public int? AudioChannels { get; set; }
     public int? SampleRate { get; set; }
     public string? VideoCodec { get; set; }

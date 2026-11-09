@@ -342,6 +342,7 @@
         <p class="muted ls-small-print">Each stream that goes live uses up its broadcast; the next one gets a new broadcast with these details.</p>
       } @else if (form.keyMode === 'channel') {
         <div class="ls-field">
+          <p class="muted ls-small-print">This saved key does not identify a watch page here. Check the broadcast's visibility in YouTube Studio and share its watch link with viewers. YouTube controls subscriber notifications.</p>
           <label for="ls-channel">Channel</label>
           <select id="ls-channel" [(ngModel)]="form.channelId">
             @for (c of setup()?.channels ?? []; track c.id) {
@@ -378,6 +379,7 @@
           </p>
         }
       } @else {
+        <p class="muted ls-small-print">This key does not identify a watch page here. Check the broadcast's visibility in YouTube Studio and share its watch link with viewers. YouTube controls subscriber notifications.</p>
         <div class="ls-field">
           <label for="ls-key">Stream key</label>
           <div class="ls-key">

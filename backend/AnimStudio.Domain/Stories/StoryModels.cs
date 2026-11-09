@@ -98,6 +98,12 @@ public sealed class StoryBuildOptions
 {
     public StoryNarrationMode Narration { get; set; } = StoryNarrationMode.Stock;
 
+    /// <summary>Use attached clips' measured duration instead of the spoken-text estimate.</summary>
+    public bool MatchClipDuration { get; set; }
+
+    /// <summary>Mix attached clips' original sound into the scene alongside any generated voice.</summary>
+    public bool KeepClipAudio { get; set; }
+
     /// <summary>The user's voice profile, for <see cref="StoryNarrationMode.MyVoice"/>.</summary>
     public string? VoiceProfileId { get; set; }
 
@@ -182,6 +188,13 @@ public sealed class StoryBuildOptions
     /// picture style.
     /// </summary>
     public StoryArtStyle ArtStyle { get; set; } = StoryArtStyle.Auto;
+
+    /// <summary>
+    /// Also tell the story in its other language - English for a Hindi story, Hindi for an English one - as a dub: the same
+    /// pictures and timings with the other voice, finished as an audio file YouTube adds to the same video as a second
+    /// audio track. Viewers then hear the language their YouTube is set to.
+    /// </summary>
+    public bool Dub { get; set; }
 }
 
 /// <summary>The look of a story's pictures and animation.</summary>
@@ -445,6 +458,20 @@ public sealed class StoryScene
 
     /// <summary>How many times the person asked for this scene's narration again. A new take is a new file, spoken afresh.</summary>
     public int AudioTake { get; set; }
+
+    // --- the dub: the same scene in the story's other language -------------------------------------------
+
+    /// <summary>The narration in Hindi, for the Hindi dub of an English story. A Hindi story's dub reads <see cref="English"/>.</summary>
+    public string? Hindi { get; set; }
+
+    /// <summary>The scene spoken in the dub's language, once it exists.</summary>
+    public string? DubAudioKey { get; set; }
+
+    /// <summary>The length of <see cref="DubAudioKey"/>, with the breath before and after it.</summary>
+    public double? DubAudioSeconds { get; set; }
+
+    /// <summary>The silent stretches in the dub, used to line its subtitles up with its voice.</summary>
+    public List<StoryPause> DubPauses { get; set; } = [];
 
     // --- how the scene moves and leads into the next ---------------------------------------
 

@@ -40,6 +40,10 @@ public static class RenderPlanFactory
         var background = ResolveBackground(context, sceneIndex);
         var sprites = ResolveSprites(context, canvas);
         var (audioPath, sliceStart, sliceEnd) = ResolveAudio(context);
+        context.AssetsById.TryGetValue(scene.BackgroundAssetId!, out var backdrop);
+        if (scene.BackgroundAudio && backdrop?.Kind == AssetKind.Video && string.IsNullOrEmpty(backdrop.Probe.AudioCodec))
+            throw new RenderException(RenderErrorCode.AssetMissing,
+                $"Scene {sceneIndex + 1}'s clip audio could not be read. Check the clip or rebuild the story.");
 
         return new SceneRenderPlan
         {
@@ -48,8 +52,9 @@ public static class RenderPlanFactory
             Canvas = canvas,
             Duration = scene.Duration,
             BackgroundRelativePath = background,
-            BackgroundIsVideo = context.AssetsById.TryGetValue(scene.BackgroundAssetId!, out var backdrop)
-                && backdrop.Kind == AssetKind.Video,
+            BackgroundIsVideo = backdrop?.Kind == AssetKind.Video,
+            BackgroundHasAudio = scene.BackgroundAudio && backdrop?.Kind == AssetKind.Video
+                && !string.IsNullOrEmpty(backdrop.Probe.AudioCodec),
             BackgroundAnimation = scene.Animation,
             Sprites = sprites,
             AudioRelativePath = audioPath,

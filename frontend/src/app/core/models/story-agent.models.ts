@@ -354,6 +354,8 @@ export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
 
 export interface StoryBuildOptions {
   narration: StoryNarrationMode;
+  matchClipDuration?: boolean;
+  keepClipAudio?: boolean;
   voiceProfileId: string | null;
   voiceId: string | null;
   speechEngine: string | null;
@@ -387,6 +389,24 @@ export interface StoryBuildOptions {
   pace?: StoryPaceStyle;
   /** The look of the pictures and the animation. */
   artStyle?: StoryArtStyle;
+  /** Also make the dub in the story's other language (Hindi ⇄ English) for YouTube's multi-language audio. */
+  dub?: boolean;
+}
+
+/**
+ * The story told again in its other language over the same pictures, for YouTube's multi-language audio: one video,
+ * Hindi for viewers in India and English for the rest of the world.
+ */
+export interface StoryDub {
+  /** 'en' for a Hindi story, 'hi' for an English one. */
+  language: 'hi' | 'en';
+  label: string;
+  scenesSpoken: number;
+  scenesTotal: number;
+  /** The dub's own project, once built. */
+  projectId: string | null;
+  /** The dub track (a WAV the length of the video) can be downloaded. */
+  trackReady: boolean;
 }
 
 /** A subtitle track the story offers as an SRT file: the narration, or (for a Hindi story) its English meaning. */
@@ -477,6 +497,8 @@ export interface StoryRun {
   nextRunId?: string | null;
   /** How fast the narration came out, once it exists. */
   pace?: StoryPace | null;
+  /** The dub, when one was asked for. */
+  dub?: StoryDub | null;
 }
 
 /** Where a story sits in a series told over several videos. */
