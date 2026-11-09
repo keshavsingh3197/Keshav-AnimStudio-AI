@@ -494,6 +494,31 @@ export interface YouTubeCheckup {
   /** Set when playlists couldn't be read; membership is then not judged. */
   playlistError: string | null;
   checkedAt: string;
+  /** What imported details get from the brand channel publishing here; null when none does. */
+  brand?: YouTubeCheckupBrand | null;
+}
+
+/** The brand channel's exact credits, links, tags and upload defaults, added to every imported video. */
+export interface YouTubeCheckupBrand {
+  /** The channel's current name - never a retired one. */
+  channelName: string | null;
+  channelUrl: string | null;
+  /** The credits and subscribe block for a Hindi description; empty when the channel has no branding. */
+  creditsHindi: string;
+  /** The same block for any other language. */
+  creditsEnglish: string;
+  /** Brand hashtags, without "#". */
+  hashtags: string[];
+  /** Brand and channel search tags. */
+  tags: string[];
+  /** The channel's description footer, with retired links and names already updated. */
+  footer: string | null;
+  studioUrl: string | null;
+  creatorUrl: string | null;
+  /** The channel's upload category, offered for videos still on YouTube's default. */
+  categoryId: string | null;
+  /** The channel's upload audience, offered for videos that never declared one. */
+  madeForKids: boolean;
 }
 
 export interface YouTubeVideoDetailsSave {

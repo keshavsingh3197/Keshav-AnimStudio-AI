@@ -196,9 +196,9 @@ public class StoryKitBuilderTests
             } : null,
             new ChannelBranding
             {
-                ChannelName = "OMKR", ChannelUrl = "https://youtube.com/@omkr-shiv", StudioUrl = "https://studio.keshavsingh.in/",
-                CreatorUrl = "https://keshavsingh.in/", EngineName = "AnimStudio", Hashtags = ["OMKR", "AnimStudio", "KeshavSingh"],
-                Tags = ["omkr", "keshav singh"]
+                ChannelName = "Omkar Shiv Bhakti", ChannelUrl = "https://youtube.com/@OmkarShivBhakti", StudioUrl = "https://studio.keshavsingh.in/",
+                CreatorUrl = "https://keshavsingh.in/", EngineName = "AnimStudio", Hashtags = ["OmkarShivBhakti", "AnimStudio", "KeshavSingh"],
+                Tags = ["omkar shiv bhakti", "keshav singh"]
             });
     }
 
@@ -303,11 +303,11 @@ public class StoryKitBuilderTests
         var kit = Kit();
 
         Assert.Contains("Animation Engine: AnimStudio - https://studio.keshavsingh.in/", kit.Description);
-        Assert.Contains("Creator: https://keshavsingh.in/ | Presented by: OMKR", kit.Description);
-        Assert.Contains("🔔 Subscribe to OMKR: https://youtube.com/@omkr-shiv", kit.Description);
+        Assert.Contains("Creator: https://keshavsingh.in/ | Presented by: Omkar Shiv Bhakti", kit.Description);
+        Assert.Contains("🔔 Subscribe to Omkar Shiv Bhakti: https://youtube.com/@OmkarShivBhakti", kit.Description);
         Assert.EndsWith(string.Join(' ', kit.Hashtags), kit.Description);
-        Assert.Contains("#OMKR", kit.Hashtags);
-        Assert.Contains("omkr", kit.Tags);
+        Assert.Contains("#OmkarShivBhakti", kit.Hashtags);
+        Assert.Contains("omkar shiv bhakti", kit.Tags);
         Assert.Contains("keshav singh", kit.Tags);
     }
 

@@ -50,6 +50,9 @@ public static partial class YouTubeDetailsAudit
         if (video.MadeForKids is null)
             issues.Add(new("audience-unset", "high", "The audience (made for kids or not) isn't set."));
 
+        if (YouTubeBrandKit.RetiredChannelUrls.Any(url => description.Contains(url, StringComparison.OrdinalIgnoreCase)))
+            issues.Add(new("channel-link-old", "high", "Links to the channel's old address, which no longer opens."));
+
         if (LooksLikeFileName(title))
             issues.Add(new("title-default", "high", "The title looks like a file name."));
 

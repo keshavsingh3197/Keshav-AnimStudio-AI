@@ -157,7 +157,7 @@ public sealed partial class YouTubePublishController
 
             var title = BulkTitle(job.Name ?? project?.Name, request.TitleSuffix);
             var description = string.IsNullOrWhiteSpace(request.Description)
-                ? YouTubePublishValidator.WithFooter(await DefaultDescriptionAsync(job, project, ct), defaults?.DescriptionFooter)
+                ? YouTubePublishValidator.WithFooter(await DefaultDescriptionAsync(job, project, ct), YouTubeBrandKit.CurrentFooter(defaults, null))
                 : request.Description.Trim();
             var tags = request.Tags ?? defaults?.Tags ?? [];
             var isMusic = project?.Settings.ContentType == ProjectContentType.Music;

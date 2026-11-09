@@ -487,7 +487,7 @@
                     }
                     @default {
                       <div class="pb-row">
-                        <button type="button" class="secondary small" (click)="useOmkrStudio()">Use the OMKR preset</button>
+                        <button type="button" class="secondary small" (click)="useStudioDefaultsPreset()">Use the Omkar Shiv Bhakti preset</button>
                       </div>
                       <div class="pb-grid">
                     <div class="pb-field">
@@ -502,6 +502,11 @@
                       <label for="pb-s-creatorUrl">Creator / portfolio link</label>
                       <input id="pb-s-creatorUrl" type="url" [value]="studioBrand().creatorUrl ?? ''" (input)="patchStudio({ creatorUrl: val($event) })" placeholder="https://example.com/" [attr.aria-invalid]="studioIssues().creatorUrl ? 'true' : null" />
                       @if (studioIssues().creatorUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-s-creatorName">Creator name <span class="muted small">(credited as “Created by”)</span></label>
+                      <input id="pb-s-creatorName" type="text" [value]="studioBrand().creatorName ?? ''" (input)="patchStudio({ creatorName: val($event) })" placeholder="Your name" [attr.aria-invalid]="studioIssues().creatorName ? 'true' : null" />
+                      @if (studioIssues().creatorName; as e) { <span class="pb-err">{{ e }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-s-engineName">Animation tool credited</label>
@@ -552,13 +557,13 @@
                     Type a value only to override it for this channel.
                   </p>
                   <div class="pb-row">
-                    <button type="button" class="secondary small" (click)="useOmkrBranding()">Use the OMKR preset</button>
+                    <button type="button" class="secondary small" (click)="useStudioPreset()">Use the Omkar Shiv Bhakti preset</button>
                     <button type="button" class="secondary small" (click)="clearBranding()" [disabled]="!f.branding">Clear overrides</button>
                   </div>
                   <div class="pb-grid">
                     <div class="pb-field">
                       <label for="pb-b-channelName">Channel name</label>
-                      <input id="pb-b-channelName" type="text" [value]="brand().channelName ?? ''" (input)="patchBrand({ channelName: val($event) })" [placeholder]="brandHint('channelName', 'OMKR')" [attr.aria-invalid]="brandIssues().channelName ? 'true' : null" />
+                      <input id="pb-b-channelName" type="text" [value]="brand().channelName ?? ''" (input)="patchBrand({ channelName: val($event) })" [placeholder]="brandHint('channelName', 'Omkar Shiv Bhakti')" [attr.aria-invalid]="brandIssues().channelName ? 'true' : null" />
                       @if (brandIssues().channelName; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('channelName'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
@@ -582,20 +587,25 @@
                       @if (brandIssues().creatorUrl; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('creatorUrl'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
+                      <label for="pb-b-creatorName">Creator name</label>
+                      <input id="pb-b-creatorName" type="text" [value]="brand().creatorName ?? ''" (input)="patchBrand({ creatorName: val($event) })" [placeholder]="brandHint('creatorName', 'Your name')" [attr.aria-invalid]="brandIssues().creatorName ? 'true' : null" />
+                      @if (brandIssues().creatorName; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('creatorName'); as n) { <span class="pb-inherit">{{ n }}</span> }
+                    </div>
+                    <div class="pb-field">
                       <label for="pb-b-engineName">Animation tool credited</label>
                       <input id="pb-b-engineName" type="text" [value]="brand().engineName ?? ''" (input)="patchBrand({ engineName: val($event) })" [placeholder]="brandHint('engineName', 'AnimStudio')" [attr.aria-invalid]="brandIssues().engineName ? 'true' : null" />
                       @if (brandIssues().engineName; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('engineName'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-visualsCredit">Visuals credit</label>
-                      <input id="pb-b-visualsCredit" type="text" [value]="brand().visualsCredit ?? ''" (input)="patchBrand({ visualsCredit: val($event) })" [placeholder]="brandHint('visualsCredit', 'OMKR 3D Devotional Animations')" [attr.aria-invalid]="brandIssues().visualsCredit ? 'true' : null" />
+                      <input id="pb-b-visualsCredit" type="text" [value]="brand().visualsCredit ?? ''" (input)="patchBrand({ visualsCredit: val($event) })" [placeholder]="brandHint('visualsCredit', 'Omkar Shiv Bhakti 3D Devotional Animations')" [attr.aria-invalid]="brandIssues().visualsCredit ? 'true' : null" />
                       @if (brandIssues().visualsCredit; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('visualsCredit'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                   </div>
                   <div class="pb-field" id="pb-b-hashtags">
                     <label for="pb-b-hashtags-input">Brand hashtags <span class="muted small">(without #; letters, numbers and _; up to 10)</span></label>
                     <app-tag-editor inputId="pb-b-hashtags-input" prefix="#" [tags]="brand().hashtags" (tagsChange)="patchBrand({ hashtags: $event })" [rules]="hashtagRules"
-                                    [error]="brandIssues().hashtags" placeholder="e.g. OMKR AnimStudio" />
+                                    [error]="brandIssues().hashtags" placeholder="e.g. OmkarShivBhakti AnimStudio" />
                     @if (brand().hashtags.length === 0 && inherited().hashtags.length > 0) {
                       <span class="pb-inherit">Inherited from studio defaults: @for (h of inherited().hashtags; track h) { #{{ h }} }</span>
                     }
@@ -603,7 +613,7 @@
                   <div class="pb-field" id="pb-b-tags">
                     <label for="pb-b-tags-input">Brand search tags <span class="muted small">(offered as extra tag ideas; up to 15)</span></label>
                     <app-tag-editor inputId="pb-b-tags-input" [tags]="brand().tags" (tagsChange)="patchBrand({ tags: $event })" [rules]="brandTagRules"
-                                    [error]="brandIssues().tags" placeholder="e.g. omkr, omkr shiv" />
+                                    [error]="brandIssues().tags" placeholder="e.g. omkar shiv bhakti, omkar shiv" />
                     @if (brand().tags.length === 0 && inherited().tags.length > 0) {
                       <span class="pb-inherit">Inherited from studio defaults: {{ inherited().tags.join(', ') }}</span>
                     }

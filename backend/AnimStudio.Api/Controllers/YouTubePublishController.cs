@@ -228,7 +228,7 @@ public sealed partial class YouTubePublishController(
 
         return Ok(ApiResponse<YouTubeDraftResponse>.Ok(new YouTubeDraftResponse(
             title,
-            YouTubePublishValidator.WithFooter(description.Trim(), defaults?.DescriptionFooter),
+            YouTubePublishValidator.WithFooter(description.Trim(), YouTubeBrandKit.CurrentFooter(defaults, null)),
             // The video's own tags start empty; the channel's defaults are added on top of them.
             [],
             defaults?.Tags ?? [],
@@ -275,7 +275,8 @@ public sealed partial class YouTubePublishController(
 
         var style = job.ClipMerge is not null ? "an edited short video made from clips" : "animated";
         var brandSettings = await settingsRepo.GetAsync(ct);
-        var footer = brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.DescriptionFooter;
+        var footerPublishing = brandSettings?.PublishingFor(project?.Settings.BrandChannelId);
+        var footer = YouTubeBrandKit.CurrentFooter(footerPublishing, YouTubeBrandKit.Effective(brandSettings, footerPublishing));
         var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToPublishingDetails(t) : null;
 
         return await WriteSuggestionAsync(summary, style, request, job.ProjectId,

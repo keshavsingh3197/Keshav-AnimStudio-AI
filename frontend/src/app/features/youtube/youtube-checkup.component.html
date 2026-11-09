@@ -362,6 +362,13 @@
               </div>
             }
 
+            @if (selectedWithOldLink().length > 0) {
+              <button type="button" class="ck-btn-secondary" (click)="fixOldLinksInSelected()" [disabled]="!!bulkRunning()"
+                      title="Replace the old channel address, which no longer opens, with the channel's current one">
+                🔗 Fix old channel link ({{ selectedWithOldLink().length }})
+              </button>
+            }
+
             <button type="button" class="ck-btn-bulk-save" (click)="saveAllSelected()" [disabled]="!!bulkRunning() || draftsToSave().length === 0">
               💾 Save {{ draftsToSave().length }} to YouTube
             </button>
@@ -382,8 +389,9 @@
                   title="Paste any YouTube URL or ID: reads the captions and writes a full SEO package. Free, no API key needed.">
             {{ urlSeoOpen() ? 'Hide URL SEO tool' : '🔗 URL → SEO &amp; transcript' }}
           </button>
-          <button type="button" class="ck-paste-toggle-btn" (click)="pasteOpen.set(!pasteOpen())" [attr.aria-expanded]="pasteOpen()">
-            {{ pasteOpen() ? 'Hide Paste Tool' : '📥 Paste AI Output' }}
+          <button type="button" class="ck-paste-toggle-btn" (click)="pasteOpen.set(!pasteOpen())" [attr.aria-expanded]="pasteOpen()"
+                  title="Export videos to a file your AI tool or a spreadsheet fills in, then import it back to review and save">
+            {{ pasteOpen() ? 'Hide Export / Import' : '⇅ Export / Import for AI' }}
           </button>
         </div>
       </div>
@@ -417,7 +425,7 @@
           <div class="ck-url-seo-head">
             <div>
               <h4>🔗 Automated YouTube URL Transcript &amp; SEO Package Generator <span class="ck-free-badge">100% Free · No API Key Needed</span></h4>
-              <p>Paste any YouTube Video or Short URL (or 11-char ID). Automatically extracts spoken captions/lyrics and generates 3+ high-CTR titles, full description (with lyrics, shloka, chapters &amp; OMKR/AnimStudio credits), tags, pinned comment, and engagement comment.</p>
+              <p>Paste any YouTube Video or Short URL (or 11-char ID). Automatically extracts spoken captions/lyrics and generates 3+ high-CTR titles, full description (with lyrics, shloka, chapters &amp; Omkar Shiv Bhakti/AnimStudio credits), tags, pinned comment, and engagement comment.</p>
             </div>
           </div>
 
@@ -536,23 +544,50 @@
         </div>
       }
 
-      <!-- Paste AI Output Panel -->
-      @if (pasteOpen()) {
+      <!-- Export / Import: one file for another AI tool or a spreadsheet, then review and save -->
+      @if (pasteOpen() && !review()) {
         <div class="ck-paste-panel">
-          <label class="ck-form-field">
-            <span class="ck-form-label">
-              Paste JSON Answer from ChatGPT, Gemini, or Claude
-              <em class="ck-form-sub">(Nothing updates on YouTube until you review and save)</em>
-            </span>
-            <textarea rows="6" class="ck-textarea ck-mono-textarea" [attr.maxlength]="maxAnswerChars"
-                      placeholder='[{"videoId": "…", "title": "…", "description": "…", "tags": ["…"]}]'
-                      [ngModel]="pasteText()" (ngModelChange)="pasteText.set($event)"></textarea>
-          </label>
-          <div class="ck-paste-actions">
-            <button type="button" class="ck-btn-primary" (click)="applyPasted()" [disabled]="!pasteText().trim()">
-              Apply into Drafts
-            </button>
-            <span class="ck-help-text">Copy a prompt first: select videos above, paste here to bulk apply.</span>
+          <div class="ck-io-steps">
+            <section class="ck-io-step">
+              <h4><span class="ck-io-num">1</span> Export</h4>
+              <p class="ck-help-text">
+                {{ selected().size > 0 ? 'The ' + exportScope().length + ' selected' : 'All ' + exportScope().length + ' shown' }}
+                video{{ exportScope().length === 1 ? '' : 's' }}{{ exportScope().length > maxSheetVideos ? ' (first ' + maxSheetVideos + ')' : '' }},
+                with their current details and the instructions (new channel name, unique titles, WhatsApp / reels search phrases).
+                Uses the tone, language and notes set above.
+              </p>
+              <div class="ck-io-buttons">
+                <button type="button" class="ck-btn-primary" (click)="exportFor('package')" [disabled]="exportScope().length === 0"
+                        title="One JSON file with the instructions inside: upload it to ChatGPT, Gemini or Claude and ask it to fill every update">
+                  ⬇ AI package (.json)
+                </button>
+                <button type="button" class="ck-btn-secondary" (click)="exportFor('prompt')" [disabled]="exportScope().length === 0"
+                        title="The same job as one long prompt, for a chat that takes text better than files">
+                  ⬇ Prompt (.txt)
+                </button>
+                <button type="button" class="ck-btn-secondary" (click)="exportFor('csv')" [disabled]="exportScope().length === 0"
+                        title="A spreadsheet with current details and empty new_title, new_description, new_tags, new_playlists columns">
+                  ⬇ Spreadsheet (.csv)
+                </button>
+              </div>
+            </section>
+            <section class="ck-io-step">
+              <h4><span class="ck-io-num">2</span> Import the filled file</h4>
+              <p class="ck-help-text">The JSON your AI returns, or the CSV with its new_ columns filled. Title, description and tags are required; playlists are optional.</p>
+              <label class="ck-btn-primary ck-io-file">
+                ⬆ Choose file…
+                <input type="file" accept=".json,.csv,.txt,application/json,text/csv,text/plain" (change)="importFile($event)" />
+              </label>
+              <label class="ck-form-field">
+                <span class="ck-form-label">…or paste the answer <em class="ck-form-sub">(nothing reaches YouTube until you review and save)</em></span>
+                <textarea rows="4" class="ck-textarea ck-mono-textarea" [attr.maxlength]="maxAnswerChars"
+                          placeholder='[{"videoId": "…", "title": "…", "description": "…", "tags": ["…"], "playlists": ["…"]}]'
+                          [ngModel]="pasteText()" (ngModelChange)="pasteText.set($event)"></textarea>
+              </label>
+              <div class="ck-paste-actions">
+                <button type="button" class="ck-btn-secondary" (click)="applyPasted()" [disabled]="!pasteText().trim()">Review pasted answer</button>
+              </div>
+            </section>
           </div>
           @if (pasteReport(); as r) {
             <ul class="ck-paste-report" [class.has-error]="!r.ok">
@@ -562,6 +597,159 @@
             </ul>
           }
         </div>
+      }
+
+      <!-- Review an import: before / after for every video, accept per video, then save one by one or all at once -->
+      @if (review(); as r) {
+        <section class="ck-review" aria-label="Review imported details">
+          <header class="ck-review-head">
+            <div>
+              <h3>Review changes <span class="ck-review-source">from {{ r.source }}</span></h3>
+              <p class="ck-help-text">
+                {{ reviewCounts().total }} video{{ reviewCounts().total === 1 ? '' : 's' }} ·
+                <strong class="ck-ok-text">{{ reviewCounts().ready }} ready</strong>
+                @if (reviewCounts().problems > 0) { · <strong class="ck-err-text">{{ reviewCounts().problems }} need fixing</strong> }
+                @if (reviewCounts().unchanged > 0) { · {{ reviewCounts().unchanged }} unchanged }
+                · {{ reviewCounts().accepted }} accepted. Nothing reaches YouTube until you save.
+              </p>
+            </div>
+            <button type="button" class="ck-btn-clear" (click)="closeReview()">✕ Close</button>
+          </header>
+
+          @if (r.skipped.length > 0) {
+            <ul class="ck-paste-report has-error">
+              @for (line of r.skipped; track $index) { <li>{{ line }}</li> }
+            </ul>
+          }
+
+          <div class="ck-review-tools">
+            <button type="button" class="ck-btn-select-all" (click)="acceptAll(true)">Accept all ready</button>
+            <button type="button" class="ck-btn-select-all" (click)="acceptAll(false)">Accept none</button>
+            @if (reviewCounts().noAudience > 0) {
+              <label class="ck-review-audience">
+                Audience for {{ reviewCounts().noAudience }} video{{ reviewCounts().noAudience === 1 ? '' : 's' }} that never set one:
+                <select class="ck-select" (change)="setReviewAudience($any($event.target).value)"
+                        [value]="r.audience === null ? '' : r.audience ? 'yes' : 'no'">
+                  <option value="no">Not made for kids</option>
+                  <option value="yes">Made for kids</option>
+                  <option value="">Leave unset (YouTube won't save them)</option>
+                </select>
+              </label>
+            }
+            @if (reviewCounts().defaultCategory > 0 && brand()?.categoryId) {
+              <label class="ck-review-audience">
+                Category for {{ reviewCounts().defaultCategory }} video{{ reviewCounts().defaultCategory === 1 ? '' : 's' }} still on YouTube's default:
+                <select class="ck-select" (change)="setReviewCategory($any($event.target).value)" [value]="r.category ?? ''">
+                  <option value="">Keep as they are</option>
+                  @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+                </select>
+              </label>
+            }
+          </div>
+          @if (brand(); as b) {
+            <p class="ck-help-text">
+              Added to every video for you: {{ b.creditsEnglish ? 'the credits block, ' : '' }}{{ b.footer ? 'the channel footer, ' : '' }}{{ b.hashtags.length ? 'the channel hashtags, ' : '' }}{{ b.tags.length ? 'the channel tags, ' : '' }}#shorts on Shorts{{ b.channelUrl ? ', and the channel link in the pinned comment' : '' }}.
+              Change these in Admin → Publishing.
+            </p>
+          }
+
+          <ul class="ck-review-list">
+            @for (x of reviewItems(); track x.item.videoId) {
+              @let st = state(x.item.videoId);
+              <li class="ck-review-row" [class.is-blocked]="x.item.problems.length > 0" [class.is-off]="!isAccepted(x.item.videoId)">
+                <div class="ck-review-row-head">
+                  <input type="checkbox" [checked]="isAccepted(x.item.videoId)" [disabled]="x.item.problems.length > 0"
+                         (change)="toggleAccepted(x.item)" [attr.aria-label]="'Accept changes for ' + x.video.title" />
+                  @if (x.video.thumbnailUrl) {
+                    <img class="ck-review-thumb" [src]="x.video.thumbnailUrl" alt="" loading="lazy" />
+                  }
+                  <div class="ck-review-titles">
+                    <div class="ck-review-old" [class.is-same]="x.item.title === x.video.title">{{ x.video.title || '(no title)' }}</div>
+                    @if (x.item.title !== x.video.title) {
+                      <div class="ck-review-new">→ {{ x.item.title || '(no title)' }}</div>
+                    }
+                    <div class="ck-review-meta">
+                      {{ x.video.isShort ? 'Short' : 'Video' }} ·
+                      description {{ x.item.description === x.video.description ? 'unchanged' : x.video.description.length + ' → ' + x.item.description.length + ' chars' }} ·
+                      tags +{{ x.tags.added.length }} / −{{ x.tags.removed.length }}
+                      @if (x.item.playlistIds.length > 0) { · +{{ x.item.playlistIds.length }} playlist{{ x.item.playlistIds.length === 1 ? '' : 's' }} }
+                      @if (st.saved) { · <strong class="ck-ok-text">✓ Saved</strong> }
+                      @if (st.busy === 'save') { · Saving… }
+                    </div>
+                  </div>
+                  <div class="ck-review-row-actions">
+                    <button type="button" class="ck-btn-select-all" (click)="toggleExpanded(x.item.videoId)" [attr.aria-expanded]="r.expanded === x.item.videoId">
+                      {{ r.expanded === x.item.videoId ? 'Hide' : 'Compare' }}
+                    </button>
+                    <button type="button" class="ck-btn-secondary" (click)="saveReviewed(x.item)"
+                            [disabled]="x.item.problems.length > 0 || x.item.unchanged || st.busy === 'save' || !!bulkRunning()">
+                      Save this one
+                    </button>
+                  </div>
+                </div>
+
+                @if (x.item.problems.length > 0 || x.item.warnings.length > 0 || x.item.added.length > 0 || st.error) {
+                  <ul class="ck-review-notes">
+                    @if (x.item.added.length > 0) { <li class="ck-ok-text">+ Added: {{ x.item.added.join(', ') }}</li> }
+                    @for (p of x.item.problems; track $index) { <li class="ck-err-text">✕ {{ p }}</li> }
+                    @for (w of x.item.warnings; track $index) { <li class="ck-warn-text">! {{ w }}</li> }
+                    @if (st.error) { <li class="ck-err-text">✕ {{ st.error }}</li> }
+                  </ul>
+                }
+
+                @if (r.expanded === x.item.videoId) {
+                  <div class="ck-review-diff">
+                    <div class="ck-review-col">
+                      <h5>Now on YouTube</h5>
+                      <p class="ck-review-label">Title</p>
+                      <p>{{ x.video.title }}</p>
+                      <p class="ck-review-label">Description</p>
+                      <pre>{{ x.video.description || '(none)' }}</pre>
+                      <p class="ck-review-label">Tags</p>
+                      <p>{{ tagLine(x.video.tags) || '(none)' }}</p>
+                      <p class="ck-review-label">Playlists</p>
+                      <p>{{ x.video.playlistIds.length ? '' : '(none)' }}@for (id of x.video.playlistIds; track id) { <span class="ck-chip">{{ playlistTitle(id) }}</span> }</p>
+                    </div>
+                    <div class="ck-review-col is-new">
+                      <h5>After saving</h5>
+                      <p class="ck-review-label">Title</p>
+                      <p>{{ x.item.title }}</p>
+                      <p class="ck-review-label">Description</p>
+                      <pre>{{ x.item.description }}</pre>
+                      <p class="ck-review-label">Tags</p>
+                      <p>
+                        @for (t of x.item.tags; track t) {
+                          <span class="ck-chip" [class.is-added]="x.tags.added.includes(t)">{{ t }}</span>
+                        }
+                        @for (t of x.tags.removed; track t) {
+                          <span class="ck-chip is-removed">{{ t }}</span>
+                        }
+                      </p>
+                      <p class="ck-review-label">Playlists added</p>
+                      <p>{{ x.item.playlistIds.length ? '' : '(none)' }}@for (id of x.item.playlistIds; track id) { <span class="ck-chip is-added">{{ playlistTitle(id) }}</span> }</p>
+                      @if (x.item.pinnedComment) {
+                        <p class="ck-review-label">Pinned comment <span class="ck-help-text">(not posted by saving - post it from the editor, then pin it in Studio)</span></p>
+                        <pre>{{ x.item.pinnedComment }}</pre>
+                      }
+                    </div>
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+
+          <footer class="ck-review-foot">
+            <button type="button" class="ck-btn-bulk-save" (click)="applyReview('save')" [disabled]="reviewCounts().accepted === 0 || !!bulkRunning()">
+              💾 Save {{ reviewCounts().accepted }} to YouTube now
+            </button>
+            <button type="button" class="ck-btn-secondary" (click)="applyReview('walk')" [disabled]="reviewCounts().accepted === 0">
+              ▶ Check one by one
+            </button>
+            <button type="button" class="ck-btn-secondary" (click)="applyReview('drafts')" [disabled]="reviewCounts().accepted === 0">
+              Put into drafts only
+            </button>
+          </footer>
+        </section>
       }
 
       <!-- Empty state when no videos match -->

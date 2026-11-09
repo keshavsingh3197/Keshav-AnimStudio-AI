@@ -6,7 +6,7 @@ export interface ShortDrive {
   handoffId: string;
   /** Sending, WaitingForRender, Saved, Failed, WaitingForPhone, Applied, Expired, or Missing (deleted on Drive since). */
   state: string;
-  /** The folder path on Drive, e.g. "OMKR Shorts / KATHU SHYAM / 2026-10-17 Single exports". */
+  /** The folder path on Drive, e.g. "Shorts / KATHU SHYAM / 2026-10-17 Single exports". */
   folderName: string;
   driveUrl: string | null;
   error: string | null;

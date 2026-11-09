@@ -43,13 +43,13 @@ export const EMPTY_STATE: RowState = { draft: null, busy: null, error: null, sav
 export const TAGS_BUDGET = 450;
 
 /** Mirrors the server's checkup: below this a description says next to nothing. */
-const SHORT_DESCRIPTION_CHARS = 80;
+export const SHORT_DESCRIPTION_CHARS = 80;
 
 export const HASHTAG = /(^|\s)#[\p{L}\p{M}\p{N}_]+/u;
 export const HASHTAGS = /#[\p{L}\p{M}\p{N}_]+/gu;
 
 /** Same rule as the server's: a file name or placeholder rather than a real title. */
-const FILE_NAME_TITLE = /\.(mp4|mov|m4v|webm|mkv|avi)$|^((VID|IMG|PXL|MOV)[\s_-]?\d[\d_\s-]*|(short|video|clip|untitled)\s*[#(]?\d*\)?|AnimStudio video)$/i;
+export const FILE_NAME_TITLE = /\.(mp4|mov|m4v|webm|mkv|avi)$|^((VID|IMG|PXL|MOV)[\s_-]?\d[\d_\s-]*|(short|video|clip|untitled)\s*[#(]?\d*\)?|AnimStudio video)$/i;
 
 export function splitTags(text: string): string[] {
   const seen = new Set<string>();
@@ -235,7 +235,7 @@ export function draftChecklist(v: YouTubeCheckupVideo, d: Draft, footer: string 
 export function toneLabel(t: string): string {
   const labels: Record<string, string> = {
     auto: '🎯 Auto Tone',
-    'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
+    'devotional-omkr': '🕉️ Omkar Shiv Bhakti 3D Devotional (Brand Rules)',
     devotional: '🙏 Devotional',
     funny: '😂 Funny',
     emotional: '🥹 Emotional',

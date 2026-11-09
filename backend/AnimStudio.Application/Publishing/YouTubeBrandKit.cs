@@ -18,18 +18,33 @@ public static partial class YouTubeBrandKit
     /// <summary>The studio's own branding, used by a channel that hasn't set any.</summary>
     public static ChannelBranding Default => new()
     {
-        ChannelName = "OMKR",
+        ChannelName = "Omkar Shiv Bhakti",
         Tagline = "Devotional 3D Animations",
-        ChannelUrl = "https://youtube.com/@omkr-shiv",
+        ChannelUrl = "https://youtube.com/@OmkarShivBhakti",
         StudioUrl = "https://studio.keshavsingh.in/",
         CreatorUrl = "https://keshavsingh.in/",
+        CreatorName = "Keshav Singh",
         EngineName = "AnimStudio",
-        VisualsCredit = "OMKR 3D Devotional Animations",
-        Hashtags = ["OMKR", "AnimStudio", "KeshavSingh"],
-        Tags = ["AnimStudio", "omkr", "omkr shiv", "keshav singh"],
+        VisualsCredit = "Omkar Shiv Bhakti 3D Devotional Animations",
+        Hashtags = ["OmkarShivBhakti", "AnimStudio", "KeshavSingh"],
+        // The retired short name stays as a tag so viewers who still search it find the channel.
+        Tags = ["omkar shiv bhakti", "omkar shiv", "AnimStudio", "omkr", "keshav singh"],
     };
 
-    /// <summary>The channel's branding; when it has set none, the studio's own for the OMKR devotional tone and nothing otherwise.</summary>
+    /// <summary>
+    /// Channel addresses the studio used before a rename. YouTube no longer opens them, so a video
+    /// still linking one sends viewers to a dead page - the checkup flags it.
+    /// </summary>
+    public static readonly IReadOnlyList<string> RetiredChannelUrls = ["youtube.com/@omkr-shiv"];
+
+    /// <summary>
+    /// Names the channel went by before a rename. Text still carrying one (a stored credit, a
+    /// footer) is written with the current name instead - see <see cref="CurrentText"/>.
+    /// Search tags are left alone on purpose: people still type the old name.
+    /// </summary>
+    public static readonly IReadOnlyList<string> RetiredChannelNames = ["OMKR"];
+
+    /// <summary>The channel's branding; when it has set none, the studio's own for the Omkar Shiv Bhakti devotional tone and nothing otherwise.</summary>
     public static ChannelBranding Resolve(ChannelBranding? branding, string? toneId = null) =>
         branding ?? (string.Equals(toneId, "devotional-omkr", StringComparison.Ordinal) ? Default : new ChannelBranding());
 
@@ -46,7 +61,7 @@ public static partial class YouTubeBrandKit
     /// </summary>
     /// <remarks>
     /// Null when neither the channel nor the studio has set anything, so <see cref="Resolve"/> keeps
-    /// its OMKR-tone fallback for a server nobody has branded yet. The YouTube-derived values alone
+    /// its devotional-tone fallback for a server nobody has branded yet. The YouTube-derived values alone
     /// don't count as "set": they fill in a branding someone asked for, they don't switch it on -
     /// otherwise linking a channel would quietly add credits to descriptions that had none.
     /// The result is a fresh object; nothing stored is modified.
@@ -62,18 +77,91 @@ public static partial class YouTubeBrandKit
         static List<string> PickList(List<string>? first, List<string>? second) =>
             first is { Count: > 0 } ? [.. first] : second is { Count: > 0 } ? [.. second] : [];
 
+        // A name or link typed before the channel was renamed loses to what YouTube says now.
+        static string? Current(string? value, Func<string, bool> retired) =>
+            value is not null && retired(value) ? null : value;
+        var name = Pick(Current(own?.ChannelName, IsRetiredName), Current(AutoChannelName(publishing, brandChannelName), IsRetiredName));
+        var url = Pick(Current(own?.ChannelUrl, HasRetiredUrl), Current(AutoChannelUrl(publishing), HasRetiredUrl));
+
         return new ChannelBranding
         {
-            ChannelName = Pick(own?.ChannelName, AutoChannelName(publishing, brandChannelName)),
-            Tagline = Pick(own?.Tagline, studio?.Tagline),
-            ChannelUrl = Pick(own?.ChannelUrl, AutoChannelUrl(publishing)),
+            ChannelName = name,
+            Tagline = CurrentText(Pick(own?.Tagline, studio?.Tagline), name, url),
+            ChannelUrl = url,
             StudioUrl = Pick(own?.StudioUrl, studio?.StudioUrl),
             CreatorUrl = Pick(own?.CreatorUrl, studio?.CreatorUrl),
+            CreatorName = Pick(own?.CreatorName, studio?.CreatorName),
             EngineName = Pick(own?.EngineName, studio?.EngineName),
-            VisualsCredit = Pick(own?.VisualsCredit, studio?.VisualsCredit),
-            Hashtags = PickList(own?.Hashtags, studio?.Hashtags),
+            VisualsCredit = CurrentText(Pick(own?.VisualsCredit, studio?.VisualsCredit), name, url),
+            Hashtags = CurrentHashtags(PickList(own?.Hashtags, studio?.Hashtags), name),
             Tags = PickList(own?.Tags, studio?.Tags),
         };
+    }
+
+    /// <summary>Whether the value is one of <see cref="RetiredChannelNames"/>, ignoring case and a leading "@" or "#".</summary>
+    public static bool IsRetiredName(string value) =>
+        RetiredChannelNames.Contains(value.Trim().TrimStart('@', '#'), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether the text links one of <see cref="RetiredChannelUrls"/>.</summary>
+    public static bool HasRetiredUrl(string text) =>
+        RetiredChannelUrls.Any(old => text.Contains(old, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The text with every retired channel link pointed at <paramref name="channelUrl"/> (or
+    /// removed when it is unknown), and every retired name - as a word or a hashtag - written as
+    /// <paramref name="channelName"/>. Names stay as they are while the current name isn't known.
+    /// </summary>
+    public static string? CurrentText(string? text, string? channelName, string? channelUrl)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var result = text;
+        foreach (var old in RetiredChannelUrls)
+            result = Regex.Replace(result, @"(https?://)?(www\.)?" + Regex.Escape(old) + "/?", _ => channelUrl?.Trim() ?? string.Empty,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (string.IsNullOrWhiteSpace(channelName) || IsRetiredName(channelName)) return result;
+
+        var hashtag = HashtagFor(channelName);
+        foreach (var old in RetiredChannelNames)
+        {
+            if (hashtag.Length > 0)
+                result = Regex.Replace(result, "#" + Regex.Escape(old) + @"(?![\p{L}\p{M}\p{N}_])", _ => "#" + hashtag,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            result = Regex.Replace(result, @"(?<![\p{L}\p{M}\p{N}_#@/.-])" + Regex.Escape(old) + @"(?![\p{L}\p{M}\p{N}_-])", _ => channelName.Trim(),
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The channel's description footer as it should read now: retired links and names swapped
+    /// for the current ones (<see cref="CurrentText"/>). Null when there is no footer.
+    /// </summary>
+    public static string? CurrentFooter(ChannelPublishSettings? publishing, ChannelBranding? effective)
+    {
+        var footer = publishing?.DescriptionFooter;
+        if (string.IsNullOrWhiteSpace(footer)) return null;
+        var name = effective?.ChannelName ?? AutoChannelName(publishing);
+        var url = effective?.ChannelUrl ?? AutoChannelUrl(publishing);
+        return CurrentText(footer.Trim(), name, url is not null && HasRetiredUrl(url) ? null : url);
+    }
+
+    /// <summary>The name as a hashtag body: letters, marks, digits and _ only ("Omkar Shiv Bhakti" -> "OmkarShivBhakti").</summary>
+    public static string HashtagFor(string name)
+    {
+        var body = NotHashtagChar().Replace(name, string.Empty);
+        return body.Length > 30 ? body[..30] : body;
+    }
+
+    private static List<string> CurrentHashtags(List<string> hashtags, string? channelName)
+    {
+        var current = string.IsNullOrWhiteSpace(channelName) || IsRetiredName(channelName) ? string.Empty : HashtagFor(channelName);
+        var result = new List<string>();
+        foreach (var tag in hashtags)
+        {
+            var next = IsRetiredName(tag) ? current : tag;
+            if (next.Length > 0 && !result.Contains(next, StringComparer.OrdinalIgnoreCase)) result.Add(next);
+        }
+        return result;
     }
 
     /// <summary>
@@ -109,7 +197,7 @@ public static partial class YouTubeBrandKit
     /// <summary>Whether a branding has anything typed into it at all.</summary>
     public static bool HasAny(ChannelBranding? b) =>
         b is not null && (
-            new[] { b.ChannelName, b.Tagline, b.ChannelUrl, b.StudioUrl, b.CreatorUrl, b.EngineName, b.VisualsCredit }
+            new[] { b.ChannelName, b.Tagline, b.ChannelUrl, b.StudioUrl, b.CreatorUrl, b.CreatorName, b.EngineName, b.VisualsCredit }
                 .Any(v => !string.IsNullOrWhiteSpace(v))
             || b.Hashtags is { Count: > 0 } || b.Tags is { Count: > 0 });
 
@@ -142,6 +230,7 @@ public static partial class YouTubeBrandKit
             : $"{branding.ChannelName} ({branding.Tagline})";
         Line("Channel name", name);
         Line("YouTube channel", branding.ChannelUrl);
+        Line("Created by", branding.CreatorName);
         Line("Animation engine", branding.EngineName);
         Line("Visuals credit", branding.VisualsCredit);
         if (branding.Hashtags.Count > 0) Line("Brand hashtags (added for you)", string.Join(' ', branding.Hashtags.Select(h => "#" + h)));
@@ -164,6 +253,8 @@ public static partial class YouTubeBrandKit
                 : $"Animation Engine: {branding.EngineName.Trim()}");
         if (Shown(branding.StudioUrl))
             credits.Add(hindi ? $"स्टूडियो लिंक (Studio Platform): {branding.StudioUrl!.Trim()}" : $"Studio: {branding.StudioUrl!.Trim()}");
+        if (!string.IsNullOrWhiteSpace(branding.CreatorName))
+            credits.Add(hindi ? $"निर्माता (Created by): {branding.CreatorName.Trim()}" : $"Created by: {branding.CreatorName.Trim()}");
         if (Shown(branding.CreatorUrl))
             credits.Add(hindi ? $"निर्माता प्रोफ़ाइल (Creator Portfolio): {branding.CreatorUrl!.Trim()}" : $"Creator: {branding.CreatorUrl!.Trim()}");
         if (!string.IsNullOrWhiteSpace(branding.VisualsCredit))
@@ -325,6 +416,7 @@ public static partial class YouTubeBrandKit
             ChannelUrl = Url(input.ChannelUrl, "channelUrl"),
             StudioUrl = Url(input.StudioUrl, "studioUrl"),
             CreatorUrl = Url(input.CreatorUrl, "creatorUrl"),
+            CreatorName = Text(input.CreatorName, "creatorName", 80),
             EngineName = Text(input.EngineName, "engineName", 60),
             VisualsCredit = Text(input.VisualsCredit, "visualsCredit", 120),
             Hashtags = hashtags,
@@ -341,6 +433,9 @@ public static partial class YouTubeBrandKit
 
     [GeneratedRegex(@"[\p{C}\s]+", RegexOptions.CultureInvariant)]
     private static partial Regex ControlRun();
+
+    [GeneratedRegex(@"[^\p{L}\p{M}\p{N}_]+", RegexOptions.CultureInvariant)]
+    private static partial Regex NotHashtagChar();
 
     /// <summary>A YouTube handle without its "@": letters, marks, digits, '.', '_' and '-' (YouTube's own charset).</summary>
     [GeneratedRegex(@"^[\p{L}\p{M}\p{N}._-]+$", RegexOptions.CultureInvariant)]

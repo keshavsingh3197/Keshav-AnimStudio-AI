@@ -62,7 +62,7 @@ public sealed class YouTubeBrandKitTests
     }
 
     [Fact]
-    public void An_unbranded_channel_gets_nothing_added_except_for_the_omkr_tone()
+    public void An_unbranded_channel_gets_nothing_added_except_for_the_studio_tone()
     {
         Assert.Equal(string.Empty, YouTubeBrandKit.Block(YouTubeBrandKit.Resolve(null, "auto"), "hi"));
         Assert.Contains("studio.keshavsingh.in", YouTubeBrandKit.Block(YouTubeBrandKit.Resolve(null, "devotional-omkr"), "hi"));
@@ -149,14 +149,14 @@ public sealed class YouTubeBrandKitTests
     }
 
     [Fact]
-    public void Effective_is_null_when_nothing_is_set_so_the_omkr_fallback_still_applies()
+    public void Effective_is_null_when_nothing_is_set_so_the_studio_fallback_still_applies()
     {
         var publishing = new ChannelPublishSettings { YouTubeChannelTitle = "Acme", YouTubeChannelHandle = "acme", Branding = new ChannelBranding() };
 
         var effective = YouTubeBrandKit.Effective(new AiSettings(), publishing);
 
         Assert.Null(effective);
-        Assert.Equal("OMKR", YouTubeBrandKit.Resolve(effective, "devotional-omkr").ChannelName);
+        Assert.Equal("Omkar Shiv Bhakti", YouTubeBrandKit.Resolve(effective, "devotional-omkr").ChannelName);
     }
 
     [Fact]
@@ -168,6 +168,71 @@ public sealed class YouTubeBrandKitTests
 
         Assert.Null(effective.ChannelUrl);
         Assert.Equal("A b", effective.ChannelName);
+    }
+
+    [Fact]
+    public void The_block_credits_the_creator_by_name()
+    {
+        var brand = Brand();
+        brand.CreatorName = "Keshav Singh";
+
+        Assert.Contains("Created by: Keshav Singh", YouTubeBrandKit.Block(brand, "en"));
+        Assert.Contains("निर्माता (Created by): Keshav Singh", YouTubeBrandKit.Block(brand, "hi"));
+        Assert.Contains("Keshav Singh", YouTubeBrandKit.Block(YouTubeBrandKit.Default, "en"));
+    }
+
+    [Fact]
+    public void Effective_swaps_a_retired_name_and_link_for_what_youtube_says_now()
+    {
+        var publishing = new ChannelPublishSettings
+        {
+            YouTubeChannelTitle = "Omkar Shiv Bhakti",
+            YouTubeChannelHandle = "OmkarShivBhakti",
+            Branding = new ChannelBranding
+            {
+                ChannelName = "OMKR",
+                ChannelUrl = "https://youtube.com/@omkr-shiv",
+                VisualsCredit = "OMKR 3D Devotional Animations",
+                Hashtags = ["OMKR", "AnimStudio"],
+                Tags = ["omkr", "bhajan"],
+            },
+        };
+
+        var effective = YouTubeBrandKit.Effective(new AiSettings(), publishing)!;
+
+        Assert.Equal("Omkar Shiv Bhakti", effective.ChannelName);
+        Assert.Equal("https://youtube.com/@OmkarShivBhakti", effective.ChannelUrl);
+        Assert.Equal("Omkar Shiv Bhakti 3D Devotional Animations", effective.VisualsCredit);
+        Assert.Equal(["OmkarShivBhakti", "AnimStudio"], effective.Hashtags);
+        // People still search the old name, so the search tag stays.
+        Assert.Contains("omkr", effective.Tags);
+    }
+
+    [Fact]
+    public void CurrentText_rewrites_old_links_names_and_hashtags_but_not_lookalikes()
+    {
+        var text = "Subscribe to OMKR: https://www.youtube.com/@omkr-shiv/\n#OMKR #Bhakti\nomkr-style devotional-omkr";
+
+        var current = YouTubeBrandKit.CurrentText(text, "Omkar Shiv Bhakti", "https://youtube.com/@OmkarShivBhakti")!;
+
+        Assert.Contains("Subscribe to Omkar Shiv Bhakti: https://youtube.com/@OmkarShivBhakti", current);
+        Assert.Contains("#OmkarShivBhakti #Bhakti", current);
+        Assert.Contains("omkr-style devotional-omkr", current);
+        Assert.DoesNotContain("omkr-shiv", current, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CurrentFooter_updates_a_footer_written_before_the_rename()
+    {
+        var publishing = new ChannelPublishSettings
+        {
+            YouTubeChannelTitle = "Omkar Shiv Bhakti",
+            YouTubeChannelHandle = "OmkarShivBhakti",
+            DescriptionFooter = "  🔔 Subscribe: https://youtube.com/@omkr-shiv  ",
+        };
+
+        Assert.Equal("🔔 Subscribe: https://youtube.com/@OmkarShivBhakti", YouTubeBrandKit.CurrentFooter(publishing, null));
+        Assert.Null(YouTubeBrandKit.CurrentFooter(new ChannelPublishSettings(), null));
     }
 
     [Fact]

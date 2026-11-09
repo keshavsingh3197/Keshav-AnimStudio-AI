@@ -39,6 +39,13 @@ public class YouTubeDetailsAuditTests
     }
 
     [Fact]
+    public void A_link_to_the_retired_channel_address_is_flagged()
+    {
+        Assert.Contains("channel-link-old", Codes(Complete() with { Description = Complete().Description + "\nSubscribe: https://YouTube.com/@omkr-shiv" }));
+        Assert.DoesNotContain("channel-link-old", Codes(Complete() with { Description = Complete().Description + "\nSubscribe: https://youtube.com/@OmkarShivBhakti" }));
+    }
+
+    [Fact]
     public void Unknown_playlist_membership_gives_no_verdict() =>
         Assert.DoesNotContain("playlist-missing", Codes(Complete() with { InPlaylist = null }));
 

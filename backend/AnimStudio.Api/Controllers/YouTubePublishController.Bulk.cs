@@ -68,7 +68,7 @@ public sealed partial class YouTubePublishController
             var defaults = brand?.PublishingFor(project?.Settings.BrandChannelId);
 
             var description = string.IsNullOrWhiteSpace(request.Description)
-                ? YouTubePublishValidator.WithFooter(await DefaultDescriptionAsync(job, project, ct), defaults?.DescriptionFooter)
+                ? YouTubePublishValidator.WithFooter(await DefaultDescriptionAsync(job, project, ct), YouTubeBrandKit.CurrentFooter(defaults, null))
                 : request.Description.Trim();
             var metadata = new YouTubeVideoMetadata
             {

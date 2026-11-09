@@ -650,7 +650,7 @@ public sealed partial class PhoneHandoffManager(
         }
     }
 
-    /// <summary>Where the copy sits on Drive, for showing: "OMKR Shorts / KATHU SHYAM / 2026-10-17 Single exports".</summary>
+    /// <summary>Where the copy sits on Drive, for showing: "Shorts / KATHU SHYAM / 2026-10-17 Single exports".</summary>
     public static string DrivePath(PhoneHandoff h) =>
         string.Join(" / ", new[] { h.DriveFolderName }.Concat(h.DriveSubfolders).Where(f => !string.IsNullOrEmpty(f)));
 

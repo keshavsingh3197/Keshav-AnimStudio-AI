@@ -30,9 +30,9 @@ export const SOCIAL_LINKS: readonly SiteLink[] = [
   {
     id: 'youtube',
     label: 'YouTube',
-    handle: '@omkr-shiv',
-    url: 'https://youtube.com/@omkr-shiv',
-    description: 'OMKR devotional 3D animations, made end to end in AnimStudio.',
+    handle: '@OmkarShivBhakti',
+    url: 'https://youtube.com/@OmkarShivBhakti',
+    description: 'Omkar Shiv Bhakti devotional 3D animations, made end to end in AnimStudio.',
   },
   {
     id: 'github',

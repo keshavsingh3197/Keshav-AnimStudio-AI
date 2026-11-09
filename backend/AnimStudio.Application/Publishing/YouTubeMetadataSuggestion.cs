@@ -91,7 +91,7 @@ public static class YouTubeMetadataSuggester
     public static readonly IReadOnlyDictionary<string, string> Tones = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["auto"] = "whatever suits the material best",
-        ["devotional-omkr"] = "highly devotional, emotional and high-CTR, for a devotional 3D animation channel - open with a lyric quote, add two paragraphs of rich devotional context, a relevant Sanskrit shloka or chaupai with its Hindi meaning, and write a devotional pinned comment (encouraging viewers to write a sacred jaikara such as Har Har Mahadev / Jai Mata Di / Jai Shree Shyam) and an interactive question comment; the channel's credits, links and hashtags are added for you",
+        ["devotional-omkr"] = "highly devotional, emotional and high-CTR, for a devotional 3D animation channel - open with a lyric quote, add two paragraphs of rich devotional context, a relevant Sanskrit shloka or chaupai with its Hindi meaning, and write a devotional pinned comment (encouraging viewers to write a sacred jaikara such as Har Har Mahadev / Jai Mata Di / Jai Shree Shyam) and an interactive question comment; make it findable beyond YouTube too - fold the phrases people search when looking for clips to share (e.g. \"Mahadev status\", \"Khatu Shyam status\", \"WhatsApp status\", \"bhakti status\", \"Instagram reels\") naturally into the tags and, for a Short, one of them into the title or description; the channel's credits, links and hashtags are added for you",
         ["devotional"] = "devotional and respectful - warm, reverent, never flippant",
         ["funny"] = "funny and playful - light jokes, witty wording, a smile in the title",
         ["emotional"] = "emotional and heartfelt",
@@ -343,7 +343,7 @@ public static class YouTubeMetadataSuggester
 /// <summary>
 /// 100% Free, Zero-Key YouTube SEO &amp; Devotional Metadata Generator.
 /// Produces high-CTR titles, full ready-to-copy descriptions (with lyrics/transcript, shloka,
-/// chapters, and OMKR / AnimStudio credits), tags, pinned comments, and engagement comments
+/// chapters, and channel / AnimStudio credits), tags, pinned comments, and engagement comments
 /// in Pure Hindi (Devanagari) or English — and fills in any fields left empty by cloud LLMs.
 /// </summary>
 public static class YouTubeFreeSeoEngine
@@ -389,10 +389,12 @@ public static class YouTubeFreeSeoEngine
         var brand = YouTubeBrandKit.Resolve(branding, toneId);
         var isHindi = string.Equals(language, "hi", StringComparison.OrdinalIgnoreCase);
         var isShort = style.Contains("Short", StringComparison.OrdinalIgnoreCase);
-        var isOmkr = string.Equals(toneId, "devotional-omkr", StringComparison.OrdinalIgnoreCase)
-                     || summary.Contains("OMKR", StringComparison.OrdinalIgnoreCase)
-                     || (brief?.Contains("OMKR", StringComparison.OrdinalIgnoreCase) ?? false);
-        var isDevotional = isOmkr
+        // The channel's own tone, or a video that names the channel - by its current name or the retired one.
+        var isBrandTone = string.Equals(toneId, "devotional-omkr", StringComparison.OrdinalIgnoreCase)
+                     || summary.Contains("Omkar Shiv", StringComparison.OrdinalIgnoreCase)
+                     || YouTubeBrandKit.RetiredChannelNames.Any(old =>
+                         summary.Contains(old, StringComparison.OrdinalIgnoreCase) || (brief?.Contains(old, StringComparison.OrdinalIgnoreCase) ?? false));
+        var isDevotional = isBrandTone
                            || string.Equals(toneId, "devotional", StringComparison.OrdinalIgnoreCase)
                            || ContainsDevotionalKeywords(summary + " " + brief + " " + transcriptText);
 
@@ -401,22 +403,22 @@ public static class YouTubeFreeSeoEngine
         var lyricsSnippet = ExtractCleanLyricsBlock(summary, transcriptText);
         var firstLyricLine = ExtractFirstLyricLine(lyricsSnippet);
 
-        // Content that isn't devotional gets plain, topic-led details - not OMKR's bhajan template.
+        // Content that isn't devotional gets plain, topic-led details - not the channel's bhajan template.
         if (!isDevotional)
             return GenericSeo.Generate(summary, cleanSubject, firstLyricLine, lyricsSnippet, transcriptText, isHindi, isShort, extras);
 
         var deity = DetectDeity(summary + " " + brief + " " + transcriptText + " " + cleanSubject);
 
-        var titles = BuildTitles(cleanSubject, firstLyricLine, deity, isHindi, isDevotional, isOmkr, isShort, brand);
+        var titles = BuildTitles(cleanSubject, firstLyricLine, deity, isHindi, isDevotional, isBrandTone, isShort, brand);
         var primaryTitle = titles[0];
         var titleOptions = titles.Skip(1).Take(4).ToList();
 
-        var mainDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 0, extras), extras);
-        var shortDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 1, extras), extras);
-        var detailedDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 2, extras), extras);
+        var mainDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isBrandTone, isShort, variant: 0, extras), extras);
+        var shortDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isBrandTone, isShort, variant: 1, extras), extras);
+        var detailedDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isBrandTone, isShort, variant: 2, extras), extras);
 
-        var (tags, tagIdeas) = BuildTags(cleanSubject, deity, isHindi, isDevotional, isOmkr, isShort, brand);
-        var (pinnedComment, engagementComment) = BuildComments(cleanSubject, deity, isHindi, isDevotional, isOmkr);
+        var (tags, tagIdeas) = BuildTags(cleanSubject, deity, isHindi, isDevotional, isBrandTone, isShort, brand);
+        var (pinnedComment, engagementComment) = BuildComments(cleanSubject, deity, isHindi, isDevotional, isBrandTone);
 
         return new YouTubeMetadataSuggestion(primaryTitle, mainDesc, tags)
         {
@@ -443,7 +445,7 @@ public static class YouTubeFreeSeoEngine
         [
             "shiv", "mahadev", "bholenath", "shankar", "om namah", "khatu", "shyam", "mata", "durga",
             "bhavani", "navratri", "hanuman", "bajrangbali", "ram", "krishna", "radha", "ganesh",
-            "bhajan", "aarti", "mantra", "chalisa", "stotra", "devotional", "bhakti", "omkr",
+            "bhajan", "aarti", "mantra", "chalisa", "stotra", "devotional", "bhakti", "omkr", "omkar",
         ];
         string[] devanagari =
         [
@@ -472,8 +474,8 @@ public static class YouTubeFreeSeoEngine
                 "Jai Shree Shyam 🙏 Hare Ka Sahara Baba Shyam Hamara",
                 "ॐ श्री श्याम देवाय नमः ✨\nहारे का सहारा, बाबा श्याम हमारा!",
                 "कलियुग के अवतारी खाटू श्याम जी की कृपा से हर भक्त के दुख दूर होते हैं।",
-                "#KhatuShyam #JaiShreeShyam #ShyamBaba #BhaktiShorts #OMKR #Shorts",
-                "#KhatuShyam #JaiShreeShyam #ShyamBhajan #DevotionalShorts #OMKR #Shorts",
+                "#KhatuShyam #JaiShreeShyam #ShyamBaba #BhaktiShorts #OmkarShivBhakti #Shorts",
+                "#KhatuShyam #JaiShreeShyam #ShyamBhajan #DevotionalShorts #OmkarShivBhakti #Shorts",
                 ["khatu shyam", "jai shree shyam", "khatu shyam bhajan", "shyam baba status", "hare ka sahara"]);
         }
 
@@ -492,8 +494,8 @@ public static class YouTubeFreeSeoEngine
                 "Jai Mata Di ❤️🙏",
                 "सर्वमंगल मांगल्ये शिवे सर्वार्थ साधिके।\nशरण्ये त्र्यम्बके गौरि नारायणि नमोऽस्तु ते॥ 🙏",
                 "माँ जगदम्बा आपके जीवन में सुख, शांति और समृद्धि का आशीर्वाद प्रदान करें।",
-                "#JaiMataDi #MaaDurga #MataRani #NavratriSpecial #OMKR #Shorts",
-                "#JaiMataDi #MaaDurga #DeviBhajan #DevotionalShorts #OMKR #Shorts",
+                "#JaiMataDi #MaaDurga #MataRani #NavratriSpecial #OmkarShivBhakti #Shorts",
+                "#JaiMataDi #MaaDurga #DeviBhajan #DevotionalShorts #OmkarShivBhakti #Shorts",
                 ["jai mata di", "maa durga bhajan", "mata rani status", "devi bhakti song", "shakti animation"]);
         }
 
@@ -509,8 +511,8 @@ public static class YouTubeFreeSeoEngine
                 "Jai Shree Ram 🚩 Jai Bajrangbali 🙏",
                 "मनोजवं मारुततुल्यवेगं जितेन्द्रियं बुद्धिमतां वरिष्ठम्।\nवातात्मजं वानरयूथमुख्यं श्रीरामदूतं शरणं प्रपद्ये॥ 🙏",
                 "संकटमोचन हनुमान जी आपके सभी संकटों का नाश करें और बल-बुद्धि प्रदान करें।",
-                "#JaiBajrangbali #HanumanJi #JaiShreeRam #HanumanBhajan #OMKR #Shorts",
-                "#HanumanJi #JaiBajrangbali #JaiShreeRam #DevotionalShorts #OMKR #Shorts",
+                "#JaiBajrangbali #HanumanJi #JaiShreeRam #HanumanBhajan #OmkarShivBhakti #Shorts",
+                "#HanumanJi #JaiBajrangbali #JaiShreeRam #DevotionalShorts #OmkarShivBhakti #Shorts",
                 ["jai bajrangbali", "hanuman bhajan", "hanuman chalisa", "sankat mochan", "balaji status"]);
         }
 
@@ -527,20 +529,20 @@ public static class YouTubeFreeSeoEngine
                 "Radhe Radhe ❤️ Jai Shree Krishna 🙏",
                 "हरे कृष्ण हरे कृष्ण, कृष्ण कृष्ण हरे हरे।\nहरे राम हरे राम, राम राम हरे हरे॥ 🪈",
                 "श्री राधा-कृष्ण के पावन प्रेम और भक्ति में डूब जाएं।",
-                "#RadheRadhe #JaiShreeKrishna #KrishnaBhajan #BhaktiShorts #OMKR #Shorts",
-                "#RadheRadhe #KrishnaBhajan #RadhaKrishna #DevotionalShorts #OMKR #Shorts",
+                "#RadheRadhe #JaiShreeKrishna #KrishnaBhajan #BhaktiShorts #OmkarShivBhakti #Shorts",
+                "#RadheRadhe #KrishnaBhajan #RadhaKrishna #DevotionalShorts #OmkarShivBhakti #Shorts",
                 ["radhe radhe", "jai shree krishna", "krishna bhajan", "radha krishna status", "vrindavan bhakti"]);
         }
 
-        // Default devotional deity: Mahadev / Lord Shiva (OMKR primary channel theme)
+        // Default devotional deity: Mahadev / Lord Shiva (the channel's main theme)
         return new DeityProfile(
             "देवाधिदेव महादेव", "Lord Shiva Mahadev", "🔱",
             "हर हर महादेव 🔱🙏 जय माता दी ❤️",
             "Har Har Mahadev 🔱🙏 Jai Mata Di ❤️",
             "कर्पूरगौरं करुणावतारं संसारसारं भुजगेन्द्रहारम्।\nसदावसन्तं हृदयारविन्दे भवं भवानीसहितं नमामि॥ 🔱",
             "भोलेनाथ और माता पार्वती की असीम कृपा आप और आपके परिवार पर सदैव बनी रहे।",
-            "#HarHarMahadev #Bholenath #Mahakal #ShivBhajan #OMKR #Shorts",
-            "#HarHarMahadev #LordShiva #MahadevStatus #ShivBhajan #OMKR #Shorts",
+            "#HarHarMahadev #Bholenath #Mahakal #ShivBhajan #OmkarShivBhakti #Shorts",
+            "#HarHarMahadev #LordShiva #MahadevStatus #ShivBhajan #OmkarShivBhakti #Shorts",
             ["har har mahadev", "om namah shivaya", "bholenath bhajan", "mahadev 3d animation", "shiv tandav", "mahakal status"]);
     }
 
@@ -619,10 +621,10 @@ public static class YouTubeFreeSeoEngine
 
     private static List<string> BuildTitles(
         string subject, string firstLyric, DeityProfile deity,
-        bool isHindi, bool isDevotional, bool isOmkr, bool isShort, ChannelBranding brand)
+        bool isHindi, bool isDevotional, bool isBrandTone, bool isShort, ChannelBranding brand)
     {
         var shortTag = isShort ? " #Shorts" : "";
-        var omkrTag = isOmkr && brand.Hashtags.FirstOrDefault() is { } brandTag ? " #" + brandTag : "";
+        var channelTag = isBrandTone && brand.Hashtags.FirstOrDefault() is { } brandTag ? " #" + brandTag : "";
         var lyricHook = !string.IsNullOrWhiteSpace(firstLyric) && !string.Equals(firstLyric, subject, StringComparison.OrdinalIgnoreCase)
             ? firstLyric
             : subject;
@@ -634,9 +636,9 @@ public static class YouTubeFreeSeoEngine
             {
                 raw =
                 [
-                    $"{deity.Emoji} {subject} 🙏 | {deity.NameHi} का दिल छू लेने वाला भजन ✨{shortTag}{omkrTag}",
+                    $"{deity.Emoji} {subject} 🙏 | {deity.NameHi} का दिल छू लेने वाला भजन ✨{shortTag}{channelTag}",
                     $"🚩 {lyricHook} | {deity.NameHi} की अद्भुत महिमा 🙏{shortTag} #Bhakti",
-                    $"✨ {subject} — यह भजन सुनकर मन शांत हो जाएगा {deity.Emoji}{shortTag}{omkrTag}",
+                    $"✨ {subject} — यह भजन सुनकर मन शांत हो जाएगा {deity.Emoji}{shortTag}{channelTag}",
                     $"🕉️ सच्चे भक्त ज़रूर देखें: {subject} 🙏 | {deity.GreetingHi.Split(' ')[0]}{shortTag}"
                 ];
             }
@@ -657,9 +659,9 @@ public static class YouTubeFreeSeoEngine
             {
                 raw =
                 [
-                    $"{deity.Emoji} {subject} 🙏 | Divine 3D {deity.NameEn} Bhajan ✨{shortTag}{omkrTag}",
+                    $"{deity.Emoji} {subject} 🙏 | Divine 3D {deity.NameEn} Bhajan ✨{shortTag}{channelTag}",
                     $"🚩 {lyricHook} | Soulful Devotional Animation 🙏{shortTag} #Bhakti",
-                    $"✨ {subject} — Feel the Divine Grace of {deity.NameEn} {deity.Emoji}{shortTag}{omkrTag}",
+                    $"✨ {subject} — Feel the Divine Grace of {deity.NameEn} {deity.Emoji}{shortTag}{channelTag}",
                     $"🕉️ {subject} | High-Vibration Devotional Visuals 🙏{shortTag}"
                 ];
             }
@@ -680,7 +682,7 @@ public static class YouTubeFreeSeoEngine
 
     private static string BuildDescription(
         string subject, string lyricsBlock, DeityProfile deity,
-        bool isHindi, bool isDevotional, bool isOmkr, bool isShort, int variant, YouTubeSeoExtras extras)
+        bool isHindi, bool isDevotional, bool isBrandTone, bool isShort, int variant, YouTubeSeoExtras extras)
     {
         var sb = new StringBuilder();
         if (isHindi)
@@ -772,7 +774,7 @@ public static class YouTubeFreeSeoEngine
     }
 
     private static (List<string> Tags, List<string> TagIdeas) BuildTags(
-        string subject, DeityProfile deity, bool isHindi, bool isDevotional, bool isOmkr, bool isShort, ChannelBranding brand)
+        string subject, DeityProfile deity, bool isHindi, bool isDevotional, bool isBrandTone, bool isShort, ChannelBranding brand)
     {
         var tags = new List<string>();
         var ideas = new List<string>();
@@ -790,7 +792,7 @@ public static class YouTubeFreeSeoEngine
         }
 
         if (subject.Length <= 38) AddMain(subject);
-        if (isOmkr || isDevotional)
+        if (isBrandTone || isDevotional)
         {
             foreach (var brandTag in brand.Tags) AddMain(brandTag);
             AddMain("3d devotional animation");
@@ -799,9 +801,14 @@ public static class YouTubeFreeSeoEngine
             AddMain("hindi bhajan");
             AddMain("bhakti shorts");
             if (isShort) AddMain("youtube shorts");
+            // Clips are shared as WhatsApp status and reels, and searched for by those words.
+            AddMain(deity.NameEn.ToLowerInvariant() + " status");
+            AddMain("bhakti whatsapp status");
 
             if (!string.IsNullOrWhiteSpace(brand.VisualsCredit)) AddIdea(brand.VisualsCredit.ToLowerInvariant());
             AddIdea("devotional status");
+            AddIdea("whatsapp status video");
+            AddIdea("instagram reels bhakti");
             AddIdea("morning bhajan");
             AddIdea("sanatan dharma");
             AddIdea("spiritual shorts");
@@ -825,11 +832,11 @@ public static class YouTubeFreeSeoEngine
     }
 
     private static (string PinnedComment, string EngagementComment) BuildComments(
-        string subject, DeityProfile deity, bool isHindi, bool isDevotional, bool isOmkr)
+        string subject, DeityProfile deity, bool isHindi, bool isDevotional, bool isBrandTone)
     {
         if (isHindi)
         {
-            if (isDevotional || isOmkr)
+            if (isDevotional || isBrandTone)
             {
                 var pinned = $"{deity.Emoji} सच्चे मन से कमेंट में \"{deity.GreetingHi}\" ज़रूर लिखें! {deity.NameHi} आपकी सभी मनोकामनाएं पूर्ण करें। 🙏✨ ऐसे और दिव्य 3D भक्ति एनिमेशन के लिए हमारे चैनल को Subscribe ज़रूर करें! 🔔";
                 var engage = $"🙏 इस भजन की कौन सी लाइन आपके दिल को सबसे ज़्यादा छू गई? कमेंट में ज़रूर बताएं 👇✨";
@@ -841,7 +848,7 @@ public static class YouTubeFreeSeoEngine
             );
         }
 
-        if (isDevotional || isOmkr)
+        if (isDevotional || isBrandTone)
         {
             var pinned = $"{deity.Emoji} Type \"{deity.GreetingEn}\" in the comments to receive divine blessings! 🙏✨ Subscribe for more 3D devotional animations! 🔔";
             var engage = $"🙏 Which line or moment from this devotional video touched your heart the most? Share in the comments below 👇✨";
@@ -861,7 +868,8 @@ public static class YouTubeFreeSeoEngine
 
     /// <summary>The built-in deity hashtags end with the studio's own tag; the channel's brand hashtags are added when the description is finished.</summary>
     private static string WithoutBrandTag(string hashtags) =>
-        Regex.Replace(hashtags, @"\s*#OMKR\b", string.Empty, RegexOptions.CultureInvariant).Trim();
+        YouTubeBrandKit.RetiredChannelNames.Aggregate(hashtags, (text, old) =>
+            Regex.Replace(text, @"\s*#" + Regex.Escape(old) + @"\b", string.Empty, RegexOptions.CultureInvariant)).Trim();
 }
 
 /// <summary>
