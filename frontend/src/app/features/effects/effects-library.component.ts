@@ -1,6 +1,7 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
@@ -29,13 +30,14 @@ interface EffectDraft {
 @Component({
   selector: 'app-effects-library',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, FileDropDirective],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, RouterLink],
   templateUrl: './effects-library.component.html',
   styleUrl: './effects-library.component.css',
 })
 export class EffectsLibraryComponent implements OnInit, OnDestroy {
   private readonly api = inject(EffectsService);
   private readonly status = inject(StatusService);
+  readonly reactionsPage = inject(ActivatedRoute).snapshot.data['reactions'] === true;
 
   readonly categories = EFFECT_CATEGORIES;
   readonly accept = EFFECT_ACCEPT;
@@ -46,13 +48,13 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
 
-  readonly category = signal<EffectCategory | 'all'>('all');
+  readonly category = signal<EffectCategory | 'all'>(this.reactionsPage ? 'Reaction' : 'all');
   readonly kind = signal<EffectKind | ''>('');
   readonly query = signal('');
   readonly favoritesOnly = signal(false);
 
   /** Category for the next upload; empty lets the server file it by type. */
-  readonly uploadCategory = signal<EffectCategory | ''>('');
+  readonly uploadCategory = signal<EffectCategory | ''>(this.reactionsPage ? 'Reaction' : '');
   readonly uploadGreen = signal(false);
   readonly uploading = signal(false);
   readonly uploadDone = signal(0);

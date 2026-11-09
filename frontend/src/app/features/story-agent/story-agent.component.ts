@@ -22,6 +22,7 @@ import { StoryAgentService } from '../../core/services/story-agent.service';
 import { StoryImportDialogComponent } from './story-import-dialog.component';
 import { StoryOptionsComponent } from './story-options.component';
 import { STATUS_LABEL, saveStoryFile, statusTone, timeAgo } from './story-agent.utils';
+import { COMEDY_TEMPLATES, ComedyTemplateId, comedyNotes } from './comedy-templates';
 
 /** The page's two halves: the stories already started, and a new one. */
 export type StoryAgentView = 'stories' | 'new';
@@ -99,6 +100,13 @@ export class StoryAgentComponent {
 
   readonly title = signal('');
   readonly notes = signal('');
+  readonly comedyTemplate = signal<ComedyTemplateId>('none');
+  readonly comedyCount = signal(3);
+  readonly comedyTemplates = COMEDY_TEMPLATES;
+  readonly preparedNotes = computed(() => this.genre()?.id === 'funny' && this.writer() !== 'BuiltIn'
+    ? comedyNotes(this.comedyTemplate(), this.comedyCount(), this.notes())
+    : this.notes().trim());
+  readonly notesTooLong = computed(() => this.preparedNotes().length > 2000);
   readonly language = signal<'hi' | 'en'>('hi');
   readonly minutes = signal(2.5);
   readonly format = signal<StoryFormat>('Wide');
@@ -163,6 +171,7 @@ export class StoryAgentComponent {
     if (!caps.enabled) return 'The Story Agent is switched off on this server.';
     if (this.channelMissing()) return 'Pick the channel this story is for.';
     if (this.writer() === 'BuiltIn') return this.pack() ? null : 'Pick one of the built-in stories.';
+    if (this.notesTooLong()) return 'Shorten the points to cover; the template and your notes together must fit within 2000 characters.';
     return this.titleTooShort() ? 'Give the story a title.' : null;
   });
 
@@ -174,7 +183,7 @@ export class StoryAgentComponent {
 
   /** Which steps still need something before Start, so the step strip can mark them. */
   readonly stepMissing = computed<Record<NewStoryStep, boolean>>(() => ({
-    story: this.channelMissing() || (this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort()),
+    story: this.channelMissing() || (this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort() || this.notesTooLong()),
     telling: false,
     making: false,
     start: this.missing() !== null,
@@ -207,6 +216,8 @@ export class StoryAgentComponent {
     return [
       ...(this.choosesChannel() ? [{ label: 'Channel', value: this.channel()?.name ?? '—', step: 'story' as NewStoryStep }] : []),
       { label: 'Kind', value: this.genre()?.name ?? 'Devotional', step: 'story' as NewStoryStep },
+      ...(this.genre()?.id === 'funny' && !builtIn && this.comedyTemplate() !== 'none'
+        ? [{ label: 'Comedy format', value: this.comedyTemplates.find((t) => t.id === this.comedyTemplate())?.label ?? '', step: 'story' as NewStoryStep }] : []),
       { label: builtIn ? 'Story' : 'Title', value: (builtIn ? this.pack()?.titleEnglish : this.title().trim()) || '—', step: 'story' as NewStoryStep },
       { label: 'Written by', value: writer, step: 'story' as NewStoryStep },
       { label: 'Language', value: this.language() === 'en' ? 'English' : 'Hindi', step: 'telling' as NewStoryStep },
@@ -404,6 +415,11 @@ export class StoryAgentComponent {
     this.startError.set(null);
   }
 
+  setComedyTemplate(value: string): void {
+    const template = this.comedyTemplates.find((item) => item.id === value);
+    if (template) this.comedyTemplate.set(template.id);
+  }
+
   async start(): Promise<void> {
     if (this.starting()) return;
     if (this.missing()) {
@@ -411,7 +427,7 @@ export class StoryAgentComponent {
       return;
     }
     const builtIn = this.writer() === 'BuiltIn';
-    const notes = this.notes().trim();
+    const notes = this.preparedNotes();
 
     const body: CreateStoryRunBody = {
       title: builtIn ? undefined : this.title().trim(),

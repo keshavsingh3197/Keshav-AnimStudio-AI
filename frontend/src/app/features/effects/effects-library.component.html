@@ -3,9 +3,17 @@
     <div class="fx-head-left">
       <div class="studio-icon-badge">✨</div>
       <div>
-        <h2>Effects &amp; overlays</h2>
-        <p class="muted">Your own kit of subscribe buttons, stingers, end screens, lower thirds, sound effects and green-screen clips.
-          Upload each once here, then add it to any video from the <strong>✨ Effects</strong> button in the editor's media panel.</p>
+        <h2>{{ reactionsPage ? 'Memes & reactions' : 'Effects & overlays' }}</h2>
+        @if (reactionsPage) {
+          <p class="muted">Upload reaction clips, pictures and sounds you own or have permission to use.
+            Find them under <strong>Memes &amp; reactions</strong> in the editor's Effects panel and place them on the timeline.
+            Placement is manual; review the timing before export.</p>
+          <a routerLink="/comedy">Open comedy workspace</a>
+        } @else {
+          <p class="muted">Your own kit of subscribe buttons, stingers, end screens, lower thirds, sound effects and green-screen clips.
+            Upload each once here, then add it to any video from the <strong>✨ Effects</strong> button in the editor's media panel.</p>
+          <a routerLink="/memes">Open memes &amp; reactions</a>
+        }
       </div>
     </div>
   </header>
@@ -74,7 +82,7 @@
   } @else if (effects().length === 0) {
     <div class="card fx-empty">
       <h3>Build your effects kit</h3>
-      <p class="muted">Anything you put on top of videos again and again belongs here. A few ideas:</p>
+      <p class="muted">Anything you put on top of videos again and again belongs here. Only upload media you have the right to use. A few ideas:</p>
       <ul>
         <li><strong>🔔 Subscribe &amp; like</strong> - a button animation on a transparent (WebM/MOV) or green background</li>
         <li><strong>⚡ Transitions</strong> - a whoosh stinger between two scenes</li>
@@ -86,7 +94,7 @@
       <p class="muted">Already have one in a project? Use <strong>Save to effects</strong> on it in the editor's media panel.</p>
     </div>
   } @else if (visible().length === 0) {
-    <p class="muted">Nothing matches those filters. <button type="button" class="link" (click)="clearFilters()">Clear filters</button></p>
+    <p class="muted">Nothing matches those filters. @if (reactionsPage) { Upload a reaction or change an existing effect's category to Memes &amp; reactions. } <button type="button" class="link" (click)="clearFilters()">Clear filters</button></p>
   } @else {
     <ul class="fx-grid">
       @for (e of visible(); track e.id) {

@@ -1,0 +1,68 @@
+<section class="cw">
+  <header>
+    <a routerLink="/story-agent">← Story Agent</a>
+    <h1>Comedy workspace</h1>
+    <p>Turn your ideas or several scripts into one vertical comedy compilation. Review the script before making a video.</p>
+    <a routerLink="/memes">Manage your memes &amp; reactions</a>
+  </header>
+
+  <section class="card cw-section">
+    <h2>1. Your material</h2>
+    <label for="cw-title">Compilation title</label>
+    <input id="cw-title" maxlength="160" [ngModel]="title()" (ngModelChange)="title.set($event)" placeholder="Funny everyday surprises" />
+    <label for="cw-material">Your ideas or scripts</label>
+    <textarea id="cw-material" rows="12" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
+      placeholder="Paste multiple scripts, characters, dialogue and scene descriptions here."></textarea>
+    <span class="muted">{{ material().length }} / 20000 characters. Scripts are combined into one Short; check the resulting duration.</span>
+    <label>Or load a text file <input type="file" accept=".txt,text/plain" (change)="pickScript($event)" /></label>
+    <label for="cw-reference">Reference link or your observations <span class="muted">(optional)</span></label>
+    <input id="cw-reference" maxlength="1000" [ngModel]="reference()" (ngModelChange)="reference.set($event)"
+      placeholder="A video link and what you observed" />
+    <p class="muted">The app does not fetch or watch this link. If you send the prompt to an external tool, that tool receives the link and your text.</p>
+    <div class="cw-row">
+      <label>Language
+        <select [ngModel]="language()" (ngModelChange)="language.set($event)">
+          <option value="hi">Hindi</option><option value="en">English</option>
+        </select>
+      </label>
+      <label>Visual style
+        <select [ngModel]="style()" (ngModelChange)="style.set($event)">
+          <option value="3D">3D cartoon</option><option value="2D">2D cartoon</option>
+        </select>
+      </label>
+    </div>
+    <div class="cw-actions">
+      <button type="button" [disabled]="!ready() || busy()" (click)="convert()">Convert with configured AI</button>
+      <button type="button" class="secondary" [disabled]="!ready() || busy()" (click)="preparePrompt()">Prepare external prompt</button>
+    </div>
+    <p class="muted">AI conversion sends your text and reference to the configured provider and may use quota or incur charges. The external prompt is a manual alternative.</p>
+  </section>
+
+  @if (prompt()) {
+    <section class="card cw-section">
+      <h2>2. External AI prompt</h2>
+      <p>Copy or download this prompt, use it in a tool of your choice, and paste its JSON response below. Prepare it again after changing the inputs.</p>
+      <textarea aria-label="External AI prompt" rows="10" readonly [value]="prompt()"></textarea>
+      <div class="cw-actions">
+        <button type="button" class="secondary" (click)="copyPrompt()">Copy prompt</button>
+        <button type="button" class="secondary" (click)="downloadPrompt()">Download prompt</button>
+      </div>
+    </section>
+  }
+
+  <section class="card cw-section">
+    <h2>3. Review and import</h2>
+    <label for="cw-reply">Story JSON from the configured AI or another tool</label>
+    <textarea id="cw-reply" rows="12" [ngModel]="reply()" (ngModelChange)="reply.set($event)"
+      placeholder="Paste the complete animstudio-story JSON response here."></textarea>
+    <p class="muted">Check the dialogue, scene count, visual prompts and actual duration. Import checks the script again; you approve it before building.
+      Generated output is not guaranteed to be original or copyright-safe. Use only media you have rights to.</p>
+    <div class="cw-actions">
+      <button type="button" [disabled]="!reply().trim() || busy()" (click)="importStory()">Import into Story Agent</button>
+      <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="downloadStory()">Download story JSON</button>
+    </div>
+    <p class="muted">For moving characters, attach your own clips or use Motion Copy with a driving video. The app does not automatically place memes or publish.</p>
+  </section>
+  @if (error(); as problem) { <div class="notice error" role="alert">{{ problem }}</div> }
+  @if (notice(); as message) { <div class="notice" role="status">{{ message }}</div> }
+</section>

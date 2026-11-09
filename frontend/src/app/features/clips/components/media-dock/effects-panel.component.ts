@@ -82,7 +82,7 @@ import { StudioStateService } from '../../services/studio-state.service';
                   <span class="ef-note">Adding...</span>
                 } @else {
                   <button type="button" class="ef-btn" (click)="state.addEffect(e, 'playhead')" title="Add at the playhead">+ Here</button>
-                  @if (e.category === 'Transition' || e.category === 'SoundEffect') {
+                  @if (e.category === 'Transition' || e.category === 'SoundEffect' || e.category === 'Reaction') {
                     <button type="button" class="ef-btn" (click)="state.addEffect(e, 'cut')"
                             [disabled]="state.effectCutSeconds() === null"
                             title="Centre on the selected cut, or the cut nearest the playhead. Adjust the timing on the timeline if the stinger's peak is not its midpoint.">+ At cut</button>

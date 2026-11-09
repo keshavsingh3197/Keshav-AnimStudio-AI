@@ -30,7 +30,10 @@ public enum EffectCategory
     /// <summary>Footage shot on a green (or blue) screen, keyed out over the video.</summary>
     GreenScreen = 8,
 
-    LogoReveal = 9
+    LogoReveal = 9,
+
+    /// <summary>Owned or licensed reaction clips, images and sounds for comedy.</summary>
+    Reaction = 10
 }
 
 /// <summary>

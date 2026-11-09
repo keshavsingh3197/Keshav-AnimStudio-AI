@@ -112,6 +112,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'comedy',
+    title: 'Comedy workspace - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/comedy-workspace.component').then((m) => m.ComedyWorkspaceComponent),
+  },
+
+  {
     path: 'story-agent',
     title: 'Story Agent - AnimStudio AI',
     loadComponent: () =>
@@ -158,6 +165,15 @@ export const routes: Routes = [
   {
     path: 'effects',
     title: 'Effects & overlays - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/effects/effects-library.component')
+        .then((m) => m.EffectsLibraryComponent),
+  },
+
+  {
+    path: 'memes',
+    title: 'Memes & reactions - AnimStudio AI',
+    data: { reactions: true },
     loadComponent: () =>
       import('./features/effects/effects-library.component')
         .then((m) => m.EffectsLibraryComponent),
