@@ -10,6 +10,8 @@ import {
   LiveStreamGoLive,
   LiveStreamItemRequest,
   LiveStreamKeyStatus,
+  LiveStreamPreset,
+  LiveStreamPresetRequest,
   LiveStreamSettings,
   LiveStreamSetup,
   LiveStreamStatus,
@@ -100,6 +102,35 @@ export class LiveStreamService {
   /** A prepared item exactly as it will be sent - usable directly as a <video> source. */
   previewUrl(id: string, index: number): string {
     return this.media.sign(`${this.base}/${encodeURIComponent(id)}/items/${index}/preview`);
+  }
+
+  // ------------------------------------------------------------------ presets
+
+  /** The caller's saved setups, most recently used first. */
+  presets(): Observable<LiveStreamPreset[]> {
+    return this.http.get<ApiResponse<LiveStreamPreset[]>>(`${this.base}/presets`).pipe(map((r) => r.data ?? []));
+  }
+
+  createPreset(preset: LiveStreamPresetRequest): Observable<LiveStreamPreset> {
+    return this.http
+      .post<ApiResponse<LiveStreamPreset>>(`${this.base}/presets`, preset)
+      .pipe(map((r) => r.data as LiveStreamPreset));
+  }
+
+  updatePreset(id: string, preset: LiveStreamPresetRequest): Observable<LiveStreamPreset> {
+    return this.http
+      .put<ApiResponse<LiveStreamPreset>>(`${this.base}/presets/${encodeURIComponent(id)}`, preset)
+      .pipe(map((r) => r.data as LiveStreamPreset));
+  }
+
+  presetUsed(id: string): Observable<LiveStreamPreset> {
+    return this.http
+      .post<ApiResponse<LiveStreamPreset>>(`${this.base}/presets/${encodeURIComponent(id)}/used`, {})
+      .pipe(map((r) => r.data as LiveStreamPreset));
+  }
+
+  deletePreset(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/presets/${encodeURIComponent(id)}`);
   }
 
   /** Admin only. The key goes in the body and comes back masked. */

@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -12,8 +12,13 @@ import {
   LiveStreamGoLive,
   LiveStreamItemSource,
   LiveStreamItemStatus,
+  LiveStreamKeyMode,
   LiveStreamKeyStatus,
   LiveStreamOrientation,
+  LiveStreamPreset,
+  LiveStreamPresetItem,
+  LiveStreamPresetRequest,
+  LiveStreamPresetYouTube,
   LiveStreamQuality,
   LiveStreamSetup,
   LiveStreamStatus,
@@ -25,14 +30,15 @@ import { LiveStreamService } from '../../core/services/live-stream.service';
 import { MediaTicketService } from '../../core/services/media-ticket.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
+import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { environment } from '../../../environments/environment';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { parseVideoList } from '../youtube/video-details.component';
 import { MediaPreview, MediaPreviewDialogComponent } from '../../shared/media-preview-dialog.component';
-import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent } from '../../shared/youtube-live-setup.component';
+import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent, expandBroadcastTokens } from '../../shared/youtube-live-setup.component';
 
 type AddMode = 'upload' | 'renders' | 'assets' | 'links';
-type KeyMode = 'channel' | 'paste' | 'youtube';
+type KeyMode = LiveStreamKeyMode;
 
 interface StreamError {
   message: string;
@@ -84,6 +90,8 @@ export class LiveStreamComponent {
   private readonly mediaTicket = inject(MediaTicketService);
   private readonly status = inject(StatusService);
   private readonly route = inject(ActivatedRoute);
+  private readonly youtube = inject(YouTubePublishService);
+  private readonly youTubeSetup = viewChild(YouTubeLiveSetupComponent);
 
   readonly mediaAccept = MEDIA_ACCEPT;
   readonly coverAccept = COVER_ACCEPT;
@@ -120,6 +128,16 @@ export class LiveStreamComponent {
 
   /** A broadcast created (or picked) on a connected YouTube channel; its key stays on the server. */
   readonly youTubeBroadcast = signal<SelectedYouTubeBroadcast | null>(null);
+  /** Broadcast details to fill the YouTube panel with, from a preset. */
+  readonly youTubeDraft = signal<LiveStreamPresetYouTube | null>(null);
+
+  // Presets
+  readonly presets = signal<LiveStreamPreset[]>([]);
+  readonly presetsLoaded = signal(false);
+  /** The preset the page was last filled from, so "Update" saves over it. */
+  readonly activePresetId = signal<string | null>(null);
+  readonly presetBusy = signal<string | null>(null);
+  presetName = '';
 
   form = {
     destination: '',
@@ -166,6 +184,7 @@ export class LiveStreamComponent {
     });
 
     void this.loadSetup();
+    void this.loadPresets();
     void this.refresh();
     void this.addFromQuery();
   }
@@ -432,9 +451,12 @@ export class LiveStreamComponent {
     return missing;
   }
 
-  /** Prepares the playlist; with `goLive` it goes out as soon as every item is ready. */
-  async submit(goLive: boolean): Promise<void> {
-    if (this.missing(goLive).length > 0 || this.submitting()) return;
+  /**
+   * Prepares the playlist; with `goLive` it goes out as soon as every item is ready. The form is
+   * kept, so the same program can be sent again later - each press makes a new stream.
+   */
+  async submit(goLive: boolean): Promise<boolean> {
+    if (this.missing(goLive).length > 0 || this.submitting()) return false;
 
     this.error.set(null);
     this.submitting.set(goLive ? 'live' : 'prepare');
@@ -454,11 +476,12 @@ export class LiveStreamComponent {
       this.streams.update((list) => [created, ...list.filter((s) => s.id !== created.id)]);
       this.expanded.update((e) => ({ ...e, [created.id]: true }));
       this.status.notify([goLive ? `Preparing "${created.label}" - it goes live when ready` : `Preparing "${created.label}" for preview`]);
-      this.playlist.set([]);
-      this.form.label = '';
+      if (goLive) this.consumeBroadcast();
       this.ensurePolling();
+      return true;
     } catch (err: unknown) {
       this.error.set(this.describe(err, 'The stream could not be prepared.'));
+      return false;
     } finally {
       this.submitting.set(null);
     }
@@ -478,6 +501,7 @@ export class LiveStreamComponent {
       const updated = await firstValueFrom(this.live.goLive(stream.id, this.goLiveTarget()));
       this.replace(updated);
       this.status.notify([`Going live: ${updated.label}`]);
+      this.consumeBroadcast();
       this.ensurePolling();
     } catch (err: unknown) {
       this.error.set(this.describe(err, 'The stream could not be started.'));
@@ -515,6 +539,259 @@ export class LiveStreamComponent {
       this.busyStream.set(null);
     }
   }
+
+  // ------------------------------------------------------------------ presets
+
+  /** Uploaded files are sent with each stream and can't be kept in a preset. */
+  uploadsInPlaylist(): number {
+    return this.playlist().filter((e) => e.source === 'Upload').length;
+  }
+
+  activePreset(): LiveStreamPreset | undefined {
+    return this.presets().find((p) => p.id === this.activePresetId());
+  }
+
+  presetSummary(p: LiveStreamPreset): string {
+    const seconds = p.items.reduce((sum, i) => sum + (i.durationSeconds ?? 0), 0);
+    const key = p.keyMode === 'youtube' ? `new YouTube broadcast "${p.youTube?.title ?? ''}"`
+      : p.keyMode === 'channel' ? `${this.setup()?.channels.find((c) => c.id === p.channelId)?.name ?? 'a channel'}'s saved key`
+      : 'a pasted key';
+    const length = seconds > 0 ? ` · ${this.formatClock(seconds)}` : '';
+    return `${p.items.length} item${p.items.length === 1 ? '' : 's'}${length} · ${p.settings.quality === 'Hd1080' ? '1080p' : '720p'} · ${key}`;
+  }
+
+  /** Whether the preset can go out without anything typed: a pasted key never is. */
+  canPlayDirectly(p: LiveStreamPreset): boolean {
+    return p.keyMode !== 'paste';
+  }
+
+  /** Saves the page as a new preset, or over the one it was filled from. */
+  async savePreset(asNew: boolean): Promise<void> {
+    const name = (asNew ? this.presetName : this.activePreset()?.name ?? this.presetName).trim();
+    if (!name || this.presetBusy()) return;
+    const request = this.presetRequest(name);
+    if (!request) return;
+
+    const uploads = this.uploadsInPlaylist();
+    if (uploads > 0 && !confirm(`${uploads} file${uploads === 1 ? '' : 's'} uploaded from this computer can't be kept in a preset and will be left out. `
+        + 'To keep them, add them to a project\'s media and pick them from "Project media". Save without them?')) return;
+
+    const id = asNew ? null : this.activePresetId();
+    this.presetBusy.set(id ?? 'new');
+    this.error.set(null);
+    try {
+      const saved = await firstValueFrom(id ? this.live.updatePreset(id, request) : this.live.createPreset(request));
+      this.presets.update((list) => [saved, ...list.filter((p) => p.id !== saved.id)]);
+      this.activePresetId.set(saved.id);
+      this.presetName = '';
+      this.status.notify([id ? `Updated preset "${saved.name}"` : `Saved preset "${saved.name}"`]);
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The preset could not be saved.'));
+    } finally {
+      this.presetBusy.set(null);
+    }
+  }
+
+  /** Fills the page from a preset, ready to check and send. */
+  loadPreset(preset: LiveStreamPreset): void {
+    if (this.playlist().length > 0 && this.activePresetId() !== preset.id
+        && !confirm(`Replace the current playlist with "${preset.name}"?`)) return;
+    this.applyPreset(preset);
+    this.status.notify([`Loaded "${preset.name}" - check it, confirm the rights, then go live`]);
+  }
+
+  /**
+   * One click: fills the page from the preset, creates a new YouTube broadcast when the preset
+   * uses one, and prepares a new stream that goes live as soon as it is ready.
+   */
+  async playPreset(preset: LiveStreamPreset): Promise<void> {
+    if (this.presetBusy() || this.submitting()) return;
+    if (!this.canPlayDirectly(preset)) {
+      this.applyPreset(preset);
+      this.error.set({ message: `"${preset.name}" uses a pasted stream key. Paste it under "Stream key", then press Prepare & go live.` });
+      return;
+    }
+    if (!confirm(`Go live now with "${preset.name}"?\n\nA new stream is prepared and sent as soon as it's ready`
+        + (preset.keyMode === 'youtube' ? ', on a new YouTube broadcast' : '') + '.\n\n'
+        + 'By continuing you confirm you own, or are licensed to broadcast, everything in it.')) return;
+
+    this.applyPreset(preset);
+    this.form.rightsConfirmed = true;
+    this.presetBusy.set(preset.id);
+    this.error.set(null);
+    try {
+      if (preset.keyMode === 'youtube') {
+        if (!(await this.createBroadcastFor(preset))) return;
+      } else if (this.channelKeyNeedsSetup()) {
+        this.error.set({ message: `${this.selectedChannel()?.name ?? 'The channel'} has no usable saved key.`, keyProblem: true });
+        return;
+      }
+      const missing = this.missing(true);
+      if (missing.length > 0) {
+        this.error.set({ message: `"${preset.name}" can't go live yet. Still needed: ${missing.join(', ')}.` });
+        return;
+      }
+      if (await this.submit(true)) await this.markPresetUsed(preset.id);
+    } finally {
+      this.presetBusy.set(null);
+    }
+  }
+
+  async deletePreset(preset: LiveStreamPreset): Promise<void> {
+    if (!confirm(`Delete the preset "${preset.name}"? Streams already made from it aren't affected.`)) return;
+    this.presetBusy.set(preset.id);
+    try {
+      await firstValueFrom(this.live.deletePreset(preset.id));
+      this.presets.update((list) => list.filter((p) => p.id !== preset.id));
+      if (this.activePresetId() === preset.id) this.activePresetId.set(null);
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The preset could not be deleted.'));
+    } finally {
+      this.presetBusy.set(null);
+    }
+  }
+
+  private presetRequest(name: string): LiveStreamPresetRequest | null {
+    const items = this.playlist().filter((e) => e.source !== 'Upload').map((e): LiveStreamPresetItem => ({
+      source: e.source,
+      title: e.title,
+      typeLabel: e.typeLabel,
+      detail: e.detail,
+      renderJobId: e.renderJobId,
+      assetId: e.assetId,
+      coverAssetId: e.coverAssetId,
+      url: e.url,
+      audioOnly: e.audioOnly,
+      releaseKitId: e.releaseKitId,
+      useVisualizer: e.useVisualizer,
+      durationSeconds: e.durationSeconds,
+      width: e.width,
+      height: e.height,
+      thumbnailUrl: e.thumbnailUrl && /^https:\/\//i.test(e.thumbnailUrl) ? e.thumbnailUrl : undefined,
+    }));
+    if (items.length === 0) {
+      this.error.set({ message: 'A preset needs at least one render, project media item, release kit or link in the playlist.' });
+      return null;
+    }
+
+    let youTube: LiveStreamPresetYouTube | null = null;
+    if (this.form.keyMode === 'youtube') {
+      youTube = this.youTubeSetup()?.currentDraft() ?? null;
+      if (!youTube) {
+        this.error.set({ message: 'Fill in the YouTube broadcast\'s title (under "Stream key") so the preset can create a new broadcast each time.' });
+        return null;
+      }
+    }
+
+    return {
+      name: name.slice(0, 80),
+      settings: {
+        destination: this.form.destination,
+        quality: this.form.quality,
+        orientation: this.form.orientation,
+        loops: this.form.loopForever ? 0 : Math.min(1000, Math.max(1, Math.floor(this.form.loops || 1))),
+        shuffle: this.form.shuffle,
+        autoReconnect: this.form.autoReconnect,
+        label: this.form.label.trim() || null,
+      },
+      items,
+      keyMode: this.form.keyMode,
+      channelId: this.form.keyMode === 'channel' ? this.form.channelId : null,
+      youTube,
+    };
+  }
+
+  private applyPreset(preset: LiveStreamPreset): void {
+    const s = preset.settings;
+    if (this.setup()?.destinations.some((d) => d.id === s.destination) ?? true) this.form.destination = s.destination;
+    this.form.quality = s.quality;
+    this.form.orientation = s.orientation;
+    this.form.loopForever = s.loops === 0;
+    this.form.loops = s.loops || 1;
+    this.form.shuffle = s.shuffle;
+    this.form.autoReconnect = s.autoReconnect;
+    this.form.label = s.label ?? preset.name;
+    this.form.rightsConfirmed = false;
+
+    this.form.keyMode = preset.keyMode === 'channel' && !this.setup()?.canUseSavedKeys ? 'paste' : preset.keyMode;
+    if (preset.channelId) this.form.channelId = preset.channelId;
+    this.youTubeBroadcast.set(null);
+    this.youTubeDraft.set(preset.youTube ? { ...preset.youTube, tags: [...preset.youTube.tags] } : null);
+
+    this.playlist.set([]);
+    for (const item of preset.items) {
+      this.push({
+        source: item.source,
+        title: item.title,
+        typeLabel: item.typeLabel || item.source,
+        detail: item.detail ?? '',
+        renderJobId: item.renderJobId ?? undefined,
+        assetId: item.assetId ?? undefined,
+        coverAssetId: item.coverAssetId ?? undefined,
+        url: item.url ?? undefined,
+        audioOnly: item.audioOnly,
+        releaseKitId: item.releaseKitId ?? undefined,
+        useVisualizer: item.useVisualizer,
+        durationSeconds: item.durationSeconds ?? undefined,
+        width: item.width ?? undefined,
+        height: item.height ?? undefined,
+        thumbnailUrl: item.thumbnailUrl ?? undefined,
+      });
+    }
+    this.activePresetId.set(preset.id);
+    this.error.set(null);
+  }
+
+  /** A new broadcast for every play, so one program never lands on yesterday's broadcast. */
+  private async createBroadcastFor(preset: LiveStreamPreset): Promise<boolean> {
+    const y = preset.youTube;
+    if (!y) {
+      this.error.set({ message: `"${preset.name}" has no YouTube broadcast details. Load it, fill them in and update the preset.` });
+      return false;
+    }
+    try {
+      const now = new Date();
+      const broadcast = await firstValueFrom(this.youtube.createBroadcast(y.channelId, {
+        title: expandBroadcastTokens(y.title, now),
+        description: expandBroadcastTokens(y.description, now),
+        tags: y.tags,
+        categoryId: y.categoryId,
+        privacy: y.privacy,
+        madeForKids: y.madeForKids,
+        notifySubscribers: true,
+      }, null, y.enableDvr));
+      this.youTubeBroadcast.set({ channelId: y.channelId, channelTitle: '', broadcast });
+      return true;
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The YouTube broadcast couldn\'t be created.'));
+      return false;
+    }
+  }
+
+  /** A broadcast that has been streamed to is spent; the next stream gets a new one. */
+  private consumeBroadcast(): void {
+    if (this.form.keyMode === 'youtube') this.youTubeBroadcast.set(null);
+  }
+
+  private async markPresetUsed(id: string): Promise<void> {
+    try {
+      const used = await firstValueFrom(this.live.presetUsed(id));
+      this.presets.update((list) => [used, ...list.filter((p) => p.id !== id)]);
+    } catch {
+      // Only the list order depends on it.
+    }
+  }
+
+  private async loadPresets(): Promise<void> {
+    try {
+      this.presets.set(await firstValueFrom(this.live.presets()));
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'Could not load your saved presets.'));
+    } finally {
+      this.presetsLoaded.set(true);
+    }
+  }
+
 
   // ------------------------------------------------------------------ source preview (before preparing)
 

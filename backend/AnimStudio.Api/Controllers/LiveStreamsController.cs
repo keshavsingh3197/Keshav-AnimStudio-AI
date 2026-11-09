@@ -47,6 +47,7 @@ public sealed partial class LiveStreamsController(
     IAssetRepository assets,
     IProjectRepository projects,
     IAiSettingsRepository settingsRepository,
+    ILiveStreamPresetRepository presetRepository,
     YouTubeConnectionStore youTubeConnections,
     YouTubeLiveClient youTubeLive,
     IObjectStore store,

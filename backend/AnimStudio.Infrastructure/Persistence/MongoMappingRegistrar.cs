@@ -79,6 +79,9 @@ public static class MongoMappingRegistrar
             // "{channelId}:{destinationId}" - the id is what keeps one key per channel per destination.
             MapWithLiteralId<LiveStreamKey>();
 
+            // "lsp_{guid}" - a saved Go Live setup.
+            MapWithLiteralId<LiveStreamPreset>();
+
             // "{userId}:{channelId}" - one connection per user per channel.
             MapWithLiteralId<YouTubeChannelConnection>();
 

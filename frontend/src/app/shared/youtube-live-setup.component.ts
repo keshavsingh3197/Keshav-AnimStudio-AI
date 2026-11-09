@@ -1,10 +1,11 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../core/interceptors/api-error.interceptor';
+import { LiveStreamPresetYouTube } from '../core/models/live-stream.models';
 import {
   YouTubeCategory, YouTubeChannel, YouTubeLiveBroadcast, YouTubeLiveKind, YouTubeLiveSetup, YouTubePrivacy, YouTubeSuggestEngine,
   MAX_RELATED_VIDEOS, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
@@ -28,6 +29,16 @@ interface Prefs {
 }
 
 const PREFS_KEY = 'animstudio.youtube.live';
+
+/**
+ * Fills `{date}` and `{time}` in a saved title or description with the moment the broadcast is
+ * created, so a preset played every day still gives each broadcast its own title.
+ */
+export function expandBroadcastTokens(text: string, at = new Date()): string {
+  return text
+    .replace(/\{date\}/gi, at.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }))
+    .replace(/\{time\}/gi, at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+}
 
 /**
  * Sets up a YouTube live stream from inside the app: describe the stream in a few words, let
@@ -78,7 +89,7 @@ const PREFS_KEY = 'animstudio.youtube.live';
           <div>
             <strong>✅ Ready to stream: {{ s.broadcast.title }}</strong>
             <p class="yl-muted">
-              {{ privacyLabel(s.broadcast.privacy) }} on {{ s.channelTitle }} ·
+              {{ privacyLabel(s.broadcast.privacy) }} on {{ s.channelTitle || selectedChannel()?.channelTitle }} ·
               starts automatically when you go live and ends when you stop.
               The stream key is created on YouTube and stays on the server.
             </p>
@@ -149,7 +160,7 @@ const PREFS_KEY = 'animstudio.youtube.live';
             </button>
           </fieldset>
 
-          <label>Title <span class="yl-muted">{{ title.trim().length }}/{{ maxTitle }}</span>
+          <label>Title <span class="yl-muted">{{ title.trim().length }}/{{ maxTitle }} · {{ '{date}' }} and {{ '{time}' }} are filled in when it's created</span>
             <input type="text" [(ngModel)]="title" [maxlength]="maxTitle" placeholder="🔴 LIVE: …" />
           </label>
           @if (titleOptions().length) {
@@ -298,6 +309,8 @@ export class YouTubeLiveSetupComponent implements OnInit {
   readonly disabled = input(false);
   /** YouTube videos being restreamed, offered as links in the description. */
   readonly sourceVideos = input<{ videoId: string; title: string }[]>([]);
+  /** Details to fill the form with, e.g. from a saved preset. A new object each time refills it. */
+  readonly draft = input<LiveStreamPresetYouTube | null>(null);
   readonly broadcastChange = output<SelectedYouTubeBroadcast | null>();
 
   readonly maxTitle = 100;
@@ -340,6 +353,21 @@ export class YouTubeLiveSetupComponent implements OnInit {
   startAt = '';
   enableDvr = true;
 
+  /** A draft that arrived before the channels were loaded. */
+  private pendingDraft: LiveStreamPresetYouTube | null = null;
+
+  constructor() {
+    // The page owns the choice: a broadcast it sets (or clears after streaming to it) shows here.
+    effect(() => {
+      const initial = this.initial();
+      untracked(() => this.selected.set(initial));
+    });
+    effect(() => {
+      const draft = this.draft();
+      if (draft) untracked(() => void this.applyDraft(draft));
+    });
+  }
+
   get tagsText(): string { return this._tagsText; }
   set tagsText(value: string) { this._tagsText = value; this.tagsVersion.update((v) => v + 1); }
 
@@ -369,6 +397,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
     } finally {
       this.loading.set(false);
     }
+    if (this.pendingDraft) await this.applyDraft(this.pendingDraft);
 
     // Engines and tones are a nicety; the panel works with Auto without them.
     try {
@@ -443,6 +472,50 @@ export class YouTubeLiveSetupComponent implements OnInit {
     }
   }
 
+  /** Fills the form from saved details: the channel (when it is still connected), then everything else. */
+  async applyDraft(draft: LiveStreamPresetYouTube): Promise<void> {
+    if (this.loading()) {
+      this.pendingDraft = draft;
+      return;
+    }
+    this.pendingDraft = null;
+    if (draft.channelId !== this.channelId() && this.channels().some((c) => c.channelId === draft.channelId)) {
+      await this.pickChannel(draft.channelId);
+    }
+    this.topic = draft.topic ?? '';
+    this.brief = draft.brief ?? '';
+    if (draft.tone) this.tone = draft.tone;
+    if (draft.language === 'en' || draft.language === 'hi') this.language = draft.language;
+    this.title = draft.title;
+    this.description = draft.description;
+    this.tagsText = draft.tags.join(', ');
+    this.privacy = draft.privacy;
+    this.categoryId = draft.categoryId;
+    this.madeForKids = draft.madeForKids;
+    this.enableDvr = draft.enableDvr;
+    this.startMode = 'now';
+    this.tab.set('new');
+  }
+
+  /** The form as it stands, for saving in a preset; null without a channel or a title. */
+  currentDraft(): LiveStreamPresetYouTube | null {
+    if (!this.channelId() || !this.title.trim()) return null;
+    return {
+      channelId: this.channelId(),
+      topic: this.topic.trim() || null,
+      brief: this.brief.trim() || null,
+      tone: this.tone,
+      language: this.language,
+      title: this.title.trim(),
+      description: this.description.trim(),
+      tags: parseYouTubeTags(this.tagsText),
+      categoryId: this.categoryId,
+      privacy: this.privacy,
+      madeForKids: this.madeForKids,
+      enableDvr: this.enableDvr,
+    };
+  }
+
   addTag(tag: string): void {
     const tags = parseYouTubeTags(`${this.tagsText},${tag}`);
     if (youTubeTagsLength(tags) <= 500) this.tagsText = tags.join(', ');
@@ -483,8 +556,8 @@ export class YouTubeLiveSetupComponent implements OnInit {
     this.error.set(null);
     try {
       const broadcast = await firstValueFrom(this.youtube.createBroadcast(channel.channelId, {
-        title: this.title.trim(),
-        description: this.description.trim(),
+        title: expandBroadcastTokens(this.title.trim()),
+        description: expandBroadcastTokens(this.description.trim()),
         tags: parseYouTubeTags(this.tagsText),
         categoryId: this.categoryId,
         privacy: this.privacy,

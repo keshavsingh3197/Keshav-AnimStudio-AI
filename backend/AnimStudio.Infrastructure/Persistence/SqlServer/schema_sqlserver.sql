@@ -258,6 +258,17 @@ BEGIN
     CREATE INDEX IX_YouTubeSavedSuggestions_Recent ON YouTubeSavedSuggestions (UserId, Language, CreatedAt DESC);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LiveStreamPresets')
+BEGIN
+    CREATE TABLE LiveStreamPresets (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        SortAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_LiveStreamPresets_User ON LiveStreamPresets (UserId, SortAt DESC);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
 BEGIN
     CREATE TABLE WebSettings (
