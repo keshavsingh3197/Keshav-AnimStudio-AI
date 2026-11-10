@@ -89,6 +89,12 @@ public sealed class EffectClip
     /// </summary>
     public string? SourceAssetId { get; set; }
 
+    /// <summary>Legacy external identifier, retained for previously saved effects.</summary>
+    public string? ExternalId { get; set; }
+
+    /// <summary>Source link retained for attribution on previously saved effects.</summary>
+    public string? SourceUrl { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

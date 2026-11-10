@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
@@ -9,6 +10,7 @@ import {
   effectCategoryIcon, effectCategoryLabel,
 } from '../../core/models/effects.models';
 import { EffectsService } from '../../core/services/effects.service';
+import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { drawReaction, ReactionExpression } from './reaction-graphic';
@@ -37,6 +39,7 @@ interface EffectDraft {
 })
 export class EffectsLibraryComponent implements OnInit, OnDestroy {
   private readonly api = inject(EffectsService);
+  private readonly media = inject(MediaToolsService);
   private readonly status = inject(StatusService);
   readonly reactionsPage = inject(ActivatedRoute).snapshot.data['reactions'] === true;
 
@@ -64,9 +67,12 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   readonly reactionExpression = signal<ReactionExpression>('surprised');
   readonly reactionCaption = signal('');
   readonly reactionPreview = signal<string | null>(null);
-  readonly reactionSearch = signal('');
-  readonly pinterestSearchUrl = computed(() =>
-    `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(this.reactionSearch().trim() || 'funny reaction memes')}`);
+  readonly linkUrl = signal('');
+  readonly linkType = signal<'platform' | 'file'>('platform');
+  readonly linkRights = signal(false);
+  readonly linkBusy = signal(false);
+  readonly linkError = signal<string | null>(null);
+  readonly linkNotice = signal<string | null>(null);
 
   /** The card whose video is playing, or whose sound is. One at a time. */
   readonly previewId = signal<string | null>(null);
@@ -129,6 +135,11 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
     this.kind.set('');
     this.favoritesOnly.set(false);
     this.query.set('');
+  }
+
+  selectCategory(category: EffectCategory | 'all'): void {
+    this.category.set(category);
+    this.uploadCategory.set(category === 'all' ? '' : category);
   }
 
   // ---------------------------------------------------------------- upload
@@ -212,6 +223,64 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
       this.uploadFiles([file], 'Reaction', false);
     } catch (error) {
       this.status.notify([this.errorText(error, 'Could not prepare the reaction for upload.')]);
+    }
+  }
+
+  async importLink(): Promise<void> {
+    if (this.linkBusy() || !this.linkRights()) return;
+    this.linkError.set(null);
+    this.linkNotice.set(null);
+    this.linkBusy.set(true);
+    try {
+      let url: URL;
+      try {
+        url = new URL(this.linkUrl().trim());
+      } catch {
+        throw new Error('Enter a valid HTTPS link.');
+      }
+      if (url.protocol !== 'https:' || url.username || url.password)
+        throw new Error('Enter a public HTTPS link without credentials.');
+
+      let file: File;
+      if (this.linkType() === 'platform') {
+        const download = await firstValueFrom(this.media.downloadMedia({ url: url.href, format: 'mp4', resolution: 'best' }));
+        if (download.fileSizeBytes > 200 * 1024 * 1024) throw new Error('Videos can be at most 200 MB.');
+        const blob = await firstValueFrom(this.media.fetchFile(download.streamUrl));
+        file = new File([blob], download.fileName, { type: download.mimeType });
+      } else {
+        const response = await fetch(url.href, { credentials: 'omit', redirect: 'follow' });
+        if (!response.ok) throw new Error(`The file host returned HTTP ${response.status}.`);
+        const max = 200 * 1024 * 1024;
+        if (Number(response.headers.get('content-length')) > max) throw new Error('Files can be at most 200 MB.');
+        if (!response.body) throw new Error('The file host returned no file.');
+        const reader = response.body.getReader();
+        const chunks: Uint8Array<ArrayBuffer>[] = [];
+        let size = 0;
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > max) { await reader.cancel(); throw new Error('Files can be at most 200 MB.'); }
+            chunks.push(part.value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        const name = decodeURIComponent(url.pathname.split('/').pop() || 'effect');
+        file = new File(chunks, name, { type: response.headers.get('content-type')?.split(';')[0] ?? '' });
+      }
+
+      const effect = await firstValueFrom(this.api.upload({ file, category: this.uploadCategory() || null }));
+      this.effects.update((list) => [effect, ...list.filter((item) => item.id !== effect.id)]);
+      this.linkNotice.set(`Added "${effect.name}" to your Effects library.`);
+      this.linkUrl.set('');
+    } catch (error: unknown) {
+      this.linkError.set(error instanceof ApiFailure ? this.errorText(error, 'Import failed.')
+        : error instanceof TypeError ? 'The file host did not allow access from your browser. Download the file and upload it instead.'
+        : error instanceof Error ? error.message : 'Could not import that link.');
+    } finally {
+      this.linkBusy.set(false);
     }
   }
 

@@ -134,6 +134,15 @@ public sealed record AutoShortsCommand
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
     public double? MaxClipSeconds { get; init; }
     public bool ExactLength { get; init; }
+
+    /// <summary>Videos play whole: never trimmed, split or reused for another stretch.</summary>
+    public bool KeepClipsWhole { get; init; }
+
+    /// <summary>The dressing around the footage. Its memes come from <see cref="MemeAssetIds"/>, not from here.</summary>
+    public AutoShortPackaging Packaging { get; init; } = new();
+
+    /// <summary>Project pictures and clips the packaging may pop over the footage.</summary>
+    public IReadOnlyList<string> MemeAssetIds { get; init; } = [];
     public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
@@ -833,10 +842,12 @@ public sealed class ClipMergeService(
 
         var sourceIds = command.SourceAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         var musicIds = command.MusicAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        var memeIds = command.MemeAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)
+            .Take(AutoShortPackager.MaxMemes).ToList();
         if (sourceIds.Count == 0)
             throw EditingException.Invalid("no-clips", "Choose at least one clip or picture to cut shorts from.");
 
-        var loaded = await assets.GetManyAsync([.. sourceIds.Concat(musicIds)], ct).ConfigureAwait(false);
+        var loaded = await assets.GetManyAsync([.. sourceIds.Concat(musicIds).Concat(memeIds)], ct).ConfigureAwait(false);
         var visibleProjectIds = (await scope.GetVisibleProjectIdsAsync(projectId, ct).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
         var byId = loaded.ToDictionary(a => a.Id, StringComparer.Ordinal);
 
@@ -856,6 +867,15 @@ public sealed class ClipMergeService(
                 throw EditingException.Invalid("not-audio", $"'{asset.Name}' has no sound in it.");
         }
 
+        var memes = new List<AutoShortMeme>(memeIds.Count);
+        foreach (var id in memeIds)
+        {
+            var asset = Require(byId, id, visibleProjectIds, "meme");
+            if (asset.Kind is not (AssetKind.Video or AssetKind.Image))
+                throw EditingException.Invalid("meme-not-visual", $"'{asset.Name}' is not a picture or clip, so it can't pop up as a meme.");
+            memes.Add(new AutoShortMeme(asset.Id, asset.Kind, asset.Probe.DurationSeconds));
+        }
+
         try
         {
             return AutoShortPlanner.PlanBatch(new AutoShortBatch
@@ -870,6 +890,8 @@ public sealed class ClipMergeService(
                 ImageSeconds = command.ImageSeconds,
                 MaxClipSeconds = command.MaxClipSeconds,
                 ExactLength = command.ExactLength,
+                KeepClipsWhole = command.KeepClipsWhole,
+                Packaging = (command.Packaging ?? new AutoShortPackaging()) with { Memes = memes },
                 Order = command.Order,
                 Style = command.Style,
                 TextMode = command.TextMode,

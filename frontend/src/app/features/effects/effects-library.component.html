@@ -3,22 +3,14 @@
     <div class="fx-head-left">
       <div class="studio-icon-badge">✨</div>
       <div>
-        <h2>{{ reactionsPage ? 'Memes & reactions' : 'Effects & overlays' }}</h2>
-        @if (reactionsPage) {
-          <p class="muted">Upload reaction clips, pictures and sounds you own or have permission to use.
-            Find them under <strong>Memes &amp; reactions</strong> in the editor's Effects panel and place them on the timeline.
-            Placement is manual; review the timing before export.</p>
-          <a routerLink="/comedy">Open comedy workspace</a>
-        } @else {
-          <p class="muted">Your own kit of subscribe buttons, stingers, end screens, lower thirds, sound effects and green-screen clips.
-            Upload each once here, then add it to any video from the <strong>✨ Effects</strong> button in the editor's media panel.</p>
-          <a routerLink="/memes">Open memes &amp; reactions</a>
-        }
+        <h2>Effects &amp; reactions</h2>
+        <p class="muted">Your shared library of effects, memes and reactions. Upload media you have permission to use, then add it from the editor's Effects panel.</p>
+        <a routerLink="/comedy">Open comedy workspace</a>
       </div>
     </div>
   </header>
 
-  @if (reactionsPage) {
+  @if (category() === 'Reaction') {
     <section class="card fx-create">
       <h3>Create an original reaction</h3>
       <p class="muted">Draw a transparent PNG in your browser, then download it or save it to your library. Use your own caption.</p>
@@ -48,18 +40,35 @@
       <p class="muted">These are still images, not video or sound. Add them manually from the editor's Effects panel.
         No service can guarantee that YouTube will never issue a claim; check your caption and all other media too.</p>
     </section>
-    <section class="card fx-create">
-      <h3>Find inspiration on Pinterest</h3>
-      <div class="fx-create-fields">
-        <label>Search Pinterest
-          <input type="search" maxlength="100" [ngModel]="reactionSearch()" (ngModelChange)="reactionSearch.set($event)" placeholder="Funny reaction ideas" />
-        </label>
-        <a class="fx-btn" [href]="pinterestSearchUrl()" target="_blank" rel="noopener noreferrer">Open Pinterest search</a>
-      </div>
-      <p class="muted">Search opens Pinterest in a new tab; your search is sent to Pinterest. Pins are not automatically downloaded.
-        A pin being public or edited does not grant permission to reuse it. Check the original creator's license, commercial-use terms and attribution requirements before downloading or uploading any media.</p>
-    </section>
   }
+
+  <section class="card fx-create">
+    <h3>Import from a link</h3>
+    <form (ngSubmit)="importLink()">
+      <div class="fx-create-fields">
+        <label>Link type
+          <select name="linkType" [ngModel]="linkType()" (ngModelChange)="linkType.set($event)">
+            <option value="platform">Supported video platform</option>
+            <option value="file">Direct media file</option>
+          </select>
+        </label>
+        <label>HTTPS link
+          <input type="url" name="effectUrl" maxlength="2048" [ngModel]="linkUrl()" (ngModelChange)="linkUrl.set($event)" placeholder="https://..." required />
+        </label>
+        <label>Category
+          <select name="linkCategory" [ngModel]="uploadCategory()" (ngModelChange)="uploadCategory.set($event)">
+            <option value="">File by type</option>
+            @for (c of categories; track c.id) { <option [value]="c.id">{{ c.label }}</option> }
+          </select>
+        </label>
+        <button type="submit" [disabled]="linkBusy() || !linkUrl().trim() || !linkRights()">{{ linkBusy() ? 'Importing…' : 'Import to library' }}</button>
+      </div>
+      <label class="fx-check"><input type="checkbox" name="linkRights" [ngModel]="linkRights()" (ngModelChange)="linkRights.set($event)" /> I have permission to download and use this media.</label>
+    </form>
+    <p class="muted">Video platform links use Media Studio's supported sites and downloader. Direct file links are fetched by your browser; some hosts block access, in which case download and upload the file instead.</p>
+    @if (linkError(); as error) { <p class="fx-error" role="alert">{{ error }}</p> }
+    @if (linkNotice(); as notice) { <p role="status">{{ notice }}</p> }
+  </section>
 
   <!-- Upload: drop, paste or pick; the category and green-screen flag apply to this batch. -->
   <div class="fx-upload" [appFileDrop]="accept" [fileDropMultiple]="true" [fileDropDisabled]="uploading()"
@@ -95,10 +104,10 @@
 
   <!-- Filters -->
   <nav class="fx-chips" aria-label="Categories">
-    <button type="button" [class.active]="category() === 'all'" (click)="category.set('all')">All ({{ effects().length }})</button>
+    <button type="button" [class.active]="category() === 'all'" (click)="selectCategory('all')">All ({{ effects().length }})</button>
     @for (c of categories; track c.id) {
-      @if (counts().get(c.id); as n) {
-        <button type="button" [class.active]="category() === c.id" [title]="c.hint" (click)="category.set(c.id)">{{ c.icon }} {{ c.label }} ({{ n }})</button>
+      @if (counts().get(c.id) || c.id === 'Reaction') {
+        <button type="button" [class.active]="category() === c.id" [title]="c.hint" (click)="selectCategory(c.id)">{{ c.icon }} {{ c.label }} ({{ counts().get(c.id) || 0 }})</button>
       }
     }
   </nav>

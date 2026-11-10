@@ -172,7 +172,7 @@ export const routes: Routes = [
 
   {
     path: 'memes',
-    title: 'Memes & reactions - AnimStudio AI',
+    title: 'Effects & reactions - AnimStudio AI',
     data: { reactions: true },
     loadComponent: () =>
       import('./features/effects/effects-library.component')

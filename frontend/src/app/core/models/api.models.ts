@@ -1084,6 +1084,12 @@ export interface AutoShortsBody {
   maxClipSeconds: number | null;
   /** Every short runs exactly targetSeconds with Spread and AllInEach too; FitLength always does. */
   exactLength?: boolean;
+  /** Play every video start to finish: never trimmed, split or reused for another stretch. */
+  keepClipsWhole?: boolean;
+  /** Bands above and below the footage, title, numbered parts, quiz or poll, call to action and memes. */
+  packaging?: AutoShortPackagingBody;
+  /** Project pictures and clips (from the effects library's memes) to pop over the footage. */
+  memeAssetIds?: string[];
   order?: AutoShortOrder;
   style: AutoShortStyle;
   textMode: AutoShortTextMode;
@@ -1106,6 +1112,28 @@ export interface AutoShortsBody {
   driveChannelId?: string | null;
   /** A folder for this batch; empty uses the channel's (or the Drive's) default. */
   driveFolderName?: string | null;
+}
+
+export type AutoShortTopMode = 'None' | 'Hook' | 'Quiz' | 'Poll' | 'Auto';
+export type AutoShortLanguage = 'English' | 'Hindi' | 'Both';
+export type AutoShortPartLabel = 'Number' | 'Level' | 'Part';
+
+/** Mirrors AutoShortPackagingRequest on the server. */
+export interface AutoShortPackagingBody {
+  /** 'none', 'auto' (a different design per short) or a design id. */
+  design: string;
+  top: AutoShortTopMode;
+  language: AutoShortLanguage;
+  title?: string | null;
+  numberParts: boolean;
+  partLabel: AutoShortPartLabel;
+  countDown: boolean;
+  callToAction: boolean;
+  callToActionText?: string | null;
+  channelHandle?: string | null;
+  /** "question | answer", one per entry. */
+  quizLines: string[];
+  memesPerShort: number;
 }
 
 /** A queued Auto Shorts batch. */
