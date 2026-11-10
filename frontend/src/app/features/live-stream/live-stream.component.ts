@@ -10,6 +10,7 @@ import {
   BUSY_STATES,
   LiveStreamChannel,
   LiveStreamGoLive,
+  LiveStreamHistoryEntry,
   LiveStreamItemSource,
   LiveStreamItemStatus,
   LiveStreamKeyMode,
@@ -137,6 +138,11 @@ export class LiveStreamComponent {
   /** The preset the page was last filled from, so "Update" saves over it. */
   readonly activePresetId = signal<string | null>(null);
   readonly presetBusy = signal<string | null>(null);
+
+  // History of every stream made, kept on the server
+  readonly history = signal<LiveStreamHistoryEntry[]>([]);
+  readonly historyLoaded = signal(false);
+  readonly historyBusy = signal<string | null>(null);
   presetName = '';
 
   form = {
@@ -185,6 +191,7 @@ export class LiveStreamComponent {
 
     void this.loadSetup();
     void this.loadPresets();
+    void this.loadHistory();
     void this.refresh();
     void this.addFromQuery();
   }
@@ -474,6 +481,7 @@ export class LiveStreamComponent {
       }, goLive ? this.goLiveTarget() : undefined));
 
       this.streams.update((list) => [created, ...list.filter((s) => s.id !== created.id)]);
+      this.syncHistory(this.streams());
       this.expanded.update((e) => ({ ...e, [created.id]: true }));
       this.status.notify([goLive ? `Preparing "${created.label}" - it goes live when ready` : `Preparing "${created.label}" for preview`]);
       if (goLive) this.consumeBroadcast();
@@ -651,6 +659,71 @@ export class LiveStreamComponent {
     }
   }
 
+  async renamePreset(preset: LiveStreamPreset): Promise<void> {
+    const name = prompt('Rename preset', preset.name)?.trim();
+    if (!name || name === preset.name) return;
+    this.presetBusy.set(preset.id);
+    try {
+      const { id: _id, createdAt: _c, updatedAt: _u, lastUsedAt: _l, uses: _n, ...request } = preset;
+      const saved = await firstValueFrom(this.live.updatePreset(preset.id, { ...request, name }));
+      this.presets.update((list) => list.map((p) => (p.id === preset.id ? saved : p)));
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The preset could not be renamed.'));
+    } finally {
+      this.presetBusy.set(null);
+    }
+  }
+
+  async loadHistory(): Promise<void> {
+    try {
+      this.history.set(await firstValueFrom(this.live.history()));
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'Could not load your stream history.'));
+    } finally {
+      this.historyLoaded.set(true);
+    }
+  }
+
+  async renameHistory(entry: LiveStreamHistoryEntry): Promise<void> {
+    const name = prompt('Rename this stream', entry.name)?.trim();
+    if (!name || name === entry.name) return;
+    this.historyBusy.set(entry.id);
+    try {
+      const saved = await firstValueFrom(this.live.renameHistory(entry.id, name));
+      this.history.update((list) => list.map((e) => (e.id === entry.id ? { ...e, name: saved.name } : e)));
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The stream could not be renamed.'));
+    } finally {
+      this.historyBusy.set(null);
+    }
+  }
+
+  async deleteHistory(entry: LiveStreamHistoryEntry): Promise<void> {
+    if (!confirm(`Remove "${entry.name}" from your history? This doesn't touch anything on YouTube.`)) return;
+    this.historyBusy.set(entry.id);
+    try {
+      await firstValueFrom(this.live.deleteHistory(entry.id));
+      this.history.update((list) => list.filter((e) => e.id !== entry.id));
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The history entry could not be removed.'));
+    } finally {
+      this.historyBusy.set(null);
+    }
+  }
+
+  async clearHistory(): Promise<void> {
+    if (!confirm('Remove all of your stream history? This doesn\'t touch anything on YouTube.')) return;
+    this.historyBusy.set('*');
+    try {
+      await firstValueFrom(this.live.clearHistory());
+      this.history.set([]);
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The history could not be cleared.'));
+    } finally {
+      this.historyBusy.set(null);
+    }
+  }
+
   private presetRequest(name: string): LiveStreamPresetRequest | null {
     const items = this.playlist().filter((e) => e.source !== 'Upload').map((e): LiveStreamPresetItem => ({
       source: e.source,
@@ -678,7 +751,7 @@ export class LiveStreamComponent {
     if (this.form.keyMode === 'youtube') {
       youTube = this.youTubeSetup()?.currentDraft() ?? null;
       if (!youTube) {
-        this.error.set({ message: 'Fill in the YouTube broadcast\'s title (under "Stream key") so the preset can create a new broadcast each time.' });
+        this.error.set({ message: 'Add a title for the YouTube broadcast (under "Stream key" → New broadcast), or pick an upcoming one with "Use this", so the preset can create a new broadcast each time.' });
         return null;
       }
     }
@@ -1163,10 +1236,23 @@ export class LiveStreamComponent {
     }
   }
 
+  private lastStreamSignature = '';
+  private historyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Reloads the history shortly after any stream is added or changes state (the server saves it asynchronously). */
+  private syncHistory(list: LiveStreamStatus[]): void {
+    const signature = list.map((s) => `${s.id}:${s.state}`).join('|');
+    if (signature === this.lastStreamSignature) return;
+    this.lastStreamSignature = signature;
+    if (this.historyTimer) clearTimeout(this.historyTimer);
+    this.historyTimer = setTimeout(() => void this.loadHistory(), 1200);
+  }
+
   private async refresh(): Promise<void> {
     try {
       const list = await firstValueFrom(this.live.list());
       this.streams.set(list);
+      this.syncHistory(list);
       if (list.some((s) => s.keyNeedsAttention)) void this.loadSetup();
     } catch {
       // A missed poll is not worth an error banner; the next one will try again.

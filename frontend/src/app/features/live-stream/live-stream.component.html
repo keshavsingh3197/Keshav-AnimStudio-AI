@@ -49,6 +49,8 @@
                   {{ presetBusy() === p.id ? 'Starting…' : (canPlayDirectly(p) ? '▶ Play' : '▶ Fill') }}
                 </button>
                 <button type="button" class="secondary ls-small" (click)="loadPreset(p)" [disabled]="!!presetBusy()">✎ Load</button>
+                <button type="button" class="secondary ls-icon" (click)="renamePreset(p)" [disabled]="!!presetBusy()"
+                        [attr.aria-label]="'Rename preset ' + p.name" title="Rename">Aa</button>
                 <button type="button" class="secondary ls-icon" (click)="deletePreset(p)" [disabled]="!!presetBusy()"
                         [attr.aria-label]="'Delete preset ' + p.name">🗑</button>
               </span>
@@ -77,6 +79,47 @@
         Put <code>{{ '{date}' }}</code> or <code>{{ '{time}' }}</code> in the title to make each day's broadcast its own.
         Files uploaded from this computer aren't kept; add them to a project's media to use them in a preset.
       </p>
+    </section>
+
+    <!-- Stream history -->
+    <section class="card ls-presets">
+      <div class="ls-step-row">
+        <h3 class="ls-step"><span>🕘</span> Stream history</h3>
+        <span class="ls-pick-actions">
+          @if (history().length > 0) { <span class="muted ls-total">{{ history().length }}</span> }
+          <button type="button" class="secondary ls-small" (click)="loadHistory()" [disabled]="!!historyBusy()">↻ Refresh</button>
+          @if (history().length > 0) {
+            <button type="button" class="secondary ls-small" (click)="clearHistory()" [disabled]="!!historyBusy()">Clear all</button>
+          }
+        </span>
+      </div>
+      @if (!historyLoaded()) {
+        <p class="muted">Loading…</p>
+      } @else {
+        <ul class="ls-preset-list">
+          @for (h of history(); track h.id) {
+            <li class="ls-preset">
+              <div class="ls-preset-main">
+                <strong class="ls-ellipsis">{{ h.name }}</strong>
+                <span class="muted ls-ellipsis">
+                  <span class="ls-hist-badge" [class]="'ls-hist-badge ' + h.state.toLowerCase()">{{ h.state }}</span>
+                  {{ h.destinationName }} · {{ h.itemTitles.length }} item{{ h.itemTitles.length === 1 ? '' : 's' }}
+                  @if (h.streamedSeconds > 0) { · {{ formatClock(h.streamedSeconds) }} sent }
+                </span>
+                <span class="muted ls-small-print">{{ h.createdAtUtc | date: 'medium' }}</span>
+              </div>
+              <span class="ls-pick-actions">
+                <button type="button" class="secondary ls-icon" (click)="renameHistory(h)" [disabled]="!!historyBusy()"
+                        [attr.aria-label]="'Rename ' + h.name" title="Rename">Aa</button>
+                <button type="button" class="secondary ls-icon" (click)="deleteHistory(h)" [disabled]="!!historyBusy()"
+                        [attr.aria-label]="'Remove ' + h.name + ' from history'">🗑</button>
+              </span>
+            </li>
+          } @empty {
+            <li class="muted">Streams you prepare are saved here, so you can find them after a restart.</li>
+          }
+        </ul>
+      }
     </section>
 
     <!-- 1. Playlist -->

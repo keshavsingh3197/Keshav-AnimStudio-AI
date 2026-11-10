@@ -18,6 +18,7 @@ public static class MongoCollections
     public const string AiSettings = "aiSettings";
     public const string LiveStreamKeys = "liveStreamKeys";
     public const string LiveStreamPresets = "liveStreamPresets";
+    public const string LiveStreamHistory = "liveStreamHistory";
     public const string YouTubeConnections = "youTubeConnections";
     public const string YouTubePublications = "youTubePublications";
     public const string GoogleDriveConnections = "googleDriveConnections";

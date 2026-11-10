@@ -314,6 +314,11 @@
 }
 .ls-preset-list > li { padding: .6rem .75rem; border-bottom: 1px solid var(--border); font-size: .88rem; }
 .ls-preset-list > li:last-child { border-bottom: 0; }
+.ls-preset-list { max-height: 360px; overflow-y: auto; }
+.ls-hist-badge { display: inline-block; padding: 0 .45rem; border-radius: 999px; font-size: .72rem; font-weight: 600; background: rgba(150, 160, 190, .18); }
+.ls-hist-badge.live { background: rgba(220, 60, 60, .25); color: #ff8a8a; }
+.ls-hist-badge.ready, .ls-hist-badge.ended { background: rgba(60, 180, 120, .2); color: #7fdba8; }
+.ls-hist-badge.failed, .ls-hist-badge.interrupted { background: rgba(230, 150, 50, .2); color: #f0b866; }
 .ls-preset { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
 .ls-preset-active { background: rgba(108, 140, 255, 0.1); box-shadow: inset 3px 0 0 var(--brand); }
 .ls-preset-main { display: grid; gap: .1rem; min-width: 0; }

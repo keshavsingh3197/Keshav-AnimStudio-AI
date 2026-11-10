@@ -157,6 +157,11 @@ public sealed class MongoIndexInitializer(
                 new CreateIndexModel<LiveStreamPreset>(Builders<LiveStreamPreset>.IndexKeys
                     .Ascending(p => p.UserId)), cancellationToken: ct).ConfigureAwait(false);
 
+            var liveStreamHistory = mongo.GetCollection<LiveStreamHistoryEntry>(MongoCollections.LiveStreamHistory);
+            await liveStreamHistory.Indexes.CreateOneAsync(
+                new CreateIndexModel<LiveStreamHistoryEntry>(Builders<LiveStreamHistoryEntry>.IndexKeys
+                    .Ascending(e => e.UserId).Descending(e => e.CreatedAtUtc)), cancellationToken: ct).ConfigureAwait(false);
+
             // The calendar lists one owner's posts by date and one topic's posts for planning;
             // the sync walks a date window across everyone.
             var contentTopics = mongo.GetCollection<ContentTopic>(MongoCollections.ContentTopics);

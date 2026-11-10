@@ -8,6 +8,7 @@ import {
   CameraStreamSettings,
   CameraStreamStatus,
   LiveStreamGoLive,
+  LiveStreamHistoryEntry,
   LiveStreamItemRequest,
   LiveStreamKeyStatus,
   LiveStreamPreset,
@@ -131,6 +132,28 @@ export class LiveStreamService {
 
   deletePreset(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/presets/${encodeURIComponent(id)}`);
+  }
+
+  // ------------------------------------------------------------------ history
+
+  history(): Observable<LiveStreamHistoryEntry[]> {
+    return this.http
+      .get<ApiResponse<LiveStreamHistoryEntry[]>>(`${this.base}/history`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  renameHistory(id: string, name: string): Observable<LiveStreamHistoryEntry> {
+    return this.http
+      .put<ApiResponse<LiveStreamHistoryEntry>>(`${this.base}/history/${encodeURIComponent(id)}`, { name })
+      .pipe(map((r) => r.data as LiveStreamHistoryEntry));
+  }
+
+  deleteHistory(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/history/${encodeURIComponent(id)}`);
+  }
+
+  clearHistory(): Observable<void> {
+    return this.http.delete<void>(`${this.base}/history`);
   }
 
   /** Admin only. The key goes in the body and comes back masked. */

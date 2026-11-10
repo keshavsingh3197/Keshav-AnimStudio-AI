@@ -545,20 +545,22 @@ export class YouTubeLiveSetupComponent implements OnInit {
     this.tab.set('new');
   }
 
-  /** The form as it stands, for saving in a preset; null without a channel or a title. */
+  /** The form as it stands, for saving in a preset; null without a channel or a title. A picked upcoming broadcast supplies its title. */
   currentDraft(): LiveStreamPresetYouTube | null {
-    if (!this.channelId() || !this.title.trim()) return null;
+    const picked = this.selected()?.broadcast;
+    const title = this.title.trim() || picked?.title?.trim() || '';
+    if (!this.channelId() || !title) return null;
     return {
       channelId: this.channelId(),
       topic: this.topic.trim() || null,
       brief: this.brief.trim() || null,
       tone: this.tone,
       language: this.language,
-      title: this.title.trim(),
+      title,
       description: this.description.trim(),
       tags: parseYouTubeTags(this.tagsText),
       categoryId: this.categoryId,
-      privacy: this.privacy,
+      privacy: this.title.trim() ? this.privacy : ((picked?.privacy as LiveStreamPresetYouTube['privacy'] | undefined) ?? this.privacy),
       madeForKids: this.madeForKids,
       enableDvr: this.enableDvr,
     };

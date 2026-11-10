@@ -148,6 +148,7 @@ public static class DependencyInjection
             services.AddScoped<IYouTubeChannelAnalysisRepository, SqlYouTubeChannelAnalysisRepository>();
             services.AddScoped<IYouTubeSavedSuggestionRepository, SqlYouTubeSavedSuggestionRepository>();
             services.AddScoped<ILiveStreamPresetRepository, SqlLiveStreamPresetRepository>();
+            services.AddScoped<ILiveStreamHistoryRepository, SqlLiveStreamHistoryRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -196,6 +197,7 @@ public static class DependencyInjection
             services.AddScoped<IYouTubeChannelAnalysisRepository, MongoYouTubeChannelAnalysisRepository>();
             services.AddScoped<IYouTubeSavedSuggestionRepository, MongoYouTubeSavedSuggestionRepository>();
             services.AddScoped<ILiveStreamPresetRepository, MongoLiveStreamPresetRepository>();
+            services.AddScoped<ILiveStreamHistoryRepository, MongoLiveStreamHistoryRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();

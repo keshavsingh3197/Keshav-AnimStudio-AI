@@ -82,6 +82,9 @@ public static class MongoMappingRegistrar
             // "lsp_{guid}" - a saved Go Live setup.
             MapWithLiteralId<LiveStreamPreset>();
 
+            // The stream's own id - a record of one Go Live stream.
+            MapWithLiteralId<LiveStreamHistoryEntry>();
+
             // "{userId}:{channelId}" - one connection per user per channel.
             MapWithLiteralId<YouTubeChannelConnection>();
 

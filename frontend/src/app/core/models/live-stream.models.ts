@@ -216,6 +216,28 @@ export interface LiveStreamPreset extends LiveStreamPresetRequest {
   uses: number;
 }
 
+/** A saved record of one past or current Go Live stream. */
+export interface LiveStreamHistoryEntry {
+  id: string;
+  name: string;
+  destinationId: string;
+  destinationName: string;
+  quality: string;
+  orientation: string;
+  loops: number;
+  shuffle: boolean;
+  channelId?: string | null;
+  itemTitles: string[];
+  state: string;
+  message?: string | null;
+  streamedSeconds: number;
+  reconnects: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  liveSinceUtc?: string | null;
+  endedAtUtc?: string | null;
+}
+
 /** States in which a stream holds a worker on the server. */
 export const BUSY_STATES: readonly LiveStreamState[] = ['Preparing', 'Connecting', 'Live', 'Reconnecting'];
 

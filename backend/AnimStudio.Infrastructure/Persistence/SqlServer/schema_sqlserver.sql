@@ -269,6 +269,17 @@ BEGIN
     CREATE INDEX IX_LiveStreamPresets_User ON LiveStreamPresets (UserId, SortAt DESC);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LiveStreamHistory')
+BEGIN
+    CREATE TABLE LiveStreamHistory (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_LiveStreamHistory_User ON LiveStreamHistory (UserId, CreatedAt DESC);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
 BEGIN
     CREATE TABLE WebSettings (
