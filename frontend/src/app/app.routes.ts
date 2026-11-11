@@ -119,6 +119,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'story-template',
+    title: 'Story Template Studio - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/story-agent/story-template.component').then((m) => m.StoryTemplateComponent),
+  },
+
+  {
     path: 'story-agent',
     title: 'Story Agent - AnimStudio AI',
     loadComponent: () =>

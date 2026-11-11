@@ -430,6 +430,7 @@ public static class DependencyInjection
         services.AddScoped<IStoryStage, VisualsStage>();
         services.AddScoped<IStoryStage, NarrationStage>();
         services.AddScoped<IStoryStage, MusicStage>();
+        services.AddScoped<StoryFaceLocator>();
         services.AddScoped<IStoryStage, AssembleStage>();
         services.AddScoped<IStoryStage, RenderStage>();
         services.AddScoped<IStoryStage, KitStage>();

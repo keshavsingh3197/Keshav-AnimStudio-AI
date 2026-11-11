@@ -13,6 +13,7 @@ import {
   StoryScene,
   StoryScript,
   StorySource,
+  StoryFace,
 } from '../../core/models/story-agent.models';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
@@ -141,6 +142,10 @@ export class StoryScriptEditorComponent {
   readonly thumbnailFile = THUMBNAIL_FILE;
   readonly error = signal<string | null>(null);
   readonly copied = signal<string | null>(null);
+  /** The speaker whose mouth is being placed with a click on their scene's picture. */
+  readonly placing = signal<{ scene: number; name: string } | null>(null);
+  /** Each scene picture's own width over height, once it has loaded, for placing marks on it as it is cropped. */
+  readonly pictureAspects = signal<Record<number, number>>({});
 
   /** Object URLs of the pictures, by what identifies that picture; revoked when replaced and on leave. */
   readonly pictures = signal<Record<string, string>>({});
@@ -380,6 +385,12 @@ export class StoryScriptEditorComponent {
 
   // ------------------------------------------------------------------------------------------------ pictures
 
+  /** The staging a story template gave the scene; null for a scene without any. Kept by the server across edits. */
+  stagingOf(number: number): StoryScene | null {
+    const scene = this.byNumber().get(number);
+    return scene && (scene.background || scene.action || scene.onScreen?.length || scene.meme) ? scene : null;
+  }
+
   /** The picture to show for a scene, once it has arrived. */
   pictureOf(number: number): string | null {
     const scene = this.byNumber().get(number);
@@ -405,6 +416,104 @@ export class StoryScriptEditorComponent {
   pictureNote(number: number): string {
     const scene = this.byNumber().get(number);
     return scene?.hasImage ? sourceNote(scene.imageSource, scene.imageName) : '';
+  }
+
+  // ------------------------------------------------------------------------------------------------ talking faces
+
+  /** The characters who speak in the scene, whose mouths move in its picture. */
+  speakersOf(scene: DraftScene): string[] {
+    const names: string[] = [];
+    for (const line of scene.lines) {
+      const name = line.speaker.trim();
+      if (!name || name.toLowerCase() === 'narrator' || !line.text.trim()) continue;
+      if (!names.some((n) => n.toLowerCase() === name.toLowerCase())) names.push(name);
+    }
+    return names;
+  }
+
+  /** The faces in the scene's picture; null until a build has looked for them. */
+  facesOf(number: number): StoryFace[] | null {
+    return this.byNumber().get(number)?.faces ?? null;
+  }
+
+  faceFor(number: number, name: string): StoryFace | null {
+    return this.facesOf(number)?.find((f) => f.name.toLowerCase() === name.toLowerCase()) ?? null;
+  }
+
+  onPictureLoad(number: number, event: Event): void {
+    const img = event.target as HTMLImageElement;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    this.pictureAspects.update((all) => ({ ...all, [number]: img.naturalWidth / img.naturalHeight }));
+  }
+
+  /** Where a face's mark sits on the frame, in percent, with the picture cropped to fill it. */
+  markAt(number: number, face: StoryFace): { left: number; top: number } {
+    const { cropX, cropY } = this.crop(number);
+    return { left: ((face.x - cropX) / (1 - 2 * cropX)) * 100, top: ((face.y - cropY) / (1 - 2 * cropY)) * 100 };
+  }
+
+  startPlacing(scene: DraftScene, name: string): void {
+    const now = this.placing();
+    this.placing.set(now?.scene === scene.number && now.name === name ? null : { scene: scene.number, name });
+  }
+
+  /** A click on the picture while placing: that speaker's mouth is there. */
+  async placeAt(scene: DraftScene, event: MouseEvent): Promise<void> {
+    const placing = this.placing();
+    if (!placing || placing.scene !== scene.number || this.locked() || this.dirty()) return;
+
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const { cropX, cropY } = this.crop(scene.number);
+    const x = cropX + ((event.clientX - rect.left) / rect.width) * (1 - 2 * cropX);
+    const y = cropY + ((event.clientY - rect.top) / rect.height) * (1 - 2 * cropY);
+    const others = (this.facesOf(scene.number) ?? []).filter((f) => f.name.toLowerCase() !== placing.name.toLowerCase());
+    // A face placed for the first time is sized like the others in the picture, or as a typical face.
+    const width = this.faceFor(scene.number, placing.name)?.width
+      ?? (others.length ? others.reduce((sum, f) => sum + f.width, 0) / others.length : this.vertical() ? 0.16 : 0.08);
+    this.placing.set(null);
+    await this.saveFaces(scene, [...others, { name: placing.name, x: clamp01(x), y: clamp01(y), width, manual: true }]);
+  }
+
+  async removeFace(scene: DraftScene, name: string): Promise<void> {
+    const faces = (this.facesOf(scene.number) ?? []).filter((f) => f.name.toLowerCase() !== name.toLowerCase());
+    await this.saveFaces(scene, faces);
+  }
+
+  /** Forgets the scene picture's faces, so the next build finds them again. */
+  async findFacesAgain(scene: DraftScene): Promise<void> {
+    if (this.locked() || this.dirty()) return;
+    this.sending.set(scene.number);
+    try {
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.resetFaces(this.run().id, scene.number, 1)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'The faces could not be reset.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  private async saveFaces(scene: DraftScene, faces: StoryFace[]): Promise<void> {
+    if (this.locked() || this.dirty()) return;
+    this.sending.set(scene.number);
+    try {
+      const body = faces.map(({ name, x, y, width }) => ({ name, x, y, width }));
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.placeFaces(this.run().id, scene.number, 1, body)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'The faces could not be saved.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  /** How much of the picture is cut off each side to fill the frame (object-fit: cover), as fractions of it. */
+  private crop(number: number): { cropX: number; cropY: number } {
+    const frame = this.vertical() ? 9 / 16 : 16 / 9;
+    const picture = this.pictureAspects()[number] ?? frame;
+    return picture > frame
+      ? { cropX: (1 - frame / picture) / 2, cropY: 0 }
+      : { cropX: 0, cropY: (1 - picture / frame) / 2 };
   }
 
   private pictureKey(scene: StoryScene): string {
@@ -966,4 +1075,8 @@ function signatureOf(script: StoryScript | null): string {
     ]),
     script.thumbnailPrompt ?? null,
   ]);
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, Math.round(value * 10000) / 10000));
 }

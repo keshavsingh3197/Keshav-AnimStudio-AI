@@ -138,11 +138,30 @@ public class YouTubeLiveTests
     }
 
     [Fact]
-    public void The_live_prompt_ships_with_the_same_answer_shape_as_uploads()
+    public void The_live_prompt_accepts_optional_metadata_for_the_live_parser_to_sanitize()
     {
         var live = BuiltInPrompts.Find(BuiltInPrompts.LiveMetadata);
         Assert.NotNull(live);
-        Assert.Equal(BuiltInPrompts.Find(BuiltInPrompts.VideoMetadata)!.OutputJsonSchema, live!.OutputJsonSchema);
+        Assert.Equal(2, live!.Version);
+
+        const string response =
+            """
+            {
+              "title": "Live: Bhajan",
+              "description": "Join the live bhajan.",
+              "titleOptions": ["Evening Bhajan Live"],
+              "tags": "bhajan, live",
+              "unexpected-but-ignored": true
+            }
+            """;
+
+        var json = AiJsonResponse.Require(response, live.OutputJsonSchema!);
+        var suggestion = YouTubeMetadataSuggester.Parse(json);
+
+        Assert.NotNull(suggestion);
+        Assert.Equal("Live: Bhajan", suggestion.Title);
+        Assert.Equal(["bhajan", "live"], suggestion.Tags);
+        Assert.Equal(["Evening Bhajan Live"], suggestion.TitleOptions);
     }
 
     private static HttpResponseMessage Json(HttpStatusCode status, string json) =>

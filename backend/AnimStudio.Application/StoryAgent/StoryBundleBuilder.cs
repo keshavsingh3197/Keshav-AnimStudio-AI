@@ -3,6 +3,7 @@ using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
+using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Stories;
 
 namespace AnimStudio.Application.StoryAgent;
@@ -33,10 +34,26 @@ public sealed record StoryBundleScene(
 
     /// <summary>The scene's further pictures, in order, shown after its own while the narration plays on. Ignored with a clip.</summary>
     public IReadOnlyList<StoryBundleShot> Shots { get; init; } = [];
+
+    /// <summary>A funny ending played for a moment straight after the scene; null for none.</summary>
+    public StoryBundleMeme? Meme { get; init; }
+
+    /// <summary>The speakers' faces in the scene's own picture, whose mouths move while they talk.</summary>
+    public IReadOnlyList<StoryFace> Faces { get; init; } = [];
 }
 
+/// <summary>A meme from the owner's library, ready to play after a scene.</summary>
+/// <param name="Content">An MP4 clip, or a PNG, JPEG or WebP still.</param>
+/// <param name="HasAudio">The clip has its own sound, which plays with it.</param>
+/// <param name="Caption">Shown as a subtitle over it; null for none.</param>
+public sealed record StoryBundleMeme(byte[] Content, string Mime, bool IsVideo, bool HasAudio, double Seconds, string? Caption, string Note);
+
 /// <summary>One of a scene's further pictures.</summary>
-public sealed record StoryBundleShot(byte[] Image, string ImageMime, string ImageNote);
+public sealed record StoryBundleShot(byte[] Image, string ImageMime, string ImageNote)
+{
+    /// <summary>The speakers' faces in this picture.</summary>
+    public IReadOnlyList<StoryFace> Faces { get; init; } = [];
+}
 
 /// <param name="ContentType"><c>audio/mpeg</c> or <c>audio/wav</c>.</param>
 public sealed record StoryBundleMusic(byte[] Content, string Attribution, string? SourceUrl, LicenseClass License, string ContentType = "audio/mpeg");
@@ -80,6 +97,9 @@ public static class StoryBundleBuilder
 
     /// <summary>The least time a picture is on screen; a scene too short for all of its pictures shows the first ones.</summary>
     public const double MinShotSeconds = 2.0;
+
+    /// <summary>How hard a still meme punches in while it is on screen.</summary>
+    private const double MemeIntensity = 0.18;
 
     private static readonly BackgroundEffect[] EffectCycle =
         [BackgroundEffect.ZoomIn, BackgroundEffect.PanRight, BackgroundEffect.ZoomOut, BackgroundEffect.PanLeft];
@@ -166,6 +186,9 @@ public static class StoryBundleBuilder
             var kind = last ? SceneTransition.None : scene.Look?.Transition ?? SceneTransition.Fade;
             var transition = kind == SceneTransition.None ? 0.0 : scene.Look?.TransitionSeconds ?? TransitionSeconds;
 
+            // When each speaker talks, timed against the voice like the subtitles; their mouths in each picture follow it.
+            var talking = isClip ? [] : StoryFaces.Talking(story, seconds, hasAudio ? scene.Pauses : null);
+
             var chunks = StoryPacing.SplitCaptions(story.Narration);
             var spans = hasAudio
                 ? StoryPacing.Align(chunks, seconds, scene.Pauses)
@@ -236,9 +259,11 @@ public static class StoryBundleBuilder
             {
                 var part = parts[p];
                 var lastPart = p == parts.Count - 1;
+                // A funny ending pops in on a hard cut, and takes over the scene's own cut into the next.
+                var cutToMeme = lastPart && scene.Meme is not null;
                 var number = (durationFrames.Count + 1).ToString(CultureInfo.InvariantCulture);
                 var length = part.To - part.From + part.Overlap;
-                var overlap = lastPart ? (int)Math.Round(transition * FramesPerSecond) : part.Overlap;
+                var overlap = cutToMeme ? 0 : lastPart ? (int)Math.Round(transition * FramesPerSecond) : part.Overlap;
                 durationFrames.Add(length);
                 transitionFrames.Add(overlap);
 
@@ -250,10 +275,12 @@ public static class StoryBundleBuilder
                     ("Background", part.Background),
                     ("Effect", part.Effect.ToString()),
                     ("Intensity", intensity.ToString("0.000", CultureInfo.InvariantCulture)),
-                    ("Transition", part.Transition.ToString()),
-                    ("TransitionSeconds", (lastPart ? transition : Seconds(overlap)).ToString("0.00", CultureInfo.InvariantCulture)),
+                    ("Transition", (cutToMeme ? SceneTransition.None : part.Transition).ToString()),
+                    ("TransitionSeconds", (cutToMeme ? 0 : lastPart ? transition : Seconds(overlap)).ToString("0.00", CultureInfo.InvariantCulture)),
                     ("Audio", audioPaths[p] ?? string.Empty),
-                    ("BackgroundAudio", isClip && scene.VideoHasAudio && options.KeepClipAudio ? "TRUE" : "FALSE")));
+                    ("BackgroundAudio", isClip && scene.VideoHasAudio && options.KeepClipAudio ? "TRUE" : "FALSE"),
+                    ("Mouths", isClip ? string.Empty
+                        : MouthsCell(p == 0 ? scene.Faces : shots[p - 1].Faces, talking, Seconds(part.From), Seconds(part.To + part.Overlap)))));
 
                 // The subtitles under this picture, timed from its start. One the cut falls inside is shown on both sides of it.
                 var from = Seconds(part.From);
@@ -269,6 +296,48 @@ public static class StoryBundleBuilder
                         ("Text", Truncate(span.Text, 1000)),
                         ("StartSeconds", start.ToString("0.00", CultureInfo.InvariantCulture)),
                         ("EndSeconds", end.ToString("0.00", CultureInfo.InvariantCulture))));
+                    captions++;
+                }
+            }
+
+            if (scene.Meme is { } meme)
+            {
+                var name = $"meme-{key}";
+                var memePath = AddMedia(media, name, meme.IsVideo ? ".mp4" : ImageExtension(meme.Mime), meme.Content, meme.Mime,
+                    meme.IsVideo ? AssetKind.Video : AssetKind.Image);
+                assetTable.Add(Row(WorkbookSchema.Assets,
+                    ("Name", name), ("File", memePath), ("Kind", (meme.IsVideo ? AssetKind.Video : AssetKind.Image).ToString()),
+                    ("License", nameof(LicenseClass.Unknown)), ("Attribution", Truncate(meme.Note, 500))));
+
+                // Played for its full moment: the cut into the next scene overlaps time added for it.
+                var memeOverlap = (int)Math.Round(transition * FramesPerSecond);
+                var memeFrames = Math.Max(1, (int)Math.Round(meme.Seconds * FramesPerSecond)) + memeOverlap;
+                var number = (durationFrames.Count + 1).ToString(CultureInfo.InvariantCulture);
+                durationFrames.Add(memeFrames);
+                transitionFrames.Add(memeOverlap);
+
+                sceneTable.Add(Row(WorkbookSchema.Scenes,
+                    ("SceneNumber", number),
+                    ("Title", Truncate($"{story.Headline} (funny ending)", 200)),
+                    ("Description", Truncate(meme.Caption ?? "Funny ending", 2000)),
+                    ("DurationSeconds", Seconds(memeFrames).ToString("0.00", CultureInfo.InvariantCulture)),
+                    ("Background", memePath),
+                    // A clip already moves; a still gets a quick punch-in.
+                    ("Effect", (meme.IsVideo ? BackgroundEffect.None : BackgroundEffect.ZoomIn).ToString()),
+                    ("Intensity", MemeIntensity.ToString("0.000", CultureInfo.InvariantCulture)),
+                    ("Transition", kind.ToString()),
+                    ("TransitionSeconds", transition.ToString("0.00", CultureInfo.InvariantCulture)),
+                    ("Audio", string.Empty),
+                    ("BackgroundAudio", meme.IsVideo && meme.HasAudio ? "TRUE" : "FALSE")));
+
+                if (meme.Caption is { Length: > 0 } caption)
+                {
+                    dialogueTable.Add(Row(WorkbookSchema.Dialogue,
+                        ("SceneNumber", number),
+                        ("Order", "1"),
+                        ("Text", Truncate(caption, 1000)),
+                        ("StartSeconds", "0.00"),
+                        ("EndSeconds", Seconds(memeFrames - memeOverlap).ToString("0.00", CultureInfo.InvariantCulture))));
                     captions++;
                 }
             }
@@ -298,6 +367,47 @@ public static class StoryBundleBuilder
     }
 
     private static double Seconds(int frames) => (double)frames / FramesPerSecond;
+
+    /// <summary>
+    /// The Mouths cell of the project scene that shows one picture from <paramref name="from"/> to <paramref name="to"/>
+    /// of its story scene: each face in it whose character talks then, with the talking timed from the picture's start.
+    /// Kept inside the cell's length by leaving out the last mouths, so it can never fail the import.
+    /// </summary>
+    public static string MouthsCell(
+        IReadOnlyList<StoryFace> faces, IReadOnlyDictionary<string, List<(double Start, double End)>> talking, double from, double to)
+    {
+        var mouths = new List<SceneMouth>();
+        foreach (var face in faces)
+        {
+            if (mouths.Count == MouthCell.MaxMouths || !talking.TryGetValue(face.Name, out var windows)) continue;
+
+            var inside = windows
+                .Select(w => (Start: Math.Max(w.Start, from) - from, End: Math.Min(w.End, to) - from))
+                .Where(w => w.End - w.Start >= 0.1)
+                .Take(MouthCell.MaxWindows)
+                .Select(w => new MouthWindow
+                {
+                    StartFrame = (int)Math.Round(w.Start * FramesPerSecond),
+                    EndFrame = (int)Math.Round(w.End * FramesPerSecond)
+                })
+                .ToList();
+            if (inside.Count == 0) continue;
+
+            mouths.Add(new SceneMouth { Name = face.Name, X = face.X, Y = face.Y, FaceWidth = face.Width, Windows = inside });
+        }
+
+        var rate = new FrameRate(FramesPerSecond, 1);
+        var cell = MouthCell.Format(mouths, rate);
+        while (cell.Length > MaxMouthsCellChars && mouths.Count > 0)
+        {
+            mouths.RemoveAt(mouths.Count - 1);
+            cell = MouthCell.Format(mouths, rate);
+        }
+        return cell;
+    }
+
+    /// <summary>The Scenes sheet's limit for the Mouths cell.</summary>
+    private const int MaxMouthsCellChars = 2000;
 
     /// <summary>
     /// Where a scene of <paramref name="totalFrames"/> is cut to show <paramref name="pieces"/> pictures, as frame

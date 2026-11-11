@@ -50,6 +50,37 @@ public sealed class DialogueLine
 }
 
 /// <summary>
+/// A mouth drawn into the scene's background picture, and when it talks. The renderer stretches the jaw below it in
+/// time with those windows, so a character painted into a still looks like it is speaking without any sprite.
+/// </summary>
+/// <remarks>Positions are fractions of the picture, not the canvas, so they hold however the picture is fitted.</remarks>
+public sealed class SceneMouth
+{
+    /// <summary>Who it is, for the person reading the project; the renderer does not use it.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>The middle of the mouth, from the picture's left edge (0) to its right (1).</summary>
+    public double X { get; set; }
+
+    /// <summary>The middle of the mouth, from the picture's top (0) to its bottom (1).</summary>
+    public double Y { get; set; }
+
+    /// <summary>How wide the face is, as a fraction of the picture's width. Sizes the patch that moves.</summary>
+    public double FaceWidth { get; set; }
+
+    public List<MouthWindow> Windows { get; set; } = [];
+}
+
+/// <summary>A stretch of a scene, in frames from its start, in which a mouth talks.</summary>
+public sealed class MouthWindow
+{
+    public int StartFrame { get; set; }
+    public int EndFrame { get; set; }
+
+    public FrameRange Range => new(new FrameCount(StartFrame), new FrameCount(EndFrame));
+}
+
+/// <summary>
 /// The slice of source media that provides this scene's audio. Positions are on the
 /// ORIGINAL clock and are never recomputed from scene durations - that is what keeps
 /// audio from drifting as transitions shorten the output timeline.
@@ -85,6 +116,10 @@ public sealed class Scene
     public bool BackgroundAudio { get; set; }
     public List<CharacterPlacement> Characters { get; set; } = [];
     public List<DialogueLine> Dialogue { get; set; } = [];
+
+    /// <summary>Mouths drawn into a still background that talk while their windows play. Ignored over a clip.</summary>
+    public List<SceneMouth> Mouths { get; set; } = [];
+
     public SceneAudio Audio { get; set; } = new();
 
     public AnimationSettings Animation { get; set; } = AnimationSettings.None;

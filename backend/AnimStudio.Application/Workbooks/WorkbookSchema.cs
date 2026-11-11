@@ -218,7 +218,12 @@ public static class WorkbookSchema
                 Help: "Audio for this scene: an Assets row name or a media/ file.",
                 Example: "media/scene-01.wav"),
             new("BackgroundAudio", WorkbookCellType.Boolean,
-                Help: "Mix the video background's original audio with the scene audio.", Example: "FALSE")
+                Help: "Mix the video background's original audio with the scene audio.", Example: "FALSE"),
+            new("Mouths", WorkbookCellType.LongText,
+                Help: "Characters drawn into a still background who talk: each mouth's middle across and down the "
+                    + "picture and the face's width (fractions from 0 to 1), then the seconds they talk. Separate "
+                    + "mouths with semicolons.",
+                Example: "Teacher: 0.46 0.41 0.16 @ 0-1.5 3.2-4", MaxLength: 2000)
         ],
         "One row per scene, in the order they play. SceneNumber is the identity, so you can "
         + "sort this sheet however you like without breaking anything.");

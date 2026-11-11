@@ -108,7 +108,8 @@ public sealed class ComedyWorkspaceController(
             other than Narrator must be in cast, at most eight. Every scene needs spoken narration or dialogue; never put
             sound effects or stage directions in spoken lines. Put action in imagePrompt and videoPrompt, each under 800
             characters. Use one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud,
-            sarcastic, whispering, shouting, worried, calm as each line's emotion. Set basis to reflection and sources to [].
+            sarcastic, whispering, shouting, worried, calm, hopeful, relieved, disgusted, bored, sleepy, loving, determined,
+            jealous, guilty, innocent, mischievous, dramatic as each line's emotion. Set basis to reflection and sources to [].
             Do not include third-party reaction clips, brand logos or songs; the creator can add media they have rights to.
 
             Creator data:

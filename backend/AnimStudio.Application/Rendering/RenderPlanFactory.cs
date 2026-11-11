@@ -57,6 +57,7 @@ public static class RenderPlanFactory
                 && !string.IsNullOrEmpty(backdrop.Probe.AudioCodec),
             BackgroundAnimation = scene.Animation,
             Sprites = sprites,
+            Mouths = backdrop?.Kind == AssetKind.Video ? [] : Mouths(scene),
             AudioRelativePath = audioPath,
             AudioSliceStartSeconds = sliceStart,
             AudioSliceEndSeconds = sliceEnd,
@@ -199,6 +200,41 @@ public static class RenderPlanFactory
 
         return windows;
     }
+
+    /// <summary>
+    /// The mouths drawn into the still that have something to say, each window held inside the scene. Positions are
+    /// clamped here as well as on import: they reach ffmpeg as numbers, and a stray one must not crop outside the picture.
+    /// </summary>
+    public static List<MouthPlan> Mouths(Scene scene)
+    {
+        var wholeScene = new FrameRange(FrameCount.Zero, scene.Duration);
+        var mouths = new List<MouthPlan>();
+
+        foreach (var mouth in scene.Mouths)
+        {
+            if (!double.IsFinite(mouth.X) || !double.IsFinite(mouth.Y) || !double.IsFinite(mouth.FaceWidth)) continue;
+
+            var windows = mouth.Windows
+                .Select(w => w.Range.Clamp(wholeScene))
+                .Where(w => !w.IsEmpty)
+                .ToList();
+            if (windows.Count == 0) continue;
+
+            mouths.Add(new MouthPlan
+            {
+                X = Math.Clamp(mouth.X, 0, 1),
+                Y = Math.Clamp(mouth.Y, 0, 1),
+                FaceWidth = Math.Clamp(mouth.FaceWidth, MinFaceWidth, MaxFaceWidth),
+                SpeakingWindows = windows
+            });
+        }
+
+        return mouths;
+    }
+
+    /// <summary>Faces smaller than this are too small to see talk; larger than this are not a face.</summary>
+    public const double MinFaceWidth = 0.02;
+    public const double MaxFaceWidth = 0.8;
 
     private static (string? Path, double? Start, double? End) ResolveAudio(SceneRenderContext context)
     {

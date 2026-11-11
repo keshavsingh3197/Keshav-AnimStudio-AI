@@ -17,6 +17,7 @@ import {
   StoryBuildOptionsBody,
   StoryCaptionsSent,
   StoryExportFile,
+  StoryFace,
   StoryReviewStage,
   StoryRun,
   StoryRunSummary,
@@ -106,6 +107,16 @@ export class StoryAgentService {
 
   removeShot(id: string, scene: number, picture: number): Observable<StoryRun> {
     return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}`));
+  }
+
+  /** Places the talking faces in one of a scene's pictures (1 is its own) by hand, replacing what a build found. */
+  placeFaces(id: string, scene: number, picture: number, faces: Pick<StoryFace, 'name' | 'x' | 'y' | 'width'>[]): Observable<StoryRun> {
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}/faces`, { faces }));
+  }
+
+  /** Forgets a picture's faces, so the next build looks for them again. */
+  resetFaces(id: string, scene: number, picture: number): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}/faces`));
   }
 
   attachThumbnail(id: string, file: File): Observable<StoryRun> {

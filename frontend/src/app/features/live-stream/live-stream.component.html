@@ -74,6 +74,13 @@
           </button>
         }
       </div>
+      @if (playlist().length === 0) {
+        <p class="muted ls-small-print" role="status">
+          Add at least one playlist item before saving or updating a preset. Pasted links are not added yet:
+          choose Links above and click <strong>Check &amp; add</strong>. To edit a saved preset, click <strong>Load</strong>,
+          make your changes, then click <strong>Update</strong>.
+        </p>
+      }
       <p class="muted ls-small-print">
         A preset keeps the playlist, the settings and the YouTube title, description and tags - never a stream key.
         Put <code>{{ '{date}' }}</code> or <code>{{ '{time}' }}</code> in the title to make each day's broadcast its own.
@@ -298,7 +305,10 @@
           <button type="button" class="secondary ls-small" (click)="clearPlaylist()">Clear playlist</button>
         </div>
       } @else {
-        <p class="muted ls-empty-playlist">Nothing added yet. Mix and match: a render, a few songs and a link can all go in one stream.</p>
+        <p class="muted ls-empty-playlist">
+          Nothing added yet. To add pasted links, click <strong>Check &amp; add</strong> above; successful links will appear here.
+          You can also add a render or project media item. Add at least one item before saving a preset.
+        </p>
       }
     </section>
 

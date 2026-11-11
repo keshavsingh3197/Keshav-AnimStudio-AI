@@ -6,8 +6,10 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Ai;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Voices;
+using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.Voices;
@@ -399,6 +401,19 @@ public sealed partial class StoryRunService(
                 scene.Hindi = old.Narration == narration ? old.Hindi : null;
                 scene.Lines = WithEmotions(old.Lines, incoming.LineEmotions);
                 scene.Shots = incoming.Shots is null ? old.Shots : KeepShots(old.Shots, incoming.Shots, dropped);
+                // The template's staging and a look the person pinned are the scene's, not its words'.
+                scene.Background = old.Background;
+                scene.OnScreen = old.OnScreen;
+                scene.Action = old.Action;
+                scene.Meme = old.Meme;
+                if (old.LookPinned)
+                {
+                    scene.Effect = old.Effect;
+                    scene.EffectIntensity = old.EffectIntensity;
+                    scene.Transition = old.Transition;
+                    scene.TransitionSeconds = old.TransitionSeconds;
+                    scene.LookPinned = true;
+                }
             }
             else if (incoming.Shots is not null)
             {
@@ -553,6 +568,54 @@ public sealed partial class StoryRunService(
         shot.ImageSource = null;
         shot.ImageName = null;
         if (string.IsNullOrWhiteSpace(shot.ImagePrompt)) scene.Shots.Remove(shot);
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>
+    /// Places the talking faces in one of a scene's pictures by hand (<paramref name="picture"/> 1 is its own picture),
+    /// replacing what was found; an empty list means nobody talks in it. With <paramref name="faces"/> null the picture's
+    /// faces are forgotten, and the next build looks for them again.
+    /// </summary>
+    public async Task<StoryRun> PlaceFacesAsync(
+        string userId, string id, int sceneNumber, int picture, IReadOnlyList<StoryFace>? faces, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireEditableScript(run);
+        var scene = RequireScene(script, sceneNumber);
+        var shot = picture == 1 ? null
+            : scene.Shots.ElementAtOrDefault(picture - 2)
+              ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "shot-not-found", "That picture is not in the scene.");
+        var imageKey = shot is null ? scene.ImageKey : shot.ImageKey;
+        if (!StoryObjectKeys.Owns(run.Id, imageKey))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "picture-required", "The picture needs to exist before its faces can be placed.", "picture");
+
+        List<StoryFace> placed = [];
+        if (faces is not null)
+        {
+            var speakers = StoryFaces.Speakers(script, scene);
+            if (faces.Count > MouthCell.MaxMouths)
+                throw new StoryRunException(StoryRunErrorKind.Invalid, "faces-invalid", $"At most {MouthCell.MaxMouths} faces a picture.", "faces");
+            foreach (var face in faces)
+            {
+                var speaker = speakers.FirstOrDefault(s => string.Equals(s.Name, face.Name?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "faces-invalid", "Only a character who speaks in the scene can have a talking face.", "faces");
+                if (!double.IsFinite(face.X) || !double.IsFinite(face.Y) || !double.IsFinite(face.Width)
+                    || face.X is < 0 or > 1 || face.Y is < 0 or > 1
+                    || face.Width < RenderPlanFactory.MinFaceWidth || face.Width > RenderPlanFactory.MaxFaceWidth)
+                    throw new StoryRunException(StoryRunErrorKind.Invalid, "faces-invalid", "A face's place and size are fractions of the picture.", "faces");
+                if (placed.Any(f => f.Name == speaker.Name)) continue;
+                placed.Add(new StoryFace
+                {
+                    Name = speaker.Name, X = Math.Round(face.X, 4), Y = Math.Round(face.Y, 4), Width = Math.Round(face.Width, 4), Manual = true
+                });
+            }
+        }
+
+        var key = faces is null ? null : imageKey;
+        if (shot is null) (scene.Faces, scene.FacesImageKey) = (placed, key);
+        else (shot.Faces, shot.FacesImageKey) = (placed, key);
         ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;

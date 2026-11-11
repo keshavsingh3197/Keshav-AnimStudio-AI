@@ -104,6 +104,12 @@ public sealed class StoryBuildOptions
     /// <summary>Mix attached clips' original sound into the scene alongside any generated voice.</summary>
     public bool KeepClipAudio { get; set; }
 
+    /// <summary>
+    /// Make the characters drawn into each picture talk: their faces are found once per picture (a free Gemini call)
+    /// and the renderer moves each speaker's jaw while their lines play. Off leaves the pictures still.
+    /// </summary>
+    public bool TalkingFaces { get; set; } = true;
+
     /// <summary>The user's voice profile, for <see cref="StoryNarrationMode.MyVoice"/>.</summary>
     public string? VoiceProfileId { get; set; }
 
@@ -488,6 +494,66 @@ public sealed class StoryScene
 
     /// <summary>The person chose this scene's effect and transition themselves, so a new look leaves them as they are.</summary>
     public bool LookPinned { get; set; }
+
+    // --- staging from a story template: where it happens, who is seen, what they do ----------
+
+    /// <summary>The place the scene happens, in English, as a story template describes it. Used to compose a picture prompt.</summary>
+    public string? Background { get; set; }
+
+    /// <summary>The names of the characters seen in the scene, speaking or not.</summary>
+    public List<string> OnScreen { get; set; } = [];
+
+    /// <summary>What the characters do in the scene, in English: the acting a picture or a video tool should show.</summary>
+    public string? Action { get; set; }
+
+    /// <summary>A meme from the owner's library played right after the scene, for the joke's punchline; null for none.</summary>
+    public StoryMemeBeat? Meme { get; set; }
+
+    // --- talking: where the speakers' mouths are in the picture -----------------------------
+
+    /// <summary>The speakers' faces found in the scene's picture, so their mouths move while they talk.</summary>
+    public List<StoryFace> Faces { get; set; } = [];
+
+    /// <summary>The picture <see cref="Faces"/> were looked for in; a new picture is looked at afresh.</summary>
+    public string? FacesImageKey { get; set; }
+}
+
+/// <summary>Where a character's face is in a picture: the middle of the mouth and the face's width, as fractions of it.</summary>
+public sealed class StoryFace
+{
+    /// <summary>The cast member's name.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The middle of the mouth, from the left edge (0) to the right (1).</summary>
+    public double X { get; set; }
+
+    /// <summary>The middle of the mouth, from the top (0) to the bottom (1).</summary>
+    public double Y { get; set; }
+
+    /// <summary>How wide the face is, as a fraction of the picture's width.</summary>
+    public double Width { get; set; }
+
+    /// <summary>The person placed it themselves, so it is kept for as long as the picture is.</summary>
+    public bool Manual { get; set; }
+}
+
+/// <summary>A funny ending: one of the owner's own memes and reactions, played for a moment after a scene.</summary>
+public sealed class StoryMemeBeat
+{
+    public const double MinSeconds = 0.5;
+    public const double MaxSeconds = 4.0;
+
+    /// <summary>The meme's name in the owner's library, as the template wrote it.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The library id when the template gave one; it is found by <see cref="Name"/> otherwise.</summary>
+    public string? EffectId { get; set; }
+
+    /// <summary>A few words shown as a subtitle over the meme; null for none.</summary>
+    public string? Caption { get; set; }
+
+    /// <summary>How long it plays; null for the clip's own length (capped) or a moment for a still.</summary>
+    public double? Seconds { get; set; }
 }
 
 /// <summary>One more picture of a scene: what it shows, and the file once there is one.</summary>
@@ -503,6 +569,12 @@ public sealed class StoryShot
     public string? ImageSource { get; set; }
 
     public string? ImageName { get; set; }
+
+    /// <summary>The speakers' faces found in this picture.</summary>
+    public List<StoryFace> Faces { get; set; } = [];
+
+    /// <summary>The picture <see cref="Faces"/> were looked for in.</summary>
+    public string? FacesImageKey { get; set; }
 }
 
 /// <summary>Part of a scene's narration and who says it.</summary>
@@ -537,6 +609,9 @@ public sealed class StoryCastMember
 
     /// <summary>The voice they were last given, so the person can see who speaks whom. Set when narration is made.</summary>
     public string? VoiceId { get; set; }
+
+    /// <summary>What they look like, in English, so every picture of them draws the same person; null when not given.</summary>
+    public string? Look { get; set; }
 }
 
 /// <summary>A quiet stretch in a clip, in seconds from its start.</summary>

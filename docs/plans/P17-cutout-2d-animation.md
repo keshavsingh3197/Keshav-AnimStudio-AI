@@ -18,6 +18,7 @@ with everything below, and that is what `Cartoon3D` gives here.
 | --- | --- | --- |
 | Character sprites | `Character.Sprites` (closed / open mouth), `CharacterStaging` | A character as pictures, placed by anchor, height, offset, flip, z-order |
 | Talking mouths | `SpriteOverlayFilters` (`Speaking`, `Flap`), `RenderPlanFactory.SpeakingWindows` | Mouth flaps while that character's dialogue plays |
+| Talking pictures | `StoryFaces`, `StoryFaceLocator`, `TalkingMouthFilters`, Scenes sheet `Mouths` | Characters drawn into a still talk: each speaker's face is found once per picture (Gemini, free tier) and the jaw below their mouth stretches while their lines play; placeable by hand in the Pictures tab |
 | Entrances | `SpriteEntrance`, `CharacterPlacement.Entrance` | Slide / fade in |
 | Background motion, transitions | `BackgroundMotionFilters`, `StoryLook` | Camera push, pan, crossfade per mood |
 | Green-screen keying | `OverlayChromaKey` | Cuts a character out of a green background |

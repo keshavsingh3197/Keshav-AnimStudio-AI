@@ -30,7 +30,13 @@ public enum RenderFeature
     /// <c>scale</c> with a second, reference input (<c>rw</c>/<c>rh</c>), added in ffmpeg 7.1.
     /// Sizes the project's logo to an erase box whose pixel size only the graph knows.
     /// </summary>
-    ScaleToReference = 9
+    ScaleToReference = 9,
+
+    /// <summary>
+    /// <c>geq</c>, which feathers the patch a talking mouth is stretched from so the jaw moves without a visible
+    /// edge. Without it a still's drawn-in characters do not talk.
+    /// </summary>
+    TalkingMouths = 10
 }
 
 /// <summary>

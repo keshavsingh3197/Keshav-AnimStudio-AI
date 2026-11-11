@@ -280,6 +280,19 @@ public sealed class StoryAgentController(
         await DetailAsync(await stories.RemoveShotImageAsync(currentUser.UserId, id, number, picture, ct), ct);
 
     /// <summary>One of a scene's further pictures, read through the run like the scene's own.</summary>
+    /// <summary>Places the talking faces in one picture of a scene by hand; picture 1 is the scene's own.</summary>
+    [HttpPut("runs/{id}/scenes/{number:int}/pictures/{picture:int}/faces")]
+    [RequestSizeLimit(MaxSmallRequestBytes)]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> PlaceFaces(
+        string id, int number, int picture, [FromBody] PlaceStoryFacesRequest request, CancellationToken ct) =>
+        await DetailAsync(await stories.PlaceFacesAsync(currentUser.UserId, id, number, picture,
+            [.. request.Faces.Select(f => f.ToFace())], ct), ct);
+
+    /// <summary>Forgets one picture's faces, so the next build looks for them again.</summary>
+    [HttpDelete("runs/{id}/scenes/{number:int}/pictures/{picture:int}/faces")]
+    public async Task<ActionResult<ApiResponse<StoryRunResponse>>> ResetFaces(string id, int number, int picture, CancellationToken ct) =>
+        await DetailAsync(await stories.PlaceFacesAsync(currentUser.UserId, id, number, picture, null, ct), ct);
+
     [HttpGet("runs/{id}/scenes/{number:int}/pictures/{picture:int}")]
     public async Task<IActionResult> Shot(string id, int number, int picture, CancellationToken ct)
     {

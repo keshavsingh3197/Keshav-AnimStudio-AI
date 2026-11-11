@@ -72,10 +72,25 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             warnings.Add("BACKGROUND_MOTION_UNAVAILABLE");
         }
 
+        // Characters painted into the picture talk before the camera moves, so the jaw rides with the push or pan.
+        var still = "0:v";
+        if (plan.Mouths.Count > 0)
+        {
+            if (capabilities.Supports(RenderFeature.TalkingMouths))
+            {
+                TalkingMouthFilters.Append(graph, still, "talk", plan.Mouths, rate);
+                still = "talk";
+            }
+            else
+            {
+                warnings.Add("TALKING_MOUTHS_UNAVAILABLE");
+            }
+        }
+
         // Staying at 4:4:4 through the overlay and subtitle chain avoids blending sprite
         // edges in chroma-subsampled space, which shows up as colour fringing on every
         // character outline. The single conversion to yuv420p happens at the very end.
-        graph.Append($"[0:v]{BackgroundMotionFilters.Prepare(plan.Canvas, plan.KenBurnsSupersample)},")
+        graph.Append($"[{still}]{BackgroundMotionFilters.Prepare(plan.Canvas, plan.KenBurnsSupersample)},")
              .Append(motion)
              .Append(",format=yuv444p[bg];\n");
     }

@@ -76,7 +76,7 @@ public static class StoryAnimation
         var builder = new StringBuilder();
         var cast = run.Script?.Cast ?? [];
 
-        var action = Clean(scene.VideoPrompt, MaxActionChars) ?? Clean(scene.ImagePrompt, MaxActionChars);
+        var action = Clean(scene.VideoPrompt, MaxActionChars) ?? Clean(scene.Action, MaxActionChars) ?? Clean(scene.ImagePrompt, MaxActionChars);
         builder.Append("Bring this picture to life as one continuous shot. ");
         if (action is not null) builder.Append(Sentence(action)).Append(' ');
 

@@ -57,6 +57,9 @@ public sealed record StoryBuildOptionsRequest
     public bool MatchClipDuration { get; init; }
     public bool KeepClipAudio { get; init; }
 
+    /// <summary>Make the characters drawn into the pictures talk. On unless the request says otherwise.</summary>
+    public bool TalkingFaces { get; init; } = true;
+
     [StringLength(64)]
     public string? VoiceProfileId { get; init; }
 
@@ -115,6 +118,7 @@ public sealed record StoryBuildOptionsRequest
         Narration = o.Narration,
         MatchClipDuration = o.MatchClipDuration,
         KeepClipAudio = o.KeepClipAudio,
+        TalkingFaces = o.TalkingFaces,
         VoiceProfileId = o.VoiceProfileId,
         VoiceId = o.VoiceId,
         SpeechEngine = o.SpeechEngine,
@@ -146,6 +150,7 @@ public sealed record StoryBuildOptionsRequest
         Narration = Narration,
         MatchClipDuration = MatchClipDuration,
         KeepClipAudio = KeepClipAudio,
+        TalkingFaces = TalkingFaces,
         VoiceProfileId = VoiceProfileId,
         VoiceId = VoiceId,
         SpeechEngine = SpeechEngine,
@@ -444,10 +449,44 @@ public sealed record StorySceneResponse(
     bool LookPinned = false,
     string? AnimationPrompt = null,
     bool Speaks = false,
-    IReadOnlyList<StoryShotResponse>? Shots = null);
+    IReadOnlyList<StoryShotResponse>? Shots = null,
+    string? Background = null,
+    IReadOnlyList<string>? OnScreen = null,
+    string? Action = null,
+    StoryMemeResponse? Meme = null,
+    IReadOnlyList<StoryFaceResponse>? Faces = null);
+
+/// <summary>
+/// A speaker's face in a picture: the middle of the mouth and the face's width, as fractions of the picture. A picture's
+/// faces are null until a build has looked for them, and empty when none were found.
+/// </summary>
+public sealed record StoryFaceResponse(string Name, double X, double Y, double Width, bool Manual);
+
+/// <summary>The talking faces the person placed in one picture of a scene.</summary>
+public sealed record PlaceStoryFacesRequest
+{
+    [MaxLength(8)]
+    public IReadOnlyList<StoryFaceRequest> Faces { get; init; } = [];
+}
+
+public sealed record StoryFaceRequest
+{
+    [Required, StringLength(60)]
+    public string Name { get; init; } = string.Empty;
+
+    [Range(0, 1)] public double X { get; init; }
+    [Range(0, 1)] public double Y { get; init; }
+    [Range(0.02, 0.8)] public double Width { get; init; }
+
+    public StoryFace ToFace() => new() { Name = Name, X = X, Y = Y, Width = Width };
+}
+
+/// <summary>A scene's funny ending: a meme from the owner's library, named as the template named it.</summary>
+public sealed record StoryMemeResponse(string Name, string? Caption, double? Seconds);
 
 /// <summary>One of a scene's further pictures. <paramref name="Picture"/> counts the scene's own picture as 1.</summary>
-public sealed record StoryShotResponse(int Picture, string? ImagePrompt, bool HasImage, string? ImageSource, string? ImageName);
+public sealed record StoryShotResponse(
+    int Picture, string? ImagePrompt, bool HasImage, string? ImageSource, string? ImageName, IReadOnlyList<StoryFaceResponse>? Faces = null);
 
 /// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
 /// <param name="Emotion">How it is said (<c>laughing</c>, <c>angry</c>...), or null for a plain line.</param>
@@ -526,7 +565,8 @@ public sealed record StoryOptionsResponse(
     bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
     StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
     double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto,
-    StoryPaceStyle Pace = StoryPaceStyle.Auto, bool MatchClipDuration = false, bool KeepClipAudio = false, bool Dub = false);
+    StoryPaceStyle Pace = StoryPaceStyle.Auto, bool MatchClipDuration = false, bool KeepClipAudio = false, bool Dub = false,
+    bool TalkingFaces = true);
 
 /// <summary>The story's dub in its other language, for YouTube's multi-language audio.</summary>
 /// <param name="Language"><c>en</c> for a Hindi story, <c>hi</c> for an English one.</param>
@@ -815,7 +855,8 @@ public static class StoryAgentMapper
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
-        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace, o.MatchClipDuration, o.KeepClipAudio, o.Dub);
+        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace, o.MatchClipDuration, o.KeepClipAudio, o.Dub,
+        o.TalkingFaces);
 
     /// <summary>The dub, when one was asked for; the track only once the story's video it belongs with is rendered.</summary>
     private static StoryDubResponse? DubOf(StoryRun run)
@@ -851,10 +892,20 @@ public static class StoryAgentMapper
             scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned,
             StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene),
             [.. scene.Shots.Select((shot, i) => new StoryShotResponse(
-                i + 2, shot.ImagePrompt, StoryObjectKeys.Owns(runId, shot.ImageKey), shot.ImageSource, shot.ImageName))]))],
+                i + 2, shot.ImagePrompt, StoryObjectKeys.Owns(runId, shot.ImageKey), shot.ImageSource, shot.ImageName,
+                FacesOf(shot.Faces, shot.FacesImageKey, shot.ImageKey)))],
+            scene.Background, scene.OnScreen, scene.Action,
+            scene.Meme is { } meme ? new StoryMemeResponse(meme.Name, meme.Caption, meme.Seconds) : null,
+            FacesOf(scene.Faces, scene.FacesImageKey, scene.ImageKey)))],
         s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
         [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))],
         s.ThumbnailPrompt, StoryObjectKeys.Owns(runId, s.ThumbnailKey), s.ThumbnailSource, s.ThumbnailName);
+
+    /// <summary>The faces found in the picture it shows now; null when that picture has not been looked at.</summary>
+    private static IReadOnlyList<StoryFaceResponse>? FacesOf(IReadOnlyList<StoryFace> faces, string? facesKey, string? imageKey) =>
+        imageKey is null || !string.Equals(facesKey, imageKey, StringComparison.Ordinal)
+            ? null
+            : [.. faces.Select(f => new StoryFaceResponse(f.Name, f.X, f.Y, f.Width, f.Manual))];
 
     private static StorySourceResponse ToResponse(StorySourceRef s) =>
         new(s.TextId, s.TextName, s.Ref, s.Note, s.Confidence, s.Url, s.Check, s.Grounded, s.CheckMessage);

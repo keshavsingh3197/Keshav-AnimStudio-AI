@@ -30,6 +30,15 @@ public sealed record SpritePlan
     public int ZOrder { get; init; }
 }
 
+/// <summary>A mouth in the background still, as fractions of the picture, and when it talks.</summary>
+public sealed record MouthPlan
+{
+    public required double X { get; init; }
+    public required double Y { get; init; }
+    public required double FaceWidth { get; init; }
+    public IReadOnlyList<FrameRange> SpeakingWindows { get; init; } = [];
+}
+
 public sealed record SceneRenderPlan
 {
     public required int SceneIndex { get; init; }
@@ -44,6 +53,9 @@ public sealed record SceneRenderPlan
     public AnimationSettings BackgroundAnimation { get; init; } = AnimationSettings.None;
 
     public IReadOnlyList<SpritePlan> Sprites { get; init; } = [];
+
+    /// <summary>Mouths drawn into the background still that talk; always empty over a clip, which moves already.</summary>
+    public IReadOnlyList<MouthPlan> Mouths { get; init; } = [];
 
     /// <summary>Null when the scene has no audio; the builder then supplies silence.</summary>
     public string? AudioRelativePath { get; init; }

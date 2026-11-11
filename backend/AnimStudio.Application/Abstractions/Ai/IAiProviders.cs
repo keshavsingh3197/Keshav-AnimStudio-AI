@@ -108,6 +108,19 @@ public interface IMusicGeneratingProvider : IAiProvider
 
 public sealed record AiGeneratedMusic(byte[] Content, string MimeType, string Model);
 
+/// <summary>
+/// A hosted engine on the same Google key that looks at a picture and answers a question about it in JSON - used to
+/// find where the characters drawn into a story's picture have their mouths, so the renderer can make them talk.
+/// </summary>
+public interface IImageReadingProvider : IAiProvider
+{
+    /// <summary>
+    /// The engine's JSON answer to <paramref name="prompt"/> about <paramref name="image"/>, as text. It is the model's
+    /// own words: the caller parses and checks every field before anything uses it.
+    /// </summary>
+    Task<string> ReadImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct);
+}
+
 public interface ITranscriptionProvider : IAiProvider
 {
     Task<AiTranscriptionResult> TranscribeAsync(AiTranscriptionRequest request, CancellationToken ct);

@@ -204,6 +204,24 @@ export interface StoryScene {
   lookPinned?: boolean;
   /** More pictures of the scene, shown after its own while the narration plays on; the build cuts between them. */
   shots?: StoryShot[];
+  /** Staging from a story template: where it happens, who is seen and what they do. */
+  background?: string | null;
+  onScreen?: string[] | null;
+  action?: string | null;
+  /** A meme from the owner's library played right after the scene. */
+  meme?: { name: string; caption: string | null; seconds: number | null } | null;
+  /** The speakers' faces in the scene's picture, whose mouths move while they talk; null until a build has looked. */
+  faces?: StoryFace[] | null;
+}
+
+/** Where a speaker's face is in a picture: the middle of the mouth and the face's width, as fractions of the picture. */
+export interface StoryFace {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  /** The person placed it themselves. */
+  manual: boolean;
 }
 
 /** One of a scene's further pictures. */
@@ -215,6 +233,7 @@ export interface StoryShot {
   /** "upload", or the image engine that drew it. */
   imageSource: string | null;
   imageName: string | null;
+  faces?: StoryFace[] | null;
 }
 
 export interface StoryLine {
@@ -356,6 +375,8 @@ export interface StoryBuildOptions {
   narration: StoryNarrationMode;
   matchClipDuration?: boolean;
   keepClipAudio?: boolean;
+  /** Make the characters drawn into the pictures talk (their faces are found with the Gemini key). On when left out. */
+  talkingFaces?: boolean;
   voiceProfileId: string | null;
   voiceId: string | null;
   speechEngine: string | null;

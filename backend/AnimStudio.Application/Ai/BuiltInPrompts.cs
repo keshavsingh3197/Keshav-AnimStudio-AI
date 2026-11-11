@@ -408,7 +408,7 @@ public static class BuiltInPrompts
         new()
         {
             TemplateKey = LiveMetadata,
-            Version = 1,
+            Version = 2,
             Capability = AiCapability.Text,
             SystemPrompt =
                 "You write the title, description and tags for a YouTube live stream that is " +
@@ -446,19 +446,10 @@ public static class BuiltInPrompts
                 {
                   "type": "object",
                   "required": ["title", "description"],
+                  "additionalProperties": true,
                   "properties": {
-                    "title": { "type": "string", "minLength": 1, "maxLength": 100 },
-                    "titleOptions": { "type": "array", "maxItems": 5,
-                                      "items": { "type": "string", "maxLength": 100 } },
-                    "description": { "type": "string", "minLength": 1, "maxLength": 3000 },
-                    "descriptionOptions": { "type": "array", "maxItems": 3,
-                                            "items": { "type": "string", "maxLength": 3000 } },
-                    "tags": { "type": "array", "maxItems": 20,
-                              "items": { "type": "string", "maxLength": 40 } },
-                    "tagIdeas": { "type": "array", "maxItems": 20,
-                                  "items": { "type": "string", "maxLength": 40 } },
-                    "pinnedComment": { "type": "string", "maxLength": 1000 },
-                    "engagementComment": { "type": "string", "maxLength": 600 }
+                    "title": { "type": "string", "minLength": 1 },
+                    "description": { "type": "string" }
                   }
                 }
                 """
@@ -576,7 +567,7 @@ new()
                 - "videoPrompt": English, for an 8-second video clip that brings the picture to life: what each character does, in order - their gesture, where they look, their facial expression, how their head and body move, any step, jump or run (the fox tiptoes forward, freezes, then grins at the crow) - what moves around them (leaves blow, water ripples), and one simple camera move. Describe the acting clearly enough to animate. Do not write the spoken words here; who speaks is taken from "lines". No letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one word, from the moods the genre lists when it lists any.
-                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything. Give every line an "emotion": how it is said and the face that goes with it, one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud, sarcastic, whispering, shouting, worried or calm. Let it follow the story and change from line to line; a funny story needs big, clear reactions.
+                - "lines": only for a scene where a character speaks aloud. The scene's narration split, in order and word for word, into what each one says: {"speaker": "narrator" or a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Leave it out when the narrator says everything. Give every line an "emotion": how it is said and the face that goes with it, one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud, sarcastic, whispering, shouting, worried, calm, hopeful, relieved, disgusted, bored, sleepy, loving, determined, jealous, guilty, innocent, mischievous or dramatic. Let it follow the story and change from line to line; a funny story needs big, clear reactions.
 
                 Let the characters speak in two to four scenes, in short direct sentences, introduced by the narrator. Give "cast": every character who speaks in a line, once: {"name": as written in the lines, "gender": "male" or "female", "age": "child", "young", "adult" or "elder"}. Leave it empty when no character speaks.
 
@@ -702,7 +693,7 @@ new()
                 - "videoPrompt": English, for an 8-second video clip that brings the picture to life: what each character does, in order - their gesture, where they look, their facial expression, how their head and body move, any step, jump or run (the fox tiptoes forward, freezes, then grins at the crow) - what moves around them (leaves blow, water ripples), and one simple camera move. Describe the acting clearly enough to animate. Do not write the spoken words here; who speaks is taken from "lines". No letters, words or logos.
                 - "imageKeywords": three to six English words.
                 - "mood": one word, from the moods the genre lists when it lists any.
-                - "lines": always, in every scene. The scene's narration split, in order and word for word, into what each character says: {"speaker": a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Never use "narrator" as a speaker. Give every line an "emotion": how it is said and the face that goes with it, one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud, sarcastic, whispering, shouting, worried or calm. Let it follow the story and change from line to line; a funny story needs big, clear reactions.
+                - "lines": always, in every scene. The scene's narration split, in order and word for word, into what each character says: {"speaker": a cast name, "text": ..., "emotion": ...}. Joined, the lines must give back the narration exactly. Never use "narrator" as a speaker. Give every line an "emotion": how it is said and the face that goes with it, one of happy, excited, laughing, sad, angry, scared, surprised, confused, shy, proud, sarcastic, whispering, shouting, worried, calm, hopeful, relieved, disgusted, bored, sleepy, loving, determined, jealous, guilty, innocent, mischievous or dramatic. Let it follow the story and change from line to line; a funny story needs big, clear reactions.
 
                 Give "cast": every character who speaks in a line, once: {"name": as written in the lines, "gender": "male" or "female", "age": "child", "young", "adult" or "elder"}.
 

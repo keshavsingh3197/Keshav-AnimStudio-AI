@@ -165,7 +165,65 @@ export const STORY_EMOTIONS: readonly { id: string; label: string; emoji: string
   { id: 'shouting', label: 'Shouting', emoji: '📢' },
   { id: 'worried', label: 'Worried', emoji: '😟' },
   { id: 'calm', label: 'Calm', emoji: '😌' },
+  { id: 'hopeful', label: 'Hopeful', emoji: '🥺' },
+  { id: 'relieved', label: 'Relieved', emoji: '😮‍💨' },
+  { id: 'disgusted', label: 'Disgusted', emoji: '🤢' },
+  { id: 'bored', label: 'Bored', emoji: '🥱' },
+  { id: 'sleepy', label: 'Sleepy', emoji: '😴' },
+  { id: 'loving', label: 'Loving', emoji: '🥰' },
+  { id: 'determined', label: 'Determined', emoji: '😤' },
+  { id: 'jealous', label: 'Jealous', emoji: '😒' },
+  { id: 'guilty', label: 'Guilty', emoji: '😬' },
+  { id: 'innocent', label: 'Innocent', emoji: '😇' },
+  { id: 'mischievous', label: 'Mischievous', emoji: '😈' },
+  { id: 'dramatic', label: 'Dramatic', emoji: '🎭' },
 ];
+
+/** Words a writer uses for one of the emotions, as the server reads them (StoryEmotions.cs). */
+const EMOTION_SYNONYMS: Readonly<Record<string, string>> = {
+  joyful: 'happy', cheerful: 'happy', glad: 'happy', smiling: 'happy', delighted: 'happy', pleased: 'happy',
+  content: 'happy', grateful: 'happy', thankful: 'happy',
+  thrilled: 'excited', eager: 'excited', energetic: 'excited', ecstatic: 'excited', overjoyed: 'excited',
+  laugh: 'laughing', laughs: 'laughing', giggling: 'laughing', amused: 'laughing', funny: 'laughing',
+  hysterical: 'laughing', chuckling: 'laughing',
+  crying: 'sad', upset: 'sad', sorrowful: 'sad', unhappy: 'sad', heartbroken: 'sad', disappointed: 'sad',
+  emotional: 'sad', depressed: 'sad', hurt: 'sad', lonely: 'sad',
+  furious: 'angry', annoyed: 'angry', irritated: 'angry', mad: 'angry', frustrated: 'angry', enraged: 'angry',
+  outraged: 'angry', livid: 'angry', grumpy: 'angry', rage: 'angry',
+  afraid: 'scared', frightened: 'scared', terrified: 'scared', fearful: 'scared', horrified: 'scared',
+  panicked: 'scared', panicking: 'scared',
+  shocked: 'surprised', amazed: 'surprised', astonished: 'surprised', stunned: 'surprised', speechless: 'surprised',
+  startled: 'surprised',
+  puzzled: 'confused', curious: 'confused', unsure: 'confused', doubtful: 'confused', skeptical: 'confused',
+  sceptical: 'confused', suspicious: 'confused', thinking: 'confused',
+  embarrassed: 'shy', awkward: 'shy', blushing: 'shy',
+  nervous: 'worried', anxious: 'worried', tense: 'worried', concerned: 'worried', stressed: 'worried',
+  confident: 'proud', boastful: 'proud', smug: 'proud', cocky: 'proud', arrogant: 'proud',
+  teasing: 'sarcastic', mocking: 'sarcastic', ironic: 'sarcastic', deadpan: 'sarcastic',
+  whisper: 'whispering',
+  shout: 'shouting', yelling: 'shouting', loud: 'shouting', screaming: 'shouting',
+  neutral: 'calm', gentle: 'calm', peaceful: 'calm', serene: 'calm', relaxed: 'calm', normal: 'calm',
+  hoping: 'hopeful', pleading: 'hopeful', begging: 'hopeful', wishful: 'hopeful', optimistic: 'hopeful',
+  relief: 'relieved', phew: 'relieved',
+  disgust: 'disgusted', grossed: 'disgusted', eww: 'disgusted', repulsed: 'disgusted',
+  uninterested: 'bored', unimpressed: 'bored',
+  tired: 'sleepy', exhausted: 'sleepy', yawning: 'sleepy',
+  love: 'loving', romantic: 'loving', affectionate: 'loving', caring: 'loving', tender: 'loving',
+  serious: 'determined', brave: 'determined', motivated: 'determined', focused: 'determined',
+  envious: 'jealous', sulking: 'jealous', sulky: 'jealous',
+  ashamed: 'guilty', sorry: 'guilty', apologetic: 'guilty', caught: 'guilty',
+  sweet: 'innocent', naive: 'innocent',
+  naughty: 'mischievous', sly: 'mischievous', cheeky: 'mischievous', playful: 'mischievous', evil: 'mischievous',
+  theatrical: 'dramatic', overacting: 'dramatic',
+};
+
+/** The app's name for the emotion a word means ("Furious" is angry), or null for a word it does not know. */
+export function normalizeEmotion(word: string | null | undefined): string | null {
+  const key = word?.trim().toLowerCase();
+  if (!key || key.length > 24) return null;
+  if (STORY_EMOTIONS.some(e => e.id === key)) return key;
+  return Object.hasOwn(EMOTION_SYNONYMS, key) ? EMOTION_SYNONYMS[key] : null;
+}
 
 /** The most pictures a scene has after its own, as the server allows. */
 export const MAX_SHOTS = 5;

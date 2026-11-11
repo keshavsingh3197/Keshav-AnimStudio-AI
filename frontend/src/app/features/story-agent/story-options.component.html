@@ -31,6 +31,11 @@
       <span class="track"></span>
       <span>Match each attached clip's length</span>
     </label>
+    <label class="switch so-switch">
+      <input type="checkbox" [checked]="v.talkingFaces !== false" (change)="patch({ talkingFaces: checked($event) })" />
+      <span class="track"></span>
+      <span>Make the characters in the pictures talk</span>
+    </label>
     <p class="so-note">Clip sound and generated voice can be used separately or together. With clip-length timing, a longer
       generated voice is cut off; shorten the dialogue or turn off clip-length timing. Transitions and playback speed affect total duration.</p>
 

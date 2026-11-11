@@ -224,6 +224,9 @@ public sealed class WorkbookImportService(
                     $"No character named '{name}' on the Characters sheet."));
             }
 
+            if (MouthCell.Parse(row.Text("Mouths"), FrameRate.Fps30, out var mouthError) is null)
+                errors.Add(new WorkbookCellError(row.Sheet, row.RowNumber, "Mouths", "invalid-mouths", mouthError!));
+
             var action = !byNumber.TryGetValue(number, out var scene)
                 ? ImportAction.Create
                 : scene.IsUserEdited
@@ -572,6 +575,9 @@ public sealed class WorkbookImportService(
             scene.Characters = [.. row.List("Characters")
                 .Where(charactersByName.ContainsKey)
                 .Select((name, index) => Placement(charactersByName[name], scene.DurationFrames, index))];
+
+            // Checked when the import was planned; an import with a cell that does not read never gets here.
+            scene.Mouths = MouthCell.Parse(row.Text("Mouths"), fps, out _) ?? [];
 
             if (dialogueByScene.TryGetValue(number, out var dialogue))
             {

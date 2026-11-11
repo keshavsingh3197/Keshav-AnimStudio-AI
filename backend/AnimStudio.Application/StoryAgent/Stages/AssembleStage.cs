@@ -8,6 +8,7 @@ using AnimStudio.Application.Ai;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
@@ -31,11 +32,13 @@ namespace AnimStudio.Application.StoryAgent.Stages;
 /// </remarks>
 public sealed class AssembleStage(
     IProjectRepository projects,
+    IEffectClipRepository effects,
     IAiSettingsRepository aiSettings,
     WorkbookImportService importer,
     ProjectStatusService status,
     IObjectStore store,
     IMediaProbeService probe,
+    StoryFaceLocator faces,
     TimeProvider clock,
     ILogger<AssembleStage> logger) : IStoryStage
 {
@@ -50,8 +53,10 @@ public sealed class AssembleStage(
 
         await context.Report(5, "Collecting the pictures and narration").ConfigureAwait(false);
         var scenes = new List<StoryBundleScene>(script.Scenes.Count);
+        var memes = new MemeShelf(run.UserId);
         var dubbed = StoryDub.IsSpoken(run);
         var dubAudio = new List<byte[]?>(script.Scenes.Count);
+        var talking = new FaceLookup();
         foreach (var scene in script.Scenes)
         {
             ct.ThrowIfCancellationRequested();
@@ -90,6 +95,14 @@ public sealed class AssembleStage(
             if (clipInfo is not null && run.Options.KeepClipAudio && string.IsNullOrEmpty(clipInfo.AudioCodec))
                 StoryRunWarnings.AddRange(run, [$"Scene {scene.Number}: the attached clip has no audio track."]);
 
+            // Who speaks here, so their mouths in each picture can move; a clip moves already.
+            var speakers = clip is null && run.Options.TalkingFaces ? StoryFaces.Speakers(script, scene) : [];
+            if (clip is null)
+            {
+                (scene.Faces, scene.FacesImageKey) = await FacesAsync(
+                    run, scene.Number, speakers, scene.ImageKey, image, mime, scene.Faces, scene.FacesImageKey, talking, ct).ConfigureAwait(false);
+            }
+
             // The scene's further pictures; one that is missing or not a picture is left out rather than stopping the build.
             var shots = new List<StoryBundleShot>();
             if (clip is null)
@@ -98,7 +111,12 @@ public sealed class AssembleStage(
                 {
                     if (await ReadAsync(run, shot.ImageKey, ct).ConfigureAwait(false) is not { } bytes
                         || AiImageValidator.Sniff(bytes) is not { } shotMime) continue;
-                    shots.Add(new StoryBundleShot(bytes, shotMime, ImageNote(shot.ImageSource)));
+                    (shot.Faces, shot.FacesImageKey) = await FacesAsync(
+                        run, scene.Number, speakers, shot.ImageKey, bytes, shotMime, shot.Faces, shot.FacesImageKey, talking, ct).ConfigureAwait(false);
+                    shots.Add(new StoryBundleShot(bytes, shotMime, ImageNote(shot.ImageSource))
+                    {
+                        Faces = speakers.Count > 0 ? shot.Faces : []
+                    });
                 }
             }
 
@@ -113,7 +131,11 @@ public sealed class AssembleStage(
                 VideoNote = clip is null ? null
                     : scene.HasAttachedClip ? "A moving clip the person attached to the Story Agent."
                     : $"The scene's picture brought to life by the {scene.VideoSource} video engine (AI).",
-                Shots = shots
+                Shots = shots,
+                Faces = speakers.Count > 0 ? scene.Faces : [],
+                Meme = scene.Meme is null ? null
+                    : await ReadMemeAsync(run, scene, memes, shots.LastOrDefault() ?? new StoryBundleShot(image, mime, ImageNote(scene.ImageSource)), ct)
+                        .ConfigureAwait(false)
             });
         }
 
@@ -130,6 +152,11 @@ public sealed class AssembleStage(
             scene.Transition = looks[i].Transition.ToString();
             scene.TransitionSeconds = looks[i].TransitionSeconds;
         }
+
+        if (talking.Unavailable)
+            StoryRunWarnings.AddRange(run, ["The characters in the pictures do not talk: that needs the Gemini key the voices use. Add it in AI settings and build again."]);
+        if (talking.Failed.Count > 0)
+            StoryRunWarnings.AddRange(run, [$"The faces in scene {string.Join(", ", talking.Failed.Distinct())}'s pictures could not be found, so nobody talks there. Build again to try once more."]);
 
         var music = await ReadMusicAsync(run, ct).ConfigureAwait(false);
         var name = ProjectName(script);
@@ -207,6 +234,40 @@ public sealed class AssembleStage(
         logger.LogInformation("Story run {RunId} built its {Language} dub as project {ProjectId}.", run.Id, language, project.Id);
     }
 
+    /// <summary>What finding faces came to over one build, said once at the end rather than per picture.</summary>
+    private sealed class FaceLookup
+    {
+        public bool Unavailable { get; set; }
+        public List<int> Failed { get; } = [];
+    }
+
+    /// <summary>
+    /// The speakers' faces in one picture and the picture they were found in. Found once per picture: a picture already
+    /// looked at (or one whose faces the person placed) keeps them, and a new picture is looked at afresh.
+    /// </summary>
+    private async Task<(List<StoryFace> Faces, string? Key)> FacesAsync(
+        StoryRun run, int sceneNumber, IReadOnlyList<StoryCastMember> speakers, string? imageKey, byte[] image, string mime,
+        List<StoryFace> known, string? knownKey, FaceLookup lookup, CancellationToken ct)
+    {
+        if (speakers.Count == 0) return (known, knownKey);
+        if (imageKey is not null && string.Equals(knownKey, imageKey, StringComparison.Ordinal)) return (known, knownKey);
+
+        if (!faces.IsAvailable)
+        {
+            lookup.Unavailable = true;
+            return ([], null);
+        }
+
+        var found = await faces.LocateAsync(run, sceneNumber, image, mime, speakers, ct).ConfigureAwait(false);
+        if (found is null)
+        {
+            lookup.Failed.Add(sceneNumber);
+            return ([], null);
+        }
+
+        return (found, imageKey);
+    }
+
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max].TrimEnd();
 
     /// <summary>True when the scene's clip, not its picture, is what the video shows.</summary>
@@ -227,6 +288,108 @@ public sealed class AssembleStage(
         await stream.CopyToAsync(buffer, ct).ConfigureAwait(false);
         return buffer.ToArray();
     }
+
+    /// <summary>The longest a clip meme plays when the template did not say; a punchline, not a second scene.</summary>
+    private const double MaxClipMemeSeconds = 3.0;
+
+    /// <summary>How long a still meme stays when the template did not say.</summary>
+    private const double StillMemeSeconds = 1.5;
+
+    /// <summary>The most of the owner's library looked through to find a meme by its name.</summary>
+    private const int MemeLibraryLimit = 500;
+
+    /// <summary>The owner's library, read once per build and only when a meme is named rather than given by id.</summary>
+    private sealed class MemeShelf(string userId)
+    {
+        public string UserId { get; } = userId;
+        public IReadOnlyList<EffectClip>? Clips { get; set; }
+    }
+
+    /// <summary>
+    /// The scene's funny ending, from the run owner's own library: by id when the template gave one, by name or tag
+    /// otherwise (a meme and reaction first), ignoring case, spaces, hyphens and underscores. One that cannot be found or
+    /// played becomes a freeze-frame of <paramref name="lastPicture"/> with the meme's caption, with a warning; it never
+    /// stops a build.
+    /// </summary>
+    private async Task<StoryBundleMeme?> ReadMemeAsync(StoryRun run, StoryScene scene, MemeShelf shelf, StoryBundleShot lastPicture, CancellationToken ct)
+    {
+        var beat = scene.Meme!;
+        EffectClip? clip = null;
+        if (beat.EffectId is { } id && await effects.GetAsync(id, ct).ConfigureAwait(false) is { } byId
+            && string.Equals(byId.UserId, shelf.UserId, StringComparison.Ordinal))
+            clip = byId;
+
+        if (clip is null && beat.Name.Length > 0)
+        {
+            shelf.Clips ??= await effects.ListByUserAsync(shelf.UserId, MemeLibraryLimit, ct).ConfigureAwait(false);
+            var wanted = MemeKey(beat.Name);
+            clip = shelf.Clips
+                .Where(c => string.Equals(c.UserId, shelf.UserId, StringComparison.Ordinal) && c.Kind != AssetKind.Audio)
+                .Select(c => (Clip: c, ByName: MemeKey(c.Name) == wanted, ByTag: c.Tags.Any(t => MemeKey(t) == wanted)))
+                .Where(m => m.ByName || m.ByTag)
+                .OrderByDescending(m => m.ByName)
+                .ThenByDescending(m => m.Clip.Category == EffectCategory.Reaction)
+                .Select(m => m.Clip)
+                .FirstOrDefault();
+        }
+
+        var label = beat.Name.Length > 0 ? $"\"{beat.Name}\"" : "its meme";
+        if (clip is null)
+            return FreezeFrame(run, scene, lastPicture, $"the funny ending {label} is not in your meme library");
+
+        var isVideo = clip.Kind == AssetKind.Video && clip.ContentType == "video/mp4";
+        if (!isVideo && clip.Kind != AssetKind.Image)
+            return FreezeFrame(run, scene, lastPicture, $"the funny ending {label} is not an MP4 clip or a picture");
+
+        byte[] content;
+        await using (var stream = await store.OpenAsync(clip.StorageKey, ct).ConfigureAwait(false))
+        {
+            if (stream is null)
+                return FreezeFrame(run, scene, lastPicture, $"the file of the funny ending {label} is missing");
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, ct).ConfigureAwait(false);
+            content = buffer.ToArray();
+        }
+
+        var mime = isVideo ? clip.ContentType : AiImageValidator.Sniff(content);
+        if (mime is null)
+            return FreezeFrame(run, scene, lastPicture, $"the funny ending {label} is not a PNG, JPEG or WebP picture");
+
+        var length = clip.Probe.VideoDurationSeconds is > 0 ? clip.Probe.VideoDurationSeconds : clip.Probe.DurationSeconds;
+        var seconds = beat.Seconds
+            ?? (isVideo && length is > 0 && double.IsFinite(length.Value) ? Math.Min(length.Value, MaxClipMemeSeconds) : StillMemeSeconds);
+        seconds = Math.Clamp(seconds, StoryMemeBeat.MinSeconds, StoryMemeBeat.MaxSeconds);
+
+        return new StoryBundleMeme(content, mime, isVideo, isVideo && !string.IsNullOrEmpty(clip.Probe.AudioCodec), seconds, beat.Caption,
+            $"\"{Truncate(clip.Name, 120)}\" from the owner's memes and reactions library.");
+    }
+
+    /// <summary>
+    /// The built-in funny ending when the library has none to play: the scene's last picture held for a moment with a
+    /// punch-in, under the meme's caption - or its name, read as words ("emotional_damage" says "Emotional damage!").
+    /// </summary>
+    private static StoryBundleMeme FreezeFrame(StoryRun run, StoryScene scene, StoryBundleShot lastPicture, string why)
+    {
+        var beat = scene.Meme!;
+        StoryRunWarnings.AddRange(run, [$"Scene {scene.Number}: {why}, so the scene's last picture is held as a freeze-frame instead."]);
+        var seconds = Math.Clamp(beat.Seconds ?? StillMemeSeconds, StoryMemeBeat.MinSeconds, StoryMemeBeat.MaxSeconds);
+        return new StoryBundleMeme(lastPicture.Image, lastPicture.ImageMime, false, false, seconds,
+            beat.Caption ?? MemeCaption(beat.Name), $"Freeze-frame of the scene's own picture. {lastPicture.ImageNote}");
+    }
+
+    /// <summary>A meme's name as a caption: separators read as spaces, the first letter capitalised; null for no words.</summary>
+    public static string? MemeCaption(string name)
+    {
+        var words = string.Join(' ', name.Split([' ', '_', '-'], StringSplitOptions.RemoveEmptyEntries));
+        if (words.Length == 0 || !words.Any(char.IsLetterOrDigit)) return null;
+        words = char.ToUpperInvariant(words[0]) + words[1..];
+        return char.IsPunctuation(words[^1]) ? words : words + "!";
+    }
+
+    /// <summary>A meme name or tag as it is matched: "Shocked Cat", "shocked_cat" and "shocked-cat" are one meme.</summary>
+    public static string MemeKey(string value) =>
+        string.Concat(value.Where(c => !char.IsWhiteSpace(c) && c is not '_' and not '-')).ToLowerInvariant();
 
     private async Task<StoryBundleMusic?> ReadMusicAsync(StoryRun run, CancellationToken ct)
     {

@@ -116,7 +116,8 @@ public static class StoryScriptParser
                     {
                         Name = Text(member, "name") ?? string.Empty,
                         Gender = Text(member, "gender"),
-                        Age = Text(member, "age")
+                        Age = Text(member, "age"),
+                        Look = StoryStaging.Look(member)
                     });
                 }
             }
@@ -129,6 +130,10 @@ public static class StoryScriptParser
                 if (scene is null) { dropped++; continue; }
                 script.Scenes.Add(scene);
             }
+
+            // A staged scene without a picture prompt gets one from its staging, while the cast still has those who only appear.
+            foreach (var scene in script.Scenes)
+                scene.ImagePrompt ??= StoryStaging.ComposeImagePrompt(scene, script.Cast);
 
             var warnings = new List<string>();
             if (dropped > 0) warnings.Add($"{dropped} scene(s) in the reply had no narration and were left out.");
@@ -191,6 +196,7 @@ public static class StoryScriptParser
             // A shot with neither a prompt nor a picture has nothing to show.
             scene.Shots = [.. scene.Shots.Where(s => s.ImagePrompt is not null || !string.IsNullOrEmpty(s.ImageKey)).Take(MaxShots)];
             scene.EstimatedSeconds = StoryPacing.EstimateSeconds(scene.Narration);
+            StoryStaging.Normalize(scene);
             scene.Lines = NormalizeLines(scene, cast, out var mismatch);
             if (mismatch)
                 warnings.Add($"Scene {number}: the characters' lines did not match the narration, so the narrator reads all of it.");
@@ -343,6 +349,7 @@ public static class StoryScriptParser
             VideoPrompt = AiOutputSanitizer.ToSafeLine(Text(element, "videoPrompt"), 800),
             Mood = AiOutputSanitizer.ToSafeLine(Text(element, "mood"), 30)
         };
+        StoryStaging.Read(element, scene);
 
         if (Property(element, "imageKeywords") is { ValueKind: JsonValueKind.Array } keywords)
         {
@@ -430,7 +437,8 @@ public static class StoryScriptParser
                     "adult" => "adult",
                     _ => null
                 },
-                VoiceId = member.VoiceId
+                VoiceId = member.VoiceId,
+                Look = AiOutputSanitizer.ToSafeLine(member.Look, StoryStaging.MaxLookChars)
             });
             if (result.Count == MaxCast) break;
         }

@@ -43,8 +43,14 @@ public sealed partial class GeminiSpeechProvider(
     IOptionsMonitor<AiOptions> options,
     ILogger<GeminiSpeechProvider> logger,
     TimeProvider? clock = null)
-    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider
+    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider,
+      IImageReadingProvider
 {
+    private const string DefaultReadingModel = "gemini-3.8-flash";
+    private const int MaxReadImageBytes = 15 * 1024 * 1024;
+    private const int MaxReadPromptLength = 8_000;
+    private const int MaxReadAnswerLength = 20_000;
+
     private const string DefaultModel = "gemini-3.8-flash-tts";
     private const string DefaultMusicModel = "lyria-3.5";
     private const string InteractionsRevision = "2026-05-20";
@@ -362,6 +368,61 @@ public sealed partial class GeminiSpeechProvider(
             throw new AiProviderException("malformed-response", $"'{Id.Value}' returned music in a format that can't be used.");
 
         return new AiGeneratedMusic(audio, sniffed, model);
+    }
+
+    /// <summary>
+    /// <c>generateContent</c> with the picture inline and a JSON answer asked for. The answer's text parts are joined and
+    /// returned as they are; nothing here trusts them.
+    /// </summary>
+    public async Task<string> ReadImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct)
+    {
+        if (image is not { Length: > 0 } || image.Length > MaxReadImageBytes)
+            throw new AiProviderException("bad-request", "The picture is empty or too large to read.");
+        if (mimeType is not ("image/png" or "image/jpeg" or "image/webp"))
+            throw new AiProviderException("bad-request", "Only PNG, JPEG and WebP pictures can be read.");
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > MaxReadPromptLength)
+            throw new AiProviderException("bad-request", "The question about the picture is empty or too long.");
+
+        model = string.IsNullOrWhiteSpace(model) ? DefaultReadingModel : model.Trim();
+        if (!IsSafePathValue(model, allowSlashes: false, maxLength: 64))
+            throw new AiProviderException("bad-request", "That model name can't be used.");
+
+        var body = new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new object[]
+                    {
+                        new { inline_data = new { mime_type = mimeType, data = Convert.ToBase64String(image) } },
+                        new { text = prompt }
+                    }
+                }
+            },
+            generationConfig = new { responseMimeType = "application/json", temperature = 0 }
+        };
+
+        using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
+
+        var answer = new StringBuilder();
+        if (response.RootElement.TryGetProperty("candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array
+            && candidates.GetArrayLength() > 0
+            && candidates[0].TryGetProperty("content", out var content)
+            && content.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var part in parts.EnumerateArray())
+            {
+                if (part.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
+                    answer.Append(text.GetString());
+            }
+        }
+
+        if (answer.Length == 0)
+            throw new AiProviderException("empty-response", $"'{Id.Value}' said nothing about the picture.");
+        if (answer.Length > MaxReadAnswerLength)
+            throw new AiProviderException("response-too-large", $"'{Id.Value}' said more about the picture than is allowed.");
+        return answer.ToString();
     }
 
     /// <summary>The first <c>{"type":"audio","data":"…"}</c> block, wherever the revision of the API nests it.</summary>
