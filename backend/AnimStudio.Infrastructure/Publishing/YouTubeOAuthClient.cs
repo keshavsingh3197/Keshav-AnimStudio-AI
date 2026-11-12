@@ -39,10 +39,19 @@ public sealed class YouTubeOAuthClient : IDisposable
     /// broadcast and its stream key (<see cref="YouTubeLiveClient"/>). The app never deletes
     /// videos with it; it only edits the snippet of a broadcast it just created. A channel
     /// connected without it still uploads - only comments and live setup are unavailable.
+    /// Analytics is read-only: subscribers gained, watch time and retention per video for the
+    /// channel analysis (<see cref="YouTubeAnalyticsClient"/>). A channel connected before it
+    /// was asked for keeps working without those numbers until it is connected again.
     /// </summary>
-    public const string Scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly " + CommentScope;
+    public const string Scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly " + CommentScope + " " + AnalyticsScope;
 
     public const string CommentScope = "https://www.googleapis.com/auth/youtube.force-ssl";
+
+    public const string AnalyticsScope = "https://www.googleapis.com/auth/yt-analytics.readonly";
+
+    /// <summary>Whether a connection's granted scopes let it read YouTube Analytics.</summary>
+    public static bool AllowsAnalytics(string? grantedScopes) =>
+        (grantedScopes ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(AnalyticsScope, StringComparer.Ordinal);
 
     /// <summary>
     /// Send to phone (<see cref="GoogleDriveConnectionStore"/>): only files and folders the app

@@ -15,6 +15,10 @@ public static class StoryObjectKeys
         $"{Root(runId)}/images/s{scene:00}-{Guid.NewGuid().ToString("N")[..12]}{extension}";
 
     /// <summary>A scene's further picture; <paramref name="shot"/> counts from 2, the scene's own picture being the first.</summary>
+    /// <summary>The open-mouth version of a scene's picture; <paramref name="picture"/> counts from 1 like a shot's.</summary>
+    public static string TalkingImage(string runId, int scene, int picture, string extension) =>
+        $"{Root(runId)}/images/s{scene:00}-{picture}-talk-{Guid.NewGuid().ToString("N")[..12]}{extension}";
+
     public static string ShotImage(string runId, int scene, int shot, string extension) =>
         $"{Root(runId)}/images/s{scene:00}-{shot}-{Guid.NewGuid().ToString("N")[..12]}{extension}";
 
@@ -51,7 +55,9 @@ public static class StoryObjectKeys
             if (!string.IsNullOrEmpty(scene.AudioKey)) keys.Add(scene.AudioKey);
             if (!string.IsNullOrEmpty(scene.VideoKey)) keys.Add(scene.VideoKey);
             if (!string.IsNullOrEmpty(scene.DubAudioKey)) keys.Add(scene.DubAudioKey);
+            if (!string.IsNullOrEmpty(scene.TalkingImageKey)) keys.Add(scene.TalkingImageKey);
             keys.AddRange(scene.Shots.Select(s => s.ImageKey).OfType<string>().Where(k => k.Length > 0));
+            keys.AddRange(scene.Shots.Select(s => s.TalkingImageKey).OfType<string>().Where(k => k.Length > 0));
         }
 
         if (!string.IsNullOrEmpty(run.Script?.ThumbnailKey)) keys.Add(run.Script.ThumbnailKey);

@@ -210,7 +210,7 @@ export interface StoryScene {
   action?: string | null;
   /** A meme from the owner's library played right after the scene. */
   meme?: { name: string; caption: string | null; seconds: number | null } | null;
-  /** The speakers' faces in the scene's picture, whose mouths move while they talk; null until a build has looked. */
+  /** Speaker mouth positions in the scene's still picture; metadata only, null until a build has looked. */
   faces?: StoryFace[] | null;
 }
 
@@ -375,7 +375,7 @@ export interface StoryBuildOptions {
   narration: StoryNarrationMode;
   matchClipDuration?: boolean;
   keepClipAudio?: boolean;
-  /** Make the characters drawn into the pictures talk (their faces are found with the Gemini key). On when left out. */
+  /** Find speaker mouth positions with Gemini for metadata; this does not animate the mouths. On when left out. */
   talkingFaces?: boolean;
   voiceProfileId: string | null;
   voiceId: string | null;

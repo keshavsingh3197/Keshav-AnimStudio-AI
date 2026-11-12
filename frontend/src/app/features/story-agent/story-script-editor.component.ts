@@ -418,9 +418,9 @@ export class StoryScriptEditorComponent {
     return scene?.hasImage ? sourceNote(scene.imageSource, scene.imageName) : '';
   }
 
-  // ------------------------------------------------------------------------------------------------ talking faces
+  // ------------------------------------------------------------------------------------------------ speaker mouth positions
 
-  /** The characters who speak in the scene, whose mouths move in its picture. */
+  /** The characters who speak in the scene, for optional mouth-position metadata. */
   speakersOf(scene: DraftScene): string[] {
     const names: string[] = [];
     for (const line of scene.lines) {

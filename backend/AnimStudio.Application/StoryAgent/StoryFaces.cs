@@ -6,8 +6,8 @@ using AnimStudio.Domain.Stories;
 namespace AnimStudio.Application.StoryAgent;
 
 /// <summary>
-/// Talking pictures: who speaks in a scene, where their faces are in its picture, and when each is talking - so the
-/// renderer can move each speaker's jaw while their lines play, without a video model.
+/// Speaker anchors and timing in story pictures. The renderer keeps faces baked into still images unchanged until
+/// matching open/closed mouth artwork is available.
 /// </summary>
 /// <remarks>
 /// The faces are a vision model's answer and are untrusted like any reply: a name counts only when it is one of the

@@ -39,6 +39,7 @@ public sealed class AssembleStage(
     IObjectStore store,
     IMediaProbeService probe,
     StoryFaceLocator faces,
+    StoryMouthPainter painter,
     TimeProvider clock,
     ILogger<AssembleStage> logger) : IStoryStage
 {
@@ -57,6 +58,7 @@ public sealed class AssembleStage(
         var dubbed = StoryDub.IsSpoken(run);
         var dubAudio = new List<byte[]?>(script.Scenes.Count);
         var talking = new FaceLookup();
+        var painted = new MouthLookup();
         foreach (var scene in script.Scenes)
         {
             ct.ThrowIfCancellationRequested();
@@ -95,27 +97,59 @@ public sealed class AssembleStage(
             if (clipInfo is not null && run.Options.KeepClipAudio && string.IsNullOrEmpty(clipInfo.AudioCodec))
                 StoryRunWarnings.AddRange(run, [$"Scene {scene.Number}: the attached clip has no audio track."]);
 
-            // Who speaks here, so their mouths in each picture can move; a clip moves already.
+            // Save speaker mouth anchors with each still picture as editing metadata.
             var speakers = clip is null && run.Options.TalkingFaces ? StoryFaces.Speakers(script, scene) : [];
             if (clip is null)
             {
                 (scene.Faces, scene.FacesImageKey) = await FacesAsync(
                     run, scene.Number, speakers, scene.ImageKey, image, mime, scene.Faces, scene.FacesImageKey, talking, ct).ConfigureAwait(false);
             }
+            StoryBundleTalkingImage? sceneTalking = null;
+            if (clip is null && speakers.Count > 0)
+            {
+                (scene.TalkingImageKey, scene.TalkingImageFor, sceneTalking) = await TalkingAsync(
+                    run, scene.Number, 1, scene.ImageKey, image, mime, scene.Faces, scene.TalkingImageKey, scene.TalkingImageFor, painted, ct)
+                    .ConfigureAwait(false);
+                if (sceneTalking is not null)
+                {
+                    // The image model redraws to its own sizes and may reframe, so each open mouth is found where it really is.
+                    (scene.TalkingFaces, scene.TalkingFacesKey) = await FacesAsync(
+                        run, scene.Number, speakers, scene.TalkingImageKey, sceneTalking.Content, sceneTalking.Mime,
+                        scene.TalkingFaces, scene.TalkingFacesKey, talking, ct).ConfigureAwait(false);
+                    sceneTalking = sceneTalking with { Faces = scene.TalkingFaces };
+                }
+            }
 
             // The scene's further pictures; one that is missing or not a picture is left out rather than stopping the build.
             var shots = new List<StoryBundleShot>();
             if (clip is null)
             {
+                var picture = 1;
                 foreach (var shot in scene.Shots)
                 {
+                    picture++;
                     if (await ReadAsync(run, shot.ImageKey, ct).ConfigureAwait(false) is not { } bytes
                         || AiImageValidator.Sniff(bytes) is not { } shotMime) continue;
                     (shot.Faces, shot.FacesImageKey) = await FacesAsync(
                         run, scene.Number, speakers, shot.ImageKey, bytes, shotMime, shot.Faces, shot.FacesImageKey, talking, ct).ConfigureAwait(false);
+                    StoryBundleTalkingImage? shotTalking = null;
+                    if (speakers.Count > 0)
+                    {
+                        (shot.TalkingImageKey, shot.TalkingImageFor, shotTalking) = await TalkingAsync(
+                            run, scene.Number, picture, shot.ImageKey, bytes, shotMime, shot.Faces, shot.TalkingImageKey, shot.TalkingImageFor, painted, ct)
+                            .ConfigureAwait(false);
+                        if (shotTalking is not null)
+                        {
+                            (shot.TalkingFaces, shot.TalkingFacesKey) = await FacesAsync(
+                                run, scene.Number, speakers, shot.TalkingImageKey, shotTalking.Content, shotTalking.Mime,
+                                shot.TalkingFaces, shot.TalkingFacesKey, talking, ct).ConfigureAwait(false);
+                            shotTalking = shotTalking with { Faces = shot.TalkingFaces };
+                        }
+                    }
                     shots.Add(new StoryBundleShot(bytes, shotMime, ImageNote(shot.ImageSource))
                     {
-                        Faces = speakers.Count > 0 ? shot.Faces : []
+                        Faces = speakers.Count > 0 ? shot.Faces : [],
+                        TalkingImage = shotTalking
                     });
                 }
             }
@@ -133,6 +167,7 @@ public sealed class AssembleStage(
                     : $"The scene's picture brought to life by the {scene.VideoSource} video engine (AI).",
                 Shots = shots,
                 Faces = speakers.Count > 0 ? scene.Faces : [],
+                TalkingImage = sceneTalking,
                 Meme = scene.Meme is null ? null
                     : await ReadMemeAsync(run, scene, memes, shots.LastOrDefault() ?? new StoryBundleShot(image, mime, ImageNote(scene.ImageSource)), ct)
                         .ConfigureAwait(false)
@@ -154,9 +189,13 @@ public sealed class AssembleStage(
         }
 
         if (talking.Unavailable)
-            StoryRunWarnings.AddRange(run, ["The characters in the pictures do not talk: that needs the Gemini key the voices use. Add it in AI settings and build again."]);
+            StoryRunWarnings.AddRange(run, ["Speaker face positions were not saved because the Gemini image reader is not configured. Add its key in AI settings and build again."]);
         if (talking.Failed.Count > 0)
-            StoryRunWarnings.AddRange(run, [$"The faces in scene {string.Join(", ", talking.Failed.Distinct())}'s pictures could not be found, so nobody talks there. Build again to try once more."]);
+            StoryRunWarnings.AddRange(run, [$"Speaker face positions were not saved for scene {string.Join(", ", talking.Failed.Distinct())}. Build again to try once more."]);
+        if (painted.Unavailable)
+            StoryRunWarnings.AddRange(run, ["Talking faces were not drawn because no Gemini image model is configured, so speakers' faces stay still. Add the Gemini key in AI settings and build again."]);
+        if (painted.Failed.Count > 0)
+            StoryRunWarnings.AddRange(run, [$"The open-mouth pictures could not be drawn for scene {string.Join(", ", painted.Failed.Distinct())}, so those faces stay still. Build again to try once more."]);
 
         var music = await ReadMusicAsync(run, ct).ConfigureAwait(false);
         var name = ProjectName(script);
@@ -239,6 +278,53 @@ public sealed class AssembleStage(
     {
         public bool Unavailable { get; set; }
         public List<int> Failed { get; } = [];
+    }
+
+    /// <summary>What drawing open mouths came to over one build, said once at the end rather than per picture.</summary>
+    private sealed class MouthLookup
+    {
+        public bool Unavailable { get; set; }
+        public List<int> Failed { get; } = [];
+    }
+
+    /// <summary>
+    /// The open-mouth version of one picture: its key, the picture it was drawn from, and its bytes for the bundle. Drawn
+    /// once per picture - a picture that already has one keeps it, a new picture is drawn afresh - and never for a
+    /// picture with no faces found, since the renderer would have no mouth to lay it over.
+    /// </summary>
+    private async Task<(string? Key, string? For, StoryBundleTalkingImage? Image)> TalkingAsync(
+        StoryRun run, int sceneNumber, int picture, string? imageKey, byte[] image, string mime, IReadOnlyList<StoryFace> found,
+        string? knownKey, string? knownFor, MouthLookup lookup, CancellationToken ct)
+    {
+        if (found.Count == 0 || imageKey is null) return (knownKey, knownFor, null);
+
+        if (string.Equals(knownFor, imageKey, StringComparison.Ordinal)
+            && await ReadAsync(run, knownKey, ct).ConfigureAwait(false) is { } kept
+            && AiImageValidator.Sniff(kept) is { } keptMime)
+        {
+            return (knownKey, knownFor, new StoryBundleTalkingImage(kept, keptMime));
+        }
+
+        if (!painter.IsAvailable)
+        {
+            lookup.Unavailable = true;
+            return (null, null, null);
+        }
+
+        var edited = await painter.PaintAsync(run, sceneNumber, image, mime, found, ct).ConfigureAwait(false);
+        if (edited is null)
+        {
+            lookup.Failed.Add(sceneNumber);
+            return (null, null, null);
+        }
+
+        var key = StoryObjectKeys.TalkingImage(run.Id, sceneNumber, picture, StoryBundleBuilder.ImageExtension(edited.MimeType));
+        await using (var content = new MemoryStream(edited.Content, writable: false))
+            await store.SaveAsync(key, content, edited.MimeType, ct).ConfigureAwait(false);
+        if (StoryObjectKeys.Owns(run.Id, knownKey) && !string.Equals(knownKey, key, StringComparison.Ordinal))
+            await store.DeleteAsync(knownKey!, ct).ConfigureAwait(false);
+
+        return (key, imageKey, new StoryBundleTalkingImage(edited.Content, edited.MimeType));
     }
 
     /// <summary>

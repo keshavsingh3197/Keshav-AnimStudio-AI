@@ -120,6 +120,12 @@ public sealed class RenderOptions
     /// </summary>
     public int MaxConcurrentJobs { get; set; } = 1;
 
+    /// <summary>
+    /// Maximum FFmpeg scene encodes running at once for each project render. The default
+    /// avoids concurrent full-resolution filter graphs competing for memory.
+    /// </summary>
+    public int MaxConcurrentScenes { get; set; } = 1;
+
     public int LeaseSeconds { get; set; } = 120;
     public int MaxAttempts { get; set; } = 3;
 

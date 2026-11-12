@@ -69,6 +69,17 @@ public sealed class SceneMouth
     public double FaceWidth { get; set; }
 
     public List<MouthWindow> Windows { get; set; } = [];
+
+    /// <summary>
+    /// Where the same mouth is in the scene's open-mouth picture, as fractions of that picture, when it was framed
+    /// differently from the background (an image model redraws to its own sizes). Null means the same place.
+    /// </summary>
+    public double? OpenX { get; set; }
+
+    public double? OpenY { get; set; }
+
+    /// <summary>The face's width in the open-mouth picture, as a fraction of that picture's width.</summary>
+    public double? OpenFaceWidth { get; set; }
 }
 
 /// <summary>A stretch of a scene, in frames from its start, in which a mouth talks.</summary>
@@ -119,6 +130,12 @@ public sealed class Scene
 
     /// <summary>Mouths drawn into a still background that talk while their windows play. Ignored over a clip.</summary>
     public List<SceneMouth> Mouths { get; set; } = [];
+
+    /// <summary>
+    /// The background still with the <see cref="Mouths"/> open, blended in around each mouth while it talks so a
+    /// character painted into the picture speaks with real artwork. Null keeps the faces still.
+    /// </summary>
+    public string? TalkingBackgroundAssetId { get; set; }
 
     public SceneAudio Audio { get; set; } = new();
 

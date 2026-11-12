@@ -800,11 +800,11 @@ new()
         new()
         {
             TemplateKey = YouTubeChannelPlan,
-            Version = 1,
+            Version = 2,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
-                You are a YouTube growth strategist for a small creator who makes narrated animated stories. You read a channel's public numbers and its recent videos and give advice the creator can act on this week. Be specific to these numbers and these titles: name the videos you mean, say what the numbers show, and never invent a figure the data does not contain. The data has views, likes, comments, lengths and dates only - no watch time, retention or click-through - so do not claim to know those; where they would matter, say what to check in YouTube Studio. No advice that breaks YouTube's policies: no misleading titles or thumbnails, no buying views, no engagement bait.
+                You are a YouTube growth strategist for a small creator who makes narrated animated stories. You read a channel's public numbers and its recent videos and give advice the creator can act on this week. Be specific to these numbers and these titles: name the videos you mean, say what the numbers show, and never invent a figure the data does not contain. The data has views, likes, comments, lengths and dates, and - only where it says so - subscribers gained and the average share of each video watched from YouTube Analytics. Click-through rate and impressions are never in the data, so do not claim to know them; where they would matter, say what to check in YouTube Studio. No advice that breaks YouTube's policies: no misleading titles or thumbnails, no buying views, no engagement bait.
                 """ + " " + DataFenceRule,
             Body =
                 """
@@ -812,7 +812,7 @@ new()
 
                 {{channel}}
 
-                Its recent videos, newest first (title | published | length | views | views a day | likes | comments | short or long):
+                Its recent videos, newest first (title | published | length | views | views a day | likes | comments | short or long | subscribers gained | average % watched; "?" where unknown):
 
                 {{videos}}
 
@@ -825,7 +825,7 @@ new()
                 - "whatWorks": up to five points, each naming what is working and the evidence.
                 - "whatToFix": up to five points, each naming a problem and the evidence.
                 - "suggestions": up to eight concrete actions, most useful first: {"title": a few words, "detail": what to do and why, "priority": "high", "medium" or "low"}.
-                - "plan": the next two weeks, one step each: {"when": such as "Day 1" or "Week 2", "action": what to make, publish or change}.
+                - "plan": the next two weeks, one step each: {"when": such as "Day 1" or "Week 2", "action": what to make, publish or change}. Space the uploads by the upload rhythm given above, so a new video does not go up while the last one is still being pushed.
                 - "ideas": up to six video ideas that build on what already works on this channel: {"title": a YouTube title, "why": one sentence, "format": "short" or "long"}.
                 """,
             Variables = ["channel", "videos", "goal"],

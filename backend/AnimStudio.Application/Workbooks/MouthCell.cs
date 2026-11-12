@@ -10,7 +10,9 @@ namespace AnimStudio.Application.Workbooks;
 /// can read and fix in a spreadsheet.
 /// <code>Teacher: 0.456 0.406 0.16 @ 0-1.5 3.2-4; Pappu: 0.71 0.45 0.14 @ 1.6-3.1</code>
 /// Each mouth is its middle across and down the picture and the face's width, all fractions of the picture, then the
-/// seconds from the scene's start in which it talks. The name is optional and only for the reader.
+/// seconds from the scene's start in which it talks. The name is optional and only for the reader. An optional
+/// <c>&gt; x y width</c> after the face says where the same mouth is in the scene's open-mouth picture, which an image
+/// model may have framed differently: <c>Pappu: 0.71 0.45 0.14 &gt; 0.75 0.44 0.17 @ 1.6-3.1</c>.
 /// </summary>
 public static partial class MouthCell
 {
@@ -24,7 +26,8 @@ public static partial class MouthCell
             var name = Name(m.Name) is { } n ? $"{n}: " : string.Empty;
             var windows = string.Join(' ', m.Windows.Select(w =>
                 $"{N(new FrameCount(w.StartFrame).ToSeconds(rate))}-{N(new FrameCount(w.EndFrame).ToSeconds(rate))}"));
-            return $"{name}{N(m.X)} {N(m.Y)} {N(m.FaceWidth)} @ {windows}";
+            var open = m is { OpenX: { } ox, OpenY: { } oy, OpenFaceWidth: { } ow } ? $" > {N(ox)} {N(oy)} {N(ow)}" : string.Empty;
+            return $"{name}{N(m.X)} {N(m.Y)} {N(m.FaceWidth)}{open} @ {windows}";
         }));
 
     /// <summary>Reads the cell; null with the reason when it does not read as mouths. Empty reads as none.</summary>
@@ -78,7 +81,21 @@ public static partial class MouthCell
                 return null;
             }
 
-            mouths.Add(new SceneMouth { Name = Name(match.Groups["name"].Value), X = x, Y = y, FaceWidth = width, Windows = windows });
+            var mouth = new SceneMouth { Name = Name(match.Groups["name"].Value), X = x, Y = y, FaceWidth = width, Windows = windows };
+            if (match.Groups["ox"].Success)
+            {
+                var openX = Number(match.Groups["ox"].Value);
+                var openY = Number(match.Groups["oy"].Value);
+                var openWidth = Number(match.Groups["ow"].Value);
+                if (openX > 1 || openY > 1 || openWidth is <= 0 or > 1)
+                {
+                    error = $"'{Shorten(part)}': the place in the open-mouth picture is fractions of it, from 0 to 1.";
+                    return null;
+                }
+                (mouth.OpenX, mouth.OpenY, mouth.OpenFaceWidth) = (openX, openY, openWidth);
+            }
+
+            mouths.Add(mouth);
         }
 
         return mouths;
@@ -99,7 +116,8 @@ public static partial class MouthCell
     private static string N(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     [GeneratedRegex(
-        @"^(?:(?<name>[^:;@]{1,60}):)?\s*(?<x>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s+(?<y>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s+(?<w>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s*@\s*(?<windows>(?:\d{1,4}(?:\.\d{1,3})?\s*-\s*\d{1,4}(?:\.\d{1,3})?\s*)+)$",
+        @"^(?:(?<name>[^:;@>]{1,60}):)?\s*(?<x>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s+(?<y>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s+(?<w>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))"
+        + @"(?:\s*>\s*(?<ox>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s+(?<oy>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6}))\s+(?<ow>(?:\d{1,3}(?:\.\d{1,6})?|\.\d{1,6})))?\s*@\s*(?<windows>(?:\d{1,4}(?:\.\d{1,3})?\s*-\s*\d{1,4}(?:\.\d{1,3})?\s*)+)$",
         RegexOptions.CultureInvariant)]
     private static partial Regex MouthPattern();
 

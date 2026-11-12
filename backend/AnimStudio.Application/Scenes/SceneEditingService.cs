@@ -264,6 +264,8 @@ public sealed class SceneEditingService(
 
         await EnsureUsableAssetAsync(assetId, project.Id, AssetKind.Image, ct).ConfigureAwait(false);
 
+        // The open-mouth artwork was drawn from the old picture, so it would show the wrong face over the new one.
+        if (!string.Equals(scene.BackgroundAssetId, assetId, StringComparison.Ordinal)) scene.TalkingBackgroundAssetId = null;
         scene.BackgroundAssetId = assetId;
         scene.BackgroundAudio = false;
 

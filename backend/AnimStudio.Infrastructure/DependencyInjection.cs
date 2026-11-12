@@ -398,6 +398,9 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeStatsClient>>()));
         services.AddSingleton<YouTubeDashboardCache>();
         services.AddScoped<YouTubeDashboardService>();
+        // Channel analysis: subscribers gained, watch time and retention per video, when the channel allows Analytics.
+        services.AddSingleton(sp => new YouTubeAnalyticsClient(
+            sp.GetRequiredService<ILogger<YouTubeAnalyticsClient>>()));
         services.AddScoped<YouTubeChannelAnalysisService>();
         services.AddScoped<AnimStudio.Application.Publishing.YouTubeSuggestionLibrary>();
 
@@ -431,6 +434,7 @@ public static class DependencyInjection
         services.AddScoped<IStoryStage, NarrationStage>();
         services.AddScoped<IStoryStage, MusicStage>();
         services.AddScoped<StoryFaceLocator>();
+        services.AddScoped<StoryMouthPainter>();
         services.AddScoped<IStoryStage, AssembleStage>();
         services.AddScoped<IStoryStage, RenderStage>();
         services.AddScoped<IStoryStage, KitStage>();

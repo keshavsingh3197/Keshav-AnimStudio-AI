@@ -15,6 +15,7 @@ public class WebSettingsTests
     [InlineData("render:crf", " 0 ", "0")]
     [InlineData("Render:Preset", "SLOW", "slow")]
     [InlineData("Render:UseHardwareEncoder", "True", "true")]
+    [InlineData("Render:MaxConcurrentScenes", "3", "3")]
     [InlineData("Segmentation:TargetSegmentSeconds", "6.5", "6.5")]
     [InlineData("Shorts:MaxBatchCount", "75", "75")]
     [InlineData("YouTube:Publish:RedirectUri", "http://localhost:4200/youtube/callback", "http://localhost:4200/youtube/callback")]
@@ -37,6 +38,8 @@ public class WebSettingsTests
     [InlineData("YouTube:Publish:RedirectUri", "http://example.com/callback")]
     [InlineData("YouTube:Publish:RedirectUri", "javascript:alert(1)")]
     [InlineData("Render:WatermarkText", "line\nbreak")]
+    [InlineData("Render:MaxConcurrentScenes", "0")]
+    [InlineData("Render:MaxConcurrentScenes", "7")]
     public void Refuses_invalid_values(string key, string input)
     {
         Assert.NotNull(WebSettingCatalog.Normalize(WebSettingCatalog.Find(key)!, input).Error);

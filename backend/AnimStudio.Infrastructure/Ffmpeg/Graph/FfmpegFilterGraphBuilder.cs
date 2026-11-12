@@ -72,13 +72,18 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             warnings.Add("BACKGROUND_MOTION_UNAVAILABLE");
         }
 
-        // Characters painted into the picture talk before the camera moves, so the jaw rides with the push or pan.
+        // Characters painted into the picture talk before the camera moves, so the mouth rides with the push or pan.
+        // Only with the still's own open-mouth version: without it the faces stay exactly as they were drawn.
         var still = "0:v";
-        if (plan.Mouths.Count > 0)
+        if (plan.TalkingBackgroundUnusable) warnings.Add("TALKING_MOUTHS_UNALIGNED");
+        if (plan.Mouths.Count > 0 && plan.TalkingBackground is { } talking)
         {
             if (capabilities.Supports(RenderFeature.TalkingMouths))
             {
-                TalkingMouthFilters.Append(graph, still, "talk", plan.Mouths, rate);
+                // A single frame, no -loop: each patch is cut and feathered once and overlay repeats it.
+                var openInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec([], talking.RelativePath));
+                TalkingMouthFilters.Append(graph, still, openInput, "talk", plan.Mouths, talking, rate);
                 still = "talk";
             }
             else

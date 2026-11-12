@@ -200,7 +200,7 @@ public sealed class WorkbookImportService(
         {
             var number = row.Integer("SceneNumber")!.Value;
 
-            foreach (var column in (string[])["Background", "Audio"])
+            foreach (var column in (string[])["Background", "Audio", "TalkingBackground"])
             {
                 var value = row.Text(column);
                 if (value is null) continue;
@@ -545,6 +545,9 @@ public sealed class WorkbookImportService(
 
             if (AssetId(media, row.Text("Background")) is { } background)
                 scene.BackgroundAssetId = background;
+
+            // Replaced along with the picture it belongs to, so an empty cell clears it.
+            scene.TalkingBackgroundAssetId = AssetId(media, row.Text("TalkingBackground"));
 
             scene.BackgroundAudio = row.Flag("BackgroundAudio") ?? scene.BackgroundAudio;
 

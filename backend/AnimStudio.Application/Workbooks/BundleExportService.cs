@@ -287,7 +287,8 @@ public sealed class BundleExportService(
         Round(new FrameCount(scene.TransitionDurationFrames).ToSeconds(rate)),
         Reference(scene.Audio.AssetId, paths),
         Flag(scene.BackgroundAudio),
-        MouthCell.Format(scene.Mouths, rate)
+        MouthCell.Format(scene.Mouths, rate),
+        Reference(scene.TalkingBackgroundAssetId, paths)
     ];
 
     private static IEnumerable<IReadOnlyList<string?>> DialogueRows(

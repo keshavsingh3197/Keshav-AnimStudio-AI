@@ -125,4 +125,66 @@ public sealed class YouTubeChannelAnalyzerTests
         Assert.DoesNotContain("Story 99", block);
         Assert.Contains("Subscribers: 1200", YouTubeChannelAnalyzer.ChannelBlock(channel, YouTubeChannelAnalyzer.Insights(channel, Now)));
     }
+    [Fact]
+    public void The_upload_gap_that_did_best_on_this_channel_is_recommended()
+    {
+        // Long videos alternating: one six days after the one before (30 views a day), one a day after it (10 a day).
+        var ages = new[] { 100, 94, 93, 87, 86, 80, 79, 73, 72 };
+        var channel = new YouTubeChannelAnalysis
+        {
+            ChannelTitle = "Rhythm",
+            Videos = [.. ages.Select((age, i) => Video(i, age, (i % 2 == 1 ? 30 : 10) * age, 420))]
+        };
+
+        var rhythm = YouTubeChannelAnalyzer.Insights(channel, Now).Rhythm!;
+
+        Assert.True(rhythm.FromHistory);
+        Assert.Equal(5, rhythm.RecommendedGapDays);
+        Assert.Contains(rhythm.Buckets, b => b.Label == "5-7 days" && b.Videos == 4 && b.MedianScore > 2.5);
+        Assert.Contains(rhythm.Buckets, b => b.Label == "1-2 days" && b.Videos == 4);
+        Assert.False(rhythm.LastIsHot);
+        Assert.Contains("Upload rhythm: leave about 5 days", YouTubeChannelAnalyzer.ChannelBlock(channel, YouTubeChannelAnalyzer.Insights(channel, Now)));
+    }
+
+    [Fact]
+    public void A_young_upload_doing_well_is_given_room_before_the_next()
+    {
+        var channel = new YouTubeChannelAnalysis
+        {
+            ChannelTitle = "Hot",
+            Videos = [.. new[] { 30, 25, 20, 15, 10 }.Select((age, i) => Video(i, age, 100L * age, 45)), Video(9, 2, 2_000, 45)]
+        };
+
+        var rhythm = YouTubeChannelAnalyzer.Insights(channel, Now).Rhythm!;
+
+        Assert.False(rhythm.FromHistory);
+        Assert.True(rhythm.LastIsHot);
+        Assert.True(rhythm.LastIsShort);
+        Assert.Equal(3, rhythm.RecommendedGapDays);
+        Assert.Equal("Story 9", rhythm.LastUploadTitle);
+    }
+
+    [Fact]
+    public void Analytics_numbers_name_the_video_that_brought_the_most_subscribers()
+    {
+        var channel = Channel();
+        for (var i = 0; i < channel.Videos.Count; i++)
+            channel.Videos[i].Analytics = new YouTubeVideoAnalytics { SubscribersGained = i == 6 ? 40 : 2, AverageViewPercent = 50 };
+
+        var insights = YouTubeChannelAnalyzer.Insights(channel, Now);
+
+        Assert.Contains(insights.Findings, f => f.Kind == "good" && f.Text.StartsWith("\"Story 6\" brought the most subscribers (40)", StringComparison.Ordinal));
+        Assert.Contains("| 40 | 50", YouTubeChannelAnalyzer.VideosBlock(channel, Now));
+    }
+
+    [Fact]
+    public void A_plan_kept_from_before_Analytics_still_matches_until_Analytics_numbers_arrive()
+    {
+        var channel = Channel();
+        var before = YouTubeChannelAnalyzer.Fingerprint(channel, null);
+        Assert.Equal(before, YouTubeChannelAnalyzer.Fingerprint(channel, null));
+
+        channel.Videos[0].Analytics = new YouTubeVideoAnalytics { SubscribersGained = 12 };
+        Assert.NotEqual(before, YouTubeChannelAnalyzer.Fingerprint(channel, null));
+    }
 }

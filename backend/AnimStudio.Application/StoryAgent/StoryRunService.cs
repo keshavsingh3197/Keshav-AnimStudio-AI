@@ -574,9 +574,9 @@ public sealed partial class StoryRunService(
     }
 
     /// <summary>
-    /// Places the talking faces in one of a scene's pictures by hand (<paramref name="picture"/> 1 is its own picture),
-    /// replacing what was found; an empty list means nobody talks in it. With <paramref name="faces"/> null the picture's
-    /// faces are forgotten, and the next build looks for them again.
+    /// Places speaker mouth anchors in one of a scene's pictures by hand (<paramref name="picture"/> 1 is its own picture),
+    /// replacing what was found; an empty list means no anchors are saved. With <paramref name="faces"/> null the picture's
+    /// anchors are forgotten, and the next build looks for them again.
     /// </summary>
     public async Task<StoryRun> PlaceFacesAsync(
         string userId, string id, int sceneNumber, int picture, IReadOnlyList<StoryFace>? faces, CancellationToken ct)
@@ -614,8 +614,9 @@ public sealed partial class StoryRunService(
         }
 
         var key = faces is null ? null : imageKey;
-        if (shot is null) (scene.Faces, scene.FacesImageKey) = (placed, key);
-        else (shot.Faces, shot.FacesImageKey) = (placed, key);
+        // The open-mouth picture was drawn for the old places, so the next build draws it again for these.
+        if (shot is null) (scene.Faces, scene.FacesImageKey, scene.TalkingImageFor) = (placed, key, null);
+        else (shot.Faces, shot.FacesImageKey, shot.TalkingImageFor) = (placed, key, null);
         ReopenForEditing(run);
         await Save(run, ct).ConfigureAwait(false);
         return run;

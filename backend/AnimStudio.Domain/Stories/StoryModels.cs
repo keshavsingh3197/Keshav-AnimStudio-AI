@@ -105,8 +105,9 @@ public sealed class StoryBuildOptions
     public bool KeepClipAudio { get; set; }
 
     /// <summary>
-    /// Make the characters drawn into each picture talk: their faces are found once per picture (a free Gemini call)
-    /// and the renderer moves each speaker's jaw while their lines play. Off leaves the pictures still.
+    /// Make characters painted into still pictures talk: their mouths are found (a free Gemini call) and an open-mouth
+    /// version of the picture is drawn (one Gemini image edit), once per picture; the renderer blends between the two
+    /// around each mouth while that character speaks.
     /// </summary>
     public bool TalkingFaces { get; set; } = true;
 
@@ -509,13 +510,31 @@ public sealed class StoryScene
     /// <summary>A meme from the owner's library played right after the scene, for the joke's punchline; null for none.</summary>
     public StoryMemeBeat? Meme { get; set; }
 
-    // --- talking: where the speakers' mouths are in the picture -----------------------------
+    // --- speaker mouth-position metadata ----------------------------------------------------
 
-    /// <summary>The speakers' faces found in the scene's picture, so their mouths move while they talk.</summary>
+    /// <summary>Speaker mouth anchors found in the scene's still picture.</summary>
     public List<StoryFace> Faces { get; set; } = [];
 
     /// <summary>The picture <see cref="Faces"/> were looked for in; a new picture is looked at afresh.</summary>
     public string? FacesImageKey { get; set; }
+
+    /// <summary>
+    /// Object-store key of this picture's open-mouth version, drawn by an image model so the speakers talk with real
+    /// artwork; null when there is none.
+    /// </summary>
+    public string? TalkingImageKey { get; set; }
+
+    /// <summary>The picture <see cref="TalkingImageKey"/> was drawn from; a new picture is drawn afresh.</summary>
+    public string? TalkingImageFor { get; set; }
+
+    /// <summary>
+    /// The speakers' faces found in the open-mouth version, which the image model may have framed differently, so each
+    /// open mouth can be taken from where it really is.
+    /// </summary>
+    public List<StoryFace> TalkingFaces { get; set; } = [];
+
+    /// <summary>The open-mouth picture <see cref="TalkingFaces"/> were looked for in.</summary>
+    public string? TalkingFacesKey { get; set; }
 }
 
 /// <summary>Where a character's face is in a picture: the middle of the mouth and the face's width, as fractions of it.</summary>
@@ -575,6 +594,24 @@ public sealed class StoryShot
 
     /// <summary>The picture <see cref="Faces"/> were looked for in.</summary>
     public string? FacesImageKey { get; set; }
+
+    /// <summary>
+    /// Object-store key of this picture's open-mouth version, drawn by an image model so the speakers talk with real
+    /// artwork; null when there is none.
+    /// </summary>
+    public string? TalkingImageKey { get; set; }
+
+    /// <summary>The picture <see cref="TalkingImageKey"/> was drawn from; a new picture is drawn afresh.</summary>
+    public string? TalkingImageFor { get; set; }
+
+    /// <summary>
+    /// The speakers' faces found in the open-mouth version, which the image model may have framed differently, so each
+    /// open mouth can be taken from where it really is.
+    /// </summary>
+    public List<StoryFace> TalkingFaces { get; set; } = [];
+
+    /// <summary>The open-mouth picture <see cref="TalkingFaces"/> were looked for in.</summary>
+    public string? TalkingFacesKey { get; set; }
 }
 
 /// <summary>Part of a scene's narration and who says it.</summary>

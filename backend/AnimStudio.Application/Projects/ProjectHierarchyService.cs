@@ -95,7 +95,7 @@ public sealed class ProjectHierarchyService(
 
         var referenced = new HashSet<string>(StringComparer.Ordinal);
         void Add(string? id) { if (!string.IsNullOrEmpty(id)) referenced.Add(id); }
-        foreach (var s in projectScenes) { Add(s.BackgroundAssetId); Add(s.Audio?.AssetId); }
+        foreach (var s in projectScenes) { Add(s.BackgroundAssetId); Add(s.TalkingBackgroundAssetId); Add(s.Audio?.AssetId); }
         foreach (var c in projectCast) { Add(c.Sprites.ClosedMouthAssetId); Add(c.Sprites.OpenMouthAssetId); Add(c.Voice?.AiSampleAssetId); }
         Add(project.Settings.BackgroundMusicAssetId);
         if (referenced.Count == 0) return;
@@ -117,9 +117,11 @@ public sealed class ProjectHierarchyService(
         foreach (var s in projectScenes)
         {
             var bg = Map(s.BackgroundAssetId);
+            var talk = Map(s.TalkingBackgroundAssetId);
             var audio = Map(s.Audio?.AssetId);
-            if (bg == s.BackgroundAssetId && audio == s.Audio?.AssetId) continue;
+            if (bg == s.BackgroundAssetId && talk == s.TalkingBackgroundAssetId && audio == s.Audio?.AssetId) continue;
             s.BackgroundAssetId = bg;
+            s.TalkingBackgroundAssetId = talk;
             if (s.Audio is not null) s.Audio.AssetId = audio;
             await scenes.ReplaceAsync(s, ct).ConfigureAwait(false);
         }

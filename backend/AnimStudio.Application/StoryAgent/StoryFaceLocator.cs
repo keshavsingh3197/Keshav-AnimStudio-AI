@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace AnimStudio.Application.StoryAgent;
 
 /// <summary>
-/// Finds the speakers' faces in a story's pictures with the Gemini key the voices already use: one request per picture,
-/// made only for a picture with someone speaking in it and only once for that picture.
+/// Finds speakers' mouth anchors in a story's pictures with the Gemini key the voices already use: one request per
+/// picture with someone speaking, made only once for that picture. The renderer keeps these baked-in faces still.
 /// </summary>
 /// <remarks>Never fails a build: a picture whose faces cannot be found is shown still, as it was before.</remarks>
 public sealed class StoryFaceLocator(

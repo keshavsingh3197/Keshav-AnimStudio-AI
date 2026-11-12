@@ -34,8 +34,11 @@
     <label class="switch so-switch">
       <input type="checkbox" [checked]="v.talkingFaces !== false" (change)="patch({ talkingFaces: checked($event) })" />
       <span class="track"></span>
-      <span>Make the characters in the pictures talk</span>
+      <span>Talking faces <span class="muted">(mouths open and close while characters speak)</span></span>
     </label>
+    <p class="so-note">Gemini finds each speaker's mouth (free) and redraws the picture once with those mouths open (one Gemini image
+      edit, a few cents a picture). While a character speaks, the render eases between the two around their mouth; the rest of the
+      picture is untouched. For full lip-synced motion, use the scene's Google Flow prompt and attach the clip.</p>
     <p class="so-note">Clip sound and generated voice can be used separately or together. With clip-length timing, a longer
       generated voice is cut off; shorten the dialogue or turn off clip-length timing. Transitions and playback speed affect total duration.</p>
 

@@ -31,7 +31,78 @@ public sealed class YouTubeChannelAnalysis
 
     public YouTubeChannelReport? Report { get; set; }
 
+    /// <summary>When the YouTube Analytics numbers were last read; null when they never were (no permission, or not set up).</summary>
+    public DateTime? AnalyticsFetchedAtUtc { get; set; }
+
+    /// <summary>Why the Analytics numbers could not be read, in words safe to show; null when they were, or were not tried.</summary>
+    public string? AnalyticsError { get; set; }
+
+    /// <summary>The channel day by day over the last weeks, oldest first: views and subscribers won and lost.</summary>
+    public List<YouTubeDailyPoint> Daily { get; set; } = [];
+
+    /// <summary>Videos looked up by link, newest lookup first, at most a few dozen. Any channel's video can be looked up.</summary>
+    public List<YouTubeVideoLookup> Lookups { get; set; } = [];
+
     public DateTime UpdatedAtUtc { get; set; }
+}
+
+/// <summary>One day of a channel's or a video's YouTube Analytics numbers.</summary>
+public sealed class YouTubeDailyPoint
+{
+    /// <summary>The day, at midnight UTC (YouTube reports days in the channel's own time zone).</summary>
+    public DateTime Day { get; set; }
+
+    public long Views { get; set; }
+    public double WatchMinutes { get; set; }
+    public long SubscribersGained { get; set; }
+    public long SubscribersLost { get; set; }
+}
+
+/// <summary>A video looked up by its link: its public counters, and for one of this channel's own videos, how it did day by day.</summary>
+public sealed class YouTubeVideoLookup
+{
+    public string VideoId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? ChannelId { get; set; }
+
+    /// <summary>The video is on the analysed channel, so YouTube Analytics can describe it.</summary>
+    public bool Own { get; set; }
+
+    public DateTime? PublishedAtUtc { get; set; }
+    public double? DurationSeconds { get; set; }
+    public string? Privacy { get; set; }
+    public string? ThumbnailUrl { get; set; }
+    public long? Views { get; set; }
+    public long? Likes { get; set; }
+    public long? Comments { get; set; }
+    public List<string> Tags { get; set; } = [];
+
+    /// <summary>Lifetime Analytics totals; null for another channel's video or without permission.</summary>
+    public YouTubeVideoAnalytics? Analytics { get; set; }
+
+    /// <summary>Day by day since it went up (the last year at most), oldest first. Empty without Analytics.</summary>
+    public List<YouTubeDailyPoint> Daily { get; set; } = [];
+
+    /// <summary>Why the Analytics part is missing, in words safe to show.</summary>
+    public string? AnalyticsNote { get; set; }
+
+    public DateTime LookedUpAtUtc { get; set; }
+}
+
+/// <summary>What YouTube Analytics says about one video over its life. Only the channel's owner can read these.</summary>
+public sealed class YouTubeVideoAnalytics
+{
+    public double WatchMinutes { get; set; }
+
+    /// <summary>The average time a view lasted.</summary>
+    public double AverageViewSeconds { get; set; }
+
+    /// <summary>The average share of the video a view watched, 0-100+ (rewatches can push a Short past 100).</summary>
+    public double AverageViewPercent { get; set; }
+
+    public long SubscribersGained { get; set; }
+    public long SubscribersLost { get; set; }
+    public long Shares { get; set; }
 }
 
 /// <summary>One upload as the analysis sees it: what it is, and how it has done.</summary>
@@ -52,6 +123,9 @@ public sealed class YouTubeAnalyzedVideo
 
     /// <summary>The first few tags, enough to see what a video was aimed at.</summary>
     public List<string> Tags { get; set; } = [];
+
+    /// <summary>Lifetime YouTube Analytics totals; null until they are read (they need the analytics permission).</summary>
+    public YouTubeVideoAnalytics? Analytics { get; set; }
 }
 
 /// <summary>The advice: from a text model when one is on, otherwise worked out from the numbers by fixed rules.</summary>

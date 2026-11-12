@@ -42,6 +42,7 @@ public sealed class YouTubeChannelAnalysisService(
     YouTubeOAuthClient oauth,
     YouTubeStatsClient stats,
     YouTubeChannelVideosClient videos,
+    YouTubeAnalyticsClient analytics,
     IAiExecutor ai,
     IPromptLibrary prompts,
     TimeProvider clock,
@@ -54,6 +55,18 @@ public sealed class YouTubeChannelAnalysisService(
     public const int MaxVideos = 100;
 
     public const int MaxGoalChars = 300;
+
+    /// <summary>How many looked-up videos are kept per channel; the oldest lookup goes first.</summary>
+    public const int MaxLookups = 30;
+
+    /// <summary>A video looked up again within this time is answered from what was kept, without calling YouTube.</summary>
+    public static readonly TimeSpan LookupFresh = TimeSpan.FromHours(3);
+
+    /// <summary>How many days of the channel's day-by-day numbers are read on refresh.</summary>
+    public const int DailyDays = 90;
+
+    /// <summary>A looked-up video's day-by-day numbers go back at most this far.</summary>
+    public const int MaxVideoDailyDays = 365;
 
     public async Task<IReadOnlyList<YouTubeChannelAnalysisView>> ListAsync(string userId, CancellationToken ct)
     {
@@ -121,6 +134,9 @@ public sealed class YouTubeChannelAnalysisService(
             })];
             analysis.FetchedAtUtc = now;
             analysis.FetchError = null;
+
+            if (channel.CanReadAnalytics)
+                await ReadAnalyticsAsync(analysis, token, now, ct).ConfigureAwait(false);
         }
         catch (YouTubePublishException ex)
         {
@@ -132,6 +148,148 @@ public sealed class YouTubeChannelAnalysisService(
         analysis.UpdatedAtUtc = now;
         await analyses.UpsertAsync(analysis, ct).ConfigureAwait(false);
         return View(channel, analysis, now);
+    }
+
+    /// <summary>
+    /// Subscribers gained, watch time and retention for every video read, and the channel day by day. A refusal is kept as
+    /// a note beside the numbers instead of failing the refresh: the public counters are still worth showing.
+    /// </summary>
+    private async Task ReadAnalyticsAsync(YouTubeChannelAnalysis analysis, string token, DateTime now, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(now);
+        var dated = analysis.Videos.Where(v => v.PublishedAtUtc is not null && YouTubeRelatedVideos.IsVideoId(v.VideoId)).ToList();
+        try
+        {
+            if (dated.Count > 0)
+            {
+                var from = DateOnly.FromDateTime(dated.Min(v => v.PublishedAtUtc!.Value));
+                var totals = new Dictionary<string, YouTubeVideoAnalytics>(StringComparer.Ordinal);
+                foreach (var batch in dated.Select(v => v.VideoId).Distinct().Chunk(YouTubeAnalyticsClient.MaxIdsPerCall))
+                    foreach (var (id, t) in await analytics.GetVideoTotalsAsync(batch, from, today, token, ct).ConfigureAwait(false))
+                        totals[id] = t;
+                // YouTube leaves out a video with no views yet: that is zeros, not unknown.
+                foreach (var v in dated)
+                    v.Analytics = totals.TryGetValue(v.VideoId, out var t) ? t : new YouTubeVideoAnalytics();
+            }
+
+            analysis.Daily = [.. await analytics.GetDailyAsync(null, today.AddDays(-(DailyDays - 1)), today, token, ct).ConfigureAwait(false)];
+            analysis.AnalyticsFetchedAtUtc = now;
+            analysis.AnalyticsError = null;
+        }
+        catch (YouTubePublishException ex)
+        {
+            logger.LogInformation("Couldn't read YouTube Analytics for channel {ChannelId}: {Code}", analysis.ChannelId, ex.Code);
+            analysis.AnalyticsError = ex.Message;
+        }
+    }
+
+    /// <summary>The video looked up before, as it was kept; null when it was not. Calls nothing outside the app.</summary>
+    public async Task<YouTubeVideoLookup?> GetLookupAsync(string userId, string channelId, string videoId, CancellationToken ct)
+    {
+        await OwnedChannelAsync(userId, channelId, ct).ConfigureAwait(false);
+        var analysis = await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false);
+        return analysis?.Lookups.FirstOrDefault(l => l.VideoId == videoId);
+    }
+
+    /// <summary>
+    /// Reads one video by its id: its public counters, and - for one of this channel's own videos, when the channel allows
+    /// Analytics - its lifetime totals and how it did day by day. Kept with the analysis; asked again within
+    /// <see cref="LookupFresh"/> it is answered from what was kept unless <paramref name="fresh"/>.
+    /// </summary>
+    public async Task<YouTubeVideoLookup> LookupAsync(string userId, string channelId, string videoId, bool fresh, CancellationToken ct)
+    {
+        if (!YouTubeRelatedVideos.IsVideoId(videoId))
+            throw new YouTubeAnalysisException("video-link-invalid", "That isn't a YouTube video link.");
+
+        var channel = await OwnedChannelAsync(userId, channelId, ct).ConfigureAwait(false);
+        var analysis = await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false)
+                       ?? new YouTubeChannelAnalysis { Id = $"yca_{Guid.NewGuid():n}", UserId = userId, ChannelId = channelId, ChannelTitle = channel.ChannelTitle };
+        var now = Now;
+
+        var kept = analysis.Lookups.FirstOrDefault(l => l.VideoId == videoId);
+        if (!fresh && kept is not null && now - kept.LookedUpAtUtc < LookupFresh)
+            return kept;
+
+        if (!oauth.IsConfigured)
+            throw new YouTubeAnalysisException("youtube-not-configured", "YouTube isn't set up on this server.");
+        if (channel.NeedsReconnect)
+            throw new YouTubeAnalysisException("youtube-reconnect", "YouTube access for this channel has expired or was removed. Connect the channel again.");
+
+        YouTubeVideoLookup lookup;
+        try
+        {
+            var token = await connections.GetAccessTokenAsync(userId, channelId, ct).ConfigureAwait(false);
+            var details = await videos.GetVideoAsync(token, videoId, ct).ConfigureAwait(false)
+                          ?? throw new YouTubeAnalysisException("video-not-found", "YouTube has no video with that link that this channel can see.");
+            (await stats.GetVideosAsync([videoId], token, ct).ConfigureAwait(false)).TryGetValue(videoId, out var counters);
+
+            lookup = new YouTubeVideoLookup
+            {
+                VideoId = videoId,
+                Title = details.Title,
+                ChannelId = details.ChannelId,
+                Own = string.Equals(details.ChannelId, channelId, StringComparison.Ordinal),
+                PublishedAtUtc = details.ScheduledAt is { } at && at > now ? null : details.PublishedAt,
+                DurationSeconds = details.DurationSeconds,
+                Privacy = details.PrivacyStatus,
+                ThumbnailUrl = details.ThumbnailUrl,
+                Views = counters?.Views,
+                Likes = counters?.Likes,
+                Comments = counters?.Comments,
+                Tags = [.. details.Tags.Take(12)],
+                LookedUpAtUtc = now
+            };
+
+            if (!lookup.Own)
+                lookup.AnalyticsNote = "This video is on another channel. YouTube shares watch time and subscribers only with a channel's owner, so its public numbers are shown.";
+            else if (!channel.CanReadAnalytics)
+                lookup.AnalyticsNote = "Connect this channel again and allow \"View YouTube Analytics reports\" to see subscribers gained, watch time and when it was watched.";
+            else if (lookup.PublishedAtUtc is { } published)
+            {
+                var today = DateOnly.FromDateTime(now);
+                var start = DateOnly.FromDateTime(published);
+                try
+                {
+                    lookup.Analytics = (await analytics.GetVideoTotalsAsync([videoId], start, today, token, ct).ConfigureAwait(false))
+                        .GetValueOrDefault(videoId) ?? new YouTubeVideoAnalytics();
+                    var dailyFrom = start < today.AddDays(-(MaxVideoDailyDays - 1)) ? today.AddDays(-(MaxVideoDailyDays - 1)) : start;
+                    lookup.Daily = [.. await analytics.GetDailyAsync(videoId, dailyFrom, today, token, ct).ConfigureAwait(false)];
+                }
+                catch (YouTubePublishException ex)
+                {
+                    logger.LogInformation("Couldn't read YouTube Analytics for a looked-up video on channel {ChannelId}: {Code}", channelId, ex.Code);
+                    lookup.AnalyticsNote = ex.Message;
+                }
+            }
+        }
+        catch (YouTubePublishException ex)
+        {
+            throw new YouTubeAnalysisException(ex.Code, ex.Message);
+        }
+
+        // An own video that is also in the list gets the fresher numbers there too.
+        if (lookup.Own && analysis.Videos.FirstOrDefault(v => v.VideoId == videoId) is { } listed)
+        {
+            listed.Views = lookup.Views ?? listed.Views;
+            listed.Likes = lookup.Likes ?? listed.Likes;
+            listed.Comments = lookup.Comments ?? listed.Comments;
+            listed.Analytics = lookup.Analytics ?? listed.Analytics;
+        }
+
+        analysis.Lookups = [lookup, .. analysis.Lookups.Where(l => l.VideoId != videoId).Take(MaxLookups - 1)];
+        analysis.UpdatedAtUtc = now;
+        await analyses.UpsertAsync(analysis, ct).ConfigureAwait(false);
+        return lookup;
+    }
+
+    /// <summary>Forgets a looked-up video. Nothing happens when it was not kept.</summary>
+    public async Task RemoveLookupAsync(string userId, string channelId, string videoId, CancellationToken ct)
+    {
+        await OwnedChannelAsync(userId, channelId, ct).ConfigureAwait(false);
+        var analysis = await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false);
+        if (analysis is null || analysis.Lookups.RemoveAll(l => l.VideoId == videoId) == 0) return;
+        analysis.UpdatedAtUtc = Now;
+        await analyses.UpsertAsync(analysis, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -225,7 +383,8 @@ public sealed class YouTubeChannelAnalysisService(
         return new YouTubeChannelAnalysisView(
             channel,
             analysis,
-            analysis is null ? null : YouTubeChannelAnalyzer.Insights(analysis, now),
+            // A record made only to keep a lookup has no numbers read yet: no insights to show from it.
+            analysis is null || analysis.FetchedAtUtc == default ? null : YouTubeChannelAnalyzer.Insights(analysis, now),
             oauth.IsConfigured && !channel.NeedsReconnect && (next is null || next <= now),
             next is { } at && at > now ? DateTime.SpecifyKind(at, DateTimeKind.Utc) : null);
     }

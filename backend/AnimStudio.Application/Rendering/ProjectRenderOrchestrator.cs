@@ -16,7 +16,8 @@ namespace AnimStudio.Application.Rendering;
 
 public sealed record RenderSettings(
     int KenBurnsSupersample, int MouthFlapHz, string SubtitleFontName, int SubtitleFontSize,
-    TimeSpan LeaseDuration, EncoderProfile? Delivery = null, string IntermediatePreset = "ultrafast");
+    TimeSpan LeaseDuration, EncoderProfile? Delivery = null, string IntermediatePreset = "ultrafast",
+    int MaxConcurrentScenes = 1);
 
 /// <summary>
 /// Runs one render job from claim to published MP4.
@@ -114,17 +115,18 @@ public sealed class ProjectRenderOrchestrator(
             var deliveryProfile = settings.Delivery ?? EncoderProfile.Default;
             var sceneEncoder = deliveryProfile.ForIntermediate(settings.IntermediatePreset);
 
-            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
+            var concurrency = Math.Clamp(settings.MaxConcurrentScenes, 1, 6);
             using var throttle = new SemaphoreSlim(concurrency);
+            using var sceneCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
             var renderedArray = new MergeSceneInput[sceneList.Count];
             var completedCount = 0;
 
             var sceneTasks = Enumerable.Range(0, sceneList.Count).Select(async index =>
             {
-                await throttle.WaitAsync(token).ConfigureAwait(false);
+                await throttle.WaitAsync(sceneCancellation.Token).ConfigureAwait(false);
                 try
                 {
-                    token.ThrowIfCancellationRequested();
+                    sceneCancellation.Token.ThrowIfCancellationRequested();
 
                     var scene = sceneList[index];
                     var subtitlePath = await WriteSubtitlesAsync(
@@ -139,10 +141,15 @@ public sealed class ProjectRenderOrchestrator(
                     plan = plan with { Encoder = sceneEncoder };
 
                     var result = await renderer
-                        .RenderSceneAsync(plan, workspace, reporter, token).ConfigureAwait(false);
+                        .RenderSceneAsync(plan, workspace, reporter, sceneCancellation.Token).ConfigureAwait(false);
 
                     renderedArray[index] = new MergeSceneInput(result.RelativePath, result.Frames, scene.Transition);
                     reporter.SceneCompleted(Interlocked.Increment(ref completedCount));
+                }
+                catch
+                {
+                    sceneCancellation.Cancel();
+                    throw;
                 }
                 finally
                 {
@@ -305,6 +312,7 @@ public sealed class ProjectRenderOrchestrator(
         foreach (var scene in sceneList)
         {
             if (!string.IsNullOrEmpty(scene.BackgroundAssetId)) ids.Add(scene.BackgroundAssetId);
+            if (!string.IsNullOrEmpty(scene.TalkingBackgroundAssetId) && scene.Mouths.Count > 0) ids.Add(scene.TalkingBackgroundAssetId);
             if (!string.IsNullOrEmpty(scene.Audio.AssetId)) ids.Add(scene.Audio.AssetId!);
         }
 

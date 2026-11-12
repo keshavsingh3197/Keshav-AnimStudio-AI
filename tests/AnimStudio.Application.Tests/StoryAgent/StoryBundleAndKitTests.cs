@@ -74,6 +74,33 @@ public class StoryBundleBuilderTests
     }
 
     [Fact]
+    public void A_talking_picture_carries_its_open_mouth_version_next_to_its_mouths()
+    {
+        var script = StorySamples.Script();
+        script.Cast = [new StoryCastMember { Name = "Masterji" }];
+        script.Scenes[0].Lines = [new StoryLine { Speaker = "Masterji", Text = "Pappu, look here at the board!" }];
+        var media = SceneMedia(script, withAudio: false);
+        var open = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x47 };
+        media[0] = media[0] with
+        {
+            Faces = [new StoryFace { Name = "Masterji", X = 0.4, Y = 0.5, Width = 0.2 }],
+            TalkingImage = new StoryBundleTalkingImage(open, "image/jpeg")
+        };
+        // A picture with nobody talking in it gets no open-mouth version even if one is offered.
+        media[1] = media[1] with { TalkingImage = new StoryBundleTalkingImage(open, "image/jpeg") };
+
+        var output = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions(), "Story", media, null);
+        var data = WorkbookReader.Read(output.Bundle.Workbook);
+
+        Assert.Empty(data.Errors);
+        Assert.StartsWith("Masterji:", data.Scenes[0].Text("Mouths"));
+        Assert.Equal("media/talk-s01.jpg", data.Scenes[0].Text("TalkingBackground"));
+        Assert.Equal(open, output.Bundle.Media["media/talk-s01.jpg"].Content);
+        Assert.Null(data.Scenes[1].Text("TalkingBackground"));
+        Assert.DoesNotContain("media/talk-s02.jpg", output.Bundle.Media.Keys);
+    }
+
+    [Fact]
     public void A_scene_with_a_moving_clip_plays_it_without_ken_burns_and_keeps_the_picture_as_an_asset()
     {
         var script = StorySamples.Script();

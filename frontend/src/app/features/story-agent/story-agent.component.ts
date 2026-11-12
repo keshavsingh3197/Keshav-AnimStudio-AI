@@ -235,9 +235,12 @@ export class StoryAgentComponent {
   private destroyed = false;
 
   constructor() {
-    // `?title=&notes=&format=` - an idea from the channel analysis or a series, to start a story from.
+    // `?title=&notes=&format=&genre=&lang=` - an idea from the channel analysis or a series, to start a story from.
+    // The genre is applied first, since picking one resets the language, length and shape to its own.
     const query = inject(ActivatedRoute).snapshot.queryParamMap;
     const format = query.get('format');
+    const genreId = query.get('genre');
+    const lang = query.get('lang');
     if (query.get('title')) this.title.set(query.get('title')!.slice(0, 160));
     if (query.get('notes')) this.notes.set(query.get('notes')!.slice(0, 2000));
     // `?tab=new|stories` opens that half; an idea to start from opens a new story.
@@ -249,6 +252,9 @@ export class StoryAgentComponent {
       next: (caps) => {
         this.caps.set(caps);
         this.applyDefaults(caps);
+        const wanted = genreId ? caps.genres?.find((g) => g.id === genreId) : undefined;
+        if (wanted) this.setGenre(wanted);
+        if (lang === 'en' || lang === 'hi') this.language.set(lang);
         if (format === 'Wide' || format === 'Vertical') this.format.set(format);
       },
       error: (failure: unknown) => this.capsError.set(failure instanceof ApiFailure ? failure.message : 'The Story Agent could not be reached.'),

@@ -292,7 +292,7 @@
                        (load)="onPictureLoad(scene.number, $event)" (click)="placeAt(scene, $event)" />
                   @for (face of facesOf(scene.number) ?? []; track face.name) {
                     <span class="se-face" [style.left.%]="markAt(scene.number, face).left" [style.top.%]="markAt(scene.number, face).top"
-                          [title]="face.name + (face.manual ? ' (placed by you)' : ' (found)') + ': their mouth moves while they talk'">
+                          [title]="face.name + (face.manual ? ' (placed by you)' : ' (found)') + ': mouth position; it talks here while they speak'">
                       {{ face.name.charAt(0) }}
                     </span>
                   }
@@ -326,19 +326,19 @@
                   <div class="muted se-art-note">{{ note }}</div>
                 }
                 @if (speakersOf(scene).length > 0 && hasPicture(scene.number) && !hasClip(scene.number)) {
-                  <div class="se-faces" role="group" [attr.aria-label]="'Talking faces in scene ' + (i + 1)">
-                    <span class="muted">Talking:</span>
+                  <div class="se-faces" role="group" [attr.aria-label]="'Speaker mouth positions in scene ' + (i + 1)">
+                    <span class="muted">Mouth positions:</span>
                     @for (name of speakersOf(scene); track name) {
                       <span class="se-face-chip" [class.se-face-missing]="facesOf(scene.number) !== null && !faceFor(scene.number, name)">
                         <button type="button" class="link small" [disabled]="locked() || busy() || dirty()"
                                 [attr.aria-pressed]="placing()?.scene === scene.number && placing()?.name === name"
                                 (click)="startPlacing(scene, name)"
-                                [title]="'Click, then click the mouth of ' + name + ' on the picture'">
+                                [title]="'Click, then mark the mouth position of ' + name + ' on the picture'">
                           {{ name }}{{ faceFor(scene.number, name) ? ' ✓' : facesOf(scene.number) !== null ? ' (not found)' : '' }}
                         </button>
                         @if (faceFor(scene.number, name)) {
                           <button type="button" class="icon" [disabled]="locked() || busy() || dirty()" (click)="removeFace(scene, name)"
-                                  [title]="name + ' does not talk in this picture'" [attr.aria-label]="name + ' does not talk in this picture'">✕</button>
+                                  [title]="'Remove ' + name + '\'s saved mouth position'" [attr.aria-label]="'Remove ' + name + '\'s saved mouth position'">✕</button>
                         }
                       </span>
                     }
@@ -348,11 +348,11 @@
                   </div>
                   <div class="muted se-art-note">
                     @if (placing()?.scene === scene.number) {
-                      Click {{ placing()!.name }}'s mouth on the picture.
+                      Click {{ placing()!.name }}'s mouth position on the picture. The open-mouth picture is redrawn on the next build.
                     } @else if (facesOf(scene.number) === null) {
-                      Their faces are found when you build, and their mouths move while they speak.
+                      Gemini finds these mouths when you build and draws them open, so they talk in the video.
                     } @else {
-                      Their mouths move while they speak. Wrong place? Click a name, then the mouth.
+                      The mouth opens and closes here while that character speaks. Wrong place? Click a name, then the mouth.
                     }
                   </div>
                 }

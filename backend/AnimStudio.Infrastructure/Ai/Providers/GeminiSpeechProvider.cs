@@ -44,9 +44,11 @@ public sealed partial class GeminiSpeechProvider(
     ILogger<GeminiSpeechProvider> logger,
     TimeProvider? clock = null)
     : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider,
-      IImageReadingProvider
+      IImageReadingProvider, IImageEditingProvider
 {
     private const string DefaultReadingModel = "gemini-3.8-flash";
+    /// <summary>Gemini 2.5 Flash Image ("Nano Banana"): edits a picture and keeps the rest of it, a few cents a picture.</summary>
+    internal const string DefaultEditingModel = "gemini-2.5-flash-image";
     private const int MaxReadImageBytes = 15 * 1024 * 1024;
     private const int MaxReadPromptLength = 8_000;
     private const int MaxReadAnswerLength = 20_000;
@@ -425,6 +427,64 @@ public sealed partial class GeminiSpeechProvider(
         return answer.ToString();
     }
 
+    /// <summary>
+    /// <c>generateContent</c> on an image model with the picture inline and only an image asked back. The first inline
+    /// image part is returned once its bytes are sniffed to be a picture and fit the limit; any text the model adds is
+    /// ignored.
+    /// </summary>
+    public async Task<AiEditedImage> EditImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct)
+    {
+        if (image is not { Length: > 0 } || image.Length > MaxReadImageBytes)
+            throw new AiProviderException("bad-request", "The picture is empty or too large to redraw.");
+        if (mimeType is not ("image/png" or "image/jpeg" or "image/webp"))
+            throw new AiProviderException("bad-request", "Only PNG, JPEG and WebP pictures can be redrawn.");
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > MaxReadPromptLength)
+            throw new AiProviderException("bad-request", "The instruction for the picture is empty or too long.");
+
+        model = string.IsNullOrWhiteSpace(model) ? DefaultEditingModel : model.Trim();
+        if (!IsSafePathValue(model, allowSlashes: false, maxLength: 64))
+            throw new AiProviderException("bad-request", "That model name can't be used.");
+
+        var body = new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new object[]
+                    {
+                        new { inline_data = new { mime_type = mimeType, data = Convert.ToBase64String(image) } },
+                        new { text = prompt }
+                    }
+                }
+            },
+            generationConfig = new { responseModalities = new[] { "IMAGE" } }
+        };
+
+        using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
+
+        if (ReadInlineData(response.RootElement, "image/") is not { } inline)
+            throw new AiProviderException("empty-response", $"'{Id.Value}' did not send a picture back.");
+
+        // Base64 is four characters for every three bytes, so the text alone says whether it is too large.
+        if (inline.Data.Length / 4L * 3 > MaxReadImageBytes)
+            throw new AiProviderException("response-too-large", $"'{Id.Value}' sent back a picture larger than is allowed.");
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(inline.Data);
+        }
+        catch (FormatException)
+        {
+            throw new AiProviderException("invalid-response", $"'{Id.Value}' sent back a picture that could not be read.");
+        }
+
+        var sniffed = AiImageValidator.Sniff(bytes)
+            ?? throw new AiProviderException("invalid-response", $"'{Id.Value}' sent back something that is not a PNG, JPEG or WebP.");
+        return new AiEditedImage(bytes, sniffed, model);
+    }
+
     /// <summary>The first <c>{"type":"audio","data":"…"}</c> block, wherever the revision of the API nests it.</summary>
     private static string? FindAudio(JsonElement element, int depth)
     {
@@ -682,7 +742,13 @@ public sealed partial class GeminiSpeechProvider(
         Property(element, snake, camel) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
 
     /// <summary>The first inline audio part of the first candidate, in either casing.</summary>
-    private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root)
+    private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root) => ReadInlineData(root, null);
+
+    /// <summary>
+    /// The first inline part of the first candidate, in either casing, whose mime type starts with
+    /// <paramref name="mimePrefix"/> (any part when null).
+    /// </summary>
+    private static (string Data, string? MimeType)? ReadInlineData(JsonElement root, string? mimePrefix)
     {
         if (!root.TryGetProperty("candidates", out var candidates) ||
             candidates.ValueKind != JsonValueKind.Array ||
@@ -700,8 +766,11 @@ public sealed partial class GeminiSpeechProvider(
 
             if (Property(part, "inline_data", "inlineData") is not { } inline) continue;
 
+            var mime = StringOf(inline, "mime_type", "mimeType");
+            if (mimePrefix is not null && mime?.StartsWith(mimePrefix, StringComparison.OrdinalIgnoreCase) != true) continue;
+
             if (StringOf(inline, "data", "data") is { Length: > 0 } value)
-                return (value, StringOf(inline, "mime_type", "mimeType"));
+                return (value, mime);
         }
 
         return null;

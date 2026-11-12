@@ -337,6 +337,57 @@ public class GeminiSpeechProviderTests
         Assert.Equal("Instrumental sitar, no vocals.", sent.GetProperty("input").GetString());
     }
 
+    private static byte[] Png()
+    {
+        var png = new byte[256];
+        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(png, 0);
+        return png;
+    }
+
+    [Fact]
+    public async Task Redrawing_a_picture_asks_for_an_image_only_and_returns_the_image_part()
+    {
+        var (provider, handler) = Build();
+        var edited = Png();
+        handler.RespondJson($$"""
+            { "candidates": [ { "content": { "parts": [
+                { "text": "Here is your picture." },
+                { "inlineData": { "mimeType": "image/png", "data": "{{Convert.ToBase64String(edited)}}" } } ] } } ] }
+            """);
+
+        var result = await provider.EditImageAsync(Png(), "image/png", "Open the mouth.", null, CancellationToken.None);
+
+        Assert.Equal(edited, result.Content);
+        Assert.Equal("image/png", result.MimeType);
+        Assert.Equal("gemini-2.5-flash-image", result.Model);
+        Assert.Equal(BaseUrl + "models/gemini-2.5-flash-image:generateContent", handler.Requests[0].RequestUri!.ToString());
+        var sent = handler.Sent();
+        Assert.Equal("IMAGE", sent.GetProperty("generationConfig").GetProperty("responseModalities")[0].GetString());
+        Assert.Equal("Open the mouth.", sent.GetProperty("contents")[0].GetProperty("parts")[1].GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task A_redraw_that_sends_no_picture_or_not_a_picture_is_refused()
+    {
+        var (provider, handler) = Build();
+        handler.RespondJson("""{ "candidates": [ { "content": { "parts": [ { "text": "I can't." } ] } } ] }""");
+        var none = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.EditImageAsync(Png(), "image/png", "Open the mouth.", null, CancellationToken.None));
+        Assert.Equal("empty-response", none.Code);
+
+        handler.RespondJson($$"""
+            { "candidates": [ { "content": { "parts": [
+                { "inlineData": { "mimeType": "image/png", "data": "{{Convert.ToBase64String(new byte[300])}}" } } ] } } ] }
+            """);
+        var junk = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.EditImageAsync(Png(), "image/png", "Open the mouth.", null, CancellationToken.None));
+        Assert.Equal("invalid-response", junk.Code);
+
+        var bad = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.EditImageAsync(Png(), "image/png", "Open the mouth.", "../evil", CancellationToken.None));
+        Assert.Equal("bad-request", bad.Code);
+    }
+
     [Fact]
     public async Task Music_that_is_missing_or_not_audio_is_refused()
     {

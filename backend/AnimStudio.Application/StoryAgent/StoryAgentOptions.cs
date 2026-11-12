@@ -26,6 +26,15 @@ public sealed class StoryAgentOptions
     /// <summary>The most runs the list and the storyboard show at once, newest first.</summary>
     public int MaxListedRuns { get; set; } = 300;
 
+    /// <summary>The Gemini image model that draws each talking picture's open-mouth version.</summary>
+    public const string DefaultTalkingFaceModel = "gemini-2.5-flash-image";
+
+    /// <summary>
+    /// The Gemini image model that draws the open-mouth version of a picture with someone speaking (one request per
+    /// picture, kept for as long as the picture is). Change it here when Google renames its image models.
+    /// </summary>
+    public string TalkingFaceModel { get; set; } = DefaultTalkingFaceModel;
+
     public WikisourceOptions Wikisource { get; set; } = new();
 
     public StoryBudgetOptions Budget { get; set; } = new();

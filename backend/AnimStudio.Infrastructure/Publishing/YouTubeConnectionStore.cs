@@ -20,7 +20,9 @@ public sealed record YouTubeConnectionStatus(
     DateTime? LastUploadAt,
     bool NeedsReconnect,
     /// <summary>False for a channel connected before comment permission was asked for; reconnecting fixes it.</summary>
-    bool CanComment = false);
+    bool CanComment = false,
+    /// <summary>False for a channel connected before analytics permission was asked for; reconnecting fixes it.</summary>
+    bool CanReadAnalytics = false);
 
 /// <summary>A connected channel whose details couldn't be re-read from YouTube, and why (safe to show).</summary>
 public sealed record YouTubeRefreshFailure(string ChannelId, string ChannelTitle, string Reason);
@@ -340,7 +342,7 @@ public sealed partial class YouTubeConnectionStore(
 
     private static YouTubeConnectionStatus Describe(YouTubeChannelConnection c) =>
         new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl, c.ConnectedAt, c.LastUploadAt, c.RevokedAt is not null,
-        YouTubeOAuthClient.AllowsComments(c.Scopes));
+        YouTubeOAuthClient.AllowsComments(c.Scopes), YouTubeOAuthClient.AllowsAnalytics(c.Scopes));
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 

@@ -121,6 +121,21 @@ public interface IImageReadingProvider : IAiProvider
     Task<string> ReadImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct);
 }
 
+/// <summary>
+/// A hosted engine on the same Google key that redraws a picture from an instruction (Gemini's image models) - used to
+/// make the open-mouth version of a story picture, so a character painted into it can talk with real artwork.
+/// </summary>
+public interface IImageEditingProvider : IAiProvider
+{
+    /// <summary>
+    /// <paramref name="image"/> redrawn as <paramref name="prompt"/> asks, with <paramref name="model"/> (the engine's
+    /// default when null). The bytes are checked to be a PNG, JPEG or WebP before they are returned.
+    /// </summary>
+    Task<AiEditedImage> EditImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct);
+}
+
+public sealed record AiEditedImage(byte[] Content, string MimeType, string Model);
+
 public interface ITranscriptionProvider : IAiProvider
 {
     Task<AiTranscriptionResult> TranscribeAsync(AiTranscriptionRequest request, CancellationToken ct);

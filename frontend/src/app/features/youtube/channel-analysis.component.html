@@ -65,6 +65,18 @@
       @if (c.fetchError) {
         <div class="notice warn" role="status">{{ c.fetchError }}</div>
       }
+      @if (!c.needsReconnect && !c.canReadAnalytics) {
+        <div class="ca-unlock" role="status">
+          <span class="ca-unlock-i" aria-hidden="true">🔓</span>
+          <div>
+            <strong>Unlock subscribers gained, watch time and retention per video</strong>
+            <p class="ca-hint">This channel was connected before the app asked to read YouTube Analytics. <a routerLink="/youtube">Connect it again</a>, allow
+              “View YouTube Analytics reports”, then press Refresh numbers here.</p>
+          </div>
+        </div>
+      } @else if (c.analyticsError) {
+        <div class="notice warn" role="status">{{ c.analyticsError }} The public numbers below are still current.</div>
+      }
 
       @if (c.insights; as i) {
         <div class="ca-tiles" role="list" aria-label="At a glance">
@@ -110,6 +122,163 @@
             <strong>{{ i.daysSinceLastUpload ?? '–' }}</strong>
             <span>days since the last</span>
           </div>
+          @if (dailyChart(); as dc) {
+            <div class="ca-tile" role="listitem">
+              <span class="ca-tile-i" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+              </span>
+              <strong [class.ca-up]="dc.net > 0" [class.ca-down]="dc.net < 0">{{ dc.net > 0 ? '+' : '' }}{{ dc.net | number }}</strong>
+              <span>subscribers, last {{ c.daily.length }} days</span>
+            </div>
+          }
+        </div>
+
+        <!-- What to do next: when, and what -->
+        <div class="ca-grid ca-grid-top">
+          @if (nextUpload(); as nu) {
+            <section class="ca-card ca-next" [class.ready]="nu.ready" aria-labelledby="ca-next-title">
+              <div class="ca-next-head">
+                <h3 id="ca-next-title">🗓️ When to upload next</h3>
+                <span class="ca-status" [class.ready]="nu.ready">{{ nu.ready ? '✓ Good to upload' : '⏳ Wait' }}</span>
+              </div>
+
+              <div class="ca-next-main">
+                @if (nu.ready) {
+                  <p class="ca-next-big">Now is fine — best slot <strong>{{ nu.slot | date: 'EEE d MMM, h a' }}</strong></p>
+                } @else {
+                  <p class="ca-next-big">
+                    Give the last upload
+                    <strong>{{ nu.waitDays > 0 ? nu.waitDays + (nu.waitDays === 1 ? ' day ' : ' days ') : '' }}{{ nu.waitHours }} h</strong> more
+                  </p>
+                  <p class="ca-hint">Next upload from <strong>{{ nu.earliest | date: 'EEE d MMM, h:mm a' }}</strong>; best slot <strong>{{ nu.slot | date: 'EEE d MMM, h a' }}</strong>.</p>
+                }
+                <p class="ca-hint">
+                  Last upload: “{{ nu.rhythm.lastUploadTitle }}” ({{ nu.lastAgeDays === 0 ? 'today' : nu.lastAgeDays + (nu.lastAgeDays === 1 ? ' day ago' : ' days ago') }}{{ nu.rhythm.lastIsShort ? ', a Short' : '' }}).
+                  @if (nu.rhythm.lastIsHot) { <span class="ca-chip ca-chip-hit">🔥 doing better than usual</span> }
+                </p>
+                <p class="ca-why">{{ nu.rhythm.reason }}</p>
+              </div>
+
+              @if (nu.buckets.length > 1) {
+                <div class="ca-gaps" role="list" aria-label="How videos did by the gap since the upload before">
+                  <p class="ca-hint">How videos did by the gap since the one before (1× = a typical video of its kind)</p>
+                  @for (b of nu.buckets; track b.label) {
+                    <div class="ca-bar-row" role="listitem" [class.ca-muted]="!b.trusted" [title]="b.videos + ' videos' + (b.trusted ? '' : ' - too few to trust')">
+                      <span>{{ b.label }} <small>({{ b.videos }})</small></span>
+                      <div class="ca-bar"><div class="ca-bar-fill" [class.ca-bar-best]="b.best" [style.width.%]="b.pct"></div></div>
+                      <strong>{{ b.medianScore | number: '1.0-2' }}×</strong>
+                    </div>
+                  }
+                </div>
+              }
+
+              <div class="ca-next-what">
+                <h4>What to make</h4>
+                <p>
+                  <span class="ca-tag" [class.short]="nu.format.kind === 'short'">{{ nu.format.kind === 'short' ? 'Short' : nu.format.kind === 'long' ? 'Video' : 'Either' }}</span>
+                  {{ nu.format.why }}
+                </p>
+                @if (i.top[0]; as hit) {
+                  <p class="ca-hint">Safest topic: a follow-up to “{{ hit.title }}” ({{ hit.viewsPerDay | number: '1.0-0' }} views a day).</p>
+                  <div class="ca-pick-actions">
+                    <button type="button" class="ca-btn" (click)="followUp(hit)">Make its Part 2 →</button>
+                    <button type="button" class="ca-ghost" (click)="openVideo(hit)">See how it did</button>
+                  </div>
+                }
+              </div>
+            </section>
+          }
+
+          <!-- Look up any video by its link -->
+          <section class="ca-card ca-lookup" id="ca-lookup" aria-labelledby="ca-lookup-title">
+            <h3 id="ca-lookup-title">🔎 Look up a video</h3>
+            <p class="ca-hint">Paste any YouTube link. Your own videos show subscribers gained, watch time and how they did day by day; others' show their public numbers. Looked-up videos are kept here.</p>
+            <form class="ca-goal-row" (submit)="$event.preventDefault(); lookUp()">
+              <input type="url" inputmode="url" maxlength="2048" placeholder="https://youtu.be/… or https://www.youtube.com/shorts/…" aria-label="YouTube video link"
+                     [value]="lookupLink()" (input)="lookupLink.set(text($event))" />
+              <button type="submit" class="ca-btn" [disabled]="lookupBusy()">
+                @if (lookupBusy()) { <span class="spinner" aria-hidden="true"></span> }
+                Look up
+              </button>
+            </form>
+            @if (lookupError(); as le) { <p class="ca-error" role="alert">{{ le }}</p> }
+
+            @if (c.lookups.length > 0) {
+              <div class="ca-recent" aria-label="Looked up before">
+                @for (k of c.lookups.slice(0, 8); track k.videoId) {
+                  <span class="ca-recent-item" [class.on]="lookup()?.videoId === k.videoId">
+                    <button type="button" (click)="openKept(k)" [title]="k.title">{{ k.own ? '' : '↗ ' }}{{ k.title }}</button>
+                    <button type="button" class="ca-x" (click)="forget(k)" [attr.aria-label]="'Remove ' + k.title">×</button>
+                  </span>
+                }
+              </div>
+            }
+
+            @if (lookup(); as lv) {
+              <div class="ca-lv" aria-live="polite">
+                <div class="ca-lv-head">
+                  @if (lv.thumbnailUrl) { <img class="ca-pick-thumb" [src]="lv.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> }
+                  <div class="ca-pick-main">
+                    <a [href]="lv.url" target="_blank" rel="noopener noreferrer" class="ca-pick-title">{{ lv.title }}</a>
+                    <span class="ca-hint">
+                      @if (lv.publishedAtUtc) { Uploaded {{ lv.publishedAtUtc | date: 'EEE d MMM y, h:mm a' }} · } @else { Not public yet · }
+                      {{ lv.isShort ? 'Short' : 'Video' }} · {{ length(lv.durationSeconds) }}{{ lv.own ? '' : ' · another channel' }}
+                    </span>
+                    <span class="ca-hint">Read {{ lv.lookedUpAtUtc | date: 'short' }} · <button type="button" class="ca-link" [disabled]="lookupBusy()" (click)="lookupLink.set(lv.url); lookUp(true)">read again</button></span>
+                  </div>
+                </div>
+
+                <div class="ca-pick-stats">
+                  <div><strong>{{ lv.views === null ? '–' : (lv.views | number) }}</strong><span>views</span></div>
+                  <div><strong>{{ lv.viewsPerDay | number: '1.0-1' }}</strong><span>views a day</span></div>
+                  <div><strong>{{ lv.likes === null ? '–' : (lv.likes | number) }}</strong><span>likes</span></div>
+                  <div><strong>{{ lv.comments === null ? '–' : (lv.comments | number) }}</strong><span>comments</span></div>
+                  @if (lookupVsTypical(); as d) {
+                    <div [class.up]="d > 0" [class.down]="d < 0"><strong>{{ d > 0 ? '+' : '' }}{{ d }}%</strong><span>vs your typical {{ lv.isShort ? 'Short' : 'video' }}</span></div>
+                  }
+                  @if (lv.analytics; as a) {
+                    <div class="up"><strong>+{{ a.subscribersGained | number }}</strong><span>subscribers ({{ a.subscribersLost | number }} left)</span></div>
+                    <div><strong>{{ a.averageViewPercent | number: '1.0-1' }}%</strong><span>watched on average</span></div>
+                    <div><strong>{{ length(a.averageViewSeconds) }}</strong><span>average view</span></div>
+                    <div><strong>{{ a.watchMinutes / 60 | number: '1.0-1' }}</strong><span>watch hours</span></div>
+                    <div><strong>{{ a.shares | number }}</strong><span>shares</span></div>
+                  }
+                </div>
+                @if (lv.analyticsNote) { <p class="ca-hint ca-note">ℹ️ {{ lv.analyticsNote }}</p> }
+
+                @if (lookupChart(); as lc) {
+                  <div class="ca-lv-facts">
+                    <span>📈 Best day: <strong>{{ lc.peak.day | date: 'EEE d MMM' }}</strong> ({{ lc.peak.views | number }} views, {{ lc.peakAfterDays === 0 ? 'the day it went up' : lc.peakAfterDays + ' days after upload' }})</span>
+                    @if (lc.first7Share !== null) { <span>⚡ {{ lc.first7Share }}% of its views came in the first week</span> }
+                    @if (lc.trend !== null) {
+                      <span [class.ca-up]="lc.trend > 0" [class.ca-down]="lc.trend < 0">{{ lc.trend >= 10 ? '🚀 Still growing' : lc.trend <= -10 ? '📉 Slowing' : '➖ Steady' }}: {{ lc.trend > 0 ? '+' : '' }}{{ lc.trend }}% this week against last</span>
+                    }
+                  </div>
+                  <div class="ca-trend-wrap">
+                    <span class="ca-axis ca-axis-top">{{ lc.max | number: '1.0-0' }}</span>
+                    <span class="ca-axis ca-axis-bottom">0</span>
+                    <div class="ca-trend ca-trend-dense" role="group" aria-label="Views each day">
+                      @for (b of lc.bars; track b.point.day) {
+                        <button type="button" class="ca-trend-bar" [class.short]="lv.isShort" [class.on]="b.point.day === pickedLookupDay()" [style.height.%]="b.pct"
+                                [attr.aria-label]="b.point.day + ': ' + b.point.views + ' views'" [title]="(b.point.day | date: 'EEE d MMM') + ' · ' + (b.point.views | number) + ' views · +' + b.point.subscribersGained + ' subscribers'"
+                                (click)="pickedLookupDay.set(pickedLookupDay() === b.point.day ? null : b.point.day)"></button>
+                      }
+                    </div>
+                  </div>
+                  <div class="ca-trend-dates"><span>{{ lc.from | date: 'mediumDate' }}</span><span>Views each day</span><span>{{ lc.to | date: 'mediumDate' }}</span></div>
+                  @if (pickedLookupBar(); as pb) {
+                    <p class="ca-hint ca-picked-day">{{ pb.point.day | date: 'EEEE d MMM y' }}: <strong>{{ pb.point.views | number }}</strong> views · {{ pb.point.watchMinutes / 60 | number: '1.0-1' }} watch hours · +{{ pb.point.subscribersGained }} / −{{ pb.point.subscribersLost }} subscribers</p>
+                  }
+                }
+
+                <div class="ca-pick-actions">
+                  <a [href]="lv.url" target="_blank" rel="noopener noreferrer" class="ca-ghost">Open on YouTube ↗</a>
+                  <button type="button" class="ca-ghost" (click)="followUp(lv)">Make a Part 2</button>
+                  <button type="button" class="ca-ghost" (click)="lookup.set(null)">Close</button>
+                </div>
+              </div>
+            }
+          </section>
         </div>
 
         <div class="ca-grid">
@@ -142,6 +311,64 @@
                   </div>
                 }
               </div>
+            </section>
+          }
+
+          @if (hours(); as hs) {
+            <section class="ca-card" aria-label="Views by publishing time">
+              <h3>By publishing time</h3>
+              <p class="ca-hint">Typical views a day by the time uploads went out (your clock)</p>
+              <div class="ca-days">
+                @for (h of hs; track h.hour) {
+                  <div class="ca-day" [class.best]="h.best" [title]="h.range + ': ' + h.count + ' uploads, ' + (h.median | number: '1.0-1') + ' views a day'">
+                    <em>{{ h.count === 0 ? '' : (h.median | number: '1.0-0') }}</em>
+                    <div class="ca-day-bar"><div class="ca-day-fill" [style.height.%]="h.pct"></div></div>
+                    <span>{{ h.label }}</span><small>{{ h.count }}</small>
+                  </div>
+                }
+              </div>
+            </section>
+          }
+
+          @if (dailyChart(); as dc) {
+            <section class="ca-card ca-card-wide" aria-label="The channel day by day">
+              <div class="ca-trend-head">
+                <div>
+                  <h3>Last {{ c.daily.length }} days: {{ dailyMetric() === 'subs' ? 'subscribers gained' : 'views' }} each day</h3>
+                  <p class="ca-hint">
+                    +{{ dc.gained | number }} subscribers, −{{ dc.lost | number }} left · {{ dc.views | number }} views.
+                    ▲ marks a day a video went up — see which uploads moved the numbers. Tap a bar for that day.
+                  </p>
+                </div>
+                <div class="ca-filter" role="group" aria-label="Show">
+                  <button type="button" [class.active]="dailyMetric() === 'subs'" [attr.aria-pressed]="dailyMetric() === 'subs'" (click)="dailyMetric.set('subs')">Subscribers</button>
+                  <button type="button" [class.active]="dailyMetric() === 'views'" [attr.aria-pressed]="dailyMetric() === 'views'" (click)="dailyMetric.set('views')">Views</button>
+                </div>
+              </div>
+              <div class="ca-trend-wrap">
+                <span class="ca-axis ca-axis-top">{{ dc.max | number: '1.0-0' }}</span>
+                <span class="ca-axis ca-axis-bottom">0</span>
+                <div class="ca-trend ca-trend-dense" role="group" aria-label="Days">
+                  @for (b of dc.bars; track b.point.day) {
+                    <button type="button" class="ca-trend-bar ca-daily-bar" [class.has-upload]="b.uploads.length > 0" [class.on]="b.point.day === pickedDay()" [style.height.%]="b.pct"
+                            [attr.aria-label]="b.point.day + ': ' + b.value + (b.uploads.length ? ', ' + b.uploads.length + ' upload' : '')"
+                            [title]="(b.point.day | date: 'EEE d MMM') + ' · ' + (b.value | number) + (dailyMetric() === 'subs' ? ' subscribers' : ' views') + (b.uploads.length ? ' · ▲ ' + b.uploads[0].title : '')"
+                            (click)="pickedDay.set(pickedDay() === b.point.day ? null : b.point.day)"></button>
+                  }
+                </div>
+                <div class="ca-marks" aria-hidden="true">
+                  @for (b of dc.bars; track b.point.day) { <i [class.on]="b.uploads.length > 0">{{ b.uploads.length > 0 ? '▲' : '' }}</i> }
+                </div>
+              </div>
+              <div class="ca-trend-dates"><span>{{ dc.from | date: 'mediumDate' }}</span><span>{{ dc.to | date: 'mediumDate' }}</span></div>
+              @if (pickedDailyBar(); as pd) {
+                <div class="ca-pick-day" aria-live="polite">
+                  <p><strong>{{ pd.point.day | date: 'EEEE d MMM y' }}</strong>: {{ pd.point.views | number }} views · +{{ pd.point.subscribersGained }} / −{{ pd.point.subscribersLost }} subscribers · {{ pd.point.watchMinutes / 60 | number: '1.0-1' }} watch hours</p>
+                  @for (u of pd.uploads; track u.videoId) {
+                    <p class="ca-hint">▲ Uploaded: <button type="button" class="ca-link" (click)="openVideo(u)">{{ u.title }}</button></p>
+                  }
+                </div>
+              }
             </section>
           }
 
@@ -189,8 +416,13 @@
                       @if (pickedVsTypical(); as d) {
                         <div [class.up]="d > 0" [class.down]="d < 0"><strong>{{ d > 0 ? '+' : '' }}{{ d }}%</strong><span>vs typical</span></div>
                       }
+                      @if (pv.analytics; as a) {
+                        <div class="up"><strong>+{{ a.subscribersGained | number }}</strong><span>subscribers</span></div>
+                        <div><strong>{{ a.averageViewPercent | number: '1.0-1' }}%</strong><span>watched</span></div>
+                      }
                     </div>
                     <div class="ca-pick-actions">
+                      <button type="button" class="ca-ghost" (click)="openVideo(pv)">How it did day by day</button>
                       <a [href]="pv.url" target="_blank" rel="noopener noreferrer" class="ca-ghost">Open on YouTube ↗</a>
                       <button type="button" class="ca-ghost" (click)="findInTable(pv)">Show in table</button>
                       <button type="button" class="ca-ghost" (click)="followUp(pv)">Make a Part 2</button>
@@ -286,7 +518,17 @@
             }
 
             @if (rep.ideas.length > 0) {
-              <h4 class="ca-sub-h">Video ideas</h4>
+              <div class="ca-ideas-head">
+                <h4 class="ca-sub-h">Video ideas</h4>
+                @if (genres().length > 0) {
+                  <label class="ca-size">Make them as
+                    <select [value]="ideaGenre()" (change)="setIdeaGenre(text($event))" aria-label="Kind of story the ideas are made as">
+                      <option value="" [selected]="ideaGenre() === ''">Story Agent's default</option>
+                      @for (g of genres(); track g.id) { <option [value]="g.id" [selected]="g.id === ideaGenre()">{{ g.name }}</option> }
+                    </select>
+                  </label>
+                }
+              </div>
               <ul class="ca-ideas">
                 @for (idea of rep.ideas; track $index) {
                   <li class="ca-idea">
@@ -305,16 +547,34 @@
         <div class="ca-two">
           @if (i.top.length > 0) {
             <section class="ca-card" aria-labelledby="ca-top">
-              <h3 id="ca-top">🔥 Doing best for their age</h3>
+              <h3 id="ca-top">🔥 Best videos</h3>
+              <div class="ca-filter ca-filter-wrap" role="group" aria-label="Rank by">
+                <button type="button" [class.active]="bestBy() === 'age'" [attr.aria-pressed]="bestBy() === 'age'" (click)="bestBy.set('age')">For their age</button>
+                <button type="button" [class.active]="bestBy() === 'views'" [attr.aria-pressed]="bestBy() === 'views'" (click)="bestBy.set('views')">Most views</button>
+                @if (hasAnalytics()) {
+                  <button type="button" [class.active]="bestBy() === 'subs'" [attr.aria-pressed]="bestBy() === 'subs'" (click)="bestBy.set('subs')">Most subscribers</button>
+                  <button type="button" [class.active]="bestBy() === 'retention'" [attr.aria-pressed]="bestBy() === 'retention'" (click)="bestBy.set('retention')">Most watched</button>
+                }
+                <button type="button" [class.active]="bestBy() === 'engagement'" [attr.aria-pressed]="bestBy() === 'engagement'" (click)="bestBy.set('engagement')">Engagement</button>
+              </div>
               <ol class="ca-rank">
-                @for (v of i.top; track v.videoId) {
+                @for (b of best(); track b.video.videoId) {
                   <li>
                     <div class="ca-rank-main">
-                      <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
-                      <span class="ca-hint">{{ v.viewsPerDay | number: '1.0-1' }} views a day · {{ v.views | number }} views{{ v.isShort ? ' · Short' : '' }}</span>
+                      <a [href]="b.video.url" target="_blank" rel="noopener noreferrer">{{ b.video.title }}</a>
+                      <span class="ca-hint">
+                        {{ b.video.viewsPerDay | number: '1.0-1' }} views a day · {{ b.video.views | number }} views
+                        @if (b.video.analytics; as a) { · +{{ a.subscribersGained | number }} subs · {{ a.averageViewPercent | number: '1.0-0' }}% watched }
+                        · {{ b.video.publishedAtUtc | date: 'EEE d MMM y' }}{{ b.video.isShort ? ' · Short' : '' }}
+                      </span>
                     </div>
-                    <button type="button" class="ca-ghost" (click)="followUp(v)">Part 2</button>
+                    <div class="ca-rank-actions">
+                      <button type="button" class="ca-ghost" (click)="openVideo(b.video)" title="How it did day by day">Details</button>
+                      <button type="button" class="ca-ghost" (click)="followUp(b.video)">Part 2</button>
+                    </div>
                   </li>
+                } @empty {
+                  <li class="ca-hint">No videos with these numbers yet.</li>
                 }
               </ol>
             </section>
@@ -330,6 +590,7 @@
                       <a [href]="v.url" target="_blank" rel="noopener noreferrer">{{ v.title }}</a>
                       <span class="ca-hint">{{ v.viewsPerDay | number: '1.0-1' }} views a day · {{ v.views | number }} views</span>
                     </div>
+                    <button type="button" class="ca-ghost" (click)="openVideo(v)" title="How it did day by day">Details</button>
                   </li>
                 }
               </ol>
@@ -365,6 +626,10 @@
                   <th scope="col" class="ca-num">Likes</th>
                   <th scope="col" class="ca-num">Comments</th>
                   <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'engagement' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('engagement')">Engagement{{ arrow('engagement') }}</button></th>
+                  @if (hasAnalytics()) {
+                    <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'subs' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('subs')" title="Subscribers gained from this video">Subs +{{ arrow('subs') }}</button></th>
+                    <th scope="col" class="ca-num" [attr.aria-sort]="sortKey() === 'retention' ? (sortDesc() ? 'descending' : 'ascending') : 'none'"><button type="button" class="ca-sort" (click)="sortBy('retention')" title="Average share of the video watched">% watched{{ arrow('retention') }}</button></th>
+                  }
                 </tr>
               </thead>
               <tbody>
@@ -381,6 +646,7 @@
                             }
                             @if (v.isShort) { <span class="ca-chip">Short</span> }
                             @if (v.privacy !== 'public') { <span class="ca-chip">{{ v.privacy ?? 'unknown' }}</span> }
+                            <button type="button" class="ca-chip ca-chip-btn" (click)="openVideo(v)" title="How it did day by day">Details</button>
                           </div>
                         </div>
                       </div>
@@ -392,9 +658,13 @@
                     <td class="ca-num" data-label="Likes">{{ v.likes === null ? '–' : (v.likes | number) }}</td>
                     <td class="ca-num" data-label="Comments">{{ v.comments === null ? '–' : (v.comments | number) }}</td>
                     <td class="ca-num" data-label="Engagement">{{ v.engagement === null ? '–' : (v.engagement | number: '1.0-2') + '%' }}</td>
+                    @if (hasAnalytics()) {
+                      <td class="ca-num" data-label="Subs +">{{ v.analytics ? '+' + (v.analytics.subscribersGained | number) : '–' }}</td>
+                      <td class="ca-num" data-label="% watched">{{ v.analytics ? (v.analytics.averageViewPercent | number: '1.0-0') + '%' : '–' }}</td>
+                    }
                   </tr>
                 } @empty {
-                  <tr class="ca-empty-row"><td colspan="8" class="ca-none">No videos match.</td></tr>
+                  <tr class="ca-empty-row"><td [attr.colspan]="hasAnalytics() ? 10 : 8" class="ca-none">No videos match.</td></tr>
                 }
               </tbody>
             </table>
@@ -428,8 +698,9 @@
       }
 
       <p class="ca-hint ca-foot">
-        The numbers come from the YouTube Data API: views, likes, comments, lengths and dates. Watch time, retention and
-        click-through are only in YouTube Studio's Analytics, so the advice points you there for those.
+        Views, likes, comments, lengths and dates come from the YouTube Data API; subscribers gained, watch time and the share
+        watched from YouTube Analytics, when the channel allows it. Thumbnail click-through rate and impressions are only in
+        YouTube Studio — YouTube does not share them with apps — so check those there.
       </p>
     }
   }

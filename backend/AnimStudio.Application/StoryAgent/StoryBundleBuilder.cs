@@ -38,9 +38,16 @@ public sealed record StoryBundleScene(
     /// <summary>A funny ending played for a moment straight after the scene; null for none.</summary>
     public StoryBundleMeme? Meme { get; init; }
 
-    /// <summary>The speakers' faces in the scene's own picture, whose mouths move while they talk.</summary>
+    /// <summary>Speaker mouth anchors in the scene's still picture.</summary>
     public IReadOnlyList<StoryFace> Faces { get; init; } = [];
+
+    /// <summary>The scene's picture with the speakers' mouths open, which the renderer blends in while they talk; null for none.</summary>
+    public StoryBundleTalkingImage? TalkingImage { get; init; }
 }
+
+/// <summary>The open-mouth version of a picture: the same picture with each speaker's mouth open mid-word.</summary>
+/// <param name="Faces">The speakers' faces in this picture, which an image model may have framed differently from the original.</param>
+public sealed record StoryBundleTalkingImage(byte[] Content, string Mime, IReadOnlyList<StoryFace>? Faces = null);
 
 /// <summary>A meme from the owner's library, ready to play after a scene.</summary>
 /// <param name="Content">An MP4 clip, or a PNG, JPEG or WebP still.</param>
@@ -53,6 +60,9 @@ public sealed record StoryBundleShot(byte[] Image, string ImageMime, string Imag
 {
     /// <summary>The speakers' faces in this picture.</summary>
     public IReadOnlyList<StoryFace> Faces { get; init; } = [];
+
+    /// <summary>This picture with the speakers' mouths open; null for none.</summary>
+    public StoryBundleTalkingImage? TalkingImage { get; init; }
 }
 
 /// <param name="ContentType"><c>audio/mpeg</c> or <c>audio/wav</c>.</param>
@@ -267,6 +277,22 @@ public static class StoryBundleBuilder
                 durationFrames.Add(length);
                 transitionFrames.Add(overlap);
 
+                // The picture's mouths, and its open-mouth version when someone in it talks during this part.
+                var openImage = isClip ? null : p == 0 ? scene.TalkingImage : shots[p - 1].TalkingImage;
+                var mouthsCell = isClip ? string.Empty
+                    : MouthsCell(p == 0 ? scene.Faces : shots[p - 1].Faces, talking, Seconds(part.From), Seconds(part.To + part.Overlap),
+                        openImage?.Faces);
+                string? talkingPath = null;
+                if (mouthsCell.Length > 0 && openImage is { } open)
+                {
+                    var talkName = p == 0 ? $"talk-{key}" : $"talk-{key}-{p + 1}";
+                    talkingPath = AddMedia(media, talkName, ImageExtension(open.Mime), open.Content, open.Mime, AssetKind.Image);
+                    assetTable.Add(Row(WorkbookSchema.Assets,
+                        ("Name", talkName), ("File", talkingPath), ("Kind", nameof(AssetKind.Image)),
+                        ("License", nameof(LicenseClass.Unknown)),
+                        ("Attribution", "The scene's picture with the speakers' mouths open, redrawn by a Gemini image model (AI).")));
+                }
+
                 sceneTable.Add(Row(WorkbookSchema.Scenes,
                     ("SceneNumber", number),
                     ("Title", Truncate(parts.Count == 1 ? story.Headline : $"{story.Headline} ({p + 1}/{parts.Count})", 200)),
@@ -279,8 +305,8 @@ public static class StoryBundleBuilder
                     ("TransitionSeconds", (cutToMeme ? 0 : lastPart ? transition : Seconds(overlap)).ToString("0.00", CultureInfo.InvariantCulture)),
                     ("Audio", audioPaths[p] ?? string.Empty),
                     ("BackgroundAudio", isClip && scene.VideoHasAudio && options.KeepClipAudio ? "TRUE" : "FALSE"),
-                    ("Mouths", isClip ? string.Empty
-                        : MouthsCell(p == 0 ? scene.Faces : shots[p - 1].Faces, talking, Seconds(part.From), Seconds(part.To + part.Overlap)))));
+                    ("Mouths", mouthsCell),
+                    ("TalkingBackground", talkingPath ?? string.Empty)));
 
                 // The subtitles under this picture, timed from its start. One the cut falls inside is shown on both sides of it.
                 var from = Seconds(part.From);
@@ -373,8 +399,13 @@ public static class StoryBundleBuilder
     /// of its story scene: each face in it whose character talks then, with the talking timed from the picture's start.
     /// Kept inside the cell's length by leaving out the last mouths, so it can never fail the import.
     /// </summary>
+    /// <param name="openFaces">
+    /// The same faces in the picture's open-mouth version, when it was framed differently; a face found there is told
+    /// where its open mouth is.
+    /// </param>
     public static string MouthsCell(
-        IReadOnlyList<StoryFace> faces, IReadOnlyDictionary<string, List<(double Start, double End)>> talking, double from, double to)
+        IReadOnlyList<StoryFace> faces, IReadOnlyDictionary<string, List<(double Start, double End)>> talking, double from, double to,
+        IReadOnlyList<StoryFace>? openFaces = null)
     {
         var mouths = new List<SceneMouth>();
         foreach (var face in faces)
@@ -393,7 +424,10 @@ public static class StoryBundleBuilder
                 .ToList();
             if (inside.Count == 0) continue;
 
-            mouths.Add(new SceneMouth { Name = face.Name, X = face.X, Y = face.Y, FaceWidth = face.Width, Windows = inside });
+            var mouth = new SceneMouth { Name = face.Name, X = face.X, Y = face.Y, FaceWidth = face.Width, Windows = inside };
+            if (openFaces?.FirstOrDefault(f => string.Equals(f.Name, face.Name, StringComparison.OrdinalIgnoreCase)) is { } open)
+                (mouth.OpenX, mouth.OpenY, mouth.OpenFaceWidth) = (open.X, open.Y, open.Width);
+            mouths.Add(mouth);
         }
 
         var rate = new FrameRate(FramesPerSecond, 1);
