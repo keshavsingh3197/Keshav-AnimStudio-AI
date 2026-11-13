@@ -258,6 +258,7 @@ public static class DependencyInjection
         services.Configure<EncryptionOptions>(configuration.GetSection(EncryptionOptions.Section));
         services.AddSingleton<DataProtector>();
         services.AddSingleton(sp => new Lazy<DataProtector>(sp.GetRequiredService<DataProtector>));
+        services.AddSingleton<CentralAdminSecretsProvider>();
         services.AddScoped<IAiCredentialStore, AiCredentialStore>();
         services.AddScoped<IAiSettingsStore, AiSettingsStore>();
 
@@ -333,14 +334,18 @@ public static class DependencyInjection
         services.AddSingleton(sp => new YouTubeAudienceService(
             sp.GetRequiredService<IOptionsMonitor<YouTubeDataOptions>>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILogger<YouTubeAudienceService>>()));
+            sp.GetRequiredService<ILogger<YouTubeAudienceService>>(),
+            handler: null,
+            sp.GetRequiredService<CentralAdminSecretsProvider>()));
 
         // Publish to YouTube: per-user connected channels (encrypted refresh tokens) and
         // resumable uploads that run in the background.
         services.Configure<YouTubePublishOptions>(configuration.GetSection(YouTubePublishOptions.Section));
         services.AddSingleton(sp => new YouTubeOAuthClient(
             sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
-            sp.GetRequiredService<ILogger<YouTubeOAuthClient>>()));
+            sp.GetRequiredService<ILogger<YouTubeOAuthClient>>(),
+            handler: null,
+            sp.GetRequiredService<CentralAdminSecretsProvider>()));
         services.AddSingleton(sp => new YouTubeVideoUploader(
             sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
             sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
@@ -409,7 +414,9 @@ public static class DependencyInjection
         services.AddSingleton<IMusicCatalog>(sp => new JamendoMusicCatalog(
             sp.GetRequiredService<IOptionsMonitor<MusicLibraryOptions>>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILogger<JamendoMusicCatalog>>()));
+            sp.GetRequiredService<ILogger<JamendoMusicCatalog>>(),
+            handler: null,
+            sp.GetRequiredService<CentralAdminSecretsProvider>()));
 
         services.AddScoped<ProjectRenderOrchestrator>();
 

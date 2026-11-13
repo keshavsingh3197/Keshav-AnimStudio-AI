@@ -5,6 +5,7 @@ using System.Security.Authentication;
 using System.Text.Json;
 using AnimStudio.Application.Abstractions.Music;
 using AnimStudio.Application.Music;
+using AnimStudio.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -32,21 +33,23 @@ public sealed class JamendoMusicCatalog : IMusicCatalog, IDisposable
     private readonly IOptionsMonitor<MusicLibraryOptions> _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<JamendoMusicCatalog> _logger;
+    private readonly CentralAdminSecretsProvider? _centralSecrets;
     private readonly HttpClient _http;
     private readonly ConcurrentDictionary<string, (DateTime Expires, MusicSearchPage Page)> _cache = new(StringComparer.Ordinal);
 
     public JamendoMusicCatalog(IOptionsMonitor<MusicLibraryOptions> options, TimeProvider clock, ILogger<JamendoMusicCatalog> logger)
-        : this(options, clock, logger, null)
+        : this(options, clock, logger, null, null)
     {
     }
 
     /// <summary>Tests pass a handler; production builds one with TLS 1.2+ and no automatic redirects.</summary>
     public JamendoMusicCatalog(IOptionsMonitor<MusicLibraryOptions> options, TimeProvider clock, ILogger<JamendoMusicCatalog> logger,
-        HttpMessageHandler? handler)
+        HttpMessageHandler? handler, CentralAdminSecretsProvider? centralSecrets = null)
     {
         _options = options;
         _clock = clock;
         _logger = logger;
+        _centralSecrets = centralSecrets;
         _http = new HttpClient(handler ?? new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
@@ -61,7 +64,20 @@ public sealed class JamendoMusicCatalog : IMusicCatalog, IDisposable
 
     public string ProviderId => Provider;
 
-    public bool IsConfigured => _options.CurrentValue.IsConfigured;
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(ResolveClientId());
+
+    private string? ResolveClientId()
+    {
+        var local = _options.CurrentValue.JamendoClientId?.Trim();
+        return !string.IsNullOrEmpty(local) ? local : _centralSecrets?.GetJamendoClientId();
+    }
+
+    private async Task<string?> ResolveClientIdAsync(CancellationToken ct)
+    {
+        var local = _options.CurrentValue.JamendoClientId?.Trim();
+        if (!string.IsNullOrEmpty(local)) return local;
+        return _centralSecrets is null ? null : await _centralSecrets.GetJamendoClientIdAsync(ct).ConfigureAwait(false);
+    }
 
     public async Task<MusicSearchPage> SearchAsync(MusicSearchQuery query, CancellationToken ct)
     {
@@ -163,14 +179,14 @@ public sealed class JamendoMusicCatalog : IMusicCatalog, IDisposable
 
     private async Task<JsonDocument> GetTracksAsync(IEnumerable<KeyValuePair<string, string>> filters, CancellationToken ct)
     {
-        var options = _options.CurrentValue;
-        if (!options.IsConfigured)
+        var clientId = await ResolveClientIdAsync(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(clientId))
             throw new MusicCatalogException("music-not-configured",
-                "Music search isn't set up on this server. Ask an admin to set Music:JamendoClientId.");
+                "Music search isn't set up on this server. Configure Jamendo Client ID in Central Admin or set Music:JamendoClientId.");
 
         var query = new List<KeyValuePair<string, string>>
         {
-            new("client_id", options.JamendoClientId!.Trim()),
+            new("client_id", clientId),
             new("format", "json"),
             new("include", "musicinfo licenses"),
             new("audioformat", "mp32"),

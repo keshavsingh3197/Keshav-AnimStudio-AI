@@ -3,6 +3,7 @@ using System.Text;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Domain.Ai;
+using AnimStudio.Infrastructure.Settings;
 using KeshavSingh.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -39,7 +40,8 @@ public sealed class AiCredentialStore(
     IConfiguration configuration,
     IAiSecretResolver resolver,
     TimeProvider clock,
-    ILogger<AiCredentialStore> logger) : IAiCredentialStore
+    ILogger<AiCredentialStore> logger,
+    CentralAdminSecretsProvider? centralSecrets = null) : IAiCredentialStore
 {
     /// <summary>
     /// Where a host-supplied key is read from, e.g. <c>Ai:Secrets:groq</c>, which in
@@ -76,6 +78,13 @@ public sealed class AiCredentialStore(
 
                 return null;
             }
+        }
+
+        if (centralSecrets is not null)
+        {
+            var centralKey = NormalizeOrNull(
+                await centralSecrets.GetAiProviderKeyAsync(provider.Value, ct).ConfigureAwait(false));
+            if (centralKey is not null) return centralKey;
         }
 
         return NormalizeOrNull(configuration[$"{SecretsSection}:{provider.Value}"]);
@@ -143,6 +152,16 @@ public sealed class AiCredentialStore(
         var stored = await repository.GetAsync(provider.Value, ct).ConfigureAwait(false);
         if (stored is not null) return Describe(stored);
 
+        var fromCentral = centralSecrets is null
+            ? null
+            : NormalizeOrNull(await centralSecrets.GetAiProviderKeyAsync(provider.Value, ct).ConfigureAwait(false));
+        if (fromCentral is not null)
+        {
+            return new AiCredentialStatus(
+                provider.Value, AiCredentialSource.Configuration,
+                Fingerprint(fromCentral), Last4(fromCentral), null, null);
+        }
+
         var fromConfiguration = NormalizeOrNull(configuration[$"{SecretsSection}:{provider.Value}"]);
 
         return fromConfiguration is null
@@ -156,6 +175,22 @@ public sealed class AiCredentialStore(
     {
         var stored = await repository.ListAsync(ct).ConfigureAwait(false);
         var byProvider = stored.ToDictionary(c => c.ProviderId, Describe, StringComparer.Ordinal);
+
+        if (centralSecrets is not null)
+        {
+            var centralKeys = await centralSecrets.GetAllAiProviderKeysAsync(ct).ConfigureAwait(false);
+            foreach (var entry in centralKeys)
+            {
+                if (byProvider.ContainsKey(entry.Key)) continue;
+
+                var value = NormalizeOrNull(entry.Value);
+                if (value is null) continue;
+
+                byProvider[entry.Key] = new AiCredentialStatus(
+                    entry.Key, AiCredentialSource.Configuration,
+                    Fingerprint(value), Last4(value), null, null);
+            }
+        }
 
         // Host-supplied keys are listed too, so the admin screen shows every provider that
         // actually has a key rather than only the ones set through the UI.
