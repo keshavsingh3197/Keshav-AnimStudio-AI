@@ -9,8 +9,9 @@ import { Subject, Subscription, catchError, concatMap, from, map, mergeMap, of, 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { BrandChannel } from '../../core/models/api.models';
 import { YouTubeChannel, YouTubePublishStatus } from '../../core/models/youtube.models';
-import { AdminSettingsService, ChannelBranding, ChannelPublishSettings, STUDIO_BRANDING } from '../../core/services/admin-settings.service';
+import { AdminSettingsService, ChannelBranding, ChannelPublishSettings } from '../../core/services/admin-settings.service';
 import { ApiService } from '../../core/services/api.service';
+import { EcosystemConfigService } from '../../core/services/ecosystem-config.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { AdminIconComponent } from './admin-channel-kit';
 import { copyText, fold, isTypingTarget, messageOf, plural, readStored, safePicture, writeStored } from './admin-channel-utils';
@@ -87,6 +88,7 @@ const LIST_STEP = 40;
 export class AdminPublishingComponent implements OnInit, OnDestroy {
   private readonly admin = inject(AdminSettingsService);
   private readonly api = inject(ApiService);
+  readonly ecosystem = inject(EcosystemConfigService);
   private readonly youtube = inject(YouTubePublishService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -152,6 +154,15 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
   readonly studioSaving = signal(false);
   readonly studioSavedAt = signal<Date | null>(null);
   readonly studioOpen = signal(false);
+  readonly syncingCentral = signal(false);
+  readonly centralSyncMessage = signal<string | null>(null);
+  readonly retiredUrlsText = signal('');
+  readonly retiredNamesText = signal('');
+  readonly aliasesSaving = signal(false);
+  private readonly _ecoInit = (() => {
+    this.ecosystem.ensureLoaded();
+    return true;
+  })();
   readonly bulkPhase = signal<BulkPhase>('pick');
   readonly bulkChoice = signal<BulkChoice>(NO_BULK);
   readonly bulkTargets = signal<ReadonlySet<string>>(new Set());
@@ -622,7 +633,14 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
   }
 
   useStudioPreset(): void {
-    this.patch({ branding: { ...STUDIO_BRANDING, hashtags: [...STUDIO_BRANDING.hashtags], tags: [...STUDIO_BRANDING.tags] } });
+    const o = this.ecosystem.studioBranding();
+    this.patch({
+      branding: {
+        ...o,
+        hashtags: [...(o.hashtags ?? [])],
+        tags: [...(o.tags ?? [])],
+      },
+    });
   }
 
   clearBranding(): void {
@@ -648,6 +666,8 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
   loadStudio(): void {
     this.studioState.set('loading');
     this.studioError.set(null);
+    this.retiredUrlsText.set(this.ecosystem.retiredChannelUrls().join(', '));
+    this.retiredNamesText.set(this.ecosystem.retiredChannelNames().join(', '));
     this.admin.studioBranding().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (b) => { this.applyStudio(b); this.studioState.set('idle'); },
       error: (e: unknown) => { this.studioState.set('error'); this.studioError.set(messageOf(e)); },
@@ -672,10 +692,51 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
   }
 
   useStudioDefaultsPreset(): void {
-    const o = STUDIO_BRANDING;
+    const o = this.ecosystem.studioBranding();
     this.patchStudio({
       tagline: o.tagline, studioUrl: o.studioUrl, creatorUrl: o.creatorUrl, creatorName: o.creatorName, engineName: o.engineName, visualsCredit: o.visualsCredit,
-      hashtags: [...o.hashtags], tags: [...o.tags],
+      hashtags: [...(o.hashtags ?? [])], tags: [...(o.tags ?? [])],
+    });
+  }
+
+  syncFromCentral(): void {
+    if (this.syncingCentral()) return;
+    this.syncingCentral.set(true);
+    this.centralSyncMessage.set(null);
+    this.actionError.set(null);
+    this.ecosystem.syncToAiSettings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (summary) => {
+        this.syncingCentral.set(false);
+        if (summary) {
+          this.retiredUrlsText.set(summary.retiredChannelUrls.join(', '));
+          this.retiredNamesText.set(summary.retiredChannelNames.join(', '));
+          this.centralSyncMessage.set(
+            `Synced ${summary.syncedChannelsCount} channel(s) from Central Admin (+${summary.createdBrandChannels} created, ${summary.updatedBrandChannels} updated).`
+          );
+          this.loadStudio();
+        }
+      },
+      error: (e: unknown) => {
+        this.syncingCentral.set(false);
+        this.actionError.set(messageOf(e));
+      },
+    });
+  }
+
+  saveRetiredAliases(): void {
+    if (this.aliasesSaving()) return;
+    this.aliasesSaving.set(true);
+    const urls = this.retiredUrlsText().split(',').map((s) => s.trim()).filter(Boolean);
+    const names = this.retiredNamesText().split(',').map((s) => s.trim()).filter(Boolean);
+    this.ecosystem.saveRetiredAliases(urls, names).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.aliasesSaving.set(false);
+        this.centralSyncMessage.set('Retired channel aliases saved.');
+      },
+      error: (e: unknown) => {
+        this.aliasesSaving.set(false);
+        this.actionError.set(messageOf(e));
+      },
     });
   }
 
@@ -695,6 +756,7 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
         this.studioSaving.set(false);
         this.applyStudio(b);
         this.studioSavedAt.set(new Date());
+        this.ecosystem.refresh().subscribe();
         this.liveMessage.set('Studio branding saved. Every channel’s blank branding fields now use it.');
       },
       error: (e: unknown) => { this.studioSaving.set(false); this.studioError.set(messageOf(e)); },

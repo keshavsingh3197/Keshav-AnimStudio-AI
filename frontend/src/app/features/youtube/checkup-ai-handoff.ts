@@ -22,42 +22,53 @@ export interface HandoffSettings {
    * import, so the AI is told to leave them out rather than write (and mistype) them.
    */
   brandAdded?: boolean;
+  /** Retired channel URLs configured by Admin in Central Admin / Studio settings. */
+  retiredUrls?: readonly string[];
+  /** Retired channel names/aliases configured by Admin in Central Admin / Studio settings. */
+  retiredNames?: readonly string[];
 }
 
 /**
- * Channel addresses used before the rename; YouTube no longer opens them. Mirrors the server's
- * YouTubeBrandKit.RetiredChannelUrls.
+ * Default fallback list is empty; live retired addresses come from Central Admin + Studio DB.
  */
-export const RETIRED_CHANNEL_URLS: readonly string[] = ['youtube.com/@omkr-shiv'];
+export const RETIRED_CHANNEL_URLS: readonly string[] = [];
 
 /**
- * Names the channel went by before the rename. Mirrors the server's YouTubeBrandKit.RetiredChannelNames;
- * search tags keep them on purpose, everything viewers read uses the current name.
+ * Default fallback list is empty; live retired aliases come from Central Admin + Studio DB.
  */
-export const RETIRED_CHANNEL_NAMES: readonly string[] = ['OMKR'];
+export const RETIRED_CHANNEL_NAMES: readonly string[] = [];
 
 /**
- * The channel's public address from its handle, or null when the handle isn't known - or is a
- * retired one still stored from before the rename (reconnecting the channel refreshes it).
+ * The channel's public address from its handle, or null when the handle isn't known - or matches
+ * a configured retired address.
  */
-export function channelUrlFor(handle: string | null | undefined): string | null {
+export function channelUrlFor(
+  handle: string | null | undefined,
+  retiredUrls: readonly string[] = RETIRED_CHANNEL_URLS
+): string | null {
   const h = (handle ?? '').trim().replace(/^@/, '');
   if (!/^[\p{L}\p{M}\p{N}._-]{1,100}$/u.test(h)) return null;
   const url = `https://youtube.com/@${h}`;
-  return hasRetiredLink(url) ? null : url;
+  return hasRetiredLink(url, retiredUrls) ? null : url;
 }
 
-/** Whether the text still links a retired channel address. */
-export function hasRetiredLink(text: string): boolean {
+/** Whether the text still links a configured retired channel address. */
+export function hasRetiredLink(text: string, retiredUrls: readonly string[] = RETIRED_CHANNEL_URLS): boolean {
+  if (!retiredUrls.length) return false;
   const lower = text.toLowerCase();
-  return RETIRED_CHANNEL_URLS.some((old) => lower.includes(old));
+  return retiredUrls.some((old) => !!old && lower.includes(old.toLowerCase()));
 }
 
 /** The text with every link to a retired channel address pointed at the current one. */
-export function replaceRetiredLinks(text: string, channelUrl: string | null): string {
-  if (!channelUrl) return text;
+export function replaceRetiredLinks(
+  text: string,
+  channelUrl: string | null,
+  retiredUrls: readonly string[] = RETIRED_CHANNEL_URLS
+): string {
+  if (!channelUrl || !retiredUrls.length) return text;
   let out = text;
-  for (const old of RETIRED_CHANNEL_URLS) {
+  for (const old of retiredUrls) {
+    if (!old) continue;
     const escaped = old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(`(https?://)?(www\\.)?${escaped}/?`, 'gi'), channelUrl);
   }
@@ -65,15 +76,19 @@ export function replaceRetiredLinks(text: string, channelUrl: string | null): st
 }
 
 /**
- * The text with retired names - as a hashtag or a word - written as the current name. Lookalikes
- * such as a handle, a link or "devotional-omkr" are left alone. Unchanged when the name isn't known.
+ * The text with retired names - as a hashtag or a word - written as the current name.
  */
-export function replaceRetiredNames(text: string, channelName: string | null | undefined): string {
+export function replaceRetiredNames(
+  text: string,
+  channelName: string | null | undefined,
+  retiredNames: readonly string[] = RETIRED_CHANNEL_NAMES
+): string {
   const name = (channelName ?? '').trim();
-  if (!name || RETIRED_CHANNEL_NAMES.some((old) => old.toLowerCase() === name.toLowerCase())) return text;
+  if (!name || !retiredNames.length || retiredNames.some((old) => old.toLowerCase() === name.toLowerCase())) return text;
   const hashtag = hashtagFor(name);
   let out = text;
-  for (const old of RETIRED_CHANNEL_NAMES) {
+  for (const old of retiredNames) {
+    if (!old) continue;
     const escaped = old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     if (hashtag) out = out.replace(new RegExp(`#${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, 'giu'), () => `#${hashtag}`);
     out = out.replace(new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_#@/.-])${escaped}(?![\\p{L}\\p{M}\\p{N}_-])`, 'giu'), () => name);
@@ -81,7 +96,7 @@ export function replaceRetiredNames(text: string, channelName: string | null | u
   return out;
 }
 
-/** The name as a hashtag body, the way the server builds it: "Omkar Shiv Bhakti" -> "OmkarShivBhakti". */
+/** The name as a hashtag body: "Channel Name" -> "ChannelName". */
 export function hashtagFor(name: string): string {
   return name.replace(/[^\p{L}\p{M}\p{N}_]+/gu, '').slice(0, 30);
 }
@@ -95,6 +110,8 @@ export function promptRules(settings: HandoffSettings, count: number): string[] 
   const url = settings.channelUrl;
   const channelTag = settings.channelTitle.replace(/[^\p{L}\p{M}\p{N}]/gu, '');
   const added = !!settings.brandAdded;
+  const retiredUrls = settings.retiredUrls ?? RETIRED_CHANNEL_URLS;
+  const retiredNames = settings.retiredNames ?? RETIRED_CHANNEL_NAMES;
   return [
     `You are writing YouTube details for ${count === 1 ? 'one video' : `${count} videos`} on the channel "${settings.channelTitle}"${url ? ` (${url})` : ''}.`,
     '',
@@ -110,8 +127,12 @@ export function promptRules(settings: HandoffSettings, count: number): string[] 
       : url ? `  Include the subscribe link ${url}.` : '',
     added
       ? '  If the current description ends with such a block (credits, links, "Subscribe", a footer), leave it out - it is replaced.'
-      : `  If the current description links ${RETIRED_CHANNEL_URLS.join(' or ')}, that address no longer works: ${url ? `use ${url} instead` : 'remove it'}.`,
-    `  The channel's name is "${settings.channelTitle}"; never call it ${RETIRED_CHANNEL_NAMES.map((n) => `"${n}"`).join(' or ')} or any older name.`,
+      : retiredUrls.length > 0
+        ? `  If the current description links ${retiredUrls.join(' or ')}, that address no longer works: ${url ? `use ${url} instead` : 'remove it'}.`
+        : '',
+    retiredNames.length > 0
+      ? `  The channel's name is "${settings.channelTitle}"; never call it ${retiredNames.map((n) => `"${n}"`).join(' or ')} or any older name.`
+      : `  Always refer to the channel consistently as "${settings.channelTitle}".`,
     added
       ? '  End with 3-5 topic hashtags on the last line; the channel\'s own hashtags (and #shorts for a Short) are added for you.'
       : `  End with 3-6 hashtags on the last line${channelTag ? `, including #${channelTag}` : ''}; for a YouTube Short also #shorts.`,

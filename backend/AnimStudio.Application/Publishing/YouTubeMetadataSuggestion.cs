@@ -389,9 +389,10 @@ public static class YouTubeFreeSeoEngine
         var brand = YouTubeBrandKit.Resolve(branding, toneId);
         var isHindi = string.Equals(language, "hi", StringComparison.OrdinalIgnoreCase);
         var isShort = style.Contains("Short", StringComparison.OrdinalIgnoreCase);
-        // The channel's own tone, or a video that names the channel - by its current name or the retired one.
+        // The channel's own tone, or a video that names the configured brand channel or a retired alias.
         var isBrandTone = string.Equals(toneId, "devotional-omkr", StringComparison.OrdinalIgnoreCase)
-                     || summary.Contains("Omkar Shiv", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(toneId, "devotional-brand", StringComparison.OrdinalIgnoreCase)
+                     || (!string.IsNullOrWhiteSpace(brand.ChannelName) && summary.Contains(brand.ChannelName, StringComparison.OrdinalIgnoreCase))
                      || YouTubeBrandKit.RetiredChannelNames.Any(old =>
                          summary.Contains(old, StringComparison.OrdinalIgnoreCase) || (brief?.Contains(old, StringComparison.OrdinalIgnoreCase) ?? false));
         var isDevotional = isBrandTone
@@ -474,8 +475,8 @@ public static class YouTubeFreeSeoEngine
                 "Jai Shree Shyam 🙏 Hare Ka Sahara Baba Shyam Hamara",
                 "ॐ श्री श्याम देवाय नमः ✨\nहारे का सहारा, बाबा श्याम हमारा!",
                 "कलियुग के अवतारी खाटू श्याम जी की कृपा से हर भक्त के दुख दूर होते हैं।",
-                "#KhatuShyam #JaiShreeShyam #ShyamBaba #BhaktiShorts #OmkarShivBhakti #Shorts",
-                "#KhatuShyam #JaiShreeShyam #ShyamBhajan #DevotionalShorts #OmkarShivBhakti #Shorts",
+                "#KhatuShyam #JaiShreeShyam #ShyamBaba #BhaktiShorts #Bhakti #Shorts",
+                "#KhatuShyam #JaiShreeShyam #ShyamBhajan #DevotionalShorts #Bhakti #Shorts",
                 ["khatu shyam", "jai shree shyam", "khatu shyam bhajan", "shyam baba status", "hare ka sahara"]);
         }
 
@@ -494,8 +495,8 @@ public static class YouTubeFreeSeoEngine
                 "Jai Mata Di ❤️🙏",
                 "सर्वमंगल मांगल्ये शिवे सर्वार्थ साधिके।\nशरण्ये त्र्यम्बके गौरि नारायणि नमोऽस्तु ते॥ 🙏",
                 "माँ जगदम्बा आपके जीवन में सुख, शांति और समृद्धि का आशीर्वाद प्रदान करें।",
-                "#JaiMataDi #MaaDurga #MataRani #NavratriSpecial #OmkarShivBhakti #Shorts",
-                "#JaiMataDi #MaaDurga #DeviBhajan #DevotionalShorts #OmkarShivBhakti #Shorts",
+                "#JaiMataDi #MaaDurga #MataRani #NavratriSpecial #Bhakti #Shorts",
+                "#JaiMataDi #MaaDurga #DeviBhajan #DevotionalShorts #Bhakti #Shorts",
                 ["jai mata di", "maa durga bhajan", "mata rani status", "devi bhakti song", "shakti animation"]);
         }
 
@@ -511,8 +512,8 @@ public static class YouTubeFreeSeoEngine
                 "Jai Shree Ram 🚩 Jai Bajrangbali 🙏",
                 "मनोजवं मारुततुल्यवेगं जितेन्द्रियं बुद्धिमतां वरिष्ठम्।\nवातात्मजं वानरयूथमुख्यं श्रीरामदूतं शरणं प्रपद्ये॥ 🙏",
                 "संकटमोचन हनुमान जी आपके सभी संकटों का नाश करें और बल-बुद्धि प्रदान करें।",
-                "#JaiBajrangbali #HanumanJi #JaiShreeRam #HanumanBhajan #OmkarShivBhakti #Shorts",
-                "#HanumanJi #JaiBajrangbali #JaiShreeRam #DevotionalShorts #OmkarShivBhakti #Shorts",
+                "#JaiBajrangbali #HanumanJi #JaiShreeRam #HanumanBhajan #Bhakti #Shorts",
+                "#HanumanJi #JaiBajrangbali #JaiShreeRam #DevotionalShorts #Bhakti #Shorts",
                 ["jai bajrangbali", "hanuman bhajan", "hanuman chalisa", "sankat mochan", "balaji status"]);
         }
 
@@ -529,8 +530,8 @@ public static class YouTubeFreeSeoEngine
                 "Radhe Radhe ❤️ Jai Shree Krishna 🙏",
                 "हरे कृष्ण हरे कृष्ण, कृष्ण कृष्ण हरे हरे।\nहरे राम हरे राम, राम राम हरे हरे॥ 🪈",
                 "श्री राधा-कृष्ण के पावन प्रेम और भक्ति में डूब जाएं।",
-                "#RadheRadhe #JaiShreeKrishna #KrishnaBhajan #BhaktiShorts #OmkarShivBhakti #Shorts",
-                "#RadheRadhe #KrishnaBhajan #RadhaKrishna #DevotionalShorts #OmkarShivBhakti #Shorts",
+                "#RadheRadhe #JaiShreeKrishna #KrishnaBhajan #BhaktiShorts #Bhakti #Shorts",
+                "#RadheRadhe #KrishnaBhajan #RadhaKrishna #DevotionalShorts #Bhakti #Shorts",
                 ["radhe radhe", "jai shree krishna", "krishna bhajan", "radha krishna status", "vrindavan bhakti"]);
         }
 
@@ -541,8 +542,8 @@ public static class YouTubeFreeSeoEngine
             "Har Har Mahadev 🔱🙏 Jai Mata Di ❤️",
             "कर्पूरगौरं करुणावतारं संसारसारं भुजगेन्द्रहारम्।\nसदावसन्तं हृदयारविन्दे भवं भवानीसहितं नमामि॥ 🔱",
             "भोलेनाथ और माता पार्वती की असीम कृपा आप और आपके परिवार पर सदैव बनी रहे।",
-            "#HarHarMahadev #Bholenath #Mahakal #ShivBhajan #OmkarShivBhakti #Shorts",
-            "#HarHarMahadev #LordShiva #MahadevStatus #ShivBhajan #OmkarShivBhakti #Shorts",
+            "#HarHarMahadev #Bholenath #Mahakal #ShivBhajan #Bhakti #Shorts",
+            "#HarHarMahadev #LordShiva #MahadevStatus #ShivBhajan #Bhakti #Shorts",
             ["har har mahadev", "om namah shivaya", "bholenath bhajan", "mahadev 3d animation", "shiv tandav", "mahakal status"]);
     }
 

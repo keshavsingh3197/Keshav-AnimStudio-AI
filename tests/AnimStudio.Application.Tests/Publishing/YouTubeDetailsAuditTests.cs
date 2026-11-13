@@ -2,6 +2,7 @@ using AnimStudio.Application.Publishing;
 
 namespace AnimStudio.Application.Tests.Publishing;
 
+[Collection("YouTubeBrandKitRuntime")]
 public class YouTubeDetailsAuditTests
 {
     private static YouTubeDetailsFacts Complete() => new(
@@ -41,8 +42,16 @@ public class YouTubeDetailsAuditTests
     [Fact]
     public void A_link_to_the_retired_channel_address_is_flagged()
     {
-        Assert.Contains("channel-link-old", Codes(Complete() with { Description = Complete().Description + "\nSubscribe: https://YouTube.com/@omkr-shiv" }));
-        Assert.DoesNotContain("channel-link-old", Codes(Complete() with { Description = Complete().Description + "\nSubscribe: https://youtube.com/@OmkarShivBhakti" }));
+        YouTubeBrandKit.ConfigureRuntime(null, ["youtube.com/@omkr-shiv"], ["OMKR"]);
+        try
+        {
+            Assert.Contains("channel-link-old", Codes(Complete() with { Description = Complete().Description + "\nSubscribe: https://YouTube.com/@omkr-shiv" }));
+            Assert.DoesNotContain("channel-link-old", Codes(Complete() with { Description = Complete().Description + "\nSubscribe: https://youtube.com/@OmkarShivBhakti" }));
+        }
+        finally
+        {
+            YouTubeBrandKit.ResetRuntime();
+        }
     }
 
     [Fact]

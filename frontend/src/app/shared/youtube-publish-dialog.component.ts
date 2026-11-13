@@ -1501,7 +1501,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
 
   private static readonly ToneLabels: Record<string, string> = {
-    auto: '🎯 Any tone', 'devotional-omkr': '🕉️ Omkar Shiv Bhakti 3D Devotional (Brand Rules)',
+    auto: '🎯 Any tone', 'devotional-omkr': '🕉️ Brand Devotional (Studio Rules)',
     funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
     dramatic: '🎭 Dramatic', informative: '📘 Informative', energetic: '⚡ Energetic', kids: '🧸 For kids',
     motivational: '💪 Motivational', 'clickbait-free': '✅ Honest / no clickbait',

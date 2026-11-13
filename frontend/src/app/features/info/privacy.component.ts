@@ -1,7 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { CREATOR, LEGAL_UPDATED } from '../../core/site-links';
+import { EcosystemConfigService } from '../../core/services/ecosystem-config.service';
 import { INFO_PAGE_STYLES } from './info-page.styles';
 
 @Component({
@@ -13,7 +13,7 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
         <div>
           <h1>Privacy Policy</h1>
           <p class="muted">What personal data AnimStudio AI keeps, why, and what you can do about it.</p>
-          <span class="info-updated">Last updated {{ updated }}</span>
+          <span class="info-updated">Last updated {{ updated() }}</span>
         </div>
       </header>
 
@@ -56,7 +56,7 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
         <h2>Your choices</h2>
         <p>
           You can delete your projects and media at any time, disconnect linked channels, or ask for your account
-          and its data to be removed by <a routerLink="/contact">contacting {{ creator.name }}</a>.
+          and its data to be removed by <a routerLink="/contact">contacting {{ creator().name }}</a>.
         </p>
       </section>
 
@@ -70,6 +70,11 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
   styles: [INFO_PAGE_STYLES],
 })
 export class PrivacyComponent {
-  readonly creator = CREATOR;
-  readonly updated = LEGAL_UPDATED;
+  readonly ecosystem = inject(EcosystemConfigService);
+  private readonly _eco = (() => { this.ecosystem.ensureLoaded(); return true; })();
+  readonly creator = computed(() => ({
+    name: this.ecosystem.creatorName() || 'Studio Administrator',
+    portfolioUrl: this.ecosystem.creatorPortfolioUrl(),
+  }));
+  readonly updated = computed(() => this.ecosystem.legalUpdatedDate() || new Date().toLocaleDateString());
 }

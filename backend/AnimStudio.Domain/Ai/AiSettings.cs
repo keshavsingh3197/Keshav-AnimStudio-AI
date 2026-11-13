@@ -170,6 +170,16 @@ public sealed class AiSettings
     /// </summary>
     public bool AllowMediaDownload { get; set; } = true;
 
+    /// <summary>
+    /// Admin-managed retired channel URLs (merged with Central Admin channels) that Video Checkup flags and rewrites.
+    /// </summary>
+    public List<string> RetiredChannelUrls { get; set; } = [];
+
+    /// <summary>
+    /// Admin-managed retired channel names/aliases that Video Checkup and SEO generators rewrite.
+    /// </summary>
+    public List<string> RetiredChannelNames { get; set; } = [];
+
     public string? UpdatedByUserId { get; set; }
     public DateTime UpdatedAt { get; set; }
 

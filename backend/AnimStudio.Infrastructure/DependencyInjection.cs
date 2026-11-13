@@ -464,11 +464,14 @@ public static class DependencyInjection
         services.AddScoped<BundleExportService>();
 
         // --- running the server
+        services.AddSingleton<AnimStudio.Application.Ecosystem.UiNavigationState>();
+        services.AddSingleton<AnimStudio.Application.Ecosystem.IEcosystemConfigProvider, AnimStudio.Infrastructure.Ecosystem.EcosystemConfigService>();
         services.AddScoped<AdminAuditService>();
         services.AddScoped<ISystemHealthService, SystemHealthService>();
 
         services.AddHostedService<RenderJobWorker>();
         services.AddHostedService<RenderWorkspaceJanitor>();
+        services.AddHostedService<AnimStudio.Infrastructure.Ecosystem.EcosystemWarmup>();
 
         return services;
     }
