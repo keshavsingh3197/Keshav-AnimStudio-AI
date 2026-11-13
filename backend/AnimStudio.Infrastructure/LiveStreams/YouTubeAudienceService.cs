@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Authentication;
 using System.Text.Json;
 using AnimStudio.Application.LiveStreams;
+using AnimStudio.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -33,21 +34,24 @@ public sealed class YouTubeAudienceService : IDisposable
     private readonly IOptionsMonitor<YouTubeDataOptions> _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<YouTubeAudienceService> _logger;
+    private readonly CentralAdminSecretsProvider? _centralSecrets;
     private readonly HttpClient _http;
     private readonly ConcurrentDictionary<string, (DateTime At, object? Value)> _cache = new(StringComparer.Ordinal);
 
     public YouTubeAudienceService(IOptionsMonitor<YouTubeDataOptions> options, TimeProvider clock, ILogger<YouTubeAudienceService> logger)
-        : this(options, clock, logger, null)
+        : this(options, clock, logger, null, null)
     {
     }
 
     /// <summary>Tests pass a handler; production builds one with TLS 1.2+ and a bounded connection lifetime.</summary>
     public YouTubeAudienceService(
-        IOptionsMonitor<YouTubeDataOptions> options, TimeProvider clock, ILogger<YouTubeAudienceService> logger, HttpMessageHandler? handler)
+        IOptionsMonitor<YouTubeDataOptions> options, TimeProvider clock, ILogger<YouTubeAudienceService> logger,
+        HttpMessageHandler? handler, CentralAdminSecretsProvider? centralSecrets = null)
     {
         _options = options;
         _clock = clock;
         _logger = logger;
+        _centralSecrets = centralSecrets;
         _http = new HttpClient(handler ?? new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
@@ -61,7 +65,20 @@ public sealed class YouTubeAudienceService : IDisposable
         };
     }
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(_options.CurrentValue.ApiKey);
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(ResolveApiKey());
+
+    private string? ResolveApiKey()
+    {
+        var local = _options.CurrentValue.ApiKey?.Trim();
+        return !string.IsNullOrEmpty(local) ? local : _centralSecrets?.GetYouTubeApiKey();
+    }
+
+    private async Task<string?> ResolveApiKeyAsync(CancellationToken ct)
+    {
+        var local = _options.CurrentValue.ApiKey?.Trim();
+        if (!string.IsNullOrEmpty(local)) return local;
+        return _centralSecrets is null ? null : await _centralSecrets.GetYouTubeApiKeyAsync(ct).ConfigureAwait(false);
+    }
 
     /// <param name="channel">A UC… channel id or an @handle, already validated.</param>
     /// <param name="videoId">A live broadcast's video id, already validated. Optional.</param>
@@ -109,8 +126,12 @@ public sealed class YouTubeAudienceService : IDisposable
 
     private async Task<JsonDocument> SendAsync(string relativeUrl, CancellationToken ct)
     {
+        var apiKey = await ResolveApiKeyAsync(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new YouTubeAudienceException("youtube-not-configured", "Live subscriber counts aren't set up on this server.");
+
         using var request = new HttpRequestMessage(HttpMethod.Get, relativeUrl);
-        request.Headers.Add("X-Goog-Api-Key", _options.CurrentValue.ApiKey!.Trim());
+        request.Headers.Add("X-Goog-Api-Key", apiKey);
 
         HttpResponseMessage response;
         try

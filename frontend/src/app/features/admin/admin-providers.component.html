@@ -403,7 +403,7 @@
                         <dt>Comes from</dt>
                         <dd>
                           {{ provider.key.source === 'Configuration'
-                              ? 'an environment variable on the server'
+                              ? 'Central Admin / server environment'
                               : 'this screen, encrypted in the database' }}
                         </dd>
                         @if (keyAge(provider); as age) {
@@ -418,8 +418,9 @@
 
                     @if (provider.key.source === 'Configuration') {
                       <p class="hint">
-                        Supplied by the server's environment, so it cannot be changed here.
-                        Anything saved below would take precedence over it.
+                        Supplied by Central Admin or the server's environment, so it cannot be removed here.
+                        Anything saved below overrides it locally.
+                        <a href="https://admin.keshavsingh.in/settings?tab=integrations" target="_blank" rel="noopener noreferrer">Manage in Central Admin &rarr;</a>
                       </p>
                     }
 

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Authentication;
 using System.Text.Json;
+using AnimStudio.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -66,18 +67,22 @@ public sealed class YouTubeOAuthClient : IDisposable
 
     private readonly IOptionsMonitor<YouTubePublishOptions> _options;
     private readonly ILogger<YouTubeOAuthClient> _logger;
+    private readonly CentralAdminSecretsProvider? _centralSecrets;
     private readonly HttpClient _http;
 
     public YouTubeOAuthClient(IOptionsMonitor<YouTubePublishOptions> options, ILogger<YouTubeOAuthClient> logger)
-        : this(options, logger, null)
+        : this(options, logger, null, null)
     {
     }
 
     /// <summary>Tests pass a handler; production builds one with TLS 1.2+ and no redirects.</summary>
-    public YouTubeOAuthClient(IOptionsMonitor<YouTubePublishOptions> options, ILogger<YouTubeOAuthClient> logger, HttpMessageHandler? handler)
+    public YouTubeOAuthClient(
+        IOptionsMonitor<YouTubePublishOptions> options, ILogger<YouTubeOAuthClient> logger,
+        HttpMessageHandler? handler, CentralAdminSecretsProvider? centralSecrets = null)
     {
         _options = options;
         _logger = logger;
+        _centralSecrets = centralSecrets;
         _http = new HttpClient(handler ?? new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
@@ -90,16 +95,25 @@ public sealed class YouTubeOAuthClient : IDisposable
         };
     }
 
-    public bool IsConfigured => _options.CurrentValue.IsConfigured;
+    public bool IsConfigured
+    {
+        get
+        {
+            var (clientId, clientSecret, redirectUri) = ResolveCredentials();
+            return !string.IsNullOrWhiteSpace(clientId)
+                && !string.IsNullOrWhiteSpace(clientSecret)
+                && !string.IsNullOrWhiteSpace(redirectUri);
+        }
+    }
 
     /// <param name="scopes"><see cref="Scopes"/> for a channel, <see cref="DriveScopes"/> for a Drive.</param>
     public string BuildAuthorizationUrl(string state, string codeChallenge, string scopes = Scopes)
     {
-        var options = RequireConfigured();
+        var (clientId, _, redirectUri) = RequireConfigured();
         var query = new Dictionary<string, string>
         {
-            ["client_id"] = options.ClientId!.Trim(),
-            ["redirect_uri"] = options.RedirectUri,
+            ["client_id"] = clientId,
+            ["redirect_uri"] = redirectUri,
             ["response_type"] = "code",
             ["scope"] = scopes,
             // offline + consent: a refresh token every time, even for a channel connected before.
@@ -113,33 +127,33 @@ public sealed class YouTubeOAuthClient : IDisposable
         return AuthorizeUrl + "?" + string.Join("&", query.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"));
     }
 
-    public Task<GoogleTokens> ExchangeCodeAsync(string code, string codeVerifier, CancellationToken ct)
+    public async Task<GoogleTokens> ExchangeCodeAsync(string code, string codeVerifier, CancellationToken ct)
     {
-        var options = RequireConfigured();
-        return TokenRequestAsync(new Dictionary<string, string>
+        var (clientId, clientSecret, redirectUri) = await RequireConfiguredAsync(ct).ConfigureAwait(false);
+        return await TokenRequestAsync(new Dictionary<string, string>
         {
             ["grant_type"] = "authorization_code",
             ["code"] = code,
             ["code_verifier"] = codeVerifier,
-            ["client_id"] = options.ClientId!.Trim(),
-            ["client_secret"] = options.ClientSecret!.Trim(),
-            ["redirect_uri"] = options.RedirectUri
-        }, ct);
+            ["client_id"] = clientId,
+            ["client_secret"] = clientSecret,
+            ["redirect_uri"] = redirectUri
+        }, ct).ConfigureAwait(false);
     }
 
     /// <exception cref="YouTubePublishException">
     /// <c>youtube-reconnect</c> when Google no longer honours the refresh token.
     /// </exception>
-    public Task<GoogleTokens> RefreshAsync(string refreshToken, CancellationToken ct)
+    public async Task<GoogleTokens> RefreshAsync(string refreshToken, CancellationToken ct)
     {
-        var options = RequireConfigured();
-        return TokenRequestAsync(new Dictionary<string, string>
+        var (clientId, clientSecret, _) = await RequireConfiguredAsync(ct).ConfigureAwait(false);
+        return await TokenRequestAsync(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
             ["refresh_token"] = refreshToken,
-            ["client_id"] = options.ClientId!.Trim(),
-            ["client_secret"] = options.ClientSecret!.Trim()
-        }, ct);
+            ["client_id"] = clientId,
+            ["client_secret"] = clientSecret
+        }, ct).ConfigureAwait(false);
     }
 
     /// <summary>Best effort: a disconnect still removes the saved token if Google can't be reached.</summary>
@@ -271,13 +285,52 @@ public sealed class YouTubeOAuthClient : IDisposable
         }
     }
 
-    private YouTubePublishOptions RequireConfigured()
+    private (string? ClientId, string? ClientSecret, string RedirectUri) ResolveCredentials()
     {
         var options = _options.CurrentValue;
-        if (!options.IsConfigured)
+        var localId = Normalize(options.ClientId);
+        var localSecret = Normalize(options.ClientSecret);
+        var central = (localId is null || localSecret is null) && _centralSecrets is not null
+            ? _centralSecrets.GetGoogleOAuthCredentials()
+            : (ClientId: null, ClientSecret: null);
+
+        return (localId ?? central.ClientId, localSecret ?? central.ClientSecret, options.RedirectUri);
+    }
+
+    private async Task<(string? ClientId, string? ClientSecret, string RedirectUri)> ResolveCredentialsAsync(CancellationToken ct)
+    {
+        var options = _options.CurrentValue;
+        var localId = Normalize(options.ClientId);
+        var localSecret = Normalize(options.ClientSecret);
+        var central = (localId is null || localSecret is null) && _centralSecrets is not null
+            ? await _centralSecrets.GetGoogleOAuthCredentialsAsync(ct).ConfigureAwait(false)
+            : (ClientId: null, ClientSecret: null);
+
+        return (localId ?? central.ClientId, localSecret ?? central.ClientSecret, options.RedirectUri);
+    }
+
+    private (string ClientId, string ClientSecret, string RedirectUri) RequireConfigured()
+    {
+        var (clientId, clientSecret, redirectUri) = ResolveCredentials();
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret) || string.IsNullOrWhiteSpace(redirectUri))
             throw new YouTubePublishException("youtube-not-configured",
-                "Publishing to YouTube isn't set up on this server. Ask an admin to set YouTube:Publish:ClientId, ClientSecret and RedirectUri.");
-        return options;
+                "Publishing to YouTube isn't set up on this server. Configure Google OAuth credentials in Central Admin or set YouTube:Publish:ClientId, ClientSecret and RedirectUri.");
+        return (clientId, clientSecret, redirectUri);
+    }
+
+    private async Task<(string ClientId, string ClientSecret, string RedirectUri)> RequireConfiguredAsync(CancellationToken ct)
+    {
+        var (clientId, clientSecret, redirectUri) = await ResolveCredentialsAsync(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret) || string.IsNullOrWhiteSpace(redirectUri))
+            throw new YouTubePublishException("youtube-not-configured",
+                "Publishing to YouTube isn't set up on this server. Configure Google OAuth credentials in Central Admin or set YouTube:Publish:ClientId, ClientSecret and RedirectUri.");
+        return (clientId, clientSecret, redirectUri);
+    }
+
+    private static string? Normalize(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 
     public void Dispose() => _http.Dispose();

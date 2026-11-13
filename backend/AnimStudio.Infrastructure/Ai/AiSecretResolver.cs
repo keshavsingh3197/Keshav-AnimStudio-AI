@@ -31,7 +31,8 @@ public sealed class AiSecretResolver(
     IServiceScopeFactory scopeFactory,
     ILogger<AiSecretResolver> logger) : IAiSecretResolver
 {
-    private readonly ConcurrentDictionary<AiProviderId, bool> _installed = new();
+    private static readonly TimeSpan PresenceCacheTtl = TimeSpan.FromSeconds(60);
+    private readonly ConcurrentDictionary<AiProviderId, (bool Installed, DateTime CheckedAt)> _installed = new();
 
     public async Task<string?> GetSecretAsync(AiProviderId provider, CancellationToken ct)
     {
@@ -43,7 +44,7 @@ public sealed class AiSecretResolver(
         var secret = await store.GetSecretAsync(provider, ct).ConfigureAwait(false);
 
         // Free information: we just learned the truth, so record it.
-        _installed[provider] = !string.IsNullOrEmpty(secret);
+        _installed[provider] = (!string.IsNullOrEmpty(secret), DateTime.UtcNow);
 
         return secret;
     }
@@ -52,7 +53,15 @@ public sealed class AiSecretResolver(
     {
         if (provider.IsEmpty) return false;
 
-        if (_installed.TryGetValue(provider, out var installed)) return installed;
+        if (_installed.TryGetValue(provider, out var entry))
+        {
+            if (DateTime.UtcNow - entry.CheckedAt < PresenceCacheTtl)
+                return entry.Installed;
+
+            // Refresh asynchronously once cached presence ages past Central Admin's 60s TTL.
+            _ = RefreshAsync(provider);
+            return entry.Installed;
+        }
 
         // Not yet known. Kick off a refresh and answer "no" for now: claiming a key exists
         // and then failing the call would report a capability as available when it is not.
@@ -76,10 +85,11 @@ public sealed class AiSecretResolver(
             using var scope = scopeFactory.CreateScope();
             var store = scope.ServiceProvider.GetRequiredService<IAiCredentialStore>();
 
+            var checkedAt = DateTime.UtcNow;
             foreach (var status in await store.DescribeAllAsync(ct).ConfigureAwait(false))
             {
                 if (AiProviderId.TryParse(status.ProviderId, out var id))
-                    _installed[id] = status.Configured;
+                    _installed[id] = (status.Configured, checkedAt);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -101,7 +111,7 @@ public sealed class AiSecretResolver(
             var status = await store.DescribeAsync(provider, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            _installed[provider] = status.Configured;
+            _installed[provider] = (status.Configured, DateTime.UtcNow);
         }
         catch (Exception ex)
         {
