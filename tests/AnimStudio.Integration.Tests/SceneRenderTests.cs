@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Rendering.Models;
@@ -47,7 +50,7 @@ public sealed class SceneRenderTests : IAsyncLifetime
         {
             IsAvailable = true, HasLibass = true, HasZoompan = true, HasXfade = true,
             HasAcrossfade = true, HasAlimiter = true, HasLibx264 = true, HasAac = true,
-            HasDrawtext = true, Major = FfmpegLocator.MajorVersion
+            HasDrawtext = true, HasGeq = true, Major = FfmpegLocator.MajorVersion
         };
 
         _service = new FfmpegVideoRenderingService(
@@ -153,6 +156,122 @@ public sealed class SceneRenderTests : IAsyncLifetime
         Assert.True(probed.Contains("pix_fmt=yuv420p") || probed.Contains("pix_fmt=yuvj420p"),
             $"Expected yuv420p or yuvj420p but probed: {probed}");
         Assert.Contains("nb_read_frames=60", probed);
+    }
+
+    [FfmpegFact]
+    public async Task Renders_a_vertical_scene_with_mouth_metadata()
+    {
+        var plan = BuildPlan(0, durationFrames: 446, withSprite: false, withAudio: true, withSubtitles: false)
+            with
+            {
+                Canvas = Canvas.Vertical1080x1920,
+                BackgroundAnimation = new AnimationSettings(BackgroundEffect.ZoomIn, 0.12),
+                Mouths =
+                [
+                    new MouthPlan
+                    {
+                        X = 0.461, Y = 0.409, FaceWidth = 0.189,
+                        SpeakingWindows =
+                        [
+                            new FrameRange(new FrameCount(20), new FrameCount(145)),
+                            new FrameRange(new FrameCount(296), new FrameCount(420))
+                        ]
+                    },
+                    new MouthPlan
+                    {
+                        X = 0.771, Y = 0.504, FaceWidth = 0.198,
+                        SpeakingWindows = [new FrameRange(new FrameCount(186), new FrameCount(265))]
+                    }
+                ]
+            };
+        RenderFixtures.MakeBackground(Path_("in/bg.jpg"), "navy", 1080, 1920);
+
+        var result = await _service.RenderSceneAsync(plan, _workspace, null, Ct);
+
+        Assert.Equal(446, result.Frames.Value);
+        var probed = FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -count_frames "
+            + $"-show_entries stream=width,height,nb_read_frames "
+            + $"-of default=noprint_wrappers=1 \"{_workspace.Resolve(result.RelativePath)}\"");
+        Assert.Contains("width=1080", probed);
+        Assert.Contains("height=1920", probed);
+        Assert.Contains("nb_read_frames=446", probed);
+    }
+
+    [FfmpegFact]
+    public async Task Keeps_baked_in_mouths_static_even_during_speech()
+    {
+        var plan = BuildPlan(0, durationFrames: 30, withSprite: false, withAudio: false, withSubtitles: false)
+            with
+            {
+                BackgroundRelativePath = "in/mouth.ppm",
+                BackgroundAnimation = new AnimationSettings(BackgroundEffect.None),
+                KenBurnsSupersample = 1,
+                Mouths =
+                [
+                    new MouthPlan
+                    {
+                        X = 0.5,
+                        Y = 0.5,
+                        FaceWidth = 0.3,
+                        SpeakingWindows = [new FrameRange(new FrameCount(3), new FrameCount(15))]
+                    }
+                ]
+            };
+        MakeMouthBackground(Path_("in/mouth.ppm"));
+
+        var result = await _service.RenderSceneAsync(plan, _workspace, null, Ct);
+        var output = _workspace.Resolve(result.RelativePath);
+        var restingLuma = ReadLuma(output, frame: 0, x: 320, y: 180);
+        var speakingLuma = ReadLuma(output, frame: 3, x: 320, y: 180);
+        var skinLuma = ReadLuma(output, frame: 0, x: 100, y: 100);
+
+        Assert.True(skinLuma > 100, $"Expected the synthetic skin background, got luma {skinLuma}.");
+        Assert.True(restingLuma < 50, $"Expected the source mouth to remain visible, got luma {restingLuma}.");
+        Assert.True(speakingLuma < 50, $"Expected the source mouth to remain visible while speaking, got luma {speakingLuma}.");
+        Assert.InRange(Math.Abs(restingLuma - speakingLuma), 0, 5);
+    }
+
+    [FfmpegFact]
+    public async Task Attached_clip_audio_can_be_muted_used_alone_or_mixed_with_voice()
+    {
+        var plan = BuildPlan(0, durationFrames: 120, withSprite: false, withAudio: true, withSubtitles: false);
+        RenderFixtures.MakeVideo(Path_("in/clip.mp4"), 4, withAudio: true);
+        var clipPlan = plan with { BackgroundRelativePath = "in/clip.mp4", BackgroundIsVideo = true };
+        var choices = new[]
+        {
+            (Clip: false, Voice: false),
+            (Clip: true, Voice: false),
+            (Clip: false, Voice: true),
+            (Clip: true, Voice: true)
+        };
+        foreach (var choice in choices)
+        {
+            var result = await _service.RenderSceneAsync(clipPlan with
+            {
+                BackgroundHasAudio = choice.Clip,
+                AudioRelativePath = choice.Voice ? "in/voice.wav" : null,
+                OutputRelativePath = $"scenes/audio-{choice.Clip}-{choice.Voice}.mp4"
+            }, _workspace, null, Ct);
+            Assert.Equal(120, result.Frames.Value);
+            var output = _workspace.Resolve(result.RelativePath);
+            var duration = FfmpegLocator.Probe($"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{output}\"");
+            Assert.InRange(double.Parse(duration.Trim(), CultureInfo.InvariantCulture), 3.95, 4.1);
+            using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
+            {
+                Arguments = $"-hide_banner -i \"{output}\" -af volumedetect -vn -f null -",
+                RedirectStandardError = true,
+                UseShellExecute = false
+            })!;
+            var stderr = await process.StandardError.ReadToEndAsync(Ct);
+            await process.WaitForExitAsync(Ct);
+            Assert.Equal(0, process.ExitCode);
+            var match = Regex.Match(stderr, @"mean_volume:\s*(-?[\d.]+)\s*dB");
+            Assert.True(match.Success, stderr);
+            var volume = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (choice.Clip || choice.Voice) Assert.True(volume > -50, $"Expected audible output, got {volume} dB");
+            else Assert.True(volume < -80, $"Expected silence, got {volume} dB");
+        }
     }
 
     [FfmpegFact]
@@ -287,6 +406,104 @@ public sealed class SceneRenderTests : IAsyncLifetime
                 $"-v error -select_streams {stream} -show_entries stream=duration "
                 + $"-of default=nokey=1:noprint_wrappers=1 \"{path}\""),
             CultureInfo.InvariantCulture);
+
+    [FfmpegFact]
+    public async Task Blends_in_the_open_mouth_picture_only_while_speaking()
+    {
+        var plan = BuildPlan(0, durationFrames: 30, withSprite: false, withAudio: false, withSubtitles: false)
+            with
+            {
+                BackgroundRelativePath = "in/mouth.ppm",
+                BackgroundAnimation = new AnimationSettings(BackgroundEffect.None),
+                KenBurnsSupersample = 1,
+                Mouths =
+                [
+                    new MouthPlan
+                    {
+                        X = 0.5,
+                        Y = 0.5,
+                        FaceWidth = 0.3,
+                        SpeakingWindows = [new FrameRange(new FrameCount(3), new FrameCount(15))]
+                    }
+                ],
+                // Drawn at half the size, as an image model may send it back: it is scaled to the picture's own.
+                TalkingBackground = new TalkingBackgroundPlan("in/mouth-open.ppm", 640, 360, 320, 180)
+            };
+        MakeMouthBackground(Path_("in/mouth.ppm"));
+        MakeMouthBackground(Path_("in/mouth-open.ppm"), openMouth: true, scale: 2);
+
+        var result = await _service.RenderSceneAsync(plan, _workspace, null, Ct);
+        var output = _workspace.Resolve(result.RelativePath);
+
+        var before = ReadLuma(output, frame: 0, x: 320, y: 180);
+        var after = ReadLuma(output, frame: 22, x: 320, y: 180);
+        var speaking = Enumerable.Range(4, 10).Select(f => ReadLuma(output, frame: f, x: 320, y: 180)).ToList();
+        var skin = Enumerable.Range(0, 30).Where(f => f % 5 == 0).Select(f => ReadLuma(output, frame: f, x: 100, y: 100)).ToList();
+
+        Assert.True(before < 50, $"Expected the closed mouth before the line, got luma {before}.");
+        Assert.True(after < 50, $"Expected the closed mouth after the line, got luma {after}.");
+        Assert.True(speaking.Max() > 150, $"Expected the open mouth while speaking, got lumas {string.Join(",", speaking)}.");
+        // Away from the mouth the picture never changes.
+        Assert.InRange(skin.Max() - skin.Min(), 0, 3);
+    }
+
+    private static void MakeMouthBackground(string path, bool openMouth = false, int scale = 1)
+    {
+        if (scale > 1)
+        {
+            MakeMouthBackgroundAt(path, 640 / scale, 360 / scale, openMouth);
+            return;
+        }
+        MakeMouthBackgroundAt(path, 640, 360, openMouth);
+    }
+
+    private static void MakeMouthBackgroundAt(string path, int width, int height, bool openMouth)
+    {
+        var mouthColour = openMouth ? (byte)255 : (byte)0;
+        var pixels = new byte[width * height * 3];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var offset = (y * width + x) * 3;
+                // The same mouth at any size: 32x16 in the middle of a 640x360 picture.
+                var mouth = x * 640 >= 304 * width && x * 640 < 336 * width && y * 360 >= 172 * height && y * 360 < 188 * height;
+                pixels[offset] = mouth ? mouthColour : (byte)224;
+                pixels[offset + 1] = mouth ? mouthColour : (byte)160;
+                pixels[offset + 2] = mouth ? mouthColour : (byte)112;
+            }
+        }
+
+        using var stream = File.Create(path);
+        stream.Write(Encoding.ASCII.GetBytes($"P6\n{width} {height}\n255\n"));
+        stream.Write(pixels);
+    }
+
+    private static byte ReadLuma(string path, int frame, int x, int y)
+    {
+        using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
+        {
+            Arguments = $"-hide_banner -loglevel error -i \"{path}\" "
+                      + $"-vf \"select='eq(n,{frame})',crop=2:2:{x}:{y},format=gray\" "
+                      + "-frames:v 1 -f rawvideo pipe:1",
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false
+        }) ?? throw new InvalidOperationException("Could not start ffmpeg to sample the rendered mouth.");
+
+        using var bytes = new MemoryStream();
+        process.StandardOutput.BaseStream.CopyTo(bytes);
+        var error = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(60_000))
+            throw new TimeoutException("Timed out while sampling the rendered mouth.");
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"Could not sample rendered mouth luma: {error}");
+
+        var sample = bytes.ToArray();
+        if (sample.Length != 4)
+            throw new InvalidOperationException($"Expected four luma samples but received {sample.Length} bytes.");
+        return (byte)(sample.Sum(value => value) / sample.Length);
+    }
 
     /// <summary>The workspace is exercised directly here, so no object store is needed.</summary>
     private sealed class NullObjectStore : IObjectStore

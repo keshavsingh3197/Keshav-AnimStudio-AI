@@ -1,13 +1,14 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../core/interceptors/api-error.interceptor';
+import { LiveStreamPresetYouTube } from '../core/models/live-stream.models';
 import {
   YouTubeCategory, YouTubeChannel, YouTubeLiveBroadcast, YouTubeLiveKind, YouTubeLiveSetup, YouTubePrivacy, YouTubeSuggestEngine,
-  parseYouTubeTags, youTubeTagsLength,
+  MAX_RELATED_VIDEOS, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 import { toneLabel } from '../features/youtube/checkup-draft';
@@ -28,6 +29,16 @@ interface Prefs {
 }
 
 const PREFS_KEY = 'animstudio.youtube.live';
+
+/**
+ * Fills `{date}` and `{time}` in a saved title or description with the moment the broadcast is
+ * created, so a preset played every day still gives each broadcast its own title.
+ */
+export function expandBroadcastTokens(text: string, at = new Date()): string {
+  return text
+    .replace(/\{date\}/gi, at.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }))
+    .replace(/\{time\}/gi, at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+}
 
 /**
  * Sets up a YouTube live stream from inside the app: describe the stream in a few words, let
@@ -78,7 +89,7 @@ const PREFS_KEY = 'animstudio.youtube.live';
           <div>
             <strong>✅ Ready to stream: {{ s.broadcast.title }}</strong>
             <p class="yl-muted">
-              {{ privacyLabel(s.broadcast.privacy) }} on {{ s.channelTitle }} ·
+              {{ privacyLabel(s.broadcast.privacy) }} on {{ s.channelTitle || selectedChannel()?.channelTitle }} ·
               starts automatically when you go live and ends when you stop.
               The stream key is created on YouTube and stays on the server.
             </p>
@@ -86,6 +97,25 @@ const PREFS_KEY = 'animstudio.youtube.live';
               <a [href]="s.broadcast.watchUrl" target="_blank" rel="noopener noreferrer">Watch page ↗</a>
               <a [href]="s.broadcast.studioUrl" target="_blank" rel="noopener noreferrer">YouTube Studio ↗</a>
             </p>
+            <div class="yl-notify">
+              <strong>Let viewers know</strong>
+              @if (s.broadcast.privacy === 'public') {
+                <p>Share the watch page and ask viewers to set a reminder for an upcoming stream.</p>
+              } @else if (s.broadcast.privacy === 'unlisted') {
+                <p>This stream is unlisted. Share the watch page directly with people you want to invite.</p>
+              } @else {
+                <p>This stream is private. A watch link alone will not make it public; check access in YouTube Studio.</p>
+              }
+              <label>Watch link
+                <input #watchLink type="text" readonly [value]="s.broadcast.watchUrl" (focus)="watchLink.select()" />
+              </label>
+              <button type="button" class="secondary" (click)="copyWatchLink(s.broadcast.watchUrl)">Copy watch link</button>
+              @if (copyMessage(); as message) { <p class="yl-muted" role="status">{{ message }}</p> }
+              <p class="yl-muted">YouTube decides who receives notifications based on viewer and channel settings.
+                AnimStudio cannot turn live subscriber notifications on or confirm delivery. Viewers can choose the channel bell;
+                reminder notifications are unavailable for streams marked made for kids.</p>
+              @if (kind() === 'camera') { <p class="yl-muted">Copy the link before starting the camera stream, or open the watch page while live.</p> }
+            </div>
           </div>
           <button type="button" class="secondary" (click)="clear()" [disabled]="disabled()">Change</button>
         </div>
@@ -149,7 +179,7 @@ const PREFS_KEY = 'animstudio.youtube.live';
             </button>
           </fieldset>
 
-          <label>Title <span class="yl-muted">{{ title.trim().length }}/{{ maxTitle }}</span>
+          <label>Title <span class="yl-muted">{{ title.trim().length }}/{{ maxTitle }} · {{ '{date}' }} and {{ '{time}' }} are filled in when it's created</span>
             <input type="text" [(ngModel)]="title" [maxlength]="maxTitle" placeholder="🔴 LIVE: …" />
           </label>
           @if (titleOptions().length) {
@@ -161,6 +191,14 @@ const PREFS_KEY = 'animstudio.youtube.live';
           <label>Description
             <textarea rows="5" [(ngModel)]="description"></textarea>
           </label>
+          @if (sourceVideos().length) {
+            <div class="yl-chips">
+              <button type="button" class="yl-chip" (click)="addSourceLinks()" [disabled]="hasSourceLinks()">
+                {{ hasSourceLinks() ? '✓ Links to the original videos added' : '+ Link the ' + sourceVideos().length + ' original YouTube video' + (sourceVideos().length === 1 ? '' : 's') }}
+              </button>
+              <span class="yl-muted">Viewers who open them watch the originals on their own pages.</span>
+            </div>
+          }
           @if (descriptionOptions().length) {
             <div class="yl-chips" aria-label="Other descriptions">
               @for (d of descriptionOptions(); track $index) {
@@ -213,6 +251,19 @@ const PREFS_KEY = 'animstudio.youtube.live';
             }
             <label class="yl-check"><input type="checkbox" [(ngModel)]="enableDvr" /> Viewers can rewind</label>
           </div>
+          <div class="yl-notify">
+            <strong>Subscriber notifications</strong>
+            <p class="yl-muted">YouTube controls live notifications; its live API does not provide an on/off switch.
+              A public upcoming broadcast gives viewers a page to find and set a reminder on. Scheduling creates the page;
+              you still need to start streaming. Notifications are not guaranteed.</p>
+            @if (privacy !== 'public') {
+              <p class="yl-warn">This broadcast is {{ privacy }}; check its visibility before sharing it with subscribers.</p>
+            }
+            @if (madeForKids) {
+              <p class="yl-warn">YouTube disables reminder notifications for upcoming streams marked made for kids.
+                Choose the audience accurately, not just to enable notifications.</p>
+            }
+          </div>
 
           @if (createProblem(); as p) { <p class="yl-muted">To create it: {{ p }}.</p> }
           <button type="button" (click)="create()" [disabled]="!!createProblem() || creating() || disabled()">
@@ -241,6 +292,9 @@ const PREFS_KEY = 'animstudio.youtube.live';
     .yl-box p { margin: 0; }
     .yl-warnbox { border-color: rgba(245, 158, 11, 0.35); background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04)); }
     .yl-ready { border-color: rgba(52, 211, 153, 0.38); background: linear-gradient(135deg, rgba(52, 211, 153, 0.14), rgba(52, 211, 153, 0.04)); }
+    .yl-notify { display: grid; gap: 8px; margin-top: 10px; }
+    .yl-notify input { width: 100%; }
+    .yl-notify button { justify-self: start; }
     .yl-links { display: flex; gap: 12px; margin-top: 6px !important; font-size: 0.82rem; }
     .yl-tabs {
       display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
@@ -288,6 +342,10 @@ export class YouTubeLiveSetupComponent implements OnInit {
   readonly initial = input<SelectedYouTubeBroadcast | null>(null);
   /** While on air the choice is locked. */
   readonly disabled = input(false);
+  /** YouTube videos being restreamed, offered as links in the description. */
+  readonly sourceVideos = input<{ videoId: string; title: string }[]>([]);
+  /** Details to fill the form with, e.g. from a saved preset. A new object each time refills it. */
+  readonly draft = input<LiveStreamPresetYouTube | null>(null);
   readonly broadcastChange = output<SelectedYouTubeBroadcast | null>();
 
   readonly maxTitle = 100;
@@ -301,6 +359,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
   readonly tab = signal<'new' | 'existing'>('new');
   readonly selected = signal<SelectedYouTubeBroadcast | null>(null);
   readonly error = signal<string | null>(null);
+  readonly copyMessage = signal<string | null>(null);
   readonly busy = signal(false);
   readonly suggesting = signal(false);
   readonly creating = signal(false);
@@ -329,6 +388,24 @@ export class YouTubeLiveSetupComponent implements OnInit {
   startMode: 'now' | 'later' = 'now';
   startAt = '';
   enableDvr = true;
+
+  /** A draft that arrived before the channels were loaded. */
+  private pendingDraft: LiveStreamPresetYouTube | null = null;
+
+  constructor() {
+    // The page owns the choice: a broadcast it sets (or clears after streaming to it) shows here.
+    effect(() => {
+      const initial = this.initial();
+      untracked(() => {
+        this.selected.set(initial);
+        this.copyMessage.set(null);
+      });
+    });
+    effect(() => {
+      const draft = this.draft();
+      if (draft) untracked(() => void this.applyDraft(draft));
+    });
+  }
 
   get tagsText(): string { return this._tagsText; }
   set tagsText(value: string) { this._tagsText = value; this.tagsVersion.update((v) => v + 1); }
@@ -359,6 +436,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
     } finally {
       this.loading.set(false);
     }
+    if (this.pendingDraft) await this.applyDraft(this.pendingDraft);
 
     // Engines and tones are a nicety; the panel works with Auto without them.
     try {
@@ -402,6 +480,15 @@ export class YouTubeLiveSetupComponent implements OnInit {
     }
   }
 
+  async copyWatchLink(url: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      this.copyMessage.set('Watch link copied. Share it with your viewers.');
+    } catch {
+      this.copyMessage.set('Could not copy the link. Select and copy the watch link above instead.');
+    }
+  }
+
   async suggest(): Promise<void> {
     if (!this.topic.trim() || this.suggesting()) return;
     this.suggesting.set(true);
@@ -433,9 +520,71 @@ export class YouTubeLiveSetupComponent implements OnInit {
     }
   }
 
+  /** Fills the form from saved details: the channel (when it is still connected), then everything else. */
+  async applyDraft(draft: LiveStreamPresetYouTube): Promise<void> {
+    if (this.loading()) {
+      this.pendingDraft = draft;
+      return;
+    }
+    this.pendingDraft = null;
+    if (draft.channelId !== this.channelId() && this.channels().some((c) => c.channelId === draft.channelId)) {
+      await this.pickChannel(draft.channelId);
+    }
+    this.topic = draft.topic ?? '';
+    this.brief = draft.brief ?? '';
+    if (draft.tone) this.tone = draft.tone;
+    if (draft.language === 'en' || draft.language === 'hi') this.language = draft.language;
+    this.title = draft.title;
+    this.description = draft.description;
+    this.tagsText = draft.tags.join(', ');
+    this.privacy = draft.privacy;
+    this.categoryId = draft.categoryId;
+    this.madeForKids = draft.madeForKids;
+    this.enableDvr = draft.enableDvr;
+    this.startMode = 'now';
+    this.tab.set('new');
+  }
+
+  /** The form as it stands, for saving in a preset; null without a channel or a title. A picked upcoming broadcast supplies its title. */
+  currentDraft(): LiveStreamPresetYouTube | null {
+    const picked = this.selected()?.broadcast;
+    const title = this.title.trim() || picked?.title?.trim() || '';
+    if (!this.channelId() || !title) return null;
+    return {
+      channelId: this.channelId(),
+      topic: this.topic.trim() || null,
+      brief: this.brief.trim() || null,
+      tone: this.tone,
+      language: this.language,
+      title,
+      description: this.description.trim(),
+      tags: parseYouTubeTags(this.tagsText),
+      categoryId: this.categoryId,
+      privacy: this.title.trim() ? this.privacy : ((picked?.privacy as LiveStreamPresetYouTube['privacy'] | undefined) ?? this.privacy),
+      madeForKids: this.madeForKids,
+      enableDvr: this.enableDvr,
+    };
+  }
+
   addTag(tag: string): void {
     const tags = parseYouTubeTags(`${this.tagsText},${tag}`);
     if (youTubeTagsLength(tags) <= 500) this.tagsText = tags.join(', ');
+  }
+
+  /** The block linking to the restreamed videos, in the same form uploads use for related videos. */
+  sourceLinksBlock(): string {
+    return relatedVideosBlock(this.sourceVideos().slice(0, MAX_RELATED_VIDEOS));
+  }
+
+  hasSourceLinks(): boolean {
+    const block = this.sourceLinksBlock();
+    return !!block && this.description.includes(block);
+  }
+
+  addSourceLinks(): void {
+    const block = this.sourceLinksBlock();
+    if (!block || this.hasSourceLinks()) return;
+    this.description = this.description.trim() ? `${this.description.trim()}\n\n${block}` : block;
   }
 
   createProblem(): string | null {
@@ -457,12 +606,13 @@ export class YouTubeLiveSetupComponent implements OnInit {
     this.error.set(null);
     try {
       const broadcast = await firstValueFrom(this.youtube.createBroadcast(channel.channelId, {
-        title: this.title.trim(),
-        description: this.description.trim(),
+        title: expandBroadcastTokens(this.title.trim()),
+        description: expandBroadcastTokens(this.description.trim()),
         tags: parseYouTubeTags(this.tagsText),
         categoryId: this.categoryId,
         privacy: this.privacy,
         madeForKids: this.madeForKids,
+        // This upload-metadata field is not a live-broadcast notification control.
         notifySubscribers: true,
       }, this.startMode === 'later' ? new Date(this.startAt).toISOString() : null, this.enableDvr));
       this.select({ channelId: channel.channelId, channelTitle: channel.channelTitle, broadcast });
@@ -480,6 +630,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
 
   clear(): void {
     this.selected.set(null);
+    this.copyMessage.set(null);
     this.broadcastChange.emit(null);
     // A fresh list, so a broadcast just created shows under "Upcoming".
     void this.pickChannel(this.channelId());
@@ -491,6 +642,7 @@ export class YouTubeLiveSetupComponent implements OnInit {
 
   private select(selection: SelectedYouTubeBroadcast): void {
     this.selected.set(selection);
+    this.copyMessage.set(null);
     this.broadcastChange.emit(selection);
   }
 

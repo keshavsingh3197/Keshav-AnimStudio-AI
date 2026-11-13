@@ -76,6 +76,8 @@ public sealed class WorkbookImportPreview
 /// <summary>What the user chose on the preview screen.</summary>
 public sealed record WorkbookImportOptions
 {
+    /// <summary>Clear scene audio when a full generated bundle has no audio for that scene.</summary>
+    public bool ClearEmptySceneAudio { get; init; }
     /// <summary>
     /// Whether to overwrite rows the user has hand-edited. Defaults to false, matching the
     /// existing re-ingest rule that a human edit outranks a regeneration.

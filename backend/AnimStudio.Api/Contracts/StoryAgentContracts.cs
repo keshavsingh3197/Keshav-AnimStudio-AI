@@ -3,6 +3,7 @@ using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 
 namespace AnimStudio.Api.Contracts;
@@ -43,12 +44,21 @@ public sealed record CreateStoryRunRequest
     [StringLength(40)]
     public string? TextEngine { get; init; }
 
+    /// <summary>The brand channel the story is for; empty or <c>default</c> is the default channel.</summary>
+    [StringLength(64)]
+    public string? BrandChannelId { get; init; }
+
     public StoryBuildOptionsRequest? Options { get; init; }
 }
 
 public sealed record StoryBuildOptionsRequest
 {
     public StoryNarrationMode Narration { get; init; } = StoryNarrationMode.Stock;
+    public bool MatchClipDuration { get; init; }
+    public bool KeepClipAudio { get; init; }
+
+    /// <summary>Make the characters drawn into the pictures talk. On unless the request says otherwise.</summary>
+    public bool TalkingFaces { get; init; } = true;
 
     [StringLength(64)]
     public string? VoiceProfileId { get; init; }
@@ -95,11 +105,20 @@ public sealed record StoryBuildOptionsRequest
     /// <summary>Let the app pick the speed from how fast the narration came out. Left out, it is on.</summary>
     public bool? AutoPace { get; init; }
 
+    /// <summary>The pace the voice is brought to; Auto picks by the video's shape and audience.</summary>
+    public StoryPaceStyle Pace { get; init; } = StoryPaceStyle.Auto;
+
     public StoryArtStyle ArtStyle { get; init; } = StoryArtStyle.Auto;
+
+    /// <summary>Also make the other language's dub (Hindi ⇄ English) for YouTube's multi-language audio.</summary>
+    public bool Dub { get; init; }
 
     public static StoryBuildOptionsRequest From(StoryBuildOptions o) => new()
     {
         Narration = o.Narration,
+        MatchClipDuration = o.MatchClipDuration,
+        KeepClipAudio = o.KeepClipAudio,
+        TalkingFaces = o.TalkingFaces,
         VoiceProfileId = o.VoiceProfileId,
         VoiceId = o.VoiceId,
         SpeechEngine = o.SpeechEngine,
@@ -121,12 +140,17 @@ public sealed record StoryBuildOptionsRequest
         AutoApprove = o.AutoApprove,
         VideoSpeed = o.VideoSpeed,
         AutoPace = o.AutoPace,
-        ArtStyle = o.ArtStyle
+        Pace = o.Pace,
+        ArtStyle = o.ArtStyle,
+        Dub = o.Dub
     };
 
     public StoryBuildOptions ToOptions() => new()
     {
         Narration = Narration,
+        MatchClipDuration = MatchClipDuration,
+        KeepClipAudio = KeepClipAudio,
+        TalkingFaces = TalkingFaces,
         VoiceProfileId = VoiceProfileId,
         VoiceId = VoiceId,
         SpeechEngine = SpeechEngine,
@@ -148,7 +172,9 @@ public sealed record StoryBuildOptionsRequest
         AutoApprove = AutoApprove,
         VideoSpeed = VideoSpeed,
         AutoPace = AutoPace ?? true,
-        ArtStyle = ArtStyle
+        Pace = Pace,
+        ArtStyle = ArtStyle,
+        Dub = Dub
     };
 }
 
@@ -304,6 +330,23 @@ public sealed record EditStorySceneRequest
     [StringLength(800)] public string? VideoPrompt { get; init; }
     [MaxLength(8)] public List<string>? ImageKeywords { get; init; }
     [StringLength(30)] public string? Mood { get; init; }
+
+    /// <summary>The scene's further pictures, in order; null keeps the ones it has.</summary>
+    [MaxLength(StoryScriptParser.MaxShots)] public List<EditStoryShotRequest>? Shots { get; init; }
+
+    /// <summary>
+    /// An emotion for each of the scene's lines, in order (empty for a plain line); null keeps the ones they have. Applied
+    /// only when it names one per line; a word the app does not know leaves the line plain.
+    /// </summary>
+    [MaxLength(StoryScriptParser.MaxLinesPerScene)] public List<string?>? LineEmotions { get; init; }
+}
+
+public sealed record EditStoryShotRequest
+{
+    /// <summary>The picture number it had (2 is the scene's first further picture), so its picture stays with it; 0 for a new one.</summary>
+    public int Picture { get; init; }
+
+    [StringLength(StoryScriptParser.MaxPromptChars)] public string? ImagePrompt { get; init; }
 }
 
 public sealed record EditStoryScriptRequest
@@ -313,6 +356,9 @@ public sealed record EditStoryScriptRequest
     [StringLength(600)] public string? Summary { get; init; }
     [StringLength(80)] public string? MusicQuery { get; init; }
 
+    /// <summary>What the YouTube thumbnail shows; null keeps it, empty clears it.</summary>
+    [StringLength(StoryScriptParser.MaxPromptChars)] public string? ThumbnailPrompt { get; init; }
+
     [MaxLength(StoryScriptParser.MaxScenes)]
     public List<EditStorySceneRequest>? Scenes { get; init; }
 
@@ -320,7 +366,10 @@ public sealed record EditStoryScriptRequest
         [.. (Scenes ?? []).Select(s => new StorySceneEdit(
             s.Number, s.Headline, s.Narration, s.English, s.Basis,
             [.. (s.Sources ?? []).Select(x => new StorySourceEdit(x.Text, x.Ref, x.Note))],
-            s.ImagePrompt, s.ImageKeywords, s.Mood, s.VideoPrompt))]);
+            s.ImagePrompt, s.ImageKeywords, s.Mood, s.VideoPrompt,
+            s.Shots is null ? null : [.. s.Shots.Select(x => new StoryShotEdit(x.Picture, x.ImagePrompt))],
+            s.LineEmotions))],
+        ThumbnailPrompt);
 }
 
 /// <summary>Which of a story's YouTube videos gets its subtitles, and in which languages (none: every one it has).</summary>
@@ -399,10 +448,49 @@ public sealed record StorySceneResponse(
     double? TransitionSeconds = null,
     bool LookPinned = false,
     string? AnimationPrompt = null,
-    bool Speaks = false);
+    bool Speaks = false,
+    IReadOnlyList<StoryShotResponse>? Shots = null,
+    string? Background = null,
+    IReadOnlyList<string>? OnScreen = null,
+    string? Action = null,
+    StoryMemeResponse? Meme = null,
+    IReadOnlyList<StoryFaceResponse>? Faces = null);
+
+/// <summary>
+/// A speaker's face in a picture: the middle of the mouth and the face's width, as fractions of the picture. A picture's
+/// faces are null until a build has looked for them, and empty when none were found.
+/// </summary>
+public sealed record StoryFaceResponse(string Name, double X, double Y, double Width, bool Manual);
+
+/// <summary>The talking faces the person placed in one picture of a scene.</summary>
+public sealed record PlaceStoryFacesRequest
+{
+    [MaxLength(8)]
+    public IReadOnlyList<StoryFaceRequest> Faces { get; init; } = [];
+}
+
+public sealed record StoryFaceRequest
+{
+    [Required, StringLength(60)]
+    public string Name { get; init; } = string.Empty;
+
+    [Range(0, 1)] public double X { get; init; }
+    [Range(0, 1)] public double Y { get; init; }
+    [Range(0.02, 0.8)] public double Width { get; init; }
+
+    public StoryFace ToFace() => new() { Name = Name, X = X, Y = Y, Width = Width };
+}
+
+/// <summary>A scene's funny ending: a meme from the owner's library, named as the template named it.</summary>
+public sealed record StoryMemeResponse(string Name, string? Caption, double? Seconds);
+
+/// <summary>One of a scene's further pictures. <paramref name="Picture"/> counts the scene's own picture as 1.</summary>
+public sealed record StoryShotResponse(
+    int Picture, string? ImagePrompt, bool HasImage, string? ImageSource, string? ImageName, IReadOnlyList<StoryFaceResponse>? Faces = null);
 
 /// <summary>Part of a scene's narration and who says it: <c>narrator</c> or a member of the cast.</summary>
-public sealed record StoryLineResponse(string Speaker, string Text);
+/// <param name="Emotion">How it is said (<c>laughing</c>, <c>angry</c>...), or null for a plain line.</param>
+public sealed record StoryLineResponse(string Speaker, string Text, string? Emotion = null);
 
 /// <param name="VoiceId">The voice they were given when the narration was last made; null before that.</param>
 public sealed record StoryCastMemberResponse(string Name, string? Gender, string? Age, string? VoiceId);
@@ -417,7 +505,11 @@ public sealed record StoryScriptResponse(
     IReadOnlyList<string> ReviewNotes,
     string? WrittenBy,
     double EstimatedSeconds,
-    IReadOnlyList<StoryCastMemberResponse> Cast);
+    IReadOnlyList<StoryCastMemberResponse> Cast,
+    string? ThumbnailPrompt = null,
+    bool HasThumbnail = false,
+    string? ThumbnailSource = null,
+    string? ThumbnailName = null);
 
 public sealed record StoryTopicResponse(string TopicId, string Name, string? Summary, IReadOnlyList<StorySourceResponse> Sources);
 
@@ -465,14 +557,24 @@ public sealed record StoryKitResponse(
 public sealed record StoryBriefResponse(
     string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
     string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture,
-    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null);
+    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null, string? BrandChannelId = null);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
     StoryVisualMode Visuals, string? ImageStyle, bool Music, bool UploadsAreAiMade, string? MusicQuery, double MusicVolume,
     bool RenderWhenReady, bool AutoApprove, string? SpeechModel = null, string? SpeechStyle = null, bool CastVoices = true,
     StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
-    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto);
+    double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto,
+    StoryPaceStyle Pace = StoryPaceStyle.Auto, bool MatchClipDuration = false, bool KeepClipAudio = false, bool Dub = false,
+    bool TalkingFaces = true);
+
+/// <summary>The story's dub in its other language, for YouTube's multi-language audio.</summary>
+/// <param name="Language"><c>en</c> for a Hindi story, <c>hi</c> for an English one.</param>
+/// <param name="ScenesSpoken">Scenes whose dub voice exists, of <paramref name="ScenesTotal"/>.</param>
+/// <param name="ProjectId">The dub's own project, once built; it opens and renders like any other.</param>
+/// <param name="TrackReady">The dub track - an audio file the length of the video - can be downloaded.</param>
+public sealed record StoryDubResponse(
+    string Language, string Label, int ScenesSpoken, int ScenesTotal, string? ProjectId, bool TrackReady);
 
 /// <summary>A subtitle track the story can offer as an SRT file, and send to YouTube.</summary>
 public sealed record StorySubtitleResponse(string Language, string Label, string Source, int Cues);
@@ -533,7 +635,8 @@ public sealed record StoryRunResponse(
     IReadOnlyList<StoryNextPartIdeaResponse>? NextParts = null,
     string? NextPartsBy = null,
     string? NextRunId = null,
-    StoryPaceResponse? Pace = null);
+    StoryPaceResponse? Pace = null,
+    StoryDubResponse? Dub = null);
 
 /// <summary>A run in the list and on the storyboard: enough to draw a card, place it in its column and open it.</summary>
 /// <param name="CoverScene">The first scene with a picture of its own, for the card; null when there is none yet.</param>
@@ -667,7 +770,8 @@ public static class StoryAgentMapper
         run.Id,
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
-            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine),
+            run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine,
+            run.Brief.BrandChannelId ?? BrandChannel.DefaultId),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,
@@ -700,7 +804,8 @@ public static class StoryAgentMapper
         run.NextPartsBy,
         run.NextRunId,
         run.Pace is null ? null : new StoryPaceResponse(run.Pace.WordsPerMinute, run.Pace.TargetWordsPerMinute,
-            run.Pace.SuggestedSpeed, run.Pace.Verdict, run.Pace.Applied));
+            run.Pace.SuggestedSpeed, run.Pace.Verdict, run.Pace.Applied),
+        DubOf(run));
 
     private static StorySeriesLinkResponse ToResponse(StorySeriesLink s) =>
         new(s.Id, s.Name, s.Part, s.PreviousRunId, s.AutoContinueTo, !string.IsNullOrWhiteSpace(s.StorySoFar));
@@ -750,7 +855,21 @@ public static class StoryAgentMapper
     private static StoryOptionsResponse ToResponse(StoryBuildOptions o) => new(
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
-        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle);
+        o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace, o.MatchClipDuration, o.KeepClipAudio, o.Dub,
+        o.TalkingFaces);
+
+    /// <summary>The dub, when one was asked for; the track only once the story's video it belongs with is rendered.</summary>
+    private static StoryDubResponse? DubOf(StoryRun run)
+    {
+        if (!run.Options.Dub || run.Script is null) return null;
+
+        var language = StoryDub.LanguageOf(run);
+        var ready = StoryObjectKeys.Owns(run.Id, run.DubAudioKey) && run.DubLanguage == language
+            && !string.IsNullOrEmpty(run.RenderJobId) && run.Stage(StoryStageIds.Render).Status == StoryStageStatus.Completed;
+        return new StoryDubResponse(language, StoryCaptions.LabelOf(language),
+            run.Script.Scenes.Count(s => StoryObjectKeys.Owns(run.Id, s.DubAudioKey) && s.DubAudioSeconds is > 0),
+            run.Script.Scenes.Count, run.DubProjectId, ready);
+    }
 
     private static StoryResearchResponse ToResponse(StoryResearch r) => new(
         [.. r.Topics.Select(t => new StoryTopicResponse(t.TopicId, t.Name, t.Summary, [.. t.Sources.Select(ToResponse)]))],
@@ -768,12 +887,25 @@ public static class StoryAgentMapper
             scene.ImagePrompt, scene.ImageKeywords, scene.Mood, scene.EstimatedSeconds,
             StoryObjectKeys.Owns(runId, scene.ImageKey), scene.ImageSource, scene.ImageName,
             StoryObjectKeys.Owns(runId, scene.AudioKey), scene.AudioSeconds,
-            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text))],
+            [.. scene.Lines.Select(l => new StoryLineResponse(l.Speaker, l.Text, l.Emotion))],
             scene.VideoPrompt, StoryObjectKeys.Owns(runId, scene.VideoKey) && scene.HasAttachedClip, scene.VideoName,
             scene.AudioTake, scene.Effect, scene.Transition, scene.TransitionSeconds, scene.LookPinned,
-            StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene)))],
+            StoryAnimation.Prompt(run, scene), StoryAnimation.HasSpeech(scene),
+            [.. scene.Shots.Select((shot, i) => new StoryShotResponse(
+                i + 2, shot.ImagePrompt, StoryObjectKeys.Owns(runId, shot.ImageKey), shot.ImageSource, shot.ImageName,
+                FacesOf(shot.Faces, shot.FacesImageKey, shot.ImageKey)))],
+            scene.Background, scene.OnScreen, scene.Action,
+            scene.Meme is { } meme ? new StoryMemeResponse(meme.Name, meme.Caption, meme.Seconds) : null,
+            FacesOf(scene.Faces, scene.FacesImageKey, scene.ImageKey)))],
         s.ReviewNotes, s.WrittenBy, Math.Round(s.Scenes.Sum(x => x.AudioSeconds is > 0 ? x.AudioSeconds.Value : x.EstimatedSeconds), 1),
-        [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))]);
+        [.. s.Cast.Select(c => new StoryCastMemberResponse(c.Name, c.Gender, c.Age, c.VoiceId))],
+        s.ThumbnailPrompt, StoryObjectKeys.Owns(runId, s.ThumbnailKey), s.ThumbnailSource, s.ThumbnailName);
+
+    /// <summary>The faces found in the picture it shows now; null when that picture has not been looked at.</summary>
+    private static IReadOnlyList<StoryFaceResponse>? FacesOf(IReadOnlyList<StoryFace> faces, string? facesKey, string? imageKey) =>
+        imageKey is null || !string.Equals(facesKey, imageKey, StringComparison.Ordinal)
+            ? null
+            : [.. faces.Select(f => new StoryFaceResponse(f.Name, f.X, f.Y, f.Width, f.Manual))];
 
     private static StorySourceResponse ToResponse(StorySourceRef s) =>
         new(s.TextId, s.TextName, s.Ref, s.Note, s.Confidence, s.Url, s.Check, s.Grounded, s.CheckMessage);

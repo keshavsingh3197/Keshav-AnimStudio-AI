@@ -338,9 +338,11 @@ public sealed class YouTubeFreeSeoEngineTests
         var s = YouTubeFreeSeoEngine.Generate("Current title: Shiv Tandav", Style, "devotional-omkr", "hi", null, null);
         var finished = YouTubeBrandKit.Compose(s.Description, YouTubeBrandKit.Resolve(null, "devotional-omkr"), "hi", null);
 
-        Assert.Contains("OMKR", finished);
-        Assert.Contains("https://youtube.com/@omkr-shiv", finished);
+        Assert.Contains("Omkar Shiv Bhakti", finished);
+        Assert.Contains("https://youtube.com/@OmkarShivBhakti", finished);
         Assert.Contains("omkr", s.Tags);
+        Assert.Contains("omkar shiv bhakti", s.Tags);
+        Assert.Contains("bhakti whatsapp status", s.Tags);
     }
 
     [Fact]

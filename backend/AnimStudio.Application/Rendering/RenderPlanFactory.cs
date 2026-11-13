@@ -40,6 +40,15 @@ public static class RenderPlanFactory
         var background = ResolveBackground(context, sceneIndex);
         var sprites = ResolveSprites(context, canvas);
         var (audioPath, sliceStart, sliceEnd) = ResolveAudio(context);
+        context.AssetsById.TryGetValue(scene.BackgroundAssetId!, out var backdrop);
+        if (scene.BackgroundAudio && backdrop?.Kind == AssetKind.Video && string.IsNullOrEmpty(backdrop.Probe.AudioCodec))
+            throw new RenderException(RenderErrorCode.AssetMissing,
+                $"Scene {sceneIndex + 1}'s clip audio could not be read. Check the clip or rebuild the story.");
+
+        List<MouthPlan> mouths = backdrop?.Kind == AssetKind.Video ? [] : Mouths(scene);
+        TalkingBackgroundPlan? talking = null;
+        if (mouths.Count > 0 && ResolveTalkingBackground(context, backdrop, mouths) is { } resolved)
+            (talking, mouths) = resolved;
 
         return new SceneRenderPlan
         {
@@ -48,10 +57,15 @@ public static class RenderPlanFactory
             Canvas = canvas,
             Duration = scene.Duration,
             BackgroundRelativePath = background,
-            BackgroundIsVideo = context.AssetsById.TryGetValue(scene.BackgroundAssetId!, out var backdrop)
-                && backdrop.Kind == AssetKind.Video,
+            BackgroundIsVideo = backdrop?.Kind == AssetKind.Video,
+            BackgroundHasAudio = scene.BackgroundAudio && backdrop?.Kind == AssetKind.Video
+                && !string.IsNullOrEmpty(backdrop.Probe.AudioCodec),
             BackgroundAnimation = scene.Animation,
             Sprites = sprites,
+            Mouths = mouths,
+            TalkingBackground = talking,
+            TalkingBackgroundUnusable = talking is null && mouths.Count > 0
+                && !string.IsNullOrEmpty(scene.TalkingBackgroundAssetId) && backdrop?.Kind != AssetKind.Video,
             AudioRelativePath = audioPath,
             AudioSliceStartSeconds = sliceStart,
             AudioSliceEndSeconds = sliceEnd,
@@ -76,6 +90,59 @@ public static class RenderPlanFactory
             : throw new RenderException(RenderErrorCode.AssetMissing,
                 $"Scene {sceneIndex + 1}'s background image is missing.");
     }
+
+    /// <summary>
+    /// The still with its mouths open, when it can be laid over the picture pixel for pixel: an approved image whose
+    /// shape matches the picture's, both of known size. Anything else keeps the faces still rather than failing the
+    /// render - the open-mouth version is a finishing touch, not the scene.
+    /// </summary>
+    /// <returns>The plan, and the mouths that can talk with it, each told where its open mouth is.</returns>
+    private static (TalkingBackgroundPlan Plan, List<MouthPlan> Mouths)? ResolveTalkingBackground(
+        SceneRenderContext context, Asset? backdrop, List<MouthPlan> mouths)
+    {
+        var id = context.Scene.TalkingBackgroundAssetId;
+        if (string.IsNullOrEmpty(id) || backdrop is not { Kind: AssetKind.Image }) return null;
+        if (!context.AssetsById.TryGetValue(id, out var open) || open.Kind != AssetKind.Image || !open.IsUsableInScene) return null;
+        if (!context.MaterializedPathsByAssetId.TryGetValue(id, out var path)) return null;
+
+        if (backdrop.Probe.Width is not (> 0 and <= MaxStillSide) || backdrop.Probe.Height is not (> 0 and <= MaxStillSide)
+            || open.Probe.Width is not (> 0 and <= MaxStillSide) || open.Probe.Height is not (> 0 and <= MaxStillSide))
+            return null;
+
+        var width = backdrop.Probe.Width.Value;
+        var height = backdrop.Probe.Height.Value;
+        var openWidth = open.Probe.Width.Value;
+        var openHeight = open.Probe.Height.Value;
+        var sameShape = Math.Abs((double)openWidth / openHeight / ((double)width / height) - 1) <= MaxTalkingShapeDifference;
+
+        // A mouth not found in the open-mouth picture can only be taken from the same place when the two are framed alike.
+        var talking = new List<MouthPlan>();
+        foreach (var mouth in mouths)
+        {
+            if (mouth is { OpenX: { } ox, OpenY: { } oy, OpenFaceWidth: { } ow }
+                && double.IsFinite(ox) && double.IsFinite(oy) && double.IsFinite(ow))
+            {
+                talking.Add(mouth with
+                {
+                    OpenX = Math.Clamp(ox, 0, 1),
+                    OpenY = Math.Clamp(oy, 0, 1),
+                    OpenFaceWidth = Math.Clamp(ow, MinFaceWidth, MaxFaceWidth)
+                });
+            }
+            else if (sameShape)
+            {
+                talking.Add(mouth with { OpenX = mouth.X, OpenY = mouth.Y, OpenFaceWidth = mouth.FaceWidth });
+            }
+        }
+
+        return talking.Count == 0 ? null : (new TalkingBackgroundPlan(path, width, height, openWidth, openHeight), talking);
+    }
+
+    /// <summary>How far an open-mouth picture with no mouths of its own found may differ in shape from the still.</summary>
+    public const double MaxTalkingShapeDifference = 0.02;
+
+    /// <summary>The largest still side the open-mouth blend is done at; beyond it a picture is not a story still.</summary>
+    private const int MaxStillSide = 8192;
 
     /// <summary>
     /// A searched asset that has not been approved must never reach a render - that is the
@@ -194,6 +261,44 @@ public static class RenderPlanFactory
 
         return windows;
     }
+
+    /// <summary>
+    /// The mouths drawn into the still that have something to say, each window held inside the scene. Positions are
+    /// clamped here as well as on import: they reach ffmpeg as numbers, and a stray one must not crop outside the picture.
+    /// </summary>
+    public static List<MouthPlan> Mouths(Scene scene)
+    {
+        var wholeScene = new FrameRange(FrameCount.Zero, scene.Duration);
+        var mouths = new List<MouthPlan>();
+
+        foreach (var mouth in scene.Mouths)
+        {
+            if (!double.IsFinite(mouth.X) || !double.IsFinite(mouth.Y) || !double.IsFinite(mouth.FaceWidth)) continue;
+
+            var windows = mouth.Windows
+                .Select(w => w.Range.Clamp(wholeScene))
+                .Where(w => !w.IsEmpty)
+                .ToList();
+            if (windows.Count == 0) continue;
+
+            mouths.Add(new MouthPlan
+            {
+                X = Math.Clamp(mouth.X, 0, 1),
+                Y = Math.Clamp(mouth.Y, 0, 1),
+                FaceWidth = Math.Clamp(mouth.FaceWidth, MinFaceWidth, MaxFaceWidth),
+                SpeakingWindows = windows,
+                OpenX = mouth.OpenX,
+                OpenY = mouth.OpenY,
+                OpenFaceWidth = mouth.OpenFaceWidth
+            });
+        }
+
+        return mouths;
+    }
+
+    /// <summary>Faces smaller than this are too small to see talk; larger than this are not a face.</summary>
+    public const double MinFaceWidth = 0.02;
+    public const double MaxFaceWidth = 0.8;
 
     private static (string? Path, double? Start, double? End) ResolveAudio(SceneRenderContext context)
     {

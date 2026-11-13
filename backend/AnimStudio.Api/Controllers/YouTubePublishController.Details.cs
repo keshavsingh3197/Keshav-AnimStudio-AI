@@ -86,7 +86,7 @@ public sealed partial class YouTubePublishController
             return Ok(ApiResponse<YouTubeCheckupResponse>.Ok(new YouTubeCheckupResponse(
                 connection.ChannelId, connection.ChannelTitle,
                 [.. playlists.Select(p => new YouTubeCheckupPlaylist(p.Id, p.Title, p.ItemCount))],
-                rows, playlistError, DateTime.UtcNow)));
+                rows, playlistError, DateTime.UtcNow, await CheckupBrandAsync(connection.ChannelId, ct))));
         }
         catch (YouTubePublishException ex)
         {
@@ -209,7 +209,7 @@ public sealed partial class YouTubePublishController
 
         var settings = await settingsRepo.GetAsync(ct);
         var brandPublishing = BrandFor(settings, connection.ChannelId).Publishing;
-        var footer = brandPublishing?.DescriptionFooter;
+        var footer = YouTubeBrandKit.CurrentFooter(brandPublishing, YouTubeBrandKit.Effective(settings, brandPublishing));
 
         var action = await WriteSuggestionAsync(summary, style, request, projectId,
             d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText, extras,
@@ -309,7 +309,7 @@ public sealed partial class YouTubePublishController
         var summary = string.Join('\n', new[]
         {
             projectSummary,
-            !string.IsNullOrWhiteSpace(fetched.Author) ? "Channel: " + fetched.Author : "Channel: OMKR",
+            !string.IsNullOrWhiteSpace(fetched.Author) ? "Channel: " + fetched.Author : "Channel: Omkar Shiv Bhakti",
             "Current title: " + (!string.IsNullOrWhiteSpace(fetched.Title) ? fetched.Title : videoId),
             "Original URL: " + canonicalUrl,
             !string.IsNullOrWhiteSpace(fetched.Description)
@@ -332,7 +332,7 @@ public sealed partial class YouTubePublishController
         var brandPublishing = !string.IsNullOrWhiteSpace(request?.ChannelId)
             ? BrandFor(settings, request.ChannelId!).Publishing
             : settings?.DefaultPublishing;
-        var footer = brandPublishing?.DescriptionFooter;
+        var footer = YouTubeBrandKit.CurrentFooter(brandPublishing, YouTubeBrandKit.Effective(settings, brandPublishing));
 
         var suggestReq = new YouTubeSuggestRequest(
             YouTubeMetadataSuggester.NormalizeLanguage(request?.Language),
@@ -493,7 +493,7 @@ public sealed partial class YouTubePublishController
         var facts = job is null ? null : Facts(job);
         return Ok(ApiResponse<YouTubeVideoEditContext>.Ok(new YouTubeVideoEditContext(
             brandName,
-            string.IsNullOrWhiteSpace(publishing?.DescriptionFooter) ? null : publishing.DescriptionFooter.Trim(),
+            YouTubeBrandKit.CurrentFooter(publishing, YouTubeBrandKit.Effective(settings, publishing, brandName)),
             publishing?.Tags ?? [],
             project is null ? null : new YouTubeVideoProjectContext(
                 project.Id, project.Name, project.Description ?? string.Empty,
@@ -581,6 +581,39 @@ public sealed partial class YouTubePublishController
         return (project, job);
     }
 
+    /// <summary>
+    /// What the checkup adds to details imported from another AI tool, from the brand channel that
+    /// publishes to this YouTube channel: the credits block, brand hashtags and tags, the footer,
+    /// and the upload defaults for category and audience. Null when no brand channel publishes here.
+    /// </summary>
+    private async Task<YouTubeCheckupBrand?> CheckupBrandAsync(string youTubeChannelId, CancellationToken ct)
+    {
+        var settings = await settingsRepo.GetAsync(ct);
+        var (brandName, publishing) = BrandFor(settings, youTubeChannelId);
+        if (publishing is null) return null;
+
+        var effective = YouTubeBrandKit.Effective(settings, publishing, brandName);
+        var footer = YouTubeBrandKit.CurrentFooter(publishing, effective);
+        var channelUrl = effective?.ChannelUrl ?? YouTubeBrandKit.AutoChannelUrl(publishing);
+        var tags = (effective?.Tags ?? []).Concat(publishing.Tags ?? [])
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new YouTubeCheckupBrand(
+            effective?.ChannelName ?? YouTubeBrandKit.AutoChannelName(publishing, brandName),
+            channelUrl is not null && YouTubeBrandKit.HasRetiredUrl(channelUrl) ? null : channelUrl,
+            effective is null ? string.Empty : YouTubeBrandKit.Block(effective, "hi", footer),
+            effective is null ? string.Empty : YouTubeBrandKit.Block(effective, "en", footer),
+            effective?.Hashtags ?? [],
+            tags,
+            footer,
+            effective?.StudioUrl,
+            effective?.CreatorUrl,
+            string.IsNullOrWhiteSpace(publishing.CategoryId) ? null : publishing.CategoryId,
+            publishing.MadeForKids);
+    }
+
     /// <summary>The brand channel that publishes to a YouTube channel - its name and setup - or nulls when none does.</summary>
     private static (string? Name, ChannelPublishSettings? Publishing) BrandFor(AiSettings? settings, string youTubeChannelId)
     {
@@ -651,7 +684,32 @@ public sealed record YouTubeCheckupResponse(
     IReadOnlyList<YouTubeCheckupPlaylist> Playlists,
     IReadOnlyList<YouTubeCheckupVideo> Videos,
     string? PlaylistError,
-    DateTime CheckedAt);
+    DateTime CheckedAt,
+    /// <summary>The brand channel's finishing touches for imported details; null when no brand channel publishes here.</summary>
+    YouTubeCheckupBrand? Brand = null);
+
+/// <summary>What the checkup adds to every imported video's details, so they carry the channel's exact credits and links.</summary>
+/// <param name="ChannelName">The channel's current name (never a retired one).</param>
+/// <param name="ChannelUrl">Its current YouTube address, for the subscribe line in the comment.</param>
+/// <param name="CreditsHindi">The credits and subscribe block for a Hindi description; empty when the channel has no branding.</param>
+/// <param name="CreditsEnglish">The same block for any other language.</param>
+/// <param name="Hashtags">Brand hashtags, without "#", for the description's hashtag line.</param>
+/// <param name="Tags">Brand and channel search tags added to every video's own.</param>
+/// <param name="Footer">The channel's description footer, with retired links and names updated.</param>
+/// <param name="CategoryId">The channel's upload category, offered for videos still on YouTube's default.</param>
+/// <param name="MadeForKids">The channel's upload audience, offered for videos that never declared one.</param>
+public sealed record YouTubeCheckupBrand(
+    string? ChannelName,
+    string? ChannelUrl,
+    string CreditsHindi,
+    string CreditsEnglish,
+    IReadOnlyList<string> Hashtags,
+    IReadOnlyList<string> Tags,
+    string? Footer,
+    string? StudioUrl,
+    string? CreatorUrl,
+    string? CategoryId,
+    bool MadeForKids);
 
 /// <param name="AddToPlaylistIds">Playlists to add the video to; it isn't taken out of any.</param>
 /// <param name="CurrentPlaylistIds">The playlists the page already knows it's in - only for the returned row.</param>

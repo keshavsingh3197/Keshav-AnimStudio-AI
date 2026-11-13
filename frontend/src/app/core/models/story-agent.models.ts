@@ -1,3 +1,5 @@
+import { BACKGROUND_EFFECTS, TRANSITIONS } from './api.models';
+
 /**
  * The Story Agent's wire contract. Enums are their names (the API serialises them as strings), and every property is
  * camelCase, exactly as the API sends it. No storage key or owner ever appears: a picture is fetched by scene number.
@@ -22,19 +24,27 @@ export type StoryReviewStage = 'narration' | 'music' | 'render';
 export const REVIEW_STEP: Record<StoryReviewStage, 'voice' | 'music' | 'video'> = { narration: 'voice', music: 'music', render: 'video' };
 
 /** The feel of the motion and the cuts picked for each scene. */
-export type StoryLookStyle = 'Auto' | 'Gentle' | 'Cinematic' | 'Lively';
+export type StoryLookStyle = 'Auto' | 'Gentle' | 'Cinematic' | 'Lively' | 'MusicVideo';
+
+export const STORY_LOOK_STYLES: readonly { id: StoryLookStyle; label: string; hint: string }[] = [
+  { id: 'Auto', label: 'Automatic', hint: 'Picked from each scene\'s mood: slow pushes for calm, quicker moves for drama, a reveal for wonder.' },
+  { id: 'Gentle', label: 'Gentle', hint: 'Slow, small moves and soft crossfades. Suits devotional and reflective stories.' },
+  { id: 'Cinematic', label: 'Cinematic', hint: 'Deliberate pushes and pulls, longer crossfades, an iris reveal at the turning points.' },
+  { id: 'Lively', label: 'Lively', hint: 'Quicker moves and slides, for a Short that has to hold attention.' },
+  { id: 'MusicVideo', label: 'Music video', hint: 'Automatically varies zooms, blurred cuts, diagonal wipes and circular reveals. No beat detection or automatic flashes; pinned scenes keep your choices.' },
+];
 
 /** The look of the pictures and the animation. Auto keeps the genre's picture style. */
 export type StoryArtStyle = 'Auto' | 'Painting' | 'Realistic' | 'Cartoon' | 'Cartoon3D';
+/** The pace the voice is brought to. Auto: gentle for children, brisk for a Short, a storyteller's pace otherwise. */
+export type StoryPaceStyle = 'Auto' | 'Gentle' | 'Storyteller' | 'Brisk' | 'Fast';
 
 /** The picture's motion; the renderer's own names. */
-export const STORY_EFFECTS = ['None', 'ZoomIn', 'ZoomOut', 'PanLeft', 'PanRight', 'PanUp', 'PanDown'] as const;
+export const STORY_EFFECTS = BACKGROUND_EFFECTS;
 export type StoryEffect = (typeof STORY_EFFECTS)[number];
 
 /** The cut into the next scene; the renderer's own names. */
-export const STORY_TRANSITIONS = [
-  'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight', 'SlideLeft', 'SlideRight', 'SlideUp', 'SlideDown', 'CircleOpen', 'CircleClose', 'ZoomIn',
-] as const;
+export const STORY_TRANSITIONS = TRANSITIONS;
 export type StoryTransition = (typeof STORY_TRANSITIONS)[number];
 
 export type StoryStageStatus = 'Pending' | 'Running' | 'Completed' | 'Skipped' | 'Failed';
@@ -192,12 +202,46 @@ export interface StoryScene {
   transitionSeconds?: number | null;
   /** The person set the effect and transition; a new look leaves them. */
   lookPinned?: boolean;
+  /** More pictures of the scene, shown after its own while the narration plays on; the build cuts between them. */
+  shots?: StoryShot[];
+  /** Staging from a story template: where it happens, who is seen and what they do. */
+  background?: string | null;
+  onScreen?: string[] | null;
+  action?: string | null;
+  /** A meme from the owner's library played right after the scene. */
+  meme?: { name: string; caption: string | null; seconds: number | null } | null;
+  /** Speaker mouth positions in the scene's still picture; metadata only, null until a build has looked. */
+  faces?: StoryFace[] | null;
+}
+
+/** Where a speaker's face is in a picture: the middle of the mouth and the face's width, as fractions of the picture. */
+export interface StoryFace {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  /** The person placed it themselves. */
+  manual: boolean;
+}
+
+/** One of a scene's further pictures. */
+export interface StoryShot {
+  /** Counts the scene's own picture as 1, so the first further picture is 2. Names the picture to the server. */
+  picture: number;
+  imagePrompt: string | null;
+  hasImage: boolean;
+  /** "upload", or the image engine that drew it. */
+  imageSource: string | null;
+  imageName: string | null;
+  faces?: StoryFace[] | null;
 }
 
 export interface StoryLine {
   /** "narrator" or a cast member's name. */
   speaker: string;
   text: string;
+  /** How it is said and the face that goes with it (see STORY_EMOTIONS); null for a plain line. */
+  emotion?: string | null;
 }
 
 export interface StoryCastMember {
@@ -220,6 +264,12 @@ export interface StoryScript {
   reviewNotes: string[];
   writtenBy: string | null;
   estimatedSeconds: number;
+  /** What the YouTube thumbnail shows, for an image tool. */
+  thumbnailPrompt?: string | null;
+  hasThumbnail?: boolean;
+  /** "upload", or the image engine that drew it. */
+  thumbnailSource?: string | null;
+  thumbnailName?: string | null;
 }
 
 export interface StoryTopicMatch {
@@ -315,12 +365,18 @@ export interface StoryBrief {
   mode?: StoryGenreMode;
   /** The engine picked to write the script; null walks the configured chain. */
   textEngine?: string | null;
+  /** The brand channel the story is made for; 'default' for the default one. */
+  brandChannelId?: string | null;
 }
 
 export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
 
 export interface StoryBuildOptions {
   narration: StoryNarrationMode;
+  matchClipDuration?: boolean;
+  keepClipAudio?: boolean;
+  /** Find speaker mouth positions with Gemini for metadata; this does not animate the mouths. On when left out. */
+  talkingFaces?: boolean;
   voiceProfileId: string | null;
   voiceId: string | null;
   speechEngine: string | null;
@@ -350,8 +406,28 @@ export interface StoryBuildOptions {
   videoSpeed?: number;
   /** Let the app pick videoSpeed from how fast the narration came out. Choosing a speed by hand turns it off. */
   autoPace?: boolean;
+  /** The pace autoPace aims for. */
+  pace?: StoryPaceStyle;
   /** The look of the pictures and the animation. */
   artStyle?: StoryArtStyle;
+  /** Also make the dub in the story's other language (Hindi ⇄ English) for YouTube's multi-language audio. */
+  dub?: boolean;
+}
+
+/**
+ * The story told again in its other language over the same pictures, for YouTube's multi-language audio: one video,
+ * Hindi for viewers in India and English for the rest of the world.
+ */
+export interface StoryDub {
+  /** 'en' for a Hindi story, 'hi' for an English one. */
+  language: 'hi' | 'en';
+  label: string;
+  scenesSpoken: number;
+  scenesTotal: number;
+  /** The dub's own project, once built. */
+  projectId: string | null;
+  /** The dub track (a WAV the length of the video) can be downloaded. */
+  trackReady: boolean;
 }
 
 /** A subtitle track the story offers as an SRT file: the narration, or (for a Hindi story) its English meaning. */
@@ -442,6 +518,8 @@ export interface StoryRun {
   nextRunId?: string | null;
   /** How fast the narration came out, once it exists. */
   pace?: StoryPace | null;
+  /** The dub, when one was asked for. */
+  dub?: StoryDub | null;
 }
 
 /** Where a story sits in a series told over several videos. */
@@ -576,6 +654,8 @@ export interface CreateStoryRunBody {
   genreId?: string;
   /** One of the options' text engines; left out, the configured chain writes it. */
   textEngine?: string;
+  /** The brand channel the story is made for; its project publishes under it. Left out is the default channel. */
+  brandChannelId?: string;
   options?: StoryBuildOptionsBody;
 }
 
@@ -609,6 +689,16 @@ export interface EditStorySceneBody {
   videoPrompt?: string | null;
   imageKeywords: string[];
   mood: string | null;
+  /** The scene's further pictures in their new order; left out, they are kept as they are. */
+  shots?: EditStoryShotBody[];
+  /** An emotion for each of the scene's lines, in order (null: plain); left out, they are kept as they are. */
+  lineEmotions?: (string | null)[] | null;
+}
+
+export interface EditStoryShotBody {
+  /** The picture number it had, so its picture stays with it; 0 for a new one. */
+  picture: number;
+  imagePrompt: string | null;
 }
 
 export interface EditStoryScriptBody {
@@ -616,6 +706,8 @@ export interface EditStoryScriptBody {
   titleEnglish: string | null;
   summary: string | null;
   musicQuery: string | null;
+  /** Left out keeps it; empty clears it. */
+  thumbnailPrompt?: string | null;
   scenes: EditStorySceneBody[];
 }
 

@@ -9,7 +9,7 @@ namespace AnimStudio.Application.Publishing;
 /// many shorts land in it: one folder per project, inside it one per day and batch, and the
 /// batch's shorts numbered in order.
 /// <code>
-/// OMKR Shorts/
+/// Shorts/
 ///   KATHU SHYAM/
 ///     2026-10-17 KATHU SHYAM shorts/
 ///       01 KATHU SHYAM short #1.mp4

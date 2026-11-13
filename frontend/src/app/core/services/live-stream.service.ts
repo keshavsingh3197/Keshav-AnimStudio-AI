@@ -8,8 +8,11 @@ import {
   CameraStreamSettings,
   CameraStreamStatus,
   LiveStreamGoLive,
+  LiveStreamHistoryEntry,
   LiveStreamItemRequest,
   LiveStreamKeyStatus,
+  LiveStreamPreset,
+  LiveStreamPresetRequest,
   LiveStreamSettings,
   LiveStreamSetup,
   LiveStreamStatus,
@@ -100,6 +103,57 @@ export class LiveStreamService {
   /** A prepared item exactly as it will be sent - usable directly as a <video> source. */
   previewUrl(id: string, index: number): string {
     return this.media.sign(`${this.base}/${encodeURIComponent(id)}/items/${index}/preview`);
+  }
+
+  // ------------------------------------------------------------------ presets
+
+  /** The caller's saved setups, most recently used first. */
+  presets(): Observable<LiveStreamPreset[]> {
+    return this.http.get<ApiResponse<LiveStreamPreset[]>>(`${this.base}/presets`).pipe(map((r) => r.data ?? []));
+  }
+
+  createPreset(preset: LiveStreamPresetRequest): Observable<LiveStreamPreset> {
+    return this.http
+      .post<ApiResponse<LiveStreamPreset>>(`${this.base}/presets`, preset)
+      .pipe(map((r) => r.data as LiveStreamPreset));
+  }
+
+  updatePreset(id: string, preset: LiveStreamPresetRequest): Observable<LiveStreamPreset> {
+    return this.http
+      .put<ApiResponse<LiveStreamPreset>>(`${this.base}/presets/${encodeURIComponent(id)}`, preset)
+      .pipe(map((r) => r.data as LiveStreamPreset));
+  }
+
+  presetUsed(id: string): Observable<LiveStreamPreset> {
+    return this.http
+      .post<ApiResponse<LiveStreamPreset>>(`${this.base}/presets/${encodeURIComponent(id)}/used`, {})
+      .pipe(map((r) => r.data as LiveStreamPreset));
+  }
+
+  deletePreset(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/presets/${encodeURIComponent(id)}`);
+  }
+
+  // ------------------------------------------------------------------ history
+
+  history(): Observable<LiveStreamHistoryEntry[]> {
+    return this.http
+      .get<ApiResponse<LiveStreamHistoryEntry[]>>(`${this.base}/history`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  renameHistory(id: string, name: string): Observable<LiveStreamHistoryEntry> {
+    return this.http
+      .put<ApiResponse<LiveStreamHistoryEntry>>(`${this.base}/history/${encodeURIComponent(id)}`, { name })
+      .pipe(map((r) => r.data as LiveStreamHistoryEntry));
+  }
+
+  deleteHistory(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/history/${encodeURIComponent(id)}`);
+  }
+
+  clearHistory(): Observable<void> {
+    return this.http.delete<void>(`${this.base}/history`);
   }
 
   /** Admin only. The key goes in the body and comes back masked. */

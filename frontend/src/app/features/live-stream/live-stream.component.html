@@ -23,6 +23,112 @@
 
 <div class="ls-grid">
   <div class="ls-col">
+    <!-- Saved presets -->
+    <section class="card ls-presets">
+      <div class="ls-step-row">
+        <h3 class="ls-step"><span>⭐</span> Saved presets</h3>
+        @if (presets().length > 0) { <span class="muted ls-total">{{ presets().length }}</span> }
+      </div>
+
+      @if (!presetsLoaded()) {
+        <p class="muted">Loading…</p>
+      } @else {
+        <ul class="ls-preset-list">
+          @for (p of presets(); track p.id) {
+            <li class="ls-preset" [class.ls-preset-active]="activePresetId() === p.id">
+              <div class="ls-preset-main">
+                <strong class="ls-ellipsis">{{ p.name }}</strong>
+                <span class="muted ls-ellipsis">{{ presetSummary(p) }}</span>
+                <span class="muted ls-small-print">
+                  @if (p.lastUsedAt) { Last played {{ p.lastUsedAt | date: 'medium' }} · {{ p.uses }}× } @else { Not played yet }
+                </span>
+              </div>
+              <span class="ls-pick-actions">
+                <button type="button" class="ls-go" (click)="playPreset(p)" [disabled]="!!presetBusy() || !!submitting()"
+                        [title]="canPlayDirectly(p) ? 'Prepare a new stream from this preset and go live' : 'Fills the page; paste the key, then go live'">
+                  {{ presetBusy() === p.id ? 'Starting…' : (canPlayDirectly(p) ? '▶ Play' : '▶ Fill') }}
+                </button>
+                <button type="button" class="secondary ls-small" (click)="loadPreset(p)" [disabled]="!!presetBusy()">✎ Load</button>
+                <button type="button" class="secondary ls-icon" (click)="renamePreset(p)" [disabled]="!!presetBusy()"
+                        [attr.aria-label]="'Rename preset ' + p.name" title="Rename">Aa</button>
+                <button type="button" class="secondary ls-icon" (click)="deletePreset(p)" [disabled]="!!presetBusy()"
+                        [attr.aria-label]="'Delete preset ' + p.name">🗑</button>
+              </span>
+            </li>
+          } @empty {
+            <li class="muted">
+              No presets yet. Set up a stream below, then save it here: next time, one click on ▶ Play makes a new
+              stream - and a new YouTube broadcast - without filling anything in again.
+            </li>
+          }
+        </ul>
+      }
+
+      <div class="ls-preset-save">
+        <input type="text" maxlength="80" [(ngModel)]="presetName" placeholder="Name, e.g. Morning bhajans" aria-label="Preset name" />
+        <button type="button" class="secondary" (click)="savePreset(true)"
+                [disabled]="!!presetBusy() || !presetName.trim() || playlist().length === 0">💾 Save as new preset</button>
+        @if (activePreset(); as ap) {
+          <button type="button" class="secondary" (click)="savePreset(false)" [disabled]="!!presetBusy() || playlist().length === 0">
+            ↻ Update "{{ ap.name }}"
+          </button>
+        }
+      </div>
+      @if (playlist().length === 0) {
+        <p class="muted ls-small-print" role="status">
+          Add at least one playlist item before saving or updating a preset. Pasted links are not added yet:
+          choose Links above and click <strong>Check &amp; add</strong>. To edit a saved preset, click <strong>Load</strong>,
+          make your changes, then click <strong>Update</strong>.
+        </p>
+      }
+      <p class="muted ls-small-print">
+        A preset keeps the playlist, the settings and the YouTube title, description and tags - never a stream key.
+        Put <code>{{ '{date}' }}</code> or <code>{{ '{time}' }}</code> in the title to make each day's broadcast its own.
+        Files uploaded from this computer aren't kept; add them to a project's media to use them in a preset.
+      </p>
+    </section>
+
+    <!-- Stream history -->
+    <section class="card ls-presets">
+      <div class="ls-step-row">
+        <h3 class="ls-step"><span>🕘</span> Stream history</h3>
+        <span class="ls-pick-actions">
+          @if (history().length > 0) { <span class="muted ls-total">{{ history().length }}</span> }
+          <button type="button" class="secondary ls-small" (click)="loadHistory()" [disabled]="!!historyBusy()">↻ Refresh</button>
+          @if (history().length > 0) {
+            <button type="button" class="secondary ls-small" (click)="clearHistory()" [disabled]="!!historyBusy()">Clear all</button>
+          }
+        </span>
+      </div>
+      @if (!historyLoaded()) {
+        <p class="muted">Loading…</p>
+      } @else {
+        <ul class="ls-preset-list">
+          @for (h of history(); track h.id) {
+            <li class="ls-preset">
+              <div class="ls-preset-main">
+                <strong class="ls-ellipsis">{{ h.name }}</strong>
+                <span class="muted ls-ellipsis">
+                  <span class="ls-hist-badge" [class]="'ls-hist-badge ' + h.state.toLowerCase()">{{ h.state }}</span>
+                  {{ h.destinationName }} · {{ h.itemTitles.length }} item{{ h.itemTitles.length === 1 ? '' : 's' }}
+                  @if (h.streamedSeconds > 0) { · {{ formatClock(h.streamedSeconds) }} sent }
+                </span>
+                <span class="muted ls-small-print">{{ h.createdAtUtc | date: 'medium' }}</span>
+              </div>
+              <span class="ls-pick-actions">
+                <button type="button" class="secondary ls-icon" (click)="renameHistory(h)" [disabled]="!!historyBusy()"
+                        [attr.aria-label]="'Rename ' + h.name" title="Rename">Aa</button>
+                <button type="button" class="secondary ls-icon" (click)="deleteHistory(h)" [disabled]="!!historyBusy()"
+                        [attr.aria-label]="'Remove ' + h.name + ' from history'">🗑</button>
+              </span>
+            </li>
+          } @empty {
+            <li class="muted">Streams you prepare are saved here, so you can find them after a restart.</li>
+          }
+        </ul>
+      }
+    </section>
+
     <!-- 1. Playlist -->
     <section class="card">
       <div class="ls-step-row">
@@ -137,7 +243,8 @@
             }
             <p class="muted ls-small-print">
               Links are checked now and downloaded on the server while the stream is prepared, so you'll see each one
-              before it goes out. Only stream what you have the rights to.
+              before it goes out. YouTube links preview in YouTube's own player, and "Create on YouTube" can link the
+              broadcast's description to every original. Only stream what you have the rights to.
             </p>
           </div>
         }
@@ -198,7 +305,10 @@
           <button type="button" class="secondary ls-small" (click)="clearPlaylist()">Clear playlist</button>
         </div>
       } @else {
-        <p class="muted ls-empty-playlist">Nothing added yet. Mix and match: a render, a few songs and a link can all go in one stream.</p>
+        <p class="muted ls-empty-playlist">
+          Nothing added yet. To add pasted links, click <strong>Check &amp; add</strong> above; successful links will appear here.
+          You can also add a render or project media item. Add at least one item before saving a preset.
+        </p>
       }
     </section>
 
@@ -280,9 +390,12 @@
       </div>
 
       @if (form.keyMode === 'youtube') {
-        <app-youtube-live-setup kind="playlist" [initial]="youTubeBroadcast()" [disabled]="!!submitting()" (broadcastChange)="youTubeBroadcast.set($event)" />
+        <app-youtube-live-setup kind="playlist" [initial]="youTubeBroadcast()" [disabled]="!!submitting()" [sourceVideos]="sourceVideos()"
+                                [draft]="youTubeDraft()" (broadcastChange)="youTubeBroadcast.set($event)" />
+        <p class="muted ls-small-print">Each stream that goes live uses up its broadcast; the next one gets a new broadcast with these details.</p>
       } @else if (form.keyMode === 'channel') {
         <div class="ls-field">
+          <p class="muted ls-small-print">This saved key does not identify a watch page here. Check the broadcast's visibility in YouTube Studio and share its watch link with viewers. YouTube controls subscriber notifications.</p>
           <label for="ls-channel">Channel</label>
           <select id="ls-channel" [(ngModel)]="form.channelId">
             @for (c of setup()?.channels ?? []; track c.id) {
@@ -319,6 +432,7 @@
           </p>
         }
       } @else {
+        <p class="muted ls-small-print">This key does not identify a watch page here. Check the broadcast's visibility in YouTube Studio and share its watch link with viewers. YouTube controls subscriber notifications.</p>
         <div class="ls-field">
           <label for="ls-key">Stream key</label>
           <div class="ls-key">
@@ -516,6 +630,7 @@
       <ul class="ls-tips">
         <li>Sending a prepared stream copies files instead of encoding live, so a 24/7 loop barely touches the CPU.</li>
         <li>A prepared stream can be sent again - after it ends, or after a drop - without preparing it again.</li>
+        <li>The playlist and settings stay after you go live, so the same program can be sent again as a new stream.</li>
         <li>YouTube takes 10–30 seconds to show a new stream as live.</li>
         <li>With <em>Dual stream</em> on, YouTube also crops a vertical feed for Shorts from a landscape stream.</li>
         <li>Prepared streams are kept for a few hours, and are cleared when the server restarts.</li>

@@ -41,6 +41,8 @@ export interface ChannelBranding {
   channelUrl: string | null;
   studioUrl: string | null;
   creatorUrl: string | null;
+  /** Who makes the videos, credited by name. */
+  creatorName?: string | null;
   engineName: string | null;
   visualsCredit: string | null;
   hashtags: string[];
@@ -48,16 +50,17 @@ export interface ChannelBranding {
 }
 
 /** The studio's own branding, offered as a starting point. */
-export const OMKR_BRANDING: ChannelBranding = {
-  channelName: 'OMKR',
+export const STUDIO_BRANDING: ChannelBranding = {
+  channelName: 'Omkar Shiv Bhakti',
   tagline: 'Devotional 3D Animations',
-  channelUrl: 'https://youtube.com/@omkr-shiv',
+  channelUrl: 'https://youtube.com/@OmkarShivBhakti',
   studioUrl: 'https://studio.keshavsingh.in/',
   creatorUrl: 'https://keshavsingh.in/',
+  creatorName: 'Keshav Singh',
   engineName: 'AnimStudio',
-  visualsCredit: 'OMKR 3D Devotional Animations',
-  hashtags: ['OMKR', 'AnimStudio', 'KeshavSingh'],
-  tags: ['AnimStudio', 'omkr', 'omkr shiv', 'keshav singh'],
+  visualsCredit: 'Omkar Shiv Bhakti 3D Devotional Animations',
+  hashtags: ['OmkarShivBhakti', 'AnimStudio', 'KeshavSingh'],
+  tags: ['omkar shiv bhakti', 'omkar shiv', 'AnimStudio', 'omkr', 'keshav singh'],
 };
 
 /** A brand channel's YouTube publishing setup. */
@@ -78,7 +81,7 @@ export interface ChannelPublishSettings {
   /**
    * This channel's overrides for the credits, links and hashtags the AI-written details carry. A blank
    * field (or null for all) inherits the studio-wide defaults; the channel name and YouTube link fall
-   * back to the linked YouTube channel. With nothing set anywhere, the OMKR tone uses the studio's own.
+   * back to the linked YouTube channel. With nothing set anywhere, the studio's devotional tone uses the studio's own.
    */
   branding?: ChannelBranding | null;
 }

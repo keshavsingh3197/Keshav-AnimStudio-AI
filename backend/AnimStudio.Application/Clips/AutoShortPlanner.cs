@@ -126,6 +126,16 @@ public sealed record AutoShortBatch
     /// </summary>
     public bool ExactLength { get; init; }
 
+    /// <summary>
+    /// Every video plays start to finish, exactly as it was made: never trimmed, split into
+    /// several shots or reused for a different stretch. Pictures still flex to fill the length,
+    /// so an exact length is met when there are pictures to hold, and is otherwise a ceiling.
+    /// </summary>
+    public bool KeepClipsWhole { get; init; }
+
+    /// <summary>The bands, title, numbered parts, quiz or poll, call to action and memes around the footage.</summary>
+    public AutoShortPackaging Packaging { get; init; } = new();
+
     public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
 
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
@@ -374,7 +384,7 @@ public static class AutoShortPlanner
         if (batch.ExactLength && batch.Layout != AutoShortLayout.FitLength)
         {
             var spare = new Queue<AutoShortSource>(leftOvers);
-            var reuse = ReusePool(usable, random);
+            var reuse = ReusePool(usable, random, batch.KeepClipsWhole);
             foreach (var cut in cuts)
             {
                 // Spread tops up from what no short took; AllInEach from what this short skipped.
@@ -397,17 +407,67 @@ public static class AutoShortPlanner
 
         foreach (var cut in cuts) Arrange(cut, batch.Order);
 
-        var shorts = cuts
-            .Select((shots, k) => BuildShort(
-                batch, PaceAt(k), shots, random, lineDeck, musicDeck,
-                cuts.Count == 1 ? name : $"{name} #{k + 1}"))
-            .ToList();
+        var packaging = batch.Packaging ?? new AutoShortPackaging();
+        var languages = packaging.Language == AutoShortLanguage.Both
+            ? new[] { AutoShortLanguage.English, AutoShortLanguage.Hindi }
+            : new[] { packaging.Language };
+        var designId = AutoShortPackager.CleanDesignId(packaging.Design);
+        var designDeck = designId == "auto" ? new Deck<AutoShortPackager.Design>(AutoShortPackager.Designs, random) : null;
+        var topDeck = new Deck<int>([0, 1, 2], random);
+
+        var shorts = new List<ClipMergeCommand>();
+        var styles = new List<AutoShortStyle>();
+        for (var k = 0; k < cuts.Count; k++)
+        {
+            var label = cuts.Count == 1 ? name : $"{name} #{k + 1}";
+            var built = BuildShort(batch, PaceAt(k), cuts[k], random, lineDeck, musicDeck, label);
+            if (packaging.IsEmpty && languages.Length == 1)
+            {
+                shorts.Add(built);
+                styles.Add(PaceAt(k).Style);
+                continue;
+            }
+
+            // Drawn once per short, so its language twins differ only in their words.
+            var design = designDeck?.Next() ?? AutoShortPackager.Find(designId);
+            var top = TopFor(packaging.Top, cuts[k], lines.Count > 0, topDeck);
+            var hook = top == AutoShortTopMode.Hook ? lineDeck?.Next() : null;
+            var twinSeed = random.Next();
+            foreach (var language in languages)
+            {
+                var packed = AutoShortPackager.Apply(built, packaging, design, top, language, hook, new Random(twinSeed));
+                shorts.Add(languages.Length == 1 ? packed : packed with
+                {
+                    ExportName = $"{label} · {(language == AutoShortLanguage.Hindi ? "HI" : "EN")}",
+                });
+                styles.Add(PaceAt(k).Style);
+            }
+        }
 
         var used = cuts.SelectMany(c => c).Select(s => s.Source.AssetId).ToHashSet(StringComparer.Ordinal);
         return new AutoShortPlan(
             shorts,
             [.. usable.Select(s => s.AssetId).Where(id => !used.Contains(id))],
-            [.. cuts.Select((_, k) => PaceAt(k).Style)]);
+            styles);
+    }
+
+    /// <summary>
+    /// The top band a short gets. Auto deals Poll, Quiz and Hook in turn across the batch,
+    /// skipping a poll where there is only one part to vote on and a hook where there are no lines.
+    /// </summary>
+    private static AutoShortTopMode TopFor(AutoShortTopMode asked, List<Shot> shots, bool hasLines, Deck<int> deck)
+    {
+        if (asked != AutoShortTopMode.Auto) return asked;
+        var videos = shots.Count(s => s.Source.Kind == AssetKind.Video);
+        var canPoll = videos >= 2 || (videos == 0 && shots.Count >= 2);
+        for (var tries = 0; tries < 6; tries++)
+        {
+            var pick = deck.Next() switch { 0 => AutoShortTopMode.Poll, 1 => AutoShortTopMode.Quiz, _ => AutoShortTopMode.Hook };
+            if (pick == AutoShortTopMode.Poll && !canPoll) continue;
+            if (pick == AutoShortTopMode.Hook && !hasLines) continue;
+            return pick;
+        }
+        return AutoShortTopMode.Quiz;
     }
 
     /// <summary>
@@ -439,9 +499,11 @@ public static class AutoShortPlanner
     /// What an exact-length short reuses once fresh picks run out: pictures first, so a
     /// batch's videos stay one short each for as long as they can; videos when it has no pictures.
     /// </summary>
-    private static Deck<AutoShortSource> ReusePool(List<AutoShortSource> usable, Random random)
+    private static Deck<AutoShortSource>? ReusePool(List<AutoShortSource> usable, Random random, bool keepClipsWhole)
     {
         var pictures = usable.Where(s => s.Kind == AssetKind.Image).ToList();
+        // A whole clip is never shown again for a different stretch; without pictures nothing is reused.
+        if (keepClipsWhole && pictures.Count == 0) return null;
         return new Deck<AutoShortSource>(pictures.Count > 0 ? pictures : usable, random);
     }
 
@@ -454,15 +516,24 @@ public static class AutoShortPlanner
     /// </summary>
     private static void FillToLength(
         List<Shot> shots, double target, AutoShortBatch batch,
-        Func<AutoShortSource?> fresh, Deck<AutoShortSource> reuse, Random random)
+        Func<AutoShortSource?> fresh, Deck<AutoShortSource>? reuse, Random random)
     {
+        var whole = batch.KeepClipsWhole;
+
         // Over is only ever a first pick cut down to the cap; take it off the end.
         var gap = Round(target - Total(shots));
         while (gap < -0.01 && shots.Count > 0)
         {
             var last = shots[^1];
             var keep = Round(last.Length + gap);
-            if (keep >= MinShotSeconds)
+            // A whole clip is never shortened: a lone one plays on past the length, else it is dropped.
+            if (whole && last.Source.Kind == AssetKind.Video)
+            {
+                if (shots.Count == 1) break;
+                shots.RemoveAt(shots.Count - 1);
+                gap = Round(gap + last.Length);
+            }
+            else if (keep >= MinShotSeconds)
             {
                 shots[^1] = last with { Length = keep, TrimStart = Math.Min(last.TrimStart, SpareFrom(last.Source, keep)) };
                 gap = 0;
@@ -475,22 +546,23 @@ public static class AutoShortPlanner
         }
 
         var hold = PictureHold(batch);
+        Func<AutoShortSource?> reused = reuse is null ? () => null : () => NextNotIn(reuse, shots);
         gap = AddFillers(shots, gap, batch, fresh, random);
         gap = StretchPictures(shots, gap, Math.Min(MaxImageSeconds, hold * 1.5));
-        gap = AddFillers(shots, gap, batch, () => NextNotIn(reuse, shots), random);
+        gap = AddFillers(shots, gap, batch, reused, random);
         if (gap <= 0.01) return;
 
         // A sliver is left: a picture or spare footage takes it, else a shot gives up enough
         // room for one more full-second shot.
         gap = StretchPictures(shots, gap, MaxImageSeconds);
-        gap = ExtendFootage(shots, gap);
+        if (!whole) gap = ExtendFootage(shots, gap);
         if (gap <= 0.01) return;
 
         var room = MinShotSeconds - gap;
-        var donor = shots.FindLastIndex(s => s.Length - room >= MinShotSeconds);
+        var donor = shots.FindLastIndex(s => s.Length - room >= MinShotSeconds && (!whole || s.Source.Kind == AssetKind.Image));
         if (donor < 0) return;
         shots[donor] = shots[donor] with { Length = Round(shots[donor].Length - room) };
-        AddFillers(shots, Round(gap + room), batch, () => NextNotIn(reuse, shots), random);
+        AddFillers(shots, Round(gap + room), batch, reused, random);
     }
 
     private static double PictureHold(AutoShortBatch batch) =>
@@ -512,6 +584,16 @@ public static class AutoShortPlanner
         {
             var source = next();
             if (source is null) break;
+
+            if (batch.KeepClipsWhole && source.Kind == AssetKind.Video)
+            {
+                // All of it or none of it; what is left after it is for a picture to fill.
+                var full = Round(source.DurationSeconds!.Value);
+                if (full > gap + 0.01) continue;
+                shots.Add(new Shot(source, full, 0));
+                gap = Round(gap - full);
+                continue;
+            }
 
             var len = Math.Min(NaturalLength(batch, source, gap), gap);
             if (gap - len > 0.01 && gap - len < MinShotSeconds)
@@ -584,6 +666,9 @@ public static class AutoShortPlanner
     /// <summary>A pick's own length outside FitLength: a picture's hold, or the footage up to the clip cap.</summary>
     private static double NaturalLength(AutoShortBatch batch, AutoShortSource source, double cap)
     {
+        // A whole clip is as long as it is, whatever the cap; the caller decides whether it fits.
+        if (batch.KeepClipsWhole && source.Kind == AssetKind.Video) return Round(source.DurationSeconds!.Value);
+
         var len = source.Kind == AssetKind.Image
             ? Math.Clamp(double.IsFinite(batch.ImageSeconds) ? batch.ImageSeconds : DefaultImageSeconds, MinImageSeconds, MaxImageSeconds)
             : Math.Min(source.DurationSeconds!.Value,
@@ -634,7 +719,8 @@ public static class AutoShortPlanner
                 }
                 for (var b = 0; !inOrder && b < count; b++)
                 {
-                    if (loads[b] + length > cap + 0.001) continue;
+                    // A whole clip longer than the cap still gets a short of its own.
+                    if (loads[b] + length > cap + 0.001 && !(batch.KeepClipsWhole && bins[b].Count == 0)) continue;
                     if (best < 0 || loads[b] < loads[best]) best = b;
                 }
                 if (best < 0) { leftOver.Add(source); continue; }
@@ -668,9 +754,9 @@ public static class AutoShortPlanner
                 var length = NaturalLength(batch, source, cap);
                 if (at + length > cap + 0.001)
                 {
-                    // The first pick always plays, cut down to the cap if it has to be.
+                    // The first pick always plays, cut down to the cap if it has to be (unless it is kept whole).
                     if (shots.Count > 0) continue;
-                    length = cap;
+                    if (!(batch.KeepClipsWhole && source.Kind == AssetKind.Video)) length = cap;
                 }
                 shots.Add(new Shot(source, length, RandomStart(source, length, random)));
                 at += length;
@@ -695,6 +781,7 @@ public static class AutoShortPlanner
         var videos = usable.Where(s => s.Kind == AssetKind.Video).ToList();
         var openers = batch.Order != AutoShortOrder.Shuffle && !inOrder && videos.Count > 0 ? new Deck<AutoShortSource>(videos, random) : null;
         var cuts = new List<List<Shot>>(count);
+        if (batch.KeepClipsWhole) return WholeClipShots(batch, usable, target, count, deck, openers);
 
         for (var k = 0; k < count; k++)
         {
@@ -723,6 +810,47 @@ public static class AutoShortPlanner
                     shots.Add(new Shot(source, Round(len), 0));
                 }
             }
+            cuts.Add(shots);
+        }
+        return cuts;
+    }
+
+    /// <summary>
+    /// Quick cuts that never cut a clip: each video plays whole where it fits, pictures fill
+    /// what is left and are held a little longer to land on the length. A short with no room
+    /// for any of its clips opens on one whole clip anyway, running past the length rather
+    /// than showing part of it.
+    /// </summary>
+    private static List<List<Shot>> WholeClipShots(
+        AutoShortBatch batch, List<AutoShortSource> usable, double target, int count,
+        Deck<AutoShortSource> deck, Deck<AutoShortSource>? openers)
+    {
+        var hold = PictureHold(batch);
+        var cuts = new List<List<Shot>>(count);
+        for (var k = 0; k < count; k++)
+        {
+            var shots = new List<Shot>();
+            var left = target;
+            var misses = 0;
+            while (left >= MinShotSeconds - 0.001 && misses < usable.Count * 2 && shots.Count < ClipMergeSpec.MaxClips)
+            {
+                var source = shots.Count == 0 && openers is not null ? openers.Next() : deck.Next();
+                if (source.Kind == AssetKind.Video)
+                {
+                    var full = Round(source.DurationSeconds!.Value);
+                    if (full > left + 0.01 && shots.Count > 0) { misses++; continue; }
+                    shots.Add(new Shot(source, full, 0));
+                    left = Round(left - full);
+                }
+                else
+                {
+                    var len = Round(Math.Min(hold, left));
+                    shots.Add(new Shot(source, len, 0));
+                    left = Round(left - len);
+                }
+                misses = 0;
+            }
+            if (left > 0.01) StretchPictures(shots, left, MaxImageSeconds);
             cuts.Add(shots);
         }
         return cuts;

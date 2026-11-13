@@ -20,12 +20,13 @@ internal static class SpriteOverlayFilters
     /// Whether the character is speaking, as the OR of its dialogue windows. min(sum,1)
     /// collapses overlapping windows so the value stays boolean.
     /// </summary>
-    public static string Speaking(IReadOnlyList<FrameRange> windows, FrameRate rate)
+    public static string Speaking(
+        IReadOnlyList<FrameRange> windows, FrameRate rate, string timeVariable = "t")
     {
         if (windows.Count == 0) return "0";
 
         var terms = windows.Select(w =>
-            $"between(t,{FilterExpr.Sec(w.Start, rate)},{FilterExpr.Sec(w.End, rate)})");
+            $"between({timeVariable},{FilterExpr.Sec(w.Start, rate)},{FilterExpr.Sec(w.End, rate)})");
         var sum = string.Join("+", terms);
         return windows.Count == 1 ? sum : $"min({sum},1)";
     }

@@ -44,6 +44,7 @@ public sealed class EffectRulesTests
     public void Categories_come_only_from_the_allowlist()
     {
         Assert.Equal(EffectCategory.EndScreen, EffectRules.ParseCategory("endscreen"));
+        Assert.Equal(EffectCategory.Reaction, EffectRules.ParseCategory("reaction"));
         Assert.Null(EffectRules.ParseCategory(null));
         Assert.Throws<EditingException>(() => EffectRules.ParseCategory("7"));
         Assert.Throws<EditingException>(() => EffectRules.ParseCategory("Explosions"));
@@ -56,6 +57,9 @@ public sealed class EffectRulesTests
         Assert.Throws<EditingException>(() => EffectRules.EnsureCategoryFits(EffectCategory.SoundEffect, AssetKind.Video));
         Assert.Throws<EditingException>(() => EffectRules.EnsureCategoryFits(EffectCategory.GreenScreen, AssetKind.Audio));
         EffectRules.EnsureCategoryFits(EffectCategory.Intro, AssetKind.Audio);
+        EffectRules.EnsureCategoryFits(EffectCategory.Reaction, AssetKind.Audio);
+        EffectRules.EnsureCategoryFits(EffectCategory.Reaction, AssetKind.Video);
+        EffectRules.EnsureCategoryFits(EffectCategory.Reaction, AssetKind.Image);
         Assert.Equal(EffectCategory.SoundEffect, EffectRules.DefaultCategory(AssetKind.Audio));
         Assert.Equal(EffectCategory.Overlay, EffectRules.DefaultCategory(AssetKind.Video));
     }

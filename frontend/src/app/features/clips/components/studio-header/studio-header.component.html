@@ -136,6 +136,10 @@
             title="Bring clips, music, voice, images or text in from another video - of this project or another">
       ⇣ Import
     </button>
+    <button class="hdr-btn" type="button" [disabled]="state.layingOutScenes()" (click)="layOutScenes()"
+            title="Put the project's scenes on the lanes as the render plays them: pictures on IMG, narration on A1, subtitles on TXT, music on A2. Replaces an earlier layout; what you added yourself stays.">
+      @if (state.layingOutScenes()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="hdr-icon">🎬</span> } From scenes
+    </button>
     <a class="hdr-btn" [routerLink]="['/projects', state.store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration:none">Chunk Video</a>
     <button class="hdr-btn" type="button" (click)="state.showShortcutsModal.set(true)">Shortcuts</button>
     <button class="hdr-btn" type="button" (click)="state.toggleAppFullscreen()" title="Toggle fullscreen editor"

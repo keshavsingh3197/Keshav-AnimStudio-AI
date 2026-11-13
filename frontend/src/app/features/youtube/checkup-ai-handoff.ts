@@ -10,9 +10,144 @@ import { YouTubeCheckupVideo } from '../../core/models/youtube.models';
 /** What the AI settings on the page add to every prompt. */
 export interface HandoffSettings {
   channelTitle: string;
+  /** The channel's public address (youtube.com/@handle), for the subscribe line; null when unknown. */
+  channelUrl?: string | null;
   tone: string;
   language: 'en' | 'hi' | string;
   brief: string;
+  /** The channel's playlist titles the AI may pick from; empty leaves playlists out of the answer. */
+  playlists?: string[];
+  /**
+   * Set when the brand channel's credits, links, hashtags and tags are added to every answer on
+   * import, so the AI is told to leave them out rather than write (and mistype) them.
+   */
+  brandAdded?: boolean;
+}
+
+/**
+ * Channel addresses used before the rename; YouTube no longer opens them. Mirrors the server's
+ * YouTubeBrandKit.RetiredChannelUrls.
+ */
+export const RETIRED_CHANNEL_URLS: readonly string[] = ['youtube.com/@omkr-shiv'];
+
+/**
+ * Names the channel went by before the rename. Mirrors the server's YouTubeBrandKit.RetiredChannelNames;
+ * search tags keep them on purpose, everything viewers read uses the current name.
+ */
+export const RETIRED_CHANNEL_NAMES: readonly string[] = ['OMKR'];
+
+/**
+ * The channel's public address from its handle, or null when the handle isn't known - or is a
+ * retired one still stored from before the rename (reconnecting the channel refreshes it).
+ */
+export function channelUrlFor(handle: string | null | undefined): string | null {
+  const h = (handle ?? '').trim().replace(/^@/, '');
+  if (!/^[\p{L}\p{M}\p{N}._-]{1,100}$/u.test(h)) return null;
+  const url = `https://youtube.com/@${h}`;
+  return hasRetiredLink(url) ? null : url;
+}
+
+/** Whether the text still links a retired channel address. */
+export function hasRetiredLink(text: string): boolean {
+  const lower = text.toLowerCase();
+  return RETIRED_CHANNEL_URLS.some((old) => lower.includes(old));
+}
+
+/** The text with every link to a retired channel address pointed at the current one. */
+export function replaceRetiredLinks(text: string, channelUrl: string | null): string {
+  if (!channelUrl) return text;
+  let out = text;
+  for (const old of RETIRED_CHANNEL_URLS) {
+    const escaped = old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(https?://)?(www\\.)?${escaped}/?`, 'gi'), channelUrl);
+  }
+  return out;
+}
+
+/**
+ * The text with retired names - as a hashtag or a word - written as the current name. Lookalikes
+ * such as a handle, a link or "devotional-omkr" are left alone. Unchanged when the name isn't known.
+ */
+export function replaceRetiredNames(text: string, channelName: string | null | undefined): string {
+  const name = (channelName ?? '').trim();
+  if (!name || RETIRED_CHANNEL_NAMES.some((old) => old.toLowerCase() === name.toLowerCase())) return text;
+  const hashtag = hashtagFor(name);
+  let out = text;
+  for (const old of RETIRED_CHANNEL_NAMES) {
+    const escaped = old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (hashtag) out = out.replace(new RegExp(`#${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, 'giu'), () => `#${hashtag}`);
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_#@/.-])${escaped}(?![\\p{L}\\p{M}\\p{N}_-])`, 'giu'), () => name);
+  }
+  return out;
+}
+
+/** The name as a hashtag body, the way the server builds it: "Omkar Shiv Bhakti" -> "OmkarShivBhakti". */
+export function hashtagFor(name: string): string {
+  return name.replace(/[^\p{L}\p{M}\p{N}_]+/gu, '').slice(0, 30);
+}
+
+/** The rules every prompt gives the AI, so the clipboard prompt and the exported file ask for the same thing. */
+export function promptRules(settings: HandoffSettings, count: number): string[] {
+  const language = settings.language === 'hi'
+    ? 'Hindi (Devanagari), with common English and Hinglish search words kept in tags'
+    : languageName(settings.language);
+  const playlists = settings.playlists ?? [];
+  const url = settings.channelUrl;
+  const channelTag = settings.channelTitle.replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+  const added = !!settings.brandAdded;
+  return [
+    `You are writing YouTube details for ${count === 1 ? 'one video' : `${count} videos`} on the channel "${settings.channelTitle}"${url ? ` (${url})` : ''}.`,
+    '',
+    'For every video write:',
+    '- title (required): at most 100 characters, no < or > characters. Put the main search words first (deity, bhajan, topic).',
+    '  Keep the current title only if it is already a real, specific title (not a file name like "VID_1234" or "AnimStudio video").',
+    '- description (required): at most 4500 characters. The first two lines are what search results show: a hook with the main keywords.',
+    '  Then 2-4 short paragraphs a viewer finds useful (what is sung or shown, its meaning, the occasion). Keep what is good in the current description.',
+    '  Add one line "Also searched as: ..." with 4-6 phrases people type on YouTube, Google, WhatsApp and Instagram',
+    '  (for example "mahadev whatsapp status", "shiv bhajan status 4k", "bholenath reels").',
+    added
+      ? '  Do NOT write credits, the creator or studio links, the subscribe link or a channel footer: AnimStudio adds them, exactly, to every video.'
+      : url ? `  Include the subscribe link ${url}.` : '',
+    added
+      ? '  If the current description ends with such a block (credits, links, "Subscribe", a footer), leave it out - it is replaced.'
+      : `  If the current description links ${RETIRED_CHANNEL_URLS.join(' or ')}, that address no longer works: ${url ? `use ${url} instead` : 'remove it'}.`,
+    `  The channel's name is "${settings.channelTitle}"; never call it ${RETIRED_CHANNEL_NAMES.map((n) => `"${n}"`).join(' or ')} or any older name.`,
+    added
+      ? '  End with 3-5 topic hashtags on the last line; the channel\'s own hashtags (and #shorts for a Short) are added for you.'
+      : `  End with 3-6 hashtags on the last line${channelTag ? `, including #${channelTag}` : ''}; for a YouTube Short also #shorts.`,
+    '- tags (required): 15-25 search tags as a list, no # sign, all tags together under 350 characters. Mix the exact topic,',
+    '  deity names in Hindi and English, Hinglish spellings, and the phrases used to find clips to share ("<deity> status",',
+    added
+      ? '  "whatsapp status", "bhakti status", "reels"). The channel\'s own tags are added for you.'
+      : '  "whatsapp status", "bhakti status", "reels"), and the channel name.',
+    playlists.length > 0
+      ? `- playlists (optional): 0-2 playlist titles copied exactly from this list, only when one clearly fits: ${playlists.map((p) => JSON.stringify(p)).join(', ')}.`
+      : '',
+    `- pinnedComment (recommended): 1-2 lines encouraging a jaikara in the comments (e.g. "Har Har Mahadev 🙏") and subscribing${added ? '; the channel link is added for you' : ''}.`,
+    '- engagementComment (optional): 1 short question for viewers.',
+    '',
+    'Uniqueness: every video gets its own title and description. Do not reuse a title, an opening line or a description template',
+    'across videos; name what is specific to each one (the bhajan, the deity, the moment, the occasion). Tags may overlap but not be identical.',
+    '',
+    `Write in ${language}. Tone: ${settings.tone || 'auto'}.`,
+    settings.tone === 'devotional-omkr' && !added
+      ? `Brand rules: credit "AnimStudio" (the creator's animation tool) and "${settings.channelTitle} 3D Devotional Animations".`
+      : '',
+    settings.brief.trim() ? `Notes from the creator: ${settings.brief.trim()}` : '',
+  ];
+}
+
+function languageName(id: string): string {
+  const names: Record<string, string> = {
+    en: 'English', hinglish: 'Hinglish (Hindi in English letters)', mr: 'Marathi', gu: 'Gujarati', bn: 'Bengali',
+    ta: 'Tamil', te: 'Telugu', kn: 'Kannada', pa: 'Punjabi',
+  };
+  return names[id] ?? 'English';
+}
+
+/** The lines joined, with runs of blank lines collapsed to one and none at either end. */
+export function joinLines(lines: string[]): string {
+  return lines.filter((line, i, all) => line !== '' || (i > 0 && all[i - 1] !== '')).join('\n').trim();
 }
 
 /** One video's details as read from a pasted answer. */
@@ -48,7 +183,6 @@ const MAX_TAG = 60;
 const MAX_TAGS = 40;
 
 export function buildHandoffPrompt(videos: YouTubeCheckupVideo[], settings: HandoffSettings): string {
-  const language = settings.language === 'hi' ? 'Hindi (Devanagari), with common English search words kept in tags' : 'English';
   const list = videos.slice(0, MAX_PROMPT_VIDEOS).map((v, i) => [
     `### Video ${i + 1}`,
     `videoId: ${v.videoId}`,
@@ -59,28 +193,15 @@ export function buildHandoffPrompt(videos: YouTubeCheckupVideo[], settings: Hand
     `missing: ${v.issues.length ? v.issues.map((x) => x.message).join(' ') : 'nothing'}`,
   ].join('\n'));
 
-  return [
-    `You are writing YouTube details for ${videos.length === 1 ? 'one video' : `${list.length} videos`} on the channel "${settings.channelTitle}".`,
-    '',
-    'For every video below write:',
-    '- title: at most 100 characters, no < or > characters. Keep the current title if it is already a real title (not a file name like "VID_1234" or "AnimStudio video").',
-    '- description: 2-5 short paragraphs a viewer would find useful, at most 4500 characters. Keep what is good in the current description.',
-    '  End with two or three topic hashtags; for a YouTube Short also add #shorts.',
-    '- tags: 10-20 search tags, no # sign, all tags together under 450 characters.',
-    '- pinnedComment: 1-2 lines encouraging comments (e.g. "Har Har Mahadev 🙏" or "Jai Shree Shyam 🙏") and subscribing.',
-    '- engagementComment: 1 short interactive question comment for viewers.',
-    `Write in ${language}. Tone: ${settings.tone || 'auto'}.`,
-    settings.tone === 'devotional-omkr'
-      ? 'Brand Rules: Mention "AnimStudio (Built by Creator)" and "OMKR 3D Devotional Animations", and include https://youtube.com/@omkr-shiv in the description.'
-      : '',
-    settings.brief.trim() ? `Notes from the creator: ${settings.brief.trim()}` : '',
+  return joinLines([
+    ...promptRules(settings, list.length),
     '',
     'Reply with ONLY a JSON array, no other text, in exactly this shape:',
-    '[{"videoId": "…", "title": "…", "description": "…", "tags": ["…", "…"], "pinnedComment": "…", "engagementComment": "…"}]',
+    '[{"videoId": "…", "title": "…", "description": "…", "tags": ["…", "…"], "playlists": ["…"], "pinnedComment": "…", "engagementComment": "…"}]',
     'Use the videoId values exactly as given.',
     '',
-    ...list,
-  ].filter((line, i, all) => line !== '' || all[i - 1] !== '').join('\n');
+    ...list.flatMap((block) => [block, '']),
+  ]);
 }
 
 /**
@@ -129,7 +250,7 @@ export function parseHandoffAnswer(text: string, knownIds: ReadonlySet<string>):
 }
 
 /** The JSON part of a chat answer: inside a code fence if there is one, else from the first [ or { to the last ] or }. */
-function extractJson(text: string): string {
+export function extractJson(text: string): string {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   const body = (fenced ? fenced[1] : text).trim();
   const start = body.search(/[[{]/);
@@ -137,21 +258,21 @@ function extractJson(text: string): string {
   return start >= 0 && end > start ? body.slice(start, end + 1) : body;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** One line: no control characters or angle brackets (YouTube refuses those in titles and tags). */
-function cleanLine(value: string): string {
+export function cleanLine(value: string): string {
   return value.replace(/[\p{Cc}<>]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** Multi-line text without control characters other than newlines and tabs. */
-function cleanText(value: string): string {
+export function cleanText(value: string): string {
   return value.replace(/\r\n?/g, '\n').replace(/[^\P{Cc}\n\t]/gu, '').replace(/[<>]/g, '').trim();
 }
 
-function fitBytes(value: string, max: number): string {
+export function fitBytes(value: string, max: number): string {
   const encoder = new TextEncoder();
   if (encoder.encode(value).length <= max) return value;
   let bytes = 0;
@@ -164,6 +285,6 @@ function fitBytes(value: string, max: number): string {
   return value.slice(0, end).trimEnd();
 }
 
-function clip(value: string, max: number): string {
+export function clip(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }

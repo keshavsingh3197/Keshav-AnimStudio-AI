@@ -48,6 +48,10 @@ export interface YouTubePrefill {
   description?: string | null;
   tags?: readonly string[] | null;
   firstComment?: string | null;
+  /** A picture made for this video (a story's thumbnail), chosen as the thumbnail until the person picks another. */
+  thumbnail?: Blob | null;
+  /** The language spoken in the video ('hi' or 'en'), so YouTube labels its original audio track. */
+  language?: 'hi' | 'en' | null;
 }
 
 /** YouTube's Music category; what makes an upload show up on YouTube Music. */
@@ -73,6 +77,8 @@ export interface YouTubeVideoMetadata {
    * null or absent uploads with the chosen visibility straight away.
    */
   publishAt?: string | null;
+  /** The language spoken in the video, 'hi' or 'en'; YouTube labels the original audio track with it. */
+  language?: 'hi' | 'en' | null;
 }
 
 export interface YouTubeDraft {
@@ -128,6 +134,12 @@ export interface YouTubeSuggestion {
   topicId?: string | null;
   /** Plain lines about what the details could and couldn't be written from. */
   notes?: string[] | null;
+  /** When the details were first written, if they came from the saved library instead of an AI call. */
+  savedAtUtc?: string | null;
+  /** How alike the saved details' video is to this one, 0-1 (1: the same video). */
+  savedSimilarity?: number | null;
+  /** Titles written for earlier videos of the same kind, to pick from. */
+  savedTitles?: string[] | null;
 }
 
 export interface YouTubeUrlSeoResult {
@@ -486,6 +498,31 @@ export interface YouTubeCheckup {
   /** Set when playlists couldn't be read; membership is then not judged. */
   playlistError: string | null;
   checkedAt: string;
+  /** What imported details get from the brand channel publishing here; null when none does. */
+  brand?: YouTubeCheckupBrand | null;
+}
+
+/** The brand channel's exact credits, links, tags and upload defaults, added to every imported video. */
+export interface YouTubeCheckupBrand {
+  /** The channel's current name - never a retired one. */
+  channelName: string | null;
+  channelUrl: string | null;
+  /** The credits and subscribe block for a Hindi description; empty when the channel has no branding. */
+  creditsHindi: string;
+  /** The same block for any other language. */
+  creditsEnglish: string;
+  /** Brand hashtags, without "#". */
+  hashtags: string[];
+  /** Brand and channel search tags. */
+  tags: string[];
+  /** The channel's description footer, with retired links and names already updated. */
+  footer: string | null;
+  studioUrl: string | null;
+  creatorUrl: string | null;
+  /** The channel's upload category, offered for videos still on YouTube's default. */
+  categoryId: string | null;
+  /** The channel's upload audience, offered for videos that never declared one. */
+  madeForKids: boolean;
 }
 
 export interface YouTubeVideoDetailsSave {

@@ -143,6 +143,8 @@
         <div class="as-quick">
           <button type="button" class="as-auto" (click)="autoSetup()" [disabled]="pickedClips().length === 0"
                   title="Settings that suit your picks: shared out, exact length, videos first, auto style">✨ Auto setup</button>
+          <button type="button" class="as-auto as-auto-fun" (click)="comedySetup()" [disabled]="pickedClips().length === 0"
+                  title="Whole clips in order, numbered and counted down, a 'which is funniest?' poll on top and a call to action below">😂 Comedy compilation</button>
           @if (state.timelineOrderedAssetIds().length > 0) {
             <button type="button" class="as-chip" [class.on]="order() === 'InOrder'" (click)="pickTimelineInOrder()"
                     title="Cut sequential shorts from your timeline clips in exact order (1 → N)">🎬 Timeline in Order</button>
@@ -162,6 +164,16 @@
           }
         </div>
         <p class="as-hint">{{ layoutHint() }}</p>
+
+        <label class="as-whole" [class.on]="keepWhole()">
+          <input type="checkbox" [ngModel]="keepWhole()" (ngModelChange)="keepWhole.set($event)" />
+          <span>
+            <strong>🔒 Keep my clips whole</strong>
+            <span class="as-hint">{{ keepWhole()
+              ? 'Every video plays start to finish, exactly as you made it - never cut, split into two or reused for another stretch. Pictures stretch to fill; without pictures, the length is a limit, not a target.'
+              : 'Videos may be trimmed or split into several shots to land on the length.' }}</span>
+          </span>
+        </label>
 
         <div class="as-field">
           <label class="as-label" for="as-secs">Length</label>
@@ -212,11 +224,11 @@
           <div class="as-field">
             <label class="as-label" for="as-clip-secs">Each video</label>
             <div class="as-chips">
-              <button type="button" class="as-chip" [class.on]="maxClipSeconds() === null" (click)="setMaxClipSeconds(null)">Full</button>
+              <button type="button" class="as-chip" [class.on]="keepWhole() || maxClipSeconds() === null" (click)="setMaxClipSeconds(null)">Full</button>
               @for (n of clipChoices; track n) {
-                <button type="button" class="as-chip" [class.on]="maxClipSeconds() === n" (click)="setMaxClipSeconds(n)">≤ {{ n }}s</button>
+                <button type="button" class="as-chip" [class.on]="!keepWhole() && maxClipSeconds() === n" [disabled]="keepWhole()" (click)="setMaxClipSeconds(n)">≤ {{ n }}s</button>
               }
-              <input id="as-clip-secs" class="as-num" type="number" min="1" [max]="maxSeconds" placeholder="full" [ngModel]="maxClipSeconds()" (ngModelChange)="setMaxClipSeconds($event)" aria-label="Longest stretch of one video, in seconds" />
+              <input id="as-clip-secs" class="as-num" type="number" min="1" [max]="maxSeconds" placeholder="full" [disabled]="keepWhole()" [ngModel]="maxClipSeconds()" (ngModelChange)="setMaxClipSeconds($event)" aria-label="Longest stretch of one video, in seconds" />
             </div>
           </div>
         }
@@ -251,6 +263,7 @@
           } @else if (preview(); as p) {
             <div class="as-plan-head">
               <strong>Plan: {{ p.shorts.length }} short{{ p.shorts.length === 1 ? '' : 's' }}</strong>
+              @if (languageVersions() > 1) { <span class="as-pill as-pill-brand">× 2 · English + Hindi</span> }
               @if (plannedRange(); as r) {
                 <span>· {{ r.min === r.max ? runTime(r.min) : runTime(r.min) + '-' + runTime(r.max) }} each · {{ runTime(r.total) }} in all</span>
               }
@@ -336,7 +349,142 @@
           <label><input type="checkbox" [ngModel]="transitions()" (ngModelChange)="transitions.set($event)" /> Transitions between shots</label>
         </div>
 
-        <h4>4 · Script lines <span class="as-count">{{ lines().length }}</span></h4>
+        <h4>4 · Top &amp; bottom <span class="as-count">automatic</span></h4>
+        <p class="as-hint">Your footage plays in the middle. Above and below it, every short gets its own designed bands - a question or poll on top, numbered parts, and a call to action underneath.</p>
+        <div class="as-pack">
+          @let m = mock();
+          <div class="as-mock" aria-hidden="true" [style.background]="m.design?.bar ?? '#111827'">
+            @if (m.topText) {
+              <span class="as-mock-top" [style.background]="m.design?.top ?? 'rgba(0,0,0,.6)'"
+                    [style.color]="m.design && m.design.top === '#ffffff' ? '#111' : '#fff'">{{ m.topText }}</span>
+            }
+            <span class="as-mock-video">
+              @if (m.badge) { <span class="as-mock-badge">{{ m.badge }}</span> }
+              @if (m.meme) { <span class="as-mock-meme">😂</span> }
+              <span class="as-mock-play">▶</span>
+            </span>
+            @if (m.bottom) {
+              <span class="as-mock-bottom" [style.background]="m.design?.bottom ?? 'rgba(0,0,0,.6)'"
+                    [style.color]="m.design && (m.design.bottom === '#facc15' || m.design.bottom === '#ffffff' || m.design.bottom === '#fce7f3') ? '#111' : '#fff'">{{ m.bottom }}</span>
+            }
+          </div>
+
+          <div class="as-pack-controls">
+            <div class="as-field as-field-top">
+              <span class="as-label">Design</span>
+              <div class="as-designs" role="radiogroup" aria-label="Design">
+                <button type="button" class="as-design" role="radio" [attr.aria-checked]="design() === 'auto'" [class.on]="design() === 'auto'" (click)="design.set('auto')" title="A different design for every short">
+                  <span class="as-swatch as-swatch-auto"></span>🎲 Every short different
+                </button>
+                @for (d of designs; track d.id) {
+                  <button type="button" class="as-design" role="radio" [attr.aria-checked]="design() === d.id" [class.on]="design() === d.id" (click)="design.set(d.id)">
+                    <span class="as-swatch" [style.background]="'linear-gradient(' + d.top + ' 0 28%, ' + d.bar + ' 28% 72%, ' + d.bottom + ' 72%)'"></span>{{ d.label }}
+                  </button>
+                }
+                <button type="button" class="as-design" role="radio" [attr.aria-checked]="design() === 'none'" [class.on]="design() === 'none'" (click)="design.set('none')" title="Keep the framing and text styles as they are">
+                  <span class="as-swatch as-swatch-none"></span>Plain
+                </button>
+              </div>
+            </div>
+
+            <div class="as-field as-field-top">
+              <span class="as-label">Top</span>
+              <div class="as-chips">
+                @for (t of topModes; track t.id) {
+                  <button type="button" class="as-chip" [class.on]="top() === t.id" (click)="top.set(t.id)" [title]="t.hint"
+                          [disabled]="t.id === 'Hook' && lines().length === 0">{{ t.label }}</button>
+                }
+              </div>
+            </div>
+            <p class="as-hint as-hint-indent">{{ topHint() }}@if (top() === 'Hook' && lines().length === 0) { Add script lines below first. }</p>
+            @if (top() === 'Quiz' || top() === 'Auto') {
+              <div class="as-field as-field-top">
+                <label class="as-label" for="as-quiz">Your questions</label>
+                <textarea id="as-quiz" class="as-lines as-lines-sm" rows="2" [ngModel]="quizText()" (ngModelChange)="quizText.set($event)"
+                          placeholder="Optional - one per row as question | answer&#10;What has keys but no locks? | A keyboard&#10;Leave empty for quick sums made up for each short"></textarea>
+              </div>
+            }
+
+            <div class="as-field">
+              <label class="as-label" for="as-title">Title</label>
+              <input id="as-title" class="as-text" type="text" maxlength="80" [ngModel]="title()" (ngModelChange)="title.set($event)"
+                     placeholder="Optional - shown big for the first 2 seconds" />
+            </div>
+
+            <div class="as-field as-field-top">
+              <span class="as-label">Parts</span>
+              <div class="as-chips">
+                <label class="as-check-chip"><input type="checkbox" [ngModel]="numberParts()" (ngModelChange)="numberParts.set($event)" /> Number each clip</label>
+                @if (numberParts()) {
+                  @for (p of partLabels; track p.id) {
+                    <button type="button" class="as-chip" [class.on]="partLabel() === p.id" (click)="partLabel.set(p.id)">{{ p.label }}</button>
+                  }
+                  <label class="as-check-chip" title="3, 2, 1 - so the funniest lands last"><input type="checkbox" [ngModel]="countDown()" (ngModelChange)="countDown.set($event)" /> Count down</label>
+                }
+              </div>
+            </div>
+
+            <div class="as-field as-field-top">
+              <span class="as-label">Bottom</span>
+              <div class="as-stack">
+                <label class="as-check-chip"><input type="checkbox" [ngModel]="cta()" (ngModelChange)="cta.set($event)" /> Ask viewers to comment, like or share</label>
+                @if (cta()) {
+                  <input class="as-text" type="text" maxlength="80" [ngModel]="ctaText()" (ngModelChange)="ctaText.set($event)"
+                         placeholder="Optional - leave empty to write one that suits each short" aria-label="Call to action" />
+                }
+                <input class="as-text" type="text" maxlength="41" [ngModel]="handle()" (ngModelChange)="handle.set($event)"
+                       placeholder="@yourchannel - shown as 'Follow @yourchannel'" aria-label="Channel handle" />
+                @if (handleError(); as err) { <span class="as-warn">{{ err }}</span> }
+              </div>
+            </div>
+
+            <div class="as-field as-field-top">
+              <span class="as-label">Language</span>
+              <div class="as-chips">
+                @for (l of languages; track l.id) {
+                  <button type="button" class="as-chip" [class.on]="language() === l.id" (click)="language.set(l.id)" [title]="l.hint">{{ l.label }}</button>
+                }
+              </div>
+            </div>
+            <p class="as-hint as-hint-indent">{{ languageHint() }} Your own lines and title are used as you typed them.</p>
+          </div>
+        </div>
+
+        <h4 class="as-h-sub">😂 Memes <span class="as-count">{{ memeIds().size }} picked</span></h4>
+        @if (memeOptions() === null) {
+          <p class="as-hint">Loading your memes…</p>
+        } @else if (memeOptions()!.length === 0) {
+          <p class="as-hint">No memes yet. Add reaction pictures or clips you own (or have a licence for) to the
+            <a [routerLink]="['/effects']" (click)="close()">Effects library</a> under <em>Memes &amp; reactions</em>, and they'll pop up here automatically.</p>
+        } @else {
+          <div class="as-field">
+            <span class="as-label">Per short</span>
+            <div class="as-chips">
+              @for (n of [1, 2, 3]; track n) {
+                <button type="button" class="as-chip" [class.on]="memesPerShort() === n" (click)="memesPerShort.set(n)">{{ n }}</button>
+              }
+              <span class="as-tools-gap"></span>
+              <button class="as-link" type="button" (click)="pickAllMemes(true)">{{ memeSearch().trim() ? 'Pick matches' : 'Pick all' }}</button>
+              <button class="as-link" type="button" (click)="pickAllMemes(false)">None</button>
+            </div>
+          </div>
+          <input type="search" maxlength="100" [ngModel]="memeSearch()" (ngModelChange)="memeSearch.set($event)"
+                 placeholder="Search reaction names and tags" aria-label="Search reactions" />
+          <div class="as-memes">
+            @for (meme of visibleMemes(); track meme.id) {
+              <button type="button" class="as-meme" [class.on]="memeIds().has(meme.id)" (click)="toggleMeme(meme.id)" [attr.aria-pressed]="memeIds().has(meme.id)" [title]="meme.name">
+                @if (memeThumb(meme); as src) { <img [src]="src" alt="" loading="lazy" /> } @else { <span class="as-meme-icon">🎬</span> }
+                <span class="as-tile-check" aria-hidden="true">✓</span>
+              </button>
+            }
+          </div>
+          @if (visibleMemes().length === 0) { <p class="as-hint">No reactions match that search.</p> }
+          <p class="as-hint">Picked memes pop up between the title and the last second, a different one each time - long shorts get up to {{ memesPerShort() }}.</p>
+        }
+        @if (memeError(); as err) { <p class="as-warn" role="alert">{{ err }}</p> }
+
+
+        <h4>5 · Script lines <span class="as-count">{{ lines().length }}</span></h4>
         <textarea class="as-lines" rows="4" [ngModel]="linesText()" (ngModelChange)="linesText.set($event)"
                   placeholder="One line per row - hooks, captions, quotes. Each short gets different lines at random.&#10;Wait till the end 😮&#10;3 things nobody tells you&#10;Watch this before you go"></textarea>
         <div class="as-chips">
@@ -346,7 +494,7 @@
           }
         </div>
 
-        <h4>5 · Sound</h4>
+        <h4>6 · Sound</h4>
         @if (musicOptions().length === 0) {
           <p class="as-hint">No music in this project yet - the shorts keep their clips' own sound.</p>
         } @else {
@@ -364,7 +512,7 @@
           <label><input type="checkbox" [ngModel]="keepClipAudio()" (ngModelChange)="keepClipAudio.set($event)" /> Keep clips' own sound under the music</label>
         </div>
 
-        <h4>6 · Google Drive</h4>
+        <h4>7 · Google Drive</h4>
         <div class="as-field">
           <app-topic-picker label="Topic (files the shorts in the Drive library and links them to the calendar)" [value]="topicId()" (valueChange)="pickTopic($event)" />
         </div>
@@ -437,7 +585,7 @@
       <div class="as-summary">
         @if (plannedRange(); as r) {
           <strong>{{ planned() }} short{{ planned() === 1 ? '' : 's' }}</strong>
-          <span>{{ format().label }} · {{ r.min === r.max ? runTime(r.min) + ' each' : runTime(r.min) + '-' + runTime(r.max) }} · {{ runTime(r.total) }} in all · {{ style() }}</span>
+          <span>{{ format().label }} · {{ r.min === r.max ? runTime(r.min) + ' each' : runTime(r.min) + '-' + runTime(r.max) }} · {{ runTime(r.total) }} in all · {{ style() }}{{ languageVersions() > 1 ? ' · English + Hindi' : '' }}</span>
         } @else {
           <strong>{{ planned() ? planned() + ' shorts' : 'Auto' }}</strong>
           <span>{{ format().label }}</span>

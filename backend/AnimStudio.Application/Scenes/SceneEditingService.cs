@@ -105,6 +105,7 @@ public sealed class SceneEditingService(
             Description = source.Description,
             DurationFrames = source.DurationFrames,
             BackgroundAssetId = source.BackgroundAssetId,
+            BackgroundAudio = source.BackgroundAudio,
             Animation = source.Animation,
             TransitionToNext = source.TransitionToNext,
             TransitionDurationFrames = source.TransitionDurationFrames,
@@ -263,7 +264,10 @@ public sealed class SceneEditingService(
 
         await EnsureUsableAssetAsync(assetId, project.Id, AssetKind.Image, ct).ConfigureAwait(false);
 
+        // The open-mouth artwork was drawn from the old picture, so it would show the wrong face over the new one.
+        if (!string.Equals(scene.BackgroundAssetId, assetId, StringComparison.Ordinal)) scene.TalkingBackgroundAssetId = null;
         scene.BackgroundAssetId = assetId;
+        scene.BackgroundAudio = false;
 
         // Recorded so a later regeneration refreshes everything except what a human chose.
         MarkEdited(scene, nameof(Scene.BackgroundAssetId));
@@ -291,6 +295,7 @@ public sealed class SceneEditingService(
         foreach (var scene in list)
         {
             scene.BackgroundAssetId = assetId;
+            scene.BackgroundAudio = false;
             Touch(scene);
             await scenes.ReplaceAsync(scene, ct).ConfigureAwait(false);
         }

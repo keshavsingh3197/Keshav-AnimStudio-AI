@@ -23,6 +23,10 @@ namespace AnimStudio.Infrastructure.StoryAgent;
 /// When the story's video speed is not 1, a copy of that render at the speed becomes the story's video, and the scene
 /// timings move with it so the subtitles and chapters match.
 /// </para>
+/// <para>
+/// With a dub built, the dub's project is rendered too, and its sound - at the video's speed - becomes the dub track, a WAV
+/// the length of the video for YouTube's multi-language audio. The dub is an extra: when it fails, the video still stands.
+/// </para>
 /// </summary>
 public sealed class RenderStage(
     IRenderJobRepository jobs,
@@ -33,6 +37,7 @@ public sealed class RenderStage(
     IOptionsMonitor<RenderOptions> renderOptions,
     IFfmpegRunner runner,
     IRenderWorkspaceFactory workspaces,
+    IObjectStore store,
     TimeProvider clock,
     ILogger<RenderStage> logger) : IStoryStage
 {
@@ -59,24 +64,9 @@ public sealed class RenderStage(
         var sourceId = run.SourceRenderJobId ?? run.RenderJobId;
         var job = string.IsNullOrEmpty(sourceId) ? null : await jobs.GetAsync(sourceId, ct).ConfigureAwait(false);
         if (job is null || job.Status is RenderJobStatus.Failed or RenderJobStatus.Cancelled)
-            job = await QueueAsync(context, projectId, ct).ConfigureAwait(false);
+            job = await QueueAsync(context, projectId, dub: false, ct).ConfigureAwait(false);
 
-        try
-        {
-            while (!job.IsTerminal)
-            {
-                await context.Report(job.Progress, string.IsNullOrWhiteSpace(job.Message) ? "Rendering the video" : job.Message).ConfigureAwait(false);
-                await Task.Delay(PollEvery, ct).ConfigureAwait(false);
-                job = await jobs.GetAsync(job.Id, ct).ConfigureAwait(false)
-                    ?? throw new StoryStageException("render-missing", "The render job was removed before it finished.");
-            }
-        }
-        catch (OperationCanceledException) when (!context.Shutdown.IsCancellationRequested)
-        {
-            // The person stopped the run: stop the render too, rather than leave it eating the CPU.
-            await jobs.RequestCancelAsync(job.Id, CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
+        job = await FollowAsync(context, job, null, ct).ConfigureAwait(false);
 
         if (job.Status == RenderJobStatus.Failed)
             throw new StoryStageException(job.ErrorCode ?? "render-failed", job.ErrorMessage ?? "The render failed. Open the project's render list for the details.");
@@ -91,7 +81,8 @@ public sealed class RenderStage(
         {
             run.RenderJobId = job.Id;
             StoryVideoSpeed.Retime(run, 1.0);
-            return StoryStageOutcome.Completed("The video is rendered.");
+            var dub = await DubAsync(context, 1.0, ct).ConfigureAwait(false);
+            return StoryStageOutcome.Completed("The video is rendered." + dub);
         }
 
         // No video until the copy exists, so nothing is ever watched or sent at a speed its subtitles were not timed for.
@@ -101,7 +92,108 @@ public sealed class RenderStage(
         var copy = await SpeedCopyAsync(context, job, speed, ct).ConfigureAwait(false);
         run.RenderJobId = copy.Id;
         StoryVideoSpeed.Retime(run, speed);
-        return StoryStageOutcome.Completed($"The video is rendered at {Times(speed)}, {Clock(run.TotalSeconds)} long.");
+        var dubbed = await DubAsync(context, speed, ct).ConfigureAwait(false);
+        return StoryStageOutcome.Completed($"The video is rendered at {Times(speed)}, {Clock(run.TotalSeconds)} long." + dubbed);
+    }
+
+    /// <summary>Polls a render until it ends; stopping the run stops it. <paramref name="prefix"/> heads its progress messages.</summary>
+    private async Task<RenderJob> FollowAsync(StoryStageContext context, RenderJob job, string? prefix, CancellationToken ct)
+    {
+        try
+        {
+            while (!job.IsTerminal)
+            {
+                var message = string.IsNullOrWhiteSpace(job.Message) ? "Rendering the video" : job.Message;
+                await context.Report(job.Progress, prefix is null ? message : $"{prefix}: {message}").ConfigureAwait(false);
+                await Task.Delay(PollEvery, ct).ConfigureAwait(false);
+                job = await jobs.GetAsync(job.Id, ct).ConfigureAwait(false)
+                    ?? throw new StoryStageException("render-missing", "The render job was removed before it finished.");
+            }
+        }
+        catch (OperationCanceledException) when (!context.Shutdown.IsCancellationRequested)
+        {
+            // The person stopped the run: stop the render too, rather than leave it eating the CPU.
+            await jobs.RequestCancelAsync(job.Id, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
+        return job;
+    }
+
+    /// <summary>
+    /// Renders the dub's project (or follows its render from an earlier try) and takes its sound at the video's speed as
+    /// the dub track. Returns a few words for the stage's message; a dub that fails is a warning, not a failed story.
+    /// </summary>
+    private async Task<string> DubAsync(StoryStageContext context, double speed, CancellationToken ct)
+    {
+        var run = context.Run;
+
+        // A track made for an earlier render or speed no longer fits the video.
+        if (StoryObjectKeys.Owns(run.Id, run.DubAudioKey)) await store.DeleteAsync(run.DubAudioKey!, ct).ConfigureAwait(false);
+        run.DubAudioKey = null;
+        run.DubLanguage = null;
+
+        if (!StoryDub.IsSpoken(run) || string.IsNullOrEmpty(run.DubProjectId)) return string.Empty;
+
+        var language = StoryDub.LanguageOf(run);
+        var label = StoryCaptions.LabelOf(language);
+        var job = string.IsNullOrEmpty(run.DubSourceRenderJobId) ? null : await jobs.GetAsync(run.DubSourceRenderJobId, ct).ConfigureAwait(false);
+        try
+        {
+            if (job is null || job.Status is RenderJobStatus.Failed or RenderJobStatus.Cancelled)
+                job = await QueueAsync(context, run.DubProjectId, dub: true, ct).ConfigureAwait(false);
+
+            job = await FollowAsync(context, job, $"{label} dub", ct).ConfigureAwait(false);
+            if (job.Status != RenderJobStatus.Completed || string.IsNullOrEmpty(job.OutputStorageKey))
+                throw new StoryStageException(job.ErrorCode ?? "dub-render-failed", job.ErrorMessage ?? "Its render did not finish.");
+
+            run.DubSourceRenderJobId = job.Id;
+            await context.Report(99, $"Taking out the {label} dub track").ConfigureAwait(false);
+            run.DubAudioKey = await ExtractTrackAsync(run, job, language, speed, ct).ConfigureAwait(false);
+            run.DubLanguage = language;
+        }
+        catch (StoryStageException ex)
+        {
+            logger.LogWarning("Story run {RunId}: the {Language} dub track could not be made ({Code}).", run.Id, language, ex.Code);
+            StoryRunWarnings.Add(run, $"The {label} dub track was not made: {ex.Message}");
+            return $" The {label} dub track could not be made.";
+        }
+
+        logger.LogInformation("Story run {RunId}: the {Language} dub track is ready from render {JobId}.", run.Id, language, job.Id);
+        return $" The {label} dub track is ready to add on YouTube.";
+    }
+
+    /// <summary>The dub render's sound alone, at <paramref name="speed"/>, as a 48 kHz stereo WAV in the run's files.</summary>
+    private async Task<string> ExtractTrackAsync(StoryRun run, RenderJob source, string language, double speed, CancellationToken ct)
+    {
+        await using var workspace = await workspaces.CreateAsync($"story-dub-{source.Id}", ct).ConfigureAwait(false);
+        var input = await workspace.MaterializeAsync(source.OutputStorageKey!, "in/dub.mp4", ct).ConfigureAwait(false);
+
+        List<string> arguments = ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input, "-map", "0:a:0", "-vn"];
+        if (!StoryVideoSpeed.Same(speed, 1.0))
+            arguments.AddRange(["-af", $"atempo={speed.ToString("0.###", CultureInfo.InvariantCulture)}"]);
+        arguments.AddRange(["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "out/dub.wav"]);
+
+        var result = await runner.RunAsync(new FfmpegInvocation
+        {
+            Tool = FfmpegTool.Ffmpeg,
+            WorkingDirectory = workspace.RootPath,
+            StderrLogPath = "logs/dub.log",
+            Timeout = SpeedTimeout,
+            Arguments = arguments
+        }, null, ct).ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
+        {
+            workspace.MarkFailed("dub-track-failed");
+            logger.LogWarning("The dub track of render {JobId} failed (exit {ExitCode}): {Stderr}",
+                source.Id, result.ExitCode, LogSanitizer.Sanitize(result.StderrTail, 1000));
+            throw new StoryStageException("dub-track-failed", "Its sound could not be taken out of the dub's render. Retry the render.");
+        }
+
+        var key = StoryObjectKeys.DubTrack(run.Id, language);
+        await workspace.PublishAsync("out/dub.wav", key, "audio/wav", ct).ConfigureAwait(false);
+        return key;
     }
 
     /// <summary>
@@ -211,7 +303,8 @@ public sealed class RenderStage(
         return time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture) : time.ToString(@"m\:ss", CultureInfo.InvariantCulture);
     }
 
-    private async Task<RenderJob> QueueAsync(StoryStageContext context, string projectId, CancellationToken ct)
+    /// <summary>Queues a render of the story's project, or of its dub's when <paramref name="dub"/>.</summary>
+    private async Task<RenderJob> QueueAsync(StoryStageContext context, string projectId, bool dub, CancellationToken ct)
     {
         var run = context.Run;
         var sceneList = await scenes.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
@@ -243,8 +336,15 @@ public sealed class RenderStage(
         await status.MarkRenderingAsync(projectId, ct).ConfigureAwait(false);
 
         // Said before the first poll, so a restart now finds this job instead of queueing a second.
-        run.SourceRenderJobId = job.Id;
-        run.RenderJobId = job.Id;
+        if (dub)
+        {
+            run.DubSourceRenderJobId = job.Id;
+        }
+        else
+        {
+            run.SourceRenderJobId = job.Id;
+            run.RenderJobId = job.Id;
+        }
         await context.Save().ConfigureAwait(false);
 
         logger.LogInformation("Story run {RunId} queued render job {JobId} for project {ProjectId}.", run.Id, job.Id, projectId);

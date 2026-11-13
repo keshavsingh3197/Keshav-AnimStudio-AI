@@ -1,12 +1,15 @@
 import { Component, DestroyRef, HostListener, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subject, catchError, debounceTime, of, switchMap } from 'rxjs';
+import { Subject, catchError, debounceTime, forkJoin, map, of, switchMap } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
-  AUTO_SHORT_STYLES, AutoShortLayout, AutoShortOrder, AutoShortStyle, AutoShortTextMode, AutoShortsBody,
-  AutoShortsPreview, AutoShortsResult, Clip, ClipFit, ExportQuality,
+  AUTO_SHORT_STYLES, AutoShortLanguage, AutoShortLayout, AutoShortOrder, AutoShortPackagingBody, AutoShortPartLabel,
+  AutoShortStyle, AutoShortTextMode, AutoShortTopMode, AutoShortsBody, AutoShortsPreview, AutoShortsResult, Clip, ClipFit,
+  ExportQuality,
 } from '../../../../core/models/api.models';
+import { EffectClip } from '../../../../core/models/effects.models';
+import { EffectsService } from '../../../../core/services/effects.service';
 import { GoogleDriveStatus, isValidDriveFolderName } from '../../../../core/models/youtube.models';
 import { ActivityService } from '../../../../core/services/activity.service';
 import { ShortsService } from '../../../../core/services/shorts.service';
@@ -129,7 +132,47 @@ const SOURCE_SORTS: readonly { id: SourceSort; label: string }[] = [
   { id: 'least-used', label: 'Least used' },
 ];
 
+/** Kept in step with AutoShortPackager.Designs on the server by id; the colours draw the swatches. */
+const DESIGNS: readonly { id: string; label: string; bar: string; top: string; bottom: string }[] = [
+  { id: 'comic', label: 'Comic', bar: '#fde047', top: '#ffffff', bottom: '#111111' },
+  { id: 'quiz-show', label: 'Quiz show', bar: '#1d4ed8', top: '#0b1b4d', bottom: '#facc15' },
+  { id: 'bubblegum', label: 'Bubblegum', bar: '#db2777', top: '#831843', bottom: '#fce7f3' },
+  { id: 'meme', label: 'Meme', bar: '#ffffff', top: '#ffffff', bottom: '#ffffff' },
+  { id: 'headline', label: 'Headline', bar: '#000000', top: '#e11d48', bottom: '#000000' },
+  { id: 'cosmic-glass', label: 'Cosmic', bar: '#070b19', top: '#0f172a', bottom: '#facc15' },
+  { id: 'gold-report', label: 'Gold', bar: '#0c0a09', top: '#1c1917', bottom: '#292524' },
+  { id: 'midnight', label: 'Midnight', bar: '#0f172a', top: '#0f172a', bottom: '#0f172a' },
+  { id: 'podcast', label: 'Podcast', bar: '#1e1b4b', top: '#7c3aed', bottom: '#1e1b4b' },
+  { id: 'sunset', label: 'Sunset', bar: '#ea580c', top: '#ea580c', bottom: '#ea580c' },
+  { id: 'neon', label: 'Neon', bar: '#05060f', top: '#05060f', bottom: '#05060f' },
+  { id: 'blur', label: 'Soft blur', bar: '#64748b', top: '#334155', bottom: '#334155' },
+];
+
+const TOP_MODES: readonly { id: AutoShortTopMode; label: string; hint: string }[] = [
+  { id: 'Auto', label: '✨ Auto', hint: 'Each short gets a different one: a poll, a quick quiz or one of your lines.' },
+  { id: 'Poll', label: '🗳 Which is funniest?', hint: 'Asks viewers to comment the number of the funniest part.' },
+  { id: 'Quiz', label: '🧠 Quick quiz', hint: 'A quick sum or your own question on top; the answer shows in the last seconds.' },
+  { id: 'Hook', label: '💬 Hook line', hint: 'One of your script lines, held on top for the whole short.' },
+  { id: 'None', label: 'Nothing', hint: 'Leaves the top as it is.' },
+];
+
+const LANGUAGES: readonly { id: AutoShortLanguage; label: string; hint: string }[] = [
+  { id: 'English', label: 'English', hint: 'Questions, labels and calls to action in English.' },
+  { id: 'Hindi', label: 'हिन्दी', hint: 'Questions, labels and calls to action in Hindi.' },
+  { id: 'Both', label: 'Both (2 versions)', hint: 'Every short is made twice from the same cut: one English, one Hindi - upload each where it fits.' },
+];
+
+const PART_LABELS: readonly { id: AutoShortPartLabel; label: string }[] = [
+  { id: 'Number', label: '#1' },
+  { id: 'Level', label: 'LEVEL 1' },
+  { id: 'Part', label: 'PART 1' },
+];
+
 const PREFS_KEY = 'animstudio.autoShorts.sources';
+const PACKAGING_KEY = 'animstudio.autoShorts.packaging';
+const MAX_QUIZ_LINES = 50;
+const MAX_MEMES = 30;
+const HANDLE_PATTERN = /^@?[A-Za-z0-9._-]{1,40}$/;
 type AutoShortsRequest = Omit<AutoShortsBody, 'watermark'> & { watermark: boolean };
 
 export const AUTO_SHORT_MIN_SECONDS = 5;
@@ -158,6 +201,7 @@ export class AutoShortsComponent {
   readonly activity = inject(ActivityService);
   private readonly youtube = inject(YouTubePublishService);
   private readonly shorts = inject(ShortsService);
+  private readonly effects = inject(EffectsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly formats = FORMATS;
@@ -168,6 +212,10 @@ export class AutoShortsComponent {
   readonly layouts = LAYOUTS;
   readonly orders = ORDERS;
   readonly presets = PRESETS;
+  readonly designs = DESIGNS;
+  readonly topModes = TOP_MODES;
+  readonly languages = LANGUAGES;
+  readonly partLabels = PART_LABELS;
   readonly sorts = SOURCE_SORTS;
   readonly durations = [15, 30, 45, 60, 90, 180] as const;
   readonly counts = [3, 5, 10] as const;
@@ -249,6 +297,62 @@ export class AutoShortsComponent {
   readonly lines = computed(() =>
     this.linesText().split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, MAX_LINES));
   readonly musicIds = signal<ReadonlySet<string>>(this.initialMusic());
+
+  // --- whole clips and packaging ---
+  /** Videos play start to finish - never trimmed, split or reused for another stretch. */
+  readonly keepWhole = signal(true);
+  /** 'none', 'auto' or a design id. */
+  readonly design = signal('auto');
+  readonly top = signal<AutoShortTopMode>('Auto');
+  readonly topHint = computed(() => TOP_MODES.find((t) => t.id === this.top())?.hint ?? '');
+  readonly language = signal<AutoShortLanguage>('English');
+  readonly languageHint = computed(() => LANGUAGES.find((l) => l.id === this.language())?.hint ?? '');
+  /** Each cut is rendered once per language. */
+  readonly languageVersions = computed(() => (this.language() === 'Both' ? 2 : 1));
+  readonly title = signal('');
+  readonly numberParts = signal(true);
+  readonly partLabel = signal<AutoShortPartLabel>('Number');
+  readonly countDown = signal(false);
+  readonly cta = signal(true);
+  readonly ctaText = signal('');
+  readonly handle = signal('');
+  readonly handleError = computed(() =>
+    this.handle().trim() && !HANDLE_PATTERN.test(this.handle().trim())
+      ? 'Use your channel handle - letters, digits and . _ - only, like @mychannel.' : null);
+  readonly quizText = signal('');
+  readonly quizLines = computed(() => this.quizText().split(/\r?\n/).map((l) => l.trim())
+    .filter((l) => l.includes('|')).slice(0, MAX_QUIZ_LINES));
+  readonly memesPerShort = signal(1);
+  /** The effects library's memes and reactions that can be drawn (pictures and clips); null while loading. */
+  readonly memeOptions = signal<EffectClip[] | null>(null);
+  readonly memeIds = signal<ReadonlySet<string>>(new Set());
+  readonly memeError = signal<string | null>(null);
+  readonly memeSearch = signal('');
+  readonly visibleMemes = computed(() => {
+    const words = this.memeSearch().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return (this.memeOptions() ?? []).filter((meme) =>
+      words.every((word) => meme.name.toLowerCase().includes(word) || meme.tags.some((tag) => tag.toLowerCase().includes(word))));
+  });
+
+  /** What the frame mock-up shows: the chosen design (the first one for "auto") and sample words in the chosen language. */
+  readonly mock = computed(() => {
+    const id = this.design();
+    const d = DESIGNS.find((x) => x.id === id) ?? (id === 'auto' ? DESIGNS[0] : null);
+    const hi = this.language() === 'Hindi';
+    const top = this.top();
+    const topText = this.title().trim()
+      || (top === 'Poll' || top === 'Auto' ? (hi ? 'सबसे मज़ेदार कौन सा? 1-3' : 'Which one is the funniest? 1-3')
+        : top === 'Quiz' ? (hi ? 'जल्दी बताओ! 7 x 8 = ?' : 'Quick! 7 x 8 = ?')
+          : top === 'Hook' ? this.lines()[0] ?? (hi ? 'आपकी लाइन' : 'Your hook line')
+            : '');
+    const badge = !this.numberParts() ? '' : this.partLabel() === 'Level' ? (hi ? 'लेवल 1' : 'LEVEL 1')
+      : this.partLabel() === 'Part' ? (hi ? 'भाग 1' : 'PART 1') : '#1';
+    const handle = this.handleError() ? '' : this.handle().trim().replace(/^@?/, '@');
+    const bottom = this.cta()
+      ? this.ctaText().trim() || (hi ? 'सबसे मज़ेदार नंबर कमेंट करो!' : 'Comment the funniest number!')
+      : handle.length > 1 ? (hi ? `और मज़े के लिए फ़ॉलो करो ${handle}` : `Follow ${handle} for more`) : '';
+    return { design: d, topText, badge, bottom, meme: this.memeIds().size > 0 && this.memesPerShort() > 0 };
+  });
   readonly transitions = signal(true);
   readonly motion = signal(true);
   readonly keepClipAudio = signal(true);
@@ -296,6 +400,10 @@ export class AutoShortsComponent {
       imageSeconds: this.imageSeconds(),
       maxClipSeconds: this.maxClipSeconds(),
       exactLength: this.layout() === 'FitLength' || this.exact(),
+      keepClipsWhole: this.keepWhole(),
+      packaging: this.packaging(),
+      // Resolved from the effects library when the batch is created; the plan doesn't depend on them.
+      memeAssetIds: [],
       order: this.order(),
       seed: this.seed(),
       style: this.style(),
@@ -317,6 +425,23 @@ export class AutoShortsComponent {
     };
   });
 
+  private packaging(): AutoShortPackagingBody {
+    return {
+      design: this.design(),
+      top: this.top(),
+      language: this.language(),
+      title: this.title().trim() || null,
+      numberParts: this.numberParts(),
+      partLabel: this.partLabel(),
+      countDown: this.countDown(),
+      callToAction: this.cta(),
+      callToActionText: this.ctaText().trim() || null,
+      channelHandle: this.handleError() ? null : this.handle().trim() || null,
+      quizLines: this.quizLines(),
+      memesPerShort: this.memeIds().size > 0 ? this.memesPerShort() : 0,
+    };
+  }
+
   /** The plan the server would make with the settings as they are; null while it's being worked out. */
   readonly preview = signal<AutoShortsPreview | null>(null);
   readonly previewError = signal<string | null>(null);
@@ -327,12 +452,16 @@ export class AutoShortsComponent {
     return { min: Math.min(...lengths), max: Math.max(...lengths), total: lengths.reduce((a, b) => a + b, 0) };
   });
   /** How many shorts the button promises: the plan's count once known. */
-  readonly planned = computed(() => this.preview()?.shorts.length ?? (this.count() || null));
+  readonly planned = computed(() => {
+    const cuts = this.preview()?.shorts.length ?? (this.count() || null);
+    return cuts === null ? null : cuts * this.languageVersions();
+  });
   private readonly previewRequests = new Subject<AutoShortsRequest>();
 
   readonly blocked = computed<string | null>(() => {
     if (this.state.blockedReason()) return this.state.blockedReason();
     if (this.pickedClips().length === 0) return 'Pick at least one clip or picture.';
+    if (this.handleError()) return this.handleError();
     if (this.driveOn()) {
       const d = this.driveTarget();
       if (!d?.connected) return 'Choose a Drive that is connected, or turn off saving to Drive.';
@@ -358,7 +487,9 @@ export class AutoShortsComponent {
 
   constructor() {
     this.readPrefs();
+    this.readPackaging();
     this.loadUsage();
+    this.loadMemes();
     this.loadStyleExamples();
 
     effect(() => {
@@ -583,8 +714,64 @@ export class AutoShortsComponent {
   create(): void {
     if (this.blocked() || this.submitting()) return;
     this.submitting.set(true);
+    this.memeError.set(null);
+    this.savePackaging();
+    this.resolveMemes().subscribe({
+      next: (memeAssetIds) => this.queue(memeAssetIds),
+      error: () => {
+        this.memeError.set('The memes could not be added to this project. Try again, or turn memes off.');
+        this.submitting.set(false);
+      },
+    });
+  }
+
+  toggleMeme(id: string): void {
+    this.memeIds.update((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id); else if (next.size < MAX_MEMES) next.add(id);
+      return next;
+    });
+  }
+
+  pickAllMemes(on: boolean): void {
+    this.memeIds.set(new Set(on ? this.visibleMemes().slice(0, MAX_MEMES).map((m) => m.id) : []));
+  }
+
+  memeThumb(m: EffectClip): string {
+    return m.kind === 'Image' ? this.effects.contentUrl(m.id) : this.effects.thumbnailUrl(m) ?? '';
+  }
+
+  /**
+   * A comedy compilation in one click: every clip whole and in your order, numbered and counted
+   * down to the funniest, a "which is funniest?" poll on top and a call to action underneath.
+   */
+  comedySetup(): void {
+    this.keepWhole.set(true);
+    this.setLayout('Spread');
+    this.setCount(0);
+    this.exact.set(false);
+    this.order.set(this.state.timelineOrderedAssetIds().length > 0 ? 'InOrder' : 'VideosFirst');
+    this.style.set('Energetic');
+    this.design.set('auto');
+    this.top.set('Poll');
+    this.numberParts.set(true);
+    this.countDown.set(true);
+    this.cta.set(true);
+    if ((this.memeOptions() ?? []).length > 0 && this.memeIds().size === 0) this.pickAllMemes(true);
+    this.reshuffle();
+  }
+
+  /** The chosen memes as project assets: each is copied into the project once and reused after. */
+  private resolveMemes() {
+    const projectId = this.state.store.project()?.id;
+    const ids = [...this.memeIds()];
+    if (!projectId || ids.length === 0 || this.memesPerShort() <= 0) return of([] as string[]);
+    return forkJoin(ids.map((id) => this.effects.use(id, projectId))).pipe(map((used) => used.map((u) => u.asset.id)));
+  }
+
+  private queue(memeAssetIds: string[]): void {
     this.state.queueAutoShorts(
-      this.body(),
+      { ...this.body(), memeAssetIds },
       (result) => {
         this.queued.set(result);
         this.reshuffle();
@@ -620,6 +807,45 @@ export class AutoShortsComponent {
     } catch {
       // Storage blocked or unreadable: the defaults do.
     }
+  }
+
+  /** The channel handle and the look, so the next batch starts where this one left off. */
+  private readPackaging(): void {
+    try {
+      const p = JSON.parse(localStorage.getItem(PACKAGING_KEY) ?? '{}') as {
+        handle?: string; design?: string; language?: AutoShortLanguage; top?: AutoShortTopMode; cta?: string;
+      };
+      if (typeof p.handle === 'string' && HANDLE_PATTERN.test(p.handle)) this.handle.set(p.handle);
+      if (p.design === 'auto' || p.design === 'none' || DESIGNS.some((d) => d.id === p.design)) this.design.set(p.design!);
+      const language = LANGUAGES.find((l) => l.id === p.language);
+      if (language) this.language.set(language.id);
+      const top = TOP_MODES.find((t) => t.id === p.top);
+      if (top) this.top.set(top.id);
+      if (typeof p.cta === 'string') this.ctaText.set(p.cta.slice(0, 80));
+    } catch {
+      // Storage blocked or unreadable: the defaults do.
+    }
+  }
+
+  private savePackaging(): void {
+    try {
+      localStorage.setItem(PACKAGING_KEY, JSON.stringify({
+        handle: this.handle().trim(), design: this.design(), language: this.language(), top: this.top(), cta: this.ctaText().trim(),
+      }));
+    } catch {
+      // Storage blocked: the choice lasts for this visit only.
+    }
+  }
+
+  /** The library's memes and reactions that can pop up over footage; sounds are left out. */
+  private loadMemes(): void {
+    this.effects.list({ category: 'Reaction' }).subscribe({
+      next: (list) => this.memeOptions.set(list.filter((m) => m.kind === 'Image' || m.kind === 'Video')),
+      error: () => {
+        this.memeOptions.set([]);
+        this.memeError.set('Could not load reactions from the Effects library. Close and reopen Auto Shorts to try again.');
+      },
+    });
   }
 
   private savePrefs(): void {

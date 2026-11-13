@@ -1,0 +1,34 @@
+:host { display: block; }
+.st { display: grid; gap: 1rem; max-width: 70rem; margin: 0 auto; }
+.st h1, .st h2, .st h3, .st h4 { margin: 0; }
+.st header { display: grid; gap: .5rem; }
+.st header p, .st-section p { margin: 0; }
+.st-links { display: flex; flex-wrap: wrap; gap: 1rem; }
+.st-steps { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; margin: 0; padding-left: 1.2rem; font-size: .9rem; opacity: .85; }
+.st-section { display: grid; gap: .7rem; min-width: 0; }
+.st-section label { display: grid; gap: .35rem; }
+.st textarea { width: 100%; resize: vertical; font-family: inherit; }
+.st-row, .st-actions { display: flex; flex-wrap: wrap; gap: .7rem; align-items: end; }
+.st-row label { flex: 1 1 10rem; min-width: 0; }
+.st-file { display: inline-grid; }
+.st-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.st-chip { border: 1px solid currentColor; border-radius: 999px; padding: .25rem .7rem; background: transparent; color: inherit; cursor: pointer; opacity: .8; }
+.st-chip.on { opacity: 1; font-weight: 600; outline: 2px solid currentColor; outline-offset: -1px; }
+.st-chip.static { cursor: default; }
+.st-badge { font-size: .72rem; border-radius: .3rem; padding: 0 .35rem; margin-left: .25rem; border: 1px solid currentColor; opacity: .8; }
+.st-badge.ok { color: #1a7f37; }
+.st-cast { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.st-cast li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; }
+.st-warn { color: #b35900; }
+.st-ok { color: #1a7f37; }
+.st-episode { display: grid; gap: .6rem; border-top: 1px solid rgba(127, 127, 127, .35); padding-top: .9rem; min-width: 0; }
+.st-episode-head { display: flex; flex-wrap: wrap; gap: .3rem 1rem; align-items: baseline; }
+.st-scenes { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); }
+.st-scene { border: 1px solid rgba(127, 127, 127, .35); border-radius: .6rem; padding: .7rem; display: grid; gap: .45rem; min-width: 0; overflow-wrap: anywhere; }
+.st-scene dl { display: grid; grid-template-columns: auto 1fr; gap: .2rem .6rem; margin: 0; font-size: .9rem; }
+.st-scene dt { font-weight: 600; white-space: nowrap; }
+.st-scene dd { margin: 0; }
+.st-lines { margin: 0; padding-left: 1rem; display: grid; gap: .2rem; }
+.st-meme { margin: 0; padding: .35rem .5rem; border-radius: .4rem; background: rgba(26, 127, 55, .12); }
+.st-meme.missing { background: rgba(179, 89, 0, .14); }
+button.link { background: none; border: none; padding: 0; text-decoration: underline; cursor: pointer; color: inherit; }

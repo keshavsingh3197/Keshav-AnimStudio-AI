@@ -287,6 +287,23 @@ public sealed class StorySeriesTests
     }
 
     [Fact]
+    public void A_short_is_told_briskly_unless_the_person_picked_a_pace()
+    {
+        Assert.Equal(StoryNarrationPace.BriskTarget, StoryNarrationPace.TargetFor("hi", forKids: false, StoryFormat.Vertical));
+        Assert.Equal(StoryNarrationPace.HindiTarget, StoryNarrationPace.TargetFor("hi", forKids: false, StoryFormat.Wide));
+        Assert.Equal(StoryNarrationPace.KidsTarget, StoryNarrationPace.TargetFor("hi", forKids: true, StoryFormat.Vertical));
+        Assert.Equal(StoryNarrationPace.HindiTarget,
+            StoryNarrationPace.TargetFor("hi", forKids: false, StoryFormat.Vertical, StoryPaceStyle.Storyteller));
+        Assert.True(StoryNarrationPace.TargetFor("en", forKids: false, StoryFormat.Vertical) > StoryNarrationPace.BriskTarget);
+
+        // 23 words in 10 seconds (138 a minute) is fine for a long video, slow for a Short.
+        var shortPace = StoryNarrationPace.Measure(Spoken(5, 23, 10), "hi", forKids: false, StorySamples.Now, StoryFormat.Vertical)!;
+        Assert.Equal("slow", shortPace.Verdict);
+        Assert.Equal(StoryNarrationPace.BriskTarget, shortPace.TargetWordsPerMinute);
+        Assert.Equal(1.2, shortPace.SuggestedSpeed, 3);
+    }
+
+    [Fact]
     public void Childrens_stories_are_paced_more_gently_and_the_change_is_never_extreme()
     {
         Assert.Equal(StoryNarrationPace.KidsTarget, StoryNarrationPace.TargetFor("hi", forKids: true));

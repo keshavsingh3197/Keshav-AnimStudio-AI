@@ -5,6 +5,19 @@
 .fx-head h2 { margin: 0 0 .25rem; font-weight: 800; letter-spacing: -0.02em; }
 .fx-head p { margin: 0; max-width: 78ch; line-height: 1.45; }
 
+.fx-create h3 { margin: 0 0 .4rem; }
+.fx-create p { max-width: 85ch; line-height: 1.5; }
+.fx-create-fields { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.fx-create-fields label { display: flex; flex-direction: column; gap: .3rem; flex: 1 1 12rem; }
+.fx-reaction-result { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin-top: .8rem; }
+.fx-reaction-result img {
+  width: 180px; height: 180px; object-fit: contain; border-radius: 8px;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(45deg, var(--surface) 25%, transparent 25%, transparent 75%, var(--surface) 75%),
+    linear-gradient(45deg, var(--surface) 25%, transparent 25%, transparent 75%, var(--surface) 75%);
+  background-size: 20px 20px; background-position: 0 0, 10px 10px;
+}
+
 /* ---------------------------------------------------------------- upload */
 
 .fx-upload {

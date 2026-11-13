@@ -73,7 +73,7 @@ public sealed class YouTubeLiveController(
             defaults?.CategoryId ?? "24",
             defaults?.MadeForKids ?? false,
             defaults?.Tags ?? [],
-            defaults?.DescriptionFooter,
+            YouTubeBrandKit.CurrentFooter(defaults, null),
             upcoming,
             warning)));
     }
@@ -169,7 +169,7 @@ public sealed class YouTubeLiveController(
             return SuggestFailure(StatusCodes.Status502BadGateway, "suggest-empty", "The AI model's answer wasn't usable. Try again.");
 
         var footer = YouTubePublishValidator.IsYouTubeChannelId(request?.ChannelId)
-            ? (await DefaultsForAsync(request!.ChannelId!, ct))?.DescriptionFooter
+            ? YouTubeBrandKit.CurrentFooter(await DefaultsForAsync(request!.ChannelId!, ct), null)
             : null;
 
         logger.LogInformation("Suggested YouTube live details for user {UserId} with {Provider}.",

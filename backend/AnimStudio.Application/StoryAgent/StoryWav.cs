@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace AnimStudio.Application.StoryAgent;
 
-/// <summary>Joins PCM WAV clips of one format end to end, with a short silence between them.</summary>
+/// <summary>Joins PCM WAV clips of one format end to end, with a short silence between them, and cuts a stretch out of one.</summary>
 public static class StoryWav
 {
     private readonly record struct Format(ushort Encoding, ushort Channels, uint SampleRate, ushort BlockAlign, ushort Bits);
@@ -28,6 +28,42 @@ public static class StoryWav
         var size = datas.Sum(d => (long)d.Length) + (long)gap * (datas.Count - 1);
         if (size > int.MaxValue - 44) return null;
 
+        var wav = Header(f, size);
+        var span = wav.AsSpan();
+        var offset = 44;
+        for (var i = 0; i < datas.Count; i++)
+        {
+            // The silence between clips is the zeroes the array already holds.
+            if (i > 0) offset += gap;
+            datas[i].Span.CopyTo(span[offset..]);
+            offset += datas[i].Length;
+        }
+
+        return wav;
+    }
+
+    /// <summary>
+    /// The stretch of a clip from <paramref name="fromSeconds"/> to <paramref name="toSeconds"/> (the end when null), cut
+    /// on whole sample frames; null when the clip is not plain PCM.
+    /// </summary>
+    public static byte[]? Slice(byte[] clip, double fromSeconds, double? toSeconds)
+    {
+        if (Read(clip) is not { } read || read.Format.Encoding != 1 || read.Format.BlockAlign == 0) return null;
+
+        var f = read.Format;
+        var frames = read.Data.Length / f.BlockAlign;
+        var first = (int)Math.Clamp(Math.Round(Math.Max(0, fromSeconds) * f.SampleRate), 0, frames);
+        var last = toSeconds is { } to ? (int)Math.Clamp(Math.Round(to * f.SampleRate), first, frames) : frames;
+
+        var data = read.Data.Slice(first * f.BlockAlign, (last - first) * f.BlockAlign);
+        var wav = Header(f, data.Length);
+        data.Span.CopyTo(wav.AsSpan(44));
+        return wav;
+    }
+
+    /// <summary>A PCM WAV of <paramref name="size"/> bytes of sound, with its 44-byte header written and the sound still to fill in.</summary>
+    private static byte[] Header(Format f, long size)
+    {
         var wav = new byte[44 + size];
         var span = wav.AsSpan();
         "RIFF"u8.CopyTo(span);
@@ -43,16 +79,6 @@ public static class StoryWav
         BinaryPrimitives.WriteUInt16LittleEndian(span[34..], f.Bits);
         "data"u8.CopyTo(span[36..]);
         BinaryPrimitives.WriteUInt32LittleEndian(span[40..], (uint)size);
-
-        var offset = 44;
-        for (var i = 0; i < datas.Count; i++)
-        {
-            // The silence between clips is the zeroes the array already holds.
-            if (i > 0) offset += gap;
-            datas[i].Span.CopyTo(span[offset..]);
-            offset += datas[i].Length;
-        }
-
         return wav;
     }
 

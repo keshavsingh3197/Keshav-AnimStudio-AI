@@ -146,6 +146,9 @@ public static class DependencyInjection
             services.AddScoped<IStoryRunRepository, SqlStoryRunRepository>();
             services.AddScoped<IStoryGenreRepository, SqlStoryGenreRepository>();
             services.AddScoped<IYouTubeChannelAnalysisRepository, SqlYouTubeChannelAnalysisRepository>();
+            services.AddScoped<IYouTubeSavedSuggestionRepository, SqlYouTubeSavedSuggestionRepository>();
+            services.AddScoped<ILiveStreamPresetRepository, SqlLiveStreamPresetRepository>();
+            services.AddScoped<ILiveStreamHistoryRepository, SqlLiveStreamHistoryRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -192,6 +195,9 @@ public static class DependencyInjection
             services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
             services.AddScoped<IStoryGenreRepository, MongoStoryGenreRepository>();
             services.AddScoped<IYouTubeChannelAnalysisRepository, MongoYouTubeChannelAnalysisRepository>();
+            services.AddScoped<IYouTubeSavedSuggestionRepository, MongoYouTubeSavedSuggestionRepository>();
+            services.AddScoped<ILiveStreamPresetRepository, MongoLiveStreamPresetRepository>();
+            services.AddScoped<ILiveStreamHistoryRepository, MongoLiveStreamHistoryRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
@@ -392,7 +398,11 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeStatsClient>>()));
         services.AddSingleton<YouTubeDashboardCache>();
         services.AddScoped<YouTubeDashboardService>();
+        // Channel analysis: subscribers gained, watch time and retention per video, when the channel allows Analytics.
+        services.AddSingleton(sp => new YouTubeAnalyticsClient(
+            sp.GetRequiredService<ILogger<YouTubeAnalyticsClient>>()));
         services.AddScoped<YouTubeChannelAnalysisService>();
+        services.AddScoped<AnimStudio.Application.Publishing.YouTubeSuggestionLibrary>();
 
         // The music picker: royalty-free, licence-checked tracks imported as audio assets.
         services.Configure<MusicLibraryOptions>(configuration.GetSection(MusicLibraryOptions.Section));
@@ -416,12 +426,15 @@ public static class DependencyInjection
         // Each stage is a scoped service the executor walks in order; the worker owns the queue the API talks to.
         services.AddSingleton<IStoryAudioFinisher, FfmpegStoryAudioFinisher>();
         services.AddScoped<StoryNarrator>();
+        services.AddScoped<StoryDubTranslator>();
         services.AddScoped<StoryBudgetService>();
         services.AddScoped<IStoryStage, ResearchStage>();
         services.AddScoped<IStoryStage, ScriptStage>();
         services.AddScoped<IStoryStage, VisualsStage>();
         services.AddScoped<IStoryStage, NarrationStage>();
         services.AddScoped<IStoryStage, MusicStage>();
+        services.AddScoped<StoryFaceLocator>();
+        services.AddScoped<StoryMouthPainter>();
         services.AddScoped<IStoryStage, AssembleStage>();
         services.AddScoped<IStoryStage, RenderStage>();
         services.AddScoped<IStoryStage, KitStage>();

@@ -79,6 +79,12 @@ public static class MongoMappingRegistrar
             // "{channelId}:{destinationId}" - the id is what keeps one key per channel per destination.
             MapWithLiteralId<LiveStreamKey>();
 
+            // "lsp_{guid}" - a saved Go Live setup.
+            MapWithLiteralId<LiveStreamPreset>();
+
+            // The stream's own id - a record of one Go Live stream.
+            MapWithLiteralId<LiveStreamHistoryEntry>();
+
             // "{userId}:{channelId}" - one connection per user per channel.
             MapWithLiteralId<YouTubeChannelConnection>();
 
@@ -108,6 +114,9 @@ public static class MongoMappingRegistrar
 
             // "yca_{guid}" - the last analysis of one of a person's YouTube channels.
             MapWithLiteralId<YouTubeChannelAnalysis>();
+
+            // "yss_{guid}" - YouTube details a model wrote, kept to be used again for the same kind of video.
+            MapWithLiteralId<YouTubeSavedSuggestion>();
 
             // App-assigned GUIDs - the content calendar's topics, posts and saved links.
             MapWithLiteralId<ContentTopic>();

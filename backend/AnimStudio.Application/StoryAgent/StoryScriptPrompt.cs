@@ -221,13 +221,13 @@ public static class StoryScriptPrompt
         """
         {
           "title": "...", "titleEnglish": "...", "summary": "...", "musicQuery": "sitar flute devotional",
-          "reviewNotes": ["..."],
+          "reviewNotes": ["..."], "thumbnailPrompt": "...",
           "cast": [ { "name": "...", "gender": "male", "age": "adult" } ],
           "scenes": [
             {
               "headline": "...", "narration": "...", "english": "...", "basis": "text",
               "sources": [ { "text": "bhagavata-purana", "ref": "10.59", "note": "..." } ],
-              "imagePrompt": "...", "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
+              "imagePrompt": "...", "moreImagePrompts": ["...", "..."], "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
               "lines": [ { "speaker": "narrator", "text": "..." }, { "speaker": "...", "text": "..." } ]
             }
           ]
@@ -238,13 +238,13 @@ public static class StoryScriptPrompt
         """
         {
           "title": "...", "titleEnglish": "...", "summary": "...", "musicQuery": "sitar flute devotional",
-          "reviewNotes": ["..."],
+          "reviewNotes": ["..."], "thumbnailPrompt": "...",
           "cast": [ { "name": "...", "gender": "male", "age": "elder" }, { "name": "...", "gender": "female", "age": "child" } ],
           "scenes": [
             {
               "headline": "...", "narration": "...", "english": "...", "basis": "text",
               "sources": [ { "text": "bhagavata-purana", "ref": "10.59", "note": "..." } ],
-              "imagePrompt": "...", "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
+              "imagePrompt": "...", "moreImagePrompts": ["...", "..."], "videoPrompt": "...", "imageKeywords": ["...", "..."], "mood": "devotional",
               "lines": [ { "speaker": "...", "text": "..." }, { "speaker": "...", "text": "..." } ]
             }
           ]

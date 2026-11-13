@@ -200,7 +200,7 @@ public sealed class WorkbookImportService(
         {
             var number = row.Integer("SceneNumber")!.Value;
 
-            foreach (var column in (string[])["Background", "Audio"])
+            foreach (var column in (string[])["Background", "Audio", "TalkingBackground"])
             {
                 var value = row.Text(column);
                 if (value is null) continue;
@@ -223,6 +223,9 @@ public sealed class WorkbookImportService(
                     "unknown-character",
                     $"No character named '{name}' on the Characters sheet."));
             }
+
+            if (MouthCell.Parse(row.Text("Mouths"), FrameRate.Fps30, out var mouthError) is null)
+                errors.Add(new WorkbookCellError(row.Sheet, row.RowNumber, "Mouths", "invalid-mouths", mouthError!));
 
             var action = !byNumber.TryGetValue(number, out var scene)
                 ? ImportAction.Create
@@ -543,9 +546,18 @@ public sealed class WorkbookImportService(
             if (AssetId(media, row.Text("Background")) is { } background)
                 scene.BackgroundAssetId = background;
 
+            // Replaced along with the picture it belongs to, so an empty cell clears it.
+            scene.TalkingBackgroundAssetId = AssetId(media, row.Text("TalkingBackground"));
+
+            scene.BackgroundAudio = row.Flag("BackgroundAudio") ?? scene.BackgroundAudio;
+
             if (AssetId(media, row.Text("Audio")) is { } audio)
             {
                 scene.Audio = new SceneAudio { AssetId = audio };
+            }
+            else if (options.ClearEmptySceneAudio && row.Text("Audio") is null)
+            {
+                scene.Audio = new SceneAudio();
             }
 
             scene.Animation = new AnimationSettings(
@@ -566,6 +578,9 @@ public sealed class WorkbookImportService(
             scene.Characters = [.. row.List("Characters")
                 .Where(charactersByName.ContainsKey)
                 .Select((name, index) => Placement(charactersByName[name], scene.DurationFrames, index))];
+
+            // Checked when the import was planned; an import with a cell that does not read never gets here.
+            scene.Mouths = MouthCell.Parse(row.Text("Mouths"), fps, out _) ?? [];
 
             if (dialogueByScene.TryGetValue(number, out var dialogue))
             {

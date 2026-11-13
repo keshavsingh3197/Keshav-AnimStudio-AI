@@ -3,7 +3,7 @@ import { Asset } from './api.models';
 /** Mirrors EffectCategory on the server; the server refuses anything else. */
 export type EffectCategory =
   | 'Subscribe' | 'Transition' | 'EndScreen' | 'LowerThird' | 'Intro'
-  | 'SoundEffect' | 'Overlay' | 'GreenScreen' | 'LogoReveal' | 'Other';
+  | 'SoundEffect' | 'Overlay' | 'GreenScreen' | 'LogoReveal' | 'Reaction' | 'Other';
 
 export type EffectKind = 'Image' | 'Video' | 'Audio';
 
@@ -68,6 +68,7 @@ export const EFFECT_CATEGORIES: readonly { id: EffectCategory; label: string; ic
   { id: 'Intro', label: 'Intros', icon: '🎬', hint: 'Openers and channel idents' },
   { id: 'LogoReveal', label: 'Logo reveals', icon: '✴', hint: 'Animated logos' },
   { id: 'SoundEffect', label: 'Sound effects', icon: '🔊', hint: 'Whoosh, ding, pop' },
+  { id: 'Reaction', label: 'Memes & reactions', icon: '😂', hint: 'Your own or licensed reaction clips, pictures and sounds' },
   { id: 'Overlay', label: 'Overlays', icon: '✨', hint: 'Light leaks, dust, frames' },
   { id: 'GreenScreen', label: 'Green screen', icon: '🟩', hint: 'Clips shot on green, keyed out over the video' },
   { id: 'Other', label: 'Other', icon: '📦', hint: 'Anything else' },

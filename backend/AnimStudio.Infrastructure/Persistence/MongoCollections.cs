@@ -17,6 +17,8 @@ public static class MongoCollections
     public const string PromptTemplates = "promptTemplates";
     public const string AiSettings = "aiSettings";
     public const string LiveStreamKeys = "liveStreamKeys";
+    public const string LiveStreamPresets = "liveStreamPresets";
+    public const string LiveStreamHistory = "liveStreamHistory";
     public const string YouTubeConnections = "youTubeConnections";
     public const string YouTubePublications = "youTubePublications";
     public const string GoogleDriveConnections = "googleDriveConnections";
@@ -29,6 +31,7 @@ public static class MongoCollections
     public const string StoryRuns = "storyRuns";
     public const string StoryGenres = "storyGenres";
     public const string YouTubeChannelAnalyses = "youTubeChannelAnalyses";
+    public const string YouTubeSavedSuggestions = "youTubeSavedSuggestions";
     public const string ContentTopics = "contentTopics";
     public const string ContentPlanItems = "contentPlanItems";
     public const string ContentSourceLinks = "contentSourceLinks";

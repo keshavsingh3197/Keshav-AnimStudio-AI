@@ -26,6 +26,13 @@ export class StudioHeaderComponent {
 
   readonly badge = editStatusBadge;
 
+  /** Lays the scenes out again, after asking when that would replace what is on the timeline. */
+  layOutScenes(): void {
+    const busy = this.state.timelineItems().length > 0 || this.state.musicTracks().length > 0 || this.state.included().length > 0;
+    if (busy && !confirm('Lay the project\'s scenes out on the timeline? Pictures, narration, subtitles and music from an earlier layout are replaced, and the clips on V1 step out of this video. Undo brings it all back.')) return;
+    this.state.layOutFromScenes();
+  }
+
   fmtLabel(format: EditFormat): string {
     return format === 'Short' ? '9:16' : format === 'Square' ? '1:1' : '16:9';
   }

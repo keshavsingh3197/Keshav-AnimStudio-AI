@@ -179,6 +179,9 @@ public sealed class AssetLibraryService(
             if (string.Equals(scene.BackgroundAssetId, asset.Id, StringComparison.Ordinal))
                 return $"scene {scene.SceneNumber} as its background";
 
+            if (string.Equals(scene.TalkingBackgroundAssetId, asset.Id, StringComparison.Ordinal))
+                return $"scene {scene.SceneNumber} as its talking picture";
+
             if (string.Equals(scene.Audio.AssetId, asset.Id, StringComparison.Ordinal))
                 return $"scene {scene.SceneNumber} as its audio";
         }

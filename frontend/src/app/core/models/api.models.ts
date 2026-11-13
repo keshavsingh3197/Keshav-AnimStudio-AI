@@ -436,6 +436,35 @@ export interface Scene {
   isUserEdited: boolean;
 }
 
+/**
+ * A scene-based project (a story, an imported bundle) laid end to end as the render plays it. Every time is in seconds
+ * on the finished video; each scene holds the screen until the next one starts.
+ */
+export interface SceneTimeline {
+  scenes: SceneTimelineScene[];
+  totalSeconds: number;
+  musicAssetId: string | null;
+  musicVolume: number;
+}
+
+export interface SceneTimelineScene {
+  sceneId: string;
+  number: number;
+  title: string | null;
+  startSeconds: number;
+  seconds: number;
+  backgroundAssetId: string | null;
+  /** The render's camera move: None, ZoomIn, ZoomOut, PanLeft, PanRight, PanUp, PanDown. */
+  effect: string;
+  effectIntensity: number;
+  /** The cut into the next scene; None for a straight cut and for the last scene. */
+  transition: string;
+  transitionSeconds: number;
+  /** The scene's narration: which file, and the stretch of it that plays. */
+  audio: { assetId: string; startSeconds: number; trimStartSeconds: number; seconds: number } | null;
+  captions: { text: string; speaker: string | null; startSeconds: number; endSeconds: number }[];
+}
+
 export interface DialogueLine {
   index: number;
   speakerCharacterId?: string;
@@ -1055,6 +1084,12 @@ export interface AutoShortsBody {
   maxClipSeconds: number | null;
   /** Every short runs exactly targetSeconds with Spread and AllInEach too; FitLength always does. */
   exactLength?: boolean;
+  /** Play every video start to finish: never trimmed, split or reused for another stretch. */
+  keepClipsWhole?: boolean;
+  /** Bands above and below the footage, title, numbered parts, quiz or poll, call to action and memes. */
+  packaging?: AutoShortPackagingBody;
+  /** Project pictures and clips (from the effects library's memes) to pop over the footage. */
+  memeAssetIds?: string[];
   order?: AutoShortOrder;
   style: AutoShortStyle;
   textMode: AutoShortTextMode;
@@ -1077,6 +1112,28 @@ export interface AutoShortsBody {
   driveChannelId?: string | null;
   /** A folder for this batch; empty uses the channel's (or the Drive's) default. */
   driveFolderName?: string | null;
+}
+
+export type AutoShortTopMode = 'None' | 'Hook' | 'Quiz' | 'Poll' | 'Auto';
+export type AutoShortLanguage = 'English' | 'Hindi' | 'Both';
+export type AutoShortPartLabel = 'Number' | 'Level' | 'Part';
+
+/** Mirrors AutoShortPackagingRequest on the server. */
+export interface AutoShortPackagingBody {
+  /** 'none', 'auto' (a different design per short) or a design id. */
+  design: string;
+  top: AutoShortTopMode;
+  language: AutoShortLanguage;
+  title?: string | null;
+  numberParts: boolean;
+  partLabel: AutoShortPartLabel;
+  countDown: boolean;
+  callToAction: boolean;
+  callToActionText?: string | null;
+  channelHandle?: string | null;
+  /** "question | answer", one per entry. */
+  quizLines: string[];
+  memesPerShort: number;
 }
 
 /** A queued Auto Shorts batch. */
@@ -1179,6 +1236,7 @@ export const TRANSITIONS = [
   'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight',
   'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose',
   'SlideUp', 'SlideDown', 'ZoomIn',
+  'Blur', 'FadeBlack', 'FadeWhite', 'CircleCrop', 'DiagonalWipe',
 ] as const;
 
 export const ANCHORS = [

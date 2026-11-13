@@ -9,7 +9,7 @@ import { Subject, Subscription, catchError, concatMap, from, map, mergeMap, of, 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { BrandChannel } from '../../core/models/api.models';
 import { YouTubeChannel, YouTubePublishStatus } from '../../core/models/youtube.models';
-import { AdminSettingsService, ChannelBranding, ChannelPublishSettings, OMKR_BRANDING } from '../../core/services/admin-settings.service';
+import { AdminSettingsService, ChannelBranding, ChannelPublishSettings, STUDIO_BRANDING } from '../../core/services/admin-settings.service';
 import { ApiService } from '../../core/services/api.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { AdminIconComponent } from './admin-channel-kit';
@@ -59,6 +59,7 @@ interface BrandIssues {
   channelUrl: string | null;
   studioUrl: string | null;
   creatorUrl: string | null;
+  creatorName: string | null;
   engineName: string | null;
   visualsCredit: string | null;
   hashtags: string | null;
@@ -266,6 +267,7 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
       channelUrl: brandUrlProblem(b.channelUrl),
       studioUrl: brandUrlProblem(b.studioUrl),
       creatorUrl: brandUrlProblem(b.creatorUrl),
+      creatorName: brandTextProblem(b.creatorName, BRAND_TEXT_MAX.creatorName),
       engineName: brandTextProblem(b.engineName, BRAND_TEXT_MAX.engineName),
       visualsCredit: brandTextProblem(b.visualsCredit, BRAND_TEXT_MAX.visualsCredit),
       hashtags: tagListProblem(b.hashtags, HASHTAG_RULES),
@@ -287,6 +289,7 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
       tagline: brandTextProblem(b.tagline, BRAND_TEXT_MAX.tagline),
       studioUrl: brandUrlProblem(b.studioUrl),
       creatorUrl: brandUrlProblem(b.creatorUrl),
+      creatorName: brandTextProblem(b.creatorName, BRAND_TEXT_MAX.creatorName),
       engineName: brandTextProblem(b.engineName, BRAND_TEXT_MAX.engineName),
       visualsCredit: brandTextProblem(b.visualsCredit, BRAND_TEXT_MAX.visualsCredit),
       hashtags: tagListProblem(b.hashtags, HASHTAG_RULES),
@@ -326,7 +329,7 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     const bi = this.brandIssues();
     const labels: [keyof BrandIssues, string][] = [
       ['channelName', 'Channel name'], ['tagline', 'Tagline'], ['channelUrl', 'YouTube channel link'], ['studioUrl', 'Studio link'],
-      ['creatorUrl', 'Creator link'], ['engineName', 'Animation tool'], ['visualsCredit', 'Visuals credit'], ['hashtags', 'Brand hashtags'], ['tags', 'Brand search tags'],
+      ['creatorUrl', 'Creator link'], ['creatorName', 'Creator name'], ['engineName', 'Animation tool'], ['visualsCredit', 'Visuals credit'], ['hashtags', 'Brand hashtags'], ['tags', 'Brand search tags'],
     ];
     for (const [k, label] of labels) if (bi[k]) out.push({ id: `pb-b-${k}`, message: `${label}: ${bi[k]}` });
     return out;
@@ -350,7 +353,7 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     if (c.firstComment) { const p = commentProblem(f.firstComment); if (p) return p; }
     if (c.branding) {
       const bi = this.brandIssues();
-      const p = bi.tagline ?? bi.studioUrl ?? bi.creatorUrl ?? bi.engineName ?? bi.visualsCredit ?? bi.hashtags ?? bi.tags;
+      const p = bi.tagline ?? bi.studioUrl ?? bi.creatorUrl ?? bi.creatorName ?? bi.engineName ?? bi.visualsCredit ?? bi.hashtags ?? bi.tags;
       if (p) return `AI branding: ${p}`;
     }
     return null;
@@ -618,8 +621,8 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     this.patch({ branding: { ...this.brand(), ...change } });
   }
 
-  useOmkrBranding(): void {
-    this.patch({ branding: { ...OMKR_BRANDING, hashtags: [...OMKR_BRANDING.hashtags], tags: [...OMKR_BRANDING.tags] } });
+  useStudioPreset(): void {
+    this.patch({ branding: { ...STUDIO_BRANDING, hashtags: [...STUDIO_BRANDING.hashtags], tags: [...STUDIO_BRANDING.tags] } });
   }
 
   clearBranding(): void {
@@ -668,10 +671,10 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     if (this.siteUrl) this.patchStudio({ studioUrl: this.siteUrl });
   }
 
-  useOmkrStudio(): void {
-    const o = OMKR_BRANDING;
+  useStudioDefaultsPreset(): void {
+    const o = STUDIO_BRANDING;
     this.patchStudio({
-      tagline: o.tagline, studioUrl: o.studioUrl, creatorUrl: o.creatorUrl, engineName: o.engineName, visualsCredit: o.visualsCredit,
+      tagline: o.tagline, studioUrl: o.studioUrl, creatorUrl: o.creatorUrl, creatorName: o.creatorName, engineName: o.engineName, visualsCredit: o.visualsCredit,
       hashtags: [...o.hashtags], tags: [...o.tags],
     });
   }

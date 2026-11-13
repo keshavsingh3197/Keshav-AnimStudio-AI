@@ -148,6 +148,96 @@ export interface LiveStreamStatus {
   items: LiveStreamItemStatus[];
 }
 
+// ------------------------------------------------------------------ presets
+
+/** Where a preset's key comes from: a channel's saved key, a key pasted each time, or a new YouTube broadcast. */
+export type LiveStreamKeyMode = 'channel' | 'paste' | 'youtube';
+
+/** How a preset's streams are sent; as `LiveStreamSettings` without the per-stream rights confirmation. */
+export interface LiveStreamPresetSettings {
+  destination: string;
+  quality: LiveStreamQuality;
+  orientation: LiveStreamOrientation;
+  loops: number;
+  shuffle: boolean;
+  autoReconnect: boolean;
+  label?: string | null;
+}
+
+/** A playlist entry by reference. Uploaded files can't be kept, so `source` is never 'Upload'. */
+export interface LiveStreamPresetItem {
+  source: LiveStreamItemSource;
+  title: string;
+  typeLabel?: string | null;
+  detail?: string | null;
+  renderJobId?: string | null;
+  assetId?: string | null;
+  coverAssetId?: string | null;
+  url?: string | null;
+  audioOnly?: boolean;
+  releaseKitId?: string | null;
+  useVisualizer?: boolean;
+  durationSeconds?: number | null;
+  width?: number | null;
+  height?: number | null;
+  thumbnailUrl?: string | null;
+}
+
+/** What a new YouTube broadcast is created with each time the preset is played. */
+export interface LiveStreamPresetYouTube {
+  channelId: string;
+  topic?: string | null;
+  brief?: string | null;
+  tone?: string | null;
+  language?: string | null;
+  title: string;
+  description: string;
+  tags: string[];
+  categoryId: string;
+  privacy: 'public' | 'unlisted' | 'private';
+  madeForKids: boolean;
+  enableDvr: boolean;
+}
+
+export interface LiveStreamPresetRequest {
+  name: string;
+  settings: LiveStreamPresetSettings;
+  items: LiveStreamPresetItem[];
+  keyMode: LiveStreamKeyMode;
+  channelId?: string | null;
+  youTube?: LiveStreamPresetYouTube | null;
+}
+
+export interface LiveStreamPreset extends LiveStreamPresetRequest {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string | null;
+  uses: number;
+}
+
+/** A saved record of one past or current Go Live stream. */
+export interface LiveStreamHistoryEntry {
+  id: string;
+  name: string;
+  destinationId: string;
+  destinationName: string;
+  quality: string;
+  orientation: string;
+  loops: number;
+  shuffle: boolean;
+  channelId?: string | null;
+  itemTitles: string[];
+  state: string;
+  message?: string | null;
+  streamedSeconds: number;
+  reconnects: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  liveSinceUtc?: string | null;
+  endedAtUtc?: string | null;
+}
+
 /** States in which a stream holds a worker on the server. */
 export const BUSY_STATES: readonly LiveStreamState[] = ['Preparing', 'Connecting', 'Live', 'Reconnecting'];
 

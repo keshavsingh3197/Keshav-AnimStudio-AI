@@ -37,7 +37,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         if (plan.BackgroundIsVideo)
         {
             // --- input 0: a moving clip, looped for a scene longer than it, filling the
-            // canvas. It already moves, so no Ken Burns; its own sound is never mapped.
+            // canvas. It already moves, so no Ken Burns.
             inputs.Add(new FfmpegInputSpec(["-stream_loop", "-1", "-t", seconds], plan.BackgroundRelativePath));
             var size = $"{plan.Canvas.Width}:{plan.Canvas.Height}";
             graph.Append($"[0:v]scale={size}:force_original_aspect_ratio=increase:flags=bicubic,")
@@ -72,10 +72,30 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             warnings.Add("BACKGROUND_MOTION_UNAVAILABLE");
         }
 
+        // Characters painted into the picture talk before the camera moves, so the mouth rides with the push or pan.
+        // Only with the still's own open-mouth version: without it the faces stay exactly as they were drawn.
+        var still = "0:v";
+        if (plan.TalkingBackgroundUnusable) warnings.Add("TALKING_MOUTHS_UNALIGNED");
+        if (plan.Mouths.Count > 0 && plan.TalkingBackground is { } talking)
+        {
+            if (capabilities.Supports(RenderFeature.TalkingMouths))
+            {
+                // A single frame, no -loop: each patch is cut and feathered once and overlay repeats it.
+                var openInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec([], talking.RelativePath));
+                TalkingMouthFilters.Append(graph, still, openInput, "talk", plan.Mouths, talking, rate);
+                still = "talk";
+            }
+            else
+            {
+                warnings.Add("TALKING_MOUTHS_UNAVAILABLE");
+            }
+        }
+
         // Staying at 4:4:4 through the overlay and subtitle chain avoids blending sprite
         // edges in chroma-subsampled space, which shows up as colour fringing on every
         // character outline. The single conversion to yuv420p happens at the very end.
-        graph.Append($"[0:v]{BackgroundMotionFilters.Prepare(plan.Canvas, plan.KenBurnsSupersample)},")
+        graph.Append($"[{still}]{BackgroundMotionFilters.Prepare(plan.Canvas, plan.KenBurnsSupersample)},")
              .Append(motion)
              .Append(",format=yuv444p[bg];\n");
     }
@@ -181,9 +201,21 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var audioChain = AudioFilters.SceneChain(plan.Duration, rate, plan.Encoder,
             plan.AudioSliceStartSeconds, plan.AudioSliceEndSeconds);
         var audioFades = AudioFilters.SceneFades(plan.Duration, rate);
-        graph.Append($"[{audioInput}:a]{audioChain}")
-             .Append(audioFades.Length > 0 ? "," + audioFades : string.Empty)
-             .Append("[aout]");
+        if (plan.BackgroundIsVideo && plan.BackgroundHasAudio)
+        {
+            graph.Append($"[{audioInput}:a]{audioChain}[sceneaudio];\n")
+                 .Append($"[0:a]{AudioFilters.SceneChain(plan.Duration, rate, plan.Encoder, null, null)}[clipaudio];\n")
+                 .Append("[sceneaudio][clipaudio]")
+                 .Append(AudioFilters.Mix(2, capabilities.Supports(RenderFeature.AudioLimiter)))
+                 .Append(audioFades.Length > 0 ? "," + audioFades : string.Empty)
+                 .Append("[aout]");
+        }
+        else
+        {
+            graph.Append($"[{audioInput}:a]{audioChain}")
+                 .Append(audioFades.Length > 0 ? "," + audioFades : string.Empty)
+                 .Append("[aout]");
+        }
 
         return new FilterGraphPlan
         {

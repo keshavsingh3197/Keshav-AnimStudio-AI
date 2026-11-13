@@ -155,9 +155,10 @@ public static class PromptPackWriter
         text.Append("The sheets describe the video; the images still have to come from ");
         text.Append("somewhere. Any of these works, and none of them needs AnimStudio to have ");
         text.Append("a key:\r\n\r\n");
-        text.Append("- A free image generator in your browser. Ask for a **transparent ");
-        text.Append("background** for characters, and generate a closed-mouth and an open-mouth ");
-        text.Append("version of each so their mouths move while they speak.\r\n");
+        text.Append("- A free image generator in your browser. For animated characters, ask for ");
+        text.Append("a **transparent background** and supply matching closed-mouth and open-mouth ");
+        text.Append("sprite files; the renderer can switch between those separate assets while ");
+        text.Append("they speak. Faces painted into a scene's background stay as drawn.\r\n");
         text.Append("- Your own photos or drawings.\r\n");
         text.Append("- A public-domain or Creative Commons library. Record the licence on the ");
         text.Append("Assets sheet if you do.\r\n\r\n");

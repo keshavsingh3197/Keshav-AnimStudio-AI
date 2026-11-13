@@ -244,6 +244,42 @@ BEGIN
     CREATE INDEX IX_YouTubeChannelAnalyses_User ON YouTubeChannelAnalyses (UserId, ChannelId, UpdatedAt DESC);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YouTubeSavedSuggestions')
+BEGIN
+    CREATE TABLE YouTubeSavedSuggestions (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        Fingerprint NVARCHAR(64) NOT NULL,
+        Language NVARCHAR(16) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_YouTubeSavedSuggestions_Fingerprint ON YouTubeSavedSuggestions (UserId, Fingerprint);
+    CREATE INDEX IX_YouTubeSavedSuggestions_Recent ON YouTubeSavedSuggestions (UserId, Language, CreatedAt DESC);
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LiveStreamPresets')
+BEGIN
+    CREATE TABLE LiveStreamPresets (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        SortAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_LiveStreamPresets_User ON LiveStreamPresets (UserId, SortAt DESC);
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LiveStreamHistory')
+BEGIN
+    CREATE TABLE LiveStreamHistory (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_LiveStreamHistory_User ON LiveStreamHistory (UserId, CreatedAt DESC);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
 BEGIN
     CREATE TABLE WebSettings (

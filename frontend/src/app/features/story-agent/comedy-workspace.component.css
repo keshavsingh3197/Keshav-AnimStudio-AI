@@ -1,0 +1,11 @@
+:host { display: block; }
+.cw { display: grid; gap: 1rem; max-width: 70rem; margin: 0 auto; }
+.cw h1, .cw h2 { margin: 0; }
+.cw header { display: grid; gap: .5rem; }
+.cw header p, .cw-section p { margin: 0; }
+.cw-section { display: grid; gap: .7rem; }
+.cw-section label { display: grid; gap: .35rem; }
+.cw textarea { width: 100%; resize: vertical; }
+.cw-row, .cw-actions { display: flex; flex-wrap: wrap; gap: .7rem; align-items: end; }
+.cw-row label { flex: 1 1 12rem; }
+.cw-dialogue { white-space: pre-line; }

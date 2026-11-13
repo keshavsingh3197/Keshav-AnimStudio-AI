@@ -1,6 +1,7 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
@@ -139,6 +140,27 @@ public sealed class MongoIndexInitializer(
             await analyses.Indexes.CreateOneAsync(
                 new CreateIndexModel<YouTubeChannelAnalysis>(Builders<YouTubeChannelAnalysis>.IndexKeys
                     .Ascending(a => a.UserId).Ascending(a => a.ChannelId)), cancellationToken: ct).ConfigureAwait(false);
+
+            // Saved YouTube details: the same input exactly, and a person's recent ones in a language to compare.
+            var savedSuggestions = mongo.GetCollection<YouTubeSavedSuggestion>(MongoCollections.YouTubeSavedSuggestions);
+            await savedSuggestions.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<YouTubeSavedSuggestion>(Builders<YouTubeSavedSuggestion>.IndexKeys
+                    .Ascending(s => s.UserId).Ascending(s => s.Fingerprint)),
+                new CreateIndexModel<YouTubeSavedSuggestion>(Builders<YouTubeSavedSuggestion>.IndexKeys
+                    .Ascending(s => s.UserId).Ascending(s => s.Language).Descending(s => s.CreatedAtUtc))
+            ], ct).ConfigureAwait(false);
+
+            // A person's saved Go Live setups.
+            var liveStreamPresets = mongo.GetCollection<LiveStreamPreset>(MongoCollections.LiveStreamPresets);
+            await liveStreamPresets.Indexes.CreateOneAsync(
+                new CreateIndexModel<LiveStreamPreset>(Builders<LiveStreamPreset>.IndexKeys
+                    .Ascending(p => p.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
+            var liveStreamHistory = mongo.GetCollection<LiveStreamHistoryEntry>(MongoCollections.LiveStreamHistory);
+            await liveStreamHistory.Indexes.CreateOneAsync(
+                new CreateIndexModel<LiveStreamHistoryEntry>(Builders<LiveStreamHistoryEntry>.IndexKeys
+                    .Ascending(e => e.UserId).Descending(e => e.CreatedAtUtc)), cancellationToken: ct).ConfigureAwait(false);
 
             // The calendar lists one owner's posts by date and one topic's posts for planning;
             // the sync walks a date window across everyone.

@@ -18,14 +18,45 @@
       </label>
       <label [class.selected]="v.narration === 'None'">
         <input type="radio" [name]="uid + '-narration'" [checked]="v.narration === 'None'" (change)="setNarration('None')" />
-        Subtitles only
+        No generated voice
       </label>
     </div>
+    <label class="switch so-switch">
+      <input type="checkbox" [checked]="v.keepClipAudio === true" (change)="patch({ keepClipAudio: checked($event) })" />
+      <span class="track"></span>
+      <span>Include attached clips' original sound</span>
+    </label>
+    <label class="switch so-switch">
+      <input type="checkbox" [checked]="v.matchClipDuration === true" (change)="patch({ matchClipDuration: checked($event) })" />
+      <span class="track"></span>
+      <span>Match each attached clip's length</span>
+    </label>
+    <label class="switch so-switch">
+      <input type="checkbox" [checked]="v.talkingFaces !== false" (change)="patch({ talkingFaces: checked($event) })" />
+      <span class="track"></span>
+      <span>Talking faces <span class="muted">(mouths open and close while characters speak)</span></span>
+    </label>
+    <p class="so-note">Gemini finds each speaker's mouth (free) and redraws the picture once with those mouths open (one Gemini image
+      edit, a few cents a picture). While a character speaks, the render eases between the two around their mouth; the rest of the
+      picture is untouched. For full lip-synced motion, use the scene's Google Flow prompt and attach the clip.</p>
+    <p class="so-note">Clip sound and generated voice can be used separately or together. With clip-length timing, a longer
+      generated voice is cut off; shorten the dialogue or turn off clip-length timing. Transitions and playback speed affect total duration.</p>
+
+    @if (v.narration !== 'None') {
+      <label class="switch so-switch">
+        <input type="checkbox" [checked]="v.dub === true" (change)="patch({ dub: checked($event) })" />
+        <span class="track"></span>
+        <span>Also dub it in {{ language() === 'en' ? 'Hindi' : 'English' }}</span>
+      </label>
+      <p class="so-note">One video for everyone: Hindi for viewers in India, English for the rest of the world. The dub is
+        spoken over the same pictures and timings, and added on YouTube as a second audio track, so each viewer hears the
+        language their YouTube is set to. It costs a second voice for every scene and a second render.</p>
+    }
 
     @if (!c.speechEngine) {
       <p class="so-note so-warn">
         No speech engine is turned on, so there is no voice yet. Start one with <code>scripts\setup-voiceover.ps1</code>,
-        or make a video with subtitles only.
+        or make a video without generated voice.
       </p>
     } @else if (c.myVoices.length === 0) {
       <p class="so-note">To narrate in your own voice, add a voice from the Voiceover tab of any project, with its owner's consent.</p>
@@ -238,6 +269,16 @@
       }
     </div>
     <p class="so-note">{{ artHint() }}</p>
+    <div class="so-title so-subtitle" [id]="uid + '-motion'">Motion &amp; transitions</div>
+    <div class="seg" role="radiogroup" [attr.aria-labelledby]="uid + '-motion'">
+      @for (s of lookStyles; track s.id) {
+        <label [class.selected]="(v.lookStyle ?? 'Auto') === s.id">
+          <input type="radio" [name]="uid + '-motion'" [checked]="(v.lookStyle ?? 'Auto') === s.id" (change)="patch({ lookStyle: s.id })" />
+          {{ s.label }}
+        </label>
+      }
+    </div>
+    <p class="so-note">{{ lookHint() }}</p>
     <div class="so-field">
       <label [for]="uid + '-style'">Picture style <span class="muted">(optional)</span></label>
       <input [id]="uid + '-style'" type="text" maxlength="300" [value]="v.imageStyle ?? ''"
@@ -307,8 +348,19 @@
         <input type="checkbox" [checked]="v.autoPace !== false"
                (change)="patch(checked($event) ? { autoPace: true, videoSpeed: 1 } : { autoPace: false })" />
         <span class="track"></span>
-        <span>Set the pace from the voice: if the narration comes out too slow or too fast, speed the video up or down to a comfortable pace</span>
+        <span>Set the pace from the voice: if the narration comes out too slow or too fast, speed the video up or down to the pace below</span>
       </label>
+      @if (v.autoPace !== false) {
+        <div class="so-field">
+          <label [for]="uid + '-pace'">Voice pace</label>
+          <select [id]="uid + '-pace'" (change)="setPace($event)">
+            @for (p of paces; track p.id) {
+              <option [value]="p.id" [selected]="p.id === (v.pace ?? 'Auto')">{{ p.label }}</option>
+            }
+          </select>
+          <p class="so-note">Shorts and Reels hold viewers with a quicker voice; a long story can take its time. English aims about 10 words a minute faster.</p>
+        </div>
+      }
     }
     @if (v.renderWhenReady && c.renderer && v.autoPace === false) {
       <div class="so-field">

@@ -340,9 +340,10 @@ public sealed class ClipsController(
         CancellationToken ct)
     {
         var maxCount = Math.Clamp(shortsOptions.CurrentValue.MaxBatchCount, 1, AutoShortPlanner.MaxCount);
-        if (request.Count > maxCount)
+        // Both languages makes every short twice, so half as many cuts fit in a batch.
+        if (request.Count * LanguageVersions(request) > maxCount)
         {
-            var message = $"A batch can contain at most {maxCount} shorts.";
+            var message = $"A batch can contain at most {maxCount} shorts{(LanguageVersions(request) > 1 ? " (each language counts)" : "")}.";
             return BadRequest(ApiResponse<AutoShortsResponse>.Fail(message, new ApiError("shorts-limit", message, Field: "count")));
         }
 
@@ -408,13 +409,19 @@ public sealed class ClipsController(
         string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
     {
         var maxCount = Math.Clamp(shortsOptions.CurrentValue.MaxBatchCount, 1, AutoShortPlanner.MaxCount);
-        if (request.Count > maxCount)
+        // Both languages makes every short twice, so half as many cuts fit in a batch.
+        if (request.Count * LanguageVersions(request) > maxCount)
         {
-            var message = $"A batch can contain at most {maxCount} shorts.";
+            var message = $"A batch can contain at most {maxCount} shorts{(LanguageVersions(request) > 1 ? " (each language counts)" : "")}.";
             return BadRequest(ApiResponse<AutoShortsPreviewResponse>.Fail(message, new ApiError("shorts-limit", message, Field: "count")));
         }
 
-        var plan = await clips.PreviewAutoShortsAsync(projectId, ToCommand(request, maxCount), ct);
+        // One language per cut: the studio shows the language twins as a multiplier, and a twin is not a repeat.
+        var single = ToCommand(request, maxCount);
+        var plan = await clips.PreviewAutoShortsAsync(projectId, single with
+        {
+            Packaging = single.Packaging with { Language = AutoShortLanguage.English },
+        }, ct);
         // A shot is a repeat when its file already played earlier in the batch.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var shorts = plan.Shorts.Select((s, k) =>
@@ -433,18 +440,24 @@ public sealed class ClipsController(
         return Ok(ApiResponse<AutoShortsPreviewResponse>.Ok(new AutoShortsPreviewResponse(shorts, plan.UnusedAssetIds)));
     }
 
+    private static int LanguageVersions(AutoShortsRequest request) =>
+        request.Packaging?.Language == AutoShortLanguage.Both ? 2 : 1;
+
     private static AutoShortsCommand ToCommand(AutoShortsRequest request, int maxCount) => new()
     {
         SourceAssetIds = request.SourceAssetIds,
         Lines = request.Lines,
         MusicAssetIds = request.MusicAssetIds,
         Count = request.Count,
-        MaxShortCount = maxCount,
+        MaxShortCount = Math.Max(1, maxCount / LanguageVersions(request)),
         TargetSeconds = request.TargetSeconds,
         Layout = request.Layout,
         ImageSeconds = request.ImageSeconds,
         MaxClipSeconds = request.MaxClipSeconds,
         ExactLength = request.ExactLength,
+        KeepClipsWhole = request.KeepClipsWhole,
+        Packaging = (request.Packaging ?? new AutoShortPackagingRequest()).ToPackaging(),
+        MemeAssetIds = request.MemeAssetIds,
         Order = request.Order,
         Style = request.Style,
         TextMode = request.TextMode,

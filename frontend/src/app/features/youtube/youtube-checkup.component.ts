@@ -13,7 +13,10 @@ import { ContentTopic } from '../../core/models/calendar.models';
 import { ContentCalendarService } from '../../core/services/content-calendar.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { rank } from './checkup-match';
-import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
+import { MAX_PROMPT_VIDEOS, buildHandoffPrompt, channelUrlFor, hasRetiredLink, replaceRetiredLinks } from './checkup-ai-handoff';
+import {
+  ImportItem, MAX_IMPORT_CHARS, MAX_SHEET_VIDEOS, SheetContext, buildPackage, buildPromptText, buildSheetCsv, download, parseImport, tagDiff,
+} from './checkup-sheet';
 import {
   Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, YOUTUBE_LANGUAGES, draftDiffers, fitTags, fromLocalInput, insertAboveFooter, languageLabel, scheduleDiffers, splitTags, toLocalInput, toneLabel,
 } from './checkup-draft';
@@ -30,7 +33,33 @@ const ISSUE_LABELS: readonly { code: string; label: string }[] = [
   { code: 'playlist-missing', label: 'No playlist' },
   { code: 'audience-unset', label: 'Audience not set' },
   { code: 'title-default', label: 'File-name title' },
+  { code: 'channel-link-old', label: 'Old channel link' },
 ];
+
+/** An import being reviewed: what each video would get, and which ones the creator accepts. */
+export interface ImportReview {
+  source: string;
+  items: ImportItem[];
+  accepted: ReadonlySet<string>;
+  skipped: string[];
+  /** The video whose full before / after is open. */
+  expanded: string | null;
+  /**
+   * Audience for accepted videos that never declared one: the channel's upload setting to start
+   * with (not made for kids unless it says otherwise); null leaves them unset, and YouTube then refuses the save.
+   */
+  audience: boolean | null;
+  /** Category for accepted videos still on YouTube's default (People & Blogs); null keeps theirs. */
+  category: string | null;
+}
+
+/** The category YouTube gives an upload nobody categorised. */
+const YOUTUBE_DEFAULT_CATEGORY = '22';
+
+/** Whether the video still has the category YouTube gives an upload nobody categorised (or none). */
+function onDefaultCategory(v: YouTubeCheckupVideo): boolean {
+  return !v.categoryId || v.categoryId === YOUTUBE_DEFAULT_CATEGORY;
+}
 
 /** Valid 11-char YouTube video ID */
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -127,7 +156,8 @@ export class YouTubeCheckupComponent implements OnInit {
 
   readonly issueLabels = ISSUE_LABELS;
   readonly maxPromptVideos = MAX_PROMPT_VIDEOS;
-  readonly maxAnswerChars = MAX_ANSWER_CHARS;
+  readonly maxAnswerChars = MAX_IMPORT_CHARS;
+  readonly maxSheetVideos = MAX_SHEET_VIDEOS;
   readonly checkSizes = CHECK_SIZES;
 
   readonly channels = signal<YouTubeChannel[]>([]);
@@ -192,6 +222,38 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly pasteText = signal('');
   readonly pasteReport = signal<{ ok: boolean; lines: string[] } | null>(null);
   readonly promptCopied = signal<string | null>(null);
+
+  // Export to a file another AI (or a spreadsheet) fills in, import it back, review, save.
+  readonly review = signal<ImportReview | null>(null);
+  readonly reviewItems = computed(() => {
+    const r = this.review();
+    if (!r) return [];
+    const byId = new Map(this.videos().map((v) => [v.videoId, v]));
+    return r.items.flatMap((item) => {
+      const video = byId.get(item.videoId);
+      return video ? [{ item, video, tags: tagDiff(video.tags, item.tags), ready: item.problems.length === 0 && !item.unchanged }] : [];
+    });
+  });
+  readonly reviewCounts = computed(() => {
+    const items = this.reviewItems();
+    const accepted = this.review()?.accepted ?? new Set<string>();
+    return {
+      total: items.length,
+      ready: items.filter((x) => x.ready).length,
+      problems: items.filter((x) => x.item.problems.length > 0).length,
+      unchanged: items.filter((x) => x.item.unchanged).length,
+      accepted: items.filter((x) => accepted.has(x.item.videoId)).length,
+      noAudience: items.filter((x) => accepted.has(x.item.videoId) && x.video.madeForKids === null).length,
+      defaultCategory: items.filter((x) => accepted.has(x.item.videoId) && onDefaultCategory(x.video)).length,
+    };
+  });
+  /** The brand channel's credits, links and defaults the import adds; null when no brand channel publishes here. */
+  readonly brand = computed(() => this.checkup()?.brand ?? null);
+  /** What an export covers: the ticked videos, else every video the filters show. */
+  readonly exportScope = computed(() => (this.selected().size > 0 ? this.selectedVideos() : this.rows()));
+  /** Ticked videos whose description still links the channel's old address. */
+  readonly selectedWithOldLink = computed(() =>
+    this.selectedVideos().filter((v) => hasRetiredLink(this.state(v.videoId).draft?.description ?? v.description)));
 
   // Automated YouTube URL -> Transcript + SEO Generator (100% Free supported)
   readonly urlSeoOpen = signal(false);
@@ -305,7 +367,16 @@ export class YouTubeCheckupComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.api.status().pipe(catchError((e: unknown) => { this.error.set(message(e)); return of(null); })).subscribe((s) => {
+    this.api.status().pipe(
+      catchError((e: unknown) => { this.error.set(message(e)); return of(null); }),
+      // Re-read each channel's name and @handle from YouTube first: a renamed channel then gets its
+      // new name and link in everything written here, without reconnecting. Not fatal if it fails.
+      switchMap((s) => !s || !s.configured || s.channels.length === 0
+        ? of(s)
+        : this.api.refreshChannels().pipe(
+          map((r) => ({ ...s, channels: r.channels.length > 0 ? r.channels : s.channels })),
+          catchError(() => of(s)))),
+    ).subscribe((s) => {
       if (!s) return;
       this.configured.set(s.configured);
       this.channels.set(s.channels);
@@ -679,12 +750,7 @@ export class YouTubeCheckupComponent implements OnInit {
   async copyPrompt(v?: YouTubeCheckupVideo): Promise<void> {
     const list = v ? [v] : this.selectedVideos();
     if (list.length === 0) return;
-    const prompt = buildHandoffPrompt(list, {
-      channelTitle: this.channel()?.channelTitle ?? this.checkup()?.channelTitle ?? '',
-      tone: this.tone(),
-      language: this.language(),
-      brief: this.brief(),
-    });
+    const prompt = buildHandoffPrompt(list, this.sheetContext().settings);
     try {
       await navigator.clipboard.writeText(prompt);
       this.promptCopied.set(v?.videoId ?? 'selected');
@@ -698,44 +764,227 @@ export class YouTubeCheckupComponent implements OnInit {
     }
   }
 
-  /** Fills drafts from a pasted answer. Saves nothing - each draft is reviewed and saved as usual. */
+  /** Reads a pasted answer into the review. Saves nothing. */
   applyPasted(): void {
-    const byId = new Map(this.videos().map((v) => [v.videoId, v]));
-    const result = parseHandoffAnswer(this.pasteText(), new Set(byId.keys()));
-    if (result.error) {
-      this.pasteReport.set({ ok: false, lines: [result.error] });
+    if (this.openReview(this.pasteText(), 'Pasted answer')) this.pasteText.set('');
+  }
+
+  // --- export, import and review
+
+  /** The channel and AI settings every prompt and export is written for. */
+  private sheetContext(): SheetContext {
+    const channel = this.channel();
+    const brand = this.brand();
+    const brandAdded = !!brand && (!!brand.creditsEnglish || !!brand.footer || brand.hashtags.length > 0 || brand.tags.length > 0);
+    return {
+      settings: {
+        channelTitle: brand?.channelName ?? channel?.channelTitle ?? this.checkup()?.channelTitle ?? '',
+        channelUrl: brand?.channelUrl ?? channelUrlFor(channel?.channelHandle),
+        tone: this.tone(),
+        language: this.language(),
+        brief: this.brief(),
+        playlists: this.playlists().map((p) => p.title),
+        brandAdded,
+      },
+      playlists: this.playlists(),
+      brand,
+    };
+  }
+
+  /** The channel's current address, for fixing old links: the brand's, else built from the @handle. */
+  private currentChannelUrl(): string | null {
+    return this.brand()?.channelUrl ?? channelUrlFor(this.channel()?.channelHandle);
+  }
+
+  /** Downloads the videos in scope as an AI package (JSON), a spreadsheet (CSV) or a prompt (text). */
+  exportFor(kind: 'package' | 'csv' | 'prompt'): void {
+    const list = this.exportScope();
+    if (list.length === 0) return;
+    const ctx = this.sheetContext();
+    const stamp = new Date().toISOString().slice(0, 10);
+    const name = (ctx.settings.channelTitle || 'channel').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase() || 'channel';
+    if (kind === 'package') download(buildPackage(list, ctx), `${name}-details-${stamp}.json`, 'application/json');
+    else if (kind === 'csv') download(buildSheetCsv(list, ctx), `${name}-details-${stamp}.csv`, 'text/csv;charset=utf-8');
+    else download(buildPromptText(list, ctx), `${name}-details-prompt-${stamp}.txt`, 'text/plain;charset=utf-8');
+    const shown = Math.min(list.length, MAX_SHEET_VIDEOS);
+    this.notice.set(`Exported ${shown} video${shown === 1 ? '' : 's'}. Give the file to your AI tool (or fill the new_ columns), then Import it here to review.`);
+  }
+
+  /** Reads a chosen file into the review. */
+  importFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > MAX_IMPORT_CHARS * 2) {
+      this.pasteReport.set({ ok: false, lines: ['That file is too big. Split it into smaller files.'] });
       return;
     }
+    file.text().then(
+      (text) => this.openReview(text, file.name),
+      () => this.pasteReport.set({ ok: false, lines: ['The file could not be read.'] }),
+    );
+  }
 
-    const filled: string[] = [];
-    for (const a of result.answers) {
-      const v = byId.get(a.videoId)!;
-      const draft = this.state(v.videoId).draft ?? this.draftFrom(v);
+  /** Checks an import and opens the review; false when nothing in it could be used. */
+  private openReview(text: string, source: string): boolean {
+    const byId = new Map(this.videos().map((v) => [v.videoId, v]));
+    const result = parseImport(text, byId, this.sheetContext());
+    if (result.error) {
+      this.pasteReport.set({ ok: false, lines: [result.error] });
+      return false;
+    }
+    if (result.items.length === 0) {
+      this.pasteReport.set({ ok: false, lines: ['Nothing in it can be applied.', ...result.skipped] });
+      return false;
+    }
+    const accepted = new Set(result.items.filter((i) => i.problems.length === 0 && !i.unchanged).map((i) => i.videoId));
+    // The channel's own upload defaults, shown and changeable before anything is saved.
+    const brand = this.brand();
+    const category = brand?.categoryId && brand.categoryId !== YOUTUBE_DEFAULT_CATEGORY && this.categories().some((c) => c.id === brand.categoryId)
+      ? brand.categoryId
+      : null;
+    this.review.set({
+      source, items: result.items, accepted, skipped: result.skipped, expanded: null,
+      audience: brand?.madeForKids ?? false, category,
+    });
+    this.pasteReport.set(null);
+    return true;
+  }
+
+  closeReview(): void {
+    this.review.set(null);
+  }
+
+  isAccepted(videoId: string): boolean {
+    return this.review()?.accepted.has(videoId) ?? false;
+  }
+
+  toggleAccepted(item: ImportItem): void {
+    if (item.problems.length > 0) return;
+    this.review.update((r) => {
+      if (!r) return r;
+      const accepted = new Set(r.accepted);
+      if (accepted.has(item.videoId)) accepted.delete(item.videoId); else accepted.add(item.videoId);
+      return { ...r, accepted };
+    });
+  }
+
+  /** Accepts every video that can be applied and changes something, or none. */
+  acceptAll(on: boolean): void {
+    this.review.update((r) => r && {
+      ...r,
+      accepted: new Set(on ? r.items.filter((i) => i.problems.length === 0 && !i.unchanged).map((i) => i.videoId) : []),
+    });
+  }
+
+  toggleExpanded(videoId: string): void {
+    this.review.update((r) => r && { ...r, expanded: r.expanded === videoId ? null : videoId });
+  }
+
+  setReviewAudience(value: string): void {
+    this.review.update((r) => r && { ...r, audience: value === 'no' ? false : value === 'yes' ? true : null });
+  }
+
+  setReviewCategory(value: string): void {
+    this.review.update((r) => r && { ...r, category: this.categories().some((c) => c.id === value) ? value : null });
+  }
+
+  /**
+   * Puts the accepted videos into their drafts, then: `save` saves them all to YouTube,
+   * `walk` opens the first for a one-by-one check, and neither leaves them selected to save later.
+   */
+  applyReview(then: 'save' | 'walk' | 'drafts'): void {
+    const r = this.review();
+    if (!r) return;
+    const applied = this.applyItems(r.items.filter((i) => r.accepted.has(i.videoId)), r.audience, r.category);
+    if (applied.length === 0) return;
+    this.review.set(null);
+    this.pasteOpen.set(false);
+    this.selected.set(new Set(applied.map((v) => v.videoId)));
+    if (then === 'save') {
+      this.saveAllSelected();
+    } else if (then === 'walk') {
+      this.filter.set('all');
+      this.onlyUnsaved.set(true);
+      this.page.set(0);
+      const first = this.rows()[0];
+      if (first) this.openEditor(first);
+    } else {
+      this.notice.set(`${applied.length} draft${applied.length === 1 ? '' : 's'} filled and selected. Check them, then Save to YouTube.`);
+    }
+  }
+
+  /** Applies and saves just this one video from the review. */
+  saveReviewed(item: ImportItem): void {
+    const r = this.review();
+    if (!r || item.problems.length > 0) return;
+    const [v] = this.applyItems([item], r.audience, r.category);
+    if (!v) return;
+    this.runSave(v).subscribe((ok) => {
+      if (!ok) return;
+      this.review.update((cur) => {
+        if (!cur) return cur;
+        const accepted = new Set(cur.accepted);
+        accepted.delete(item.videoId);
+        return { ...cur, accepted };
+      });
+    });
+  }
+
+  /**
+   * The imported details written into each video's draft - title, description and tags replaced,
+   * playlists added - plus the audience for a video that never set one and the category for one
+   * still on YouTube's default.
+   */
+  private applyItems(items: ImportItem[], audience: boolean | null, category: string | null): YouTubeCheckupVideo[] {
+    const byId = new Map(this.videos().map((v) => [v.videoId, v]));
+    const done: YouTubeCheckupVideo[] = [];
+    for (const item of items) {
+      const v = byId.get(item.videoId);
+      if (!v || item.problems.length > 0) continue;
+      const d = this.state(v.videoId).draft ?? this.draftFrom(v);
       this.patch(v.videoId, {
-        draft: this.merge(v, draft, {
-          title: a.title || draft.title,
-          description: a.description || draft.description,
-          tags: a.tags,
-          pinnedComment: a.pinnedComment,
-          engagementComment: a.engagementComment,
-          providerId: 'pasted',
-        }),
+        draft: {
+          ...d,
+          title: item.title,
+          description: item.description,
+          tagsText: item.tags.join(', '),
+          addPlaylistIds: [...new Set([...d.addPlaylistIds, ...item.playlistIds])],
+          madeForKids: d.madeForKids ?? audience,
+          categoryId: category && onDefaultCategory(v) ? category : d.categoryId,
+          pinnedComment: item.pinnedComment ?? d.pinnedComment,
+          engagementComment: item.engagementComment ?? d.engagementComment,
+          writtenBy: 'imported',
+          aiNotes: [],
+        },
         saved: false,
         error: null,
       });
-      filled.push(v.videoId);
+      done.push(v);
     }
+    return done;
+  }
 
-    // Select what was filled so "Save N to YouTube" picks those drafts up.
-    this.selected.set(new Set([...this.selected(), ...filled]));
-    this.pasteReport.set({
-      ok: filled.length > 0,
-      lines: [
-        `Filled ${filled.length} draft${filled.length === 1 ? '' : 's'}. Review them (Edit), choose the audience if it's missing, then Save.`,
-        ...result.skipped,
-      ],
-    });
-    if (filled.length > 0) this.pasteText.set('');
+  /** Points the old channel link at the current address in every selected draft. */
+  fixOldLinksInSelected(): void {
+    const url = this.currentChannelUrl();
+    if (!url) {
+      this.error.set('This channel\'s handle isn\'t known yet. Reconnect it so AnimStudio can read its @handle.');
+      return;
+    }
+    const targets = this.selectedWithOldLink();
+    for (const v of targets) {
+      if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
+      const d = this.state(v.videoId).draft!;
+      this.setDraft(v.videoId, { description: replaceRetiredLinks(d.description, url) });
+    }
+    this.notice.set(`Changed the old channel link to ${url} in ${targets.length} draft${targets.length === 1 ? '' : 's'}. Review, then Save.`);
+  }
+
+  /** The tags as one line for the review. */
+  tagLine(tags: string[]): string {
+    return tags.join(', ');
   }
 
   // --- internals
@@ -814,6 +1063,15 @@ export class YouTubeCheckupComponent implements OnInit {
     return new Observable<boolean>((sub) => {
       const d = this.state(v.videoId).draft;
       if (!d) { sub.next(false); sub.complete(); return; }
+      // An update here always carries all three; YouTube itself only insists on the title.
+      const missing = [!d.title.trim() && 'a title', !d.description.trim() && 'a description', splitTags(d.tagsText).length === 0 && 'tags']
+        .filter((x): x is string => !!x);
+      if (missing.length > 0) {
+        this.patch(v.videoId, { error: `Add ${missing.join(', ').replace(/, ([^,]*)$/, ' and $1')} before saving.` });
+        sub.next(false);
+        sub.complete();
+        return;
+      }
       this.patch(v.videoId, { busy: 'save', error: null, warnings: [] });
       const channelId = this.channelId();
       // A schedule is set (or taken off) after the details, which leave a private video's own schedule alone.

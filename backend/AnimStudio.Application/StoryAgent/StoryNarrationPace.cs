@@ -20,25 +20,56 @@ public static class StoryNarrationPace
     /// <summary>Slower for children, who follow a story at a gentler pace.</summary>
     public const double KidsTarget = 125;
 
+    /// <summary>
+    /// The pace of a Short: viewers swipe away from a slow voice, so a vertical video is told quicker than a long one.
+    /// English runs a little faster than Hindi at the same feel, as the storyteller targets do.
+    /// </summary>
+    public const double BriskTarget = 165;
+
+    public const double FastTarget = 185;
+
+    /// <summary>English is spoken this many words a minute faster than Hindi at the same feel.</summary>
+    private const double EnglishLead = EnglishTarget - HindiTarget;
+
     /// <summary>Within this share of the target the pace is left as it is: a few percent either way is not heard.</summary>
     public const double Tolerance = 0.07;
 
     /// <summary>The furthest the pace is moved automatically; beyond this the voice should be changed, not stretched.</summary>
     public const double MinSpeed = 0.85;
 
-    public const double MaxSpeed = 1.3;
+    public const double MaxSpeed = 1.5;
 
     /// <summary>Too little speech to judge a pace from.</summary>
     private const double MinSpeechSeconds = 8;
 
-    public static double TargetFor(string? language, bool forKids) =>
-        forKids ? KidsTarget : string.Equals(language, "en", StringComparison.OrdinalIgnoreCase) ? EnglishTarget : HindiTarget;
+    /// <summary>The words a minute aimed for. <see cref="StoryPaceStyle.Auto"/> picks by audience, then by the video's shape.</summary>
+    public static double TargetFor(string? language, bool forKids, StoryFormat format = StoryFormat.Wide,
+        StoryPaceStyle style = StoryPaceStyle.Auto)
+    {
+        var chosen = ResolveStyle(forKids, format, style);
+        var english = string.Equals(language, "en", StringComparison.OrdinalIgnoreCase);
+        return chosen switch
+        {
+            StoryPaceStyle.Gentle => KidsTarget,
+            StoryPaceStyle.Brisk => english ? BriskTarget + EnglishLead : BriskTarget,
+            StoryPaceStyle.Fast => english ? FastTarget + EnglishLead : FastTarget,
+            _ => english ? EnglishTarget : HindiTarget
+        };
+    }
+
+    /// <summary>The style <see cref="StoryPaceStyle.Auto"/> stands for: children first, then a Short, then a storyteller.</summary>
+    public static StoryPaceStyle ResolveStyle(bool forKids, StoryFormat format, StoryPaceStyle style) =>
+        style is not StoryPaceStyle.Auto && Enum.IsDefined(style) ? style
+        : forKids ? StoryPaceStyle.Gentle
+        : format == StoryFormat.Vertical ? StoryPaceStyle.Brisk
+        : StoryPaceStyle.Storyteller;
 
     /// <summary>
     /// The pace of the narration made for <paramref name="script"/>, or null when too few scenes have audio to say.
     /// The breath added before and after each scene is not speech and is left out.
     /// </summary>
-    public static StoryPace? Measure(StoryScript script, string? language, bool forKids, DateTime now)
+    public static StoryPace? Measure(StoryScript script, string? language, bool forKids, DateTime now,
+        StoryFormat format = StoryFormat.Wide, StoryPaceStyle style = StoryPaceStyle.Auto)
     {
         var words = 0;
         var seconds = 0.0;
@@ -52,7 +83,7 @@ public static class StoryNarrationPace
         if (words == 0 || seconds < MinSpeechSeconds) return null;
 
         var wpm = words / seconds * 60;
-        var target = TargetFor(language, forKids);
+        var target = TargetFor(language, forKids, format, style);
         var ratio = wpm / target;
         var verdict = ratio < 1 - Tolerance ? "slow" : ratio > 1 + Tolerance ? "fast" : "good";
 

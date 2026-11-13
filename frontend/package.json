@@ -10,7 +10,9 @@
     "prebuild": "node scripts/fetch-vision-models.mjs",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "test:transitions": "node scripts/test-transitions.cjs",
+    "test:comedy-story": "node scripts/test-comedy-story.cjs"
   },
   "dependencies": {
     "@angular/common": "^22.1.1",

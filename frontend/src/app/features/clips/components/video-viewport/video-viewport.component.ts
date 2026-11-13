@@ -10,6 +10,7 @@ import { watermarkMarkStyle } from '../../../../shared/watermark-preview.compone
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
 import { cameraTransformCentered, lookFilter } from '../../services/cinematic-image';
+import { transitionPreviewFrame } from '../../services/transition-preview';
 import { CelebrationCue, CelebrationLayerComponent } from '../celebration/celebration-layer.component';
 
 /** Longest the playhead waits for the media it follows to load before going on without it. */
@@ -58,8 +59,9 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   readonly activeLayer = signal<'A' | 'B'>('A');
   readonly liveTransitionActive = signal<boolean>(false);
   readonly liveTransitionType = signal<string>('Dissolve');
-  readonly liveTransitionClass = signal<string>('');
-  readonly liveTransitionDuration = signal<number>(0.5);
+  readonly liveTransitionProgress = signal(0);
+  readonly monitorImages = signal<Record<'A' | 'B', string | null>>({ A: null, B: null });
+  readonly monitorLayers = ['A', 'B'] as const;
 
   private loadedClipIdA: string | null = null;
   private loadedClipIdB: string | null = null;
@@ -606,6 +608,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private syncMediaElements(playing: boolean): void {
     const schedule = this.state.clipSchedule();
     if (schedule.length === 0) {
+      this.liveTransitionActive.set(false);
+      this.monitorImages.set({ A: null, B: null });
       // No V1 clip: pictures, titles or music alone. Nothing plays on the video layers,
       // but the soundtrack still runs under them, as it does in the export.
       const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
@@ -718,6 +722,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     // 1. Sync active video
     const isCurrImage = this.state.getClipType(curr.clip) === 'image';
+    const currentImage = isCurrImage ? this.state.assetUrl(this.state.resolveAssetId(curr.clip)) : null;
+    const nextImage = inTransition && nextSched && isNextImage
+      ? this.state.assetUrl(this.state.resolveAssetId(nextSched.clip)) : null;
+    const images = currentActiveIsA ? { A: currentImage, B: nextImage } : { A: nextImage, B: currentImage };
+    if (images.A !== this.monitorImages().A || images.B !== this.monitorImages().B) this.monitorImages.set(images);
 
     if (isCurrImage) {
       if (currentActiveVideo && !currentActiveVideo.paused) {
@@ -810,8 +819,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
       this.liveTransitionActive.set(true);
       this.liveTransitionType.set(curr.junctionTransition || 'Dissolve');
-      this.liveTransitionClass.set(this.pvClassForTransition(curr.junctionTransition));
-      this.liveTransitionDuration.set(transSec);
+      this.liveTransitionProgress.set(progress);
     } else {
       this.liveTransitionActive.set(false);
       if (currentStandbyVideo) {
@@ -1016,50 +1024,31 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
   }
 
-  private pvClassForTransition(transition: string): string {
-    switch (transition) {
-      case 'Fade':
-      case 'Dissolve': return 'pv-fade';
-      case 'WipeLeft': return 'pv-wipe-left';
-      case 'WipeRight': return 'pv-wipe-right';
-      case 'SlideLeft': return 'pv-slide-left';
-      case 'SlideRight': return 'pv-slide-right';
-      case 'CircleOpen': return 'pv-circle-open';
-      case 'CircleClose': return 'pv-circle-close';
-      default: return 'pv-cut';
-    }
+  monitorTransitionFrame(layer: 'A' | 'B') {
+    return this.liveTransitionActive()
+      ? transitionPreviewFrame(this.liveTransitionType(), this.liveTransitionProgress(), layer !== this.activeLayer())
+      : null;
   }
 
   getMonitorLayerClass(layer: 'A' | 'B'): string {
-    const isCurrentActive = this.activeLayer() === layer;
-    if (!this.liveTransitionActive()) {
-      return isCurrentActive ? 'layer-front' : 'layer-back';
-    }
+    return this.liveTransitionActive() ? '' : this.activeLayer() === layer ? 'layer-front' : 'layer-back';
+  }
 
-    const trans = this.liveTransitionType();
-    if (isCurrentActive) {
-      // Outgoing layer
-      switch (trans) {
-        case 'Fade': return 'trans-outgoing trans-dip-out';
-        case 'SlideLeft': return 'trans-outgoing trans-slide-left-out';
-        case 'SlideRight': return 'trans-outgoing trans-slide-right-out';
-        case 'CircleClose': return 'trans-outgoing trans-circle-close-out';
-        default: return 'trans-outgoing-underneath';
-      }
-    } else {
-      // Incoming layer
-      switch (trans) {
-        case 'Dissolve': return 'trans-incoming trans-dissolve-in';
-        case 'Fade': return 'trans-incoming trans-dip-in';
-        case 'WipeLeft': return 'trans-incoming trans-wipe-left-in';
-        case 'WipeRight': return 'trans-incoming trans-wipe-right-in';
-        case 'SlideLeft': return 'trans-incoming trans-slide-left-in';
-        case 'SlideRight': return 'trans-incoming trans-slide-right-in';
-        case 'CircleOpen': return 'trans-incoming trans-circle-open-in';
-        case 'CircleClose': return 'trans-incoming-underneath';
-        default: return 'trans-incoming trans-dissolve-in';
-      }
-    }
+  monitorLayerFilter(layer: 'A' | 'B'): string {
+    const base = this.shotFilter(this.state.computedMonitorFilter());
+    const filter = this.monitorTransitionFrame(layer)?.filter;
+    return [base, filter].filter((v) => v && v !== 'none').join(' ') || 'none';
+  }
+
+  monitorLayerTransform(layer: 'A' | 'B'): string {
+    const base = this.shotTransform(this.state.activeClipTransform());
+    const transform = this.monitorTransitionFrame(layer)?.transform;
+    return [transform, base].filter((v) => v && v !== 'none').join(' ') || 'none';
+  }
+
+  monitorLayerClipPath(layer: 'A' | 'B'): string {
+    const path = this.monitorTransitionFrame(layer)?.clipPath;
+    return path && path !== 'none' ? path : this.state.activeClipClipPath();
   }
 
   // ── Erase existing watermark ────────────────────────────────────────────────
@@ -1087,7 +1076,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
   }
 
-  @ViewChild('imageMonitor') imageMonitorRef?: ElementRef<HTMLImageElement>;
+  @ViewChildren('imageMonitor') imageMonitorRefs?: QueryList<ElementRef<HTMLImageElement>>;
   @ViewChildren('patchCanvas') patchCanvases?: QueryList<ElementRef<HTMLCanvasElement>>;
   private patchFrameId: number | null = null;
 
@@ -1145,7 +1134,9 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   }
 
   private paintPatches(canvases: HTMLCanvasElement[]): void {
-    const img = this.state.activeClipIsImage() ? this.imageMonitorRef?.nativeElement : undefined;
+    const img = this.state.activeClipIsImage()
+      ? this.imageMonitorRefs?.find((ref) => ref.nativeElement.dataset['layer'] === this.activeLayer())?.nativeElement
+      : undefined;
     const video = this.activeLayer() === 'A' ? this.videoMonitorARef?.nativeElement : this.videoMonitorBRef?.nativeElement;
     const source: CanvasImageSource | undefined = img ?? video;
     const sw = img ? img.naturalWidth : video?.videoWidth ?? 0;
@@ -1515,4 +1506,3 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     setTimeout(() => this.state.snapshotFlash.set(false), 300);
   }
 }
-

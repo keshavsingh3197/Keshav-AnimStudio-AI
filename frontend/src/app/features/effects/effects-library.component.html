@@ -3,12 +3,72 @@
     <div class="fx-head-left">
       <div class="studio-icon-badge">✨</div>
       <div>
-        <h2>Effects &amp; overlays</h2>
-        <p class="muted">Your own kit of subscribe buttons, stingers, end screens, lower thirds, sound effects and green-screen clips.
-          Upload each once here, then add it to any video from the <strong>✨ Effects</strong> button in the editor's media panel.</p>
+        <h2>Effects &amp; reactions</h2>
+        <p class="muted">Your shared library of effects, memes and reactions. Upload media you have permission to use, then add it from the editor's Effects panel.</p>
+        <a routerLink="/comedy">Open comedy workspace</a> · <a routerLink="/story-template">Use memes as funny endings in a story template</a>
       </div>
     </div>
   </header>
+
+  @if (category() === 'Reaction') {
+    <section class="card fx-create">
+      <h3>Create an original reaction</h3>
+      <p class="muted">Draw a transparent PNG in your browser, then download it or save it to your library. Use your own caption.</p>
+      <div class="fx-create-fields">
+        <label>Expression
+          <select class="form-select" [ngModel]="reactionExpression()" (ngModelChange)="updateReactionExpression($event)">
+            <option value="surprised">Surprised</option>
+            <option value="laughing">Laughing</option>
+            <option value="confused">Confused</option>
+            <option value="unimpressed">Unimpressed</option>
+          </select>
+        </label>
+        <label>Caption (optional)
+          <input type="text" maxlength="40" [ngModel]="reactionCaption()" (ngModelChange)="updateReactionCaption($event)" placeholder="Write your own punchline" />
+        </label>
+        <button type="button" (click)="makeReaction()">Create preview</button>
+      </div>
+      @if (reactionPreview(); as preview) {
+        <div class="fx-reaction-result">
+          <img [src]="preview" alt="Preview of your original reaction graphic" />
+          <div class="fx-actions">
+            <button type="button" [disabled]="uploading()" (click)="saveReaction()">Save to meme library</button>
+            <a class="fx-btn" [href]="preview" [download]="'reaction-' + reactionExpression() + '.png'">Download PNG</a>
+          </div>
+        </div>
+      }
+      <p class="muted">These are still images, not video or sound. Add them manually from the editor's Effects panel.
+        No service can guarantee that YouTube will never issue a claim; check your caption and all other media too.</p>
+    </section>
+  }
+
+  <section class="card fx-create">
+    <h3>Import from a link</h3>
+    <form (ngSubmit)="importLink()">
+      <div class="fx-create-fields">
+        <label>Link type
+          <select name="linkType" [ngModel]="linkType()" (ngModelChange)="linkType.set($event)">
+            <option value="platform">Supported video platform</option>
+            <option value="file">Direct media file</option>
+          </select>
+        </label>
+        <label>HTTPS link
+          <input type="url" name="effectUrl" maxlength="2048" [ngModel]="linkUrl()" (ngModelChange)="linkUrl.set($event)" placeholder="https://..." required />
+        </label>
+        <label>Category
+          <select name="linkCategory" [ngModel]="uploadCategory()" (ngModelChange)="uploadCategory.set($event)">
+            <option value="">File by type</option>
+            @for (c of categories; track c.id) { <option [value]="c.id">{{ c.label }}</option> }
+          </select>
+        </label>
+        <button type="submit" [disabled]="linkBusy() || !linkUrl().trim() || !linkRights()">{{ linkBusy() ? 'Importing…' : 'Import to library' }}</button>
+      </div>
+      <label class="fx-check"><input type="checkbox" name="linkRights" [ngModel]="linkRights()" (ngModelChange)="linkRights.set($event)" /> I have permission to download and use this media.</label>
+    </form>
+    <p class="muted">Video platform links use Media Studio's supported sites and downloader. Direct file links are fetched by your browser; some hosts block access, in which case download and upload the file instead.</p>
+    @if (linkError(); as error) { <p class="fx-error" role="alert">{{ error }}</p> }
+    @if (linkNotice(); as notice) { <p role="status">{{ notice }}</p> }
+  </section>
 
   <!-- Upload: drop, paste or pick; the category and green-screen flag apply to this batch. -->
   <div class="fx-upload" [appFileDrop]="accept" [fileDropMultiple]="true" [fileDropDisabled]="uploading()"
@@ -44,10 +104,10 @@
 
   <!-- Filters -->
   <nav class="fx-chips" aria-label="Categories">
-    <button type="button" [class.active]="category() === 'all'" (click)="category.set('all')">All ({{ effects().length }})</button>
+    <button type="button" [class.active]="category() === 'all'" (click)="selectCategory('all')">All ({{ effects().length }})</button>
     @for (c of categories; track c.id) {
-      @if (counts().get(c.id); as n) {
-        <button type="button" [class.active]="category() === c.id" [title]="c.hint" (click)="category.set(c.id)">{{ c.icon }} {{ c.label }} ({{ n }})</button>
+      @if (counts().get(c.id) || c.id === 'Reaction') {
+        <button type="button" [class.active]="category() === c.id" [title]="c.hint" (click)="selectCategory(c.id)">{{ c.icon }} {{ c.label }} ({{ counts().get(c.id) || 0 }})</button>
       }
     }
   </nav>
@@ -74,7 +134,7 @@
   } @else if (effects().length === 0) {
     <div class="card fx-empty">
       <h3>Build your effects kit</h3>
-      <p class="muted">Anything you put on top of videos again and again belongs here. A few ideas:</p>
+      <p class="muted">Anything you put on top of videos again and again belongs here. Only upload media you have the right to use. A few ideas:</p>
       <ul>
         <li><strong>🔔 Subscribe &amp; like</strong> - a button animation on a transparent (WebM/MOV) or green background</li>
         <li><strong>⚡ Transitions</strong> - a whoosh stinger between two scenes</li>
@@ -86,7 +146,7 @@
       <p class="muted">Already have one in a project? Use <strong>Save to effects</strong> on it in the editor's media panel.</p>
     </div>
   } @else if (visible().length === 0) {
-    <p class="muted">Nothing matches those filters. <button type="button" class="link" (click)="clearFilters()">Clear filters</button></p>
+    <p class="muted">Nothing matches those filters. @if (reactionsPage) { Upload a reaction or change an existing effect's category to Memes &amp; reactions. } <button type="button" class="link" (click)="clearFilters()">Clear filters</button></p>
   } @else {
     <ul class="fx-grid">
       @for (e of visible(); track e.id) {

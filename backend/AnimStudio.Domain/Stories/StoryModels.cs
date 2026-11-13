@@ -85,12 +85,31 @@ public sealed class StoryBrief
 
     /// <summary>The one text engine that writes the script and the ideas for the next part; null walks the configured chain.</summary>
     public string? TextEngine { get; set; }
+
+    /// <summary>
+    /// The brand channel the story is made for, chosen before it starts; its project publishes under it. Null is the
+    /// default channel - and a channel deleted since is too, when the project is built.
+    /// </summary>
+    public string? BrandChannelId { get; set; }
 }
 
 /// <summary>How the video is made once the script is approved.</summary>
 public sealed class StoryBuildOptions
 {
     public StoryNarrationMode Narration { get; set; } = StoryNarrationMode.Stock;
+
+    /// <summary>Use attached clips' measured duration instead of the spoken-text estimate.</summary>
+    public bool MatchClipDuration { get; set; }
+
+    /// <summary>Mix attached clips' original sound into the scene alongside any generated voice.</summary>
+    public bool KeepClipAudio { get; set; }
+
+    /// <summary>
+    /// Make characters painted into still pictures talk: their mouths are found (a free Gemini call) and an open-mouth
+    /// version of the picture is drawn (one Gemini image edit), once per picture; the renderer blends between the two
+    /// around each mouth while that character speaks.
+    /// </summary>
+    public bool TalkingFaces { get; set; } = true;
 
     /// <summary>The user's voice profile, for <see cref="StoryNarrationMode.MyVoice"/>.</summary>
     public string? VoiceProfileId { get; set; }
@@ -165,6 +184,9 @@ public sealed class StoryBuildOptions
     /// </summary>
     public bool AutoPace { get; set; }
 
+    /// <summary>The pace the voice is brought to when <see cref="AutoPace"/> is on.</summary>
+    public StoryPaceStyle Pace { get; set; } = StoryPaceStyle.Auto;
+
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
 
@@ -173,6 +195,13 @@ public sealed class StoryBuildOptions
     /// picture style.
     /// </summary>
     public StoryArtStyle ArtStyle { get; set; } = StoryArtStyle.Auto;
+
+    /// <summary>
+    /// Also tell the story in its other language - English for a Hindi story, Hindi for an English one - as a dub: the same
+    /// pictures and timings with the other voice, finished as an audio file YouTube adds to the same video as a second
+    /// audio track. Viewers then hear the language their YouTube is set to.
+    /// </summary>
+    public bool Dub { get; set; }
 }
 
 /// <summary>The look of a story's pictures and animation.</summary>
@@ -206,6 +235,25 @@ public enum StoryMusicSource
     Search = 2
 }
 
+/// <summary>How fast the narration should sound once the app has set the video's speed.</summary>
+public enum StoryPaceStyle
+{
+    /// <summary>From the story: gentle for children, brisk for a Short, a storyteller's pace otherwise.</summary>
+    Auto = 0,
+
+    /// <summary>Slow and clear, for children or devotional listening.</summary>
+    Gentle = 1,
+
+    /// <summary>Unhurried, every word clear: a long video watched from start to end.</summary>
+    Storyteller = 2,
+
+    /// <summary>Quicker, the pace most Shorts and Reels are told at.</summary>
+    Brisk = 3,
+
+    /// <summary>As fast as still sounds natural.</summary>
+    Fast = 4
+}
+
 /// <summary>The feel of the motion and the cuts the build picks for each scene.</summary>
 public enum StoryLookStyle
 {
@@ -219,7 +267,10 @@ public enum StoryLookStyle
     Cinematic = 2,
 
     /// <summary>Quicker moves and slides, for a Short that has to hold attention.</summary>
-    Lively = 3
+    Lively = 3,
+
+    /// <summary>Varied short-form zooms, blurred cuts, diagonal wipes and circular reveals; no automatic flashes.</summary>
+    MusicVideo = 4
 }
 
 public enum StorySourceConfidence
@@ -363,6 +414,12 @@ public sealed class StoryScene
     public List<string> ImageKeywords { get; set; } = [];
     public string? Mood { get; set; }
 
+    /// <summary>
+    /// More pictures of the scene, shown one after another after its own while the narration plays on; the build cuts
+    /// between them with a transition. Empty for a scene told over one picture.
+    /// </summary>
+    public List<StoryShot> Shots { get; set; } = [];
+
     /// <summary>A guess at how long the narration takes, used until real audio exists.</summary>
     public double EstimatedSeconds { get; set; }
 
@@ -409,6 +466,20 @@ public sealed class StoryScene
     /// <summary>How many times the person asked for this scene's narration again. A new take is a new file, spoken afresh.</summary>
     public int AudioTake { get; set; }
 
+    // --- the dub: the same scene in the story's other language -------------------------------------------
+
+    /// <summary>The narration in Hindi, for the Hindi dub of an English story. A Hindi story's dub reads <see cref="English"/>.</summary>
+    public string? Hindi { get; set; }
+
+    /// <summary>The scene spoken in the dub's language, once it exists.</summary>
+    public string? DubAudioKey { get; set; }
+
+    /// <summary>The length of <see cref="DubAudioKey"/>, with the breath before and after it.</summary>
+    public double? DubAudioSeconds { get; set; }
+
+    /// <summary>The silent stretches in the dub, used to line its subtitles up with its voice.</summary>
+    public List<StoryPause> DubPauses { get; set; } = [];
+
     // --- how the scene moves and leads into the next ---------------------------------------
 
     /// <summary>The picture's motion (a <c>BackgroundEffect</c> name). Chosen automatically unless <see cref="LookPinned"/>.</summary>
@@ -424,6 +495,123 @@ public sealed class StoryScene
 
     /// <summary>The person chose this scene's effect and transition themselves, so a new look leaves them as they are.</summary>
     public bool LookPinned { get; set; }
+
+    // --- staging from a story template: where it happens, who is seen, what they do ----------
+
+    /// <summary>The place the scene happens, in English, as a story template describes it. Used to compose a picture prompt.</summary>
+    public string? Background { get; set; }
+
+    /// <summary>The names of the characters seen in the scene, speaking or not.</summary>
+    public List<string> OnScreen { get; set; } = [];
+
+    /// <summary>What the characters do in the scene, in English: the acting a picture or a video tool should show.</summary>
+    public string? Action { get; set; }
+
+    /// <summary>A meme from the owner's library played right after the scene, for the joke's punchline; null for none.</summary>
+    public StoryMemeBeat? Meme { get; set; }
+
+    // --- speaker mouth-position metadata ----------------------------------------------------
+
+    /// <summary>Speaker mouth anchors found in the scene's still picture.</summary>
+    public List<StoryFace> Faces { get; set; } = [];
+
+    /// <summary>The picture <see cref="Faces"/> were looked for in; a new picture is looked at afresh.</summary>
+    public string? FacesImageKey { get; set; }
+
+    /// <summary>
+    /// Object-store key of this picture's open-mouth version, drawn by an image model so the speakers talk with real
+    /// artwork; null when there is none.
+    /// </summary>
+    public string? TalkingImageKey { get; set; }
+
+    /// <summary>The picture <see cref="TalkingImageKey"/> was drawn from; a new picture is drawn afresh.</summary>
+    public string? TalkingImageFor { get; set; }
+
+    /// <summary>
+    /// The speakers' faces found in the open-mouth version, which the image model may have framed differently, so each
+    /// open mouth can be taken from where it really is.
+    /// </summary>
+    public List<StoryFace> TalkingFaces { get; set; } = [];
+
+    /// <summary>The open-mouth picture <see cref="TalkingFaces"/> were looked for in.</summary>
+    public string? TalkingFacesKey { get; set; }
+}
+
+/// <summary>Where a character's face is in a picture: the middle of the mouth and the face's width, as fractions of it.</summary>
+public sealed class StoryFace
+{
+    /// <summary>The cast member's name.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The middle of the mouth, from the left edge (0) to the right (1).</summary>
+    public double X { get; set; }
+
+    /// <summary>The middle of the mouth, from the top (0) to the bottom (1).</summary>
+    public double Y { get; set; }
+
+    /// <summary>How wide the face is, as a fraction of the picture's width.</summary>
+    public double Width { get; set; }
+
+    /// <summary>The person placed it themselves, so it is kept for as long as the picture is.</summary>
+    public bool Manual { get; set; }
+}
+
+/// <summary>A funny ending: one of the owner's own memes and reactions, played for a moment after a scene.</summary>
+public sealed class StoryMemeBeat
+{
+    public const double MinSeconds = 0.5;
+    public const double MaxSeconds = 4.0;
+
+    /// <summary>The meme's name in the owner's library, as the template wrote it.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The library id when the template gave one; it is found by <see cref="Name"/> otherwise.</summary>
+    public string? EffectId { get; set; }
+
+    /// <summary>A few words shown as a subtitle over the meme; null for none.</summary>
+    public string? Caption { get; set; }
+
+    /// <summary>How long it plays; null for the clip's own length (capped) or a moment for a still.</summary>
+    public double? Seconds { get; set; }
+}
+
+/// <summary>One more picture of a scene: what it shows, and the file once there is one.</summary>
+public sealed class StoryShot
+{
+    /// <summary>What the picture shows, in English, for an image model.</summary>
+    public string? ImagePrompt { get; set; }
+
+    /// <summary>Object-store key of the picture, once there is one. A shot without one is left out of the video.</summary>
+    public string? ImageKey { get; set; }
+
+    /// <summary><c>upload</c>, or the image engine that drew it.</summary>
+    public string? ImageSource { get; set; }
+
+    public string? ImageName { get; set; }
+
+    /// <summary>The speakers' faces found in this picture.</summary>
+    public List<StoryFace> Faces { get; set; } = [];
+
+    /// <summary>The picture <see cref="Faces"/> were looked for in.</summary>
+    public string? FacesImageKey { get; set; }
+
+    /// <summary>
+    /// Object-store key of this picture's open-mouth version, drawn by an image model so the speakers talk with real
+    /// artwork; null when there is none.
+    /// </summary>
+    public string? TalkingImageKey { get; set; }
+
+    /// <summary>The picture <see cref="TalkingImageKey"/> was drawn from; a new picture is drawn afresh.</summary>
+    public string? TalkingImageFor { get; set; }
+
+    /// <summary>
+    /// The speakers' faces found in the open-mouth version, which the image model may have framed differently, so each
+    /// open mouth can be taken from where it really is.
+    /// </summary>
+    public List<StoryFace> TalkingFaces { get; set; } = [];
+
+    /// <summary>The open-mouth picture <see cref="TalkingFaces"/> were looked for in.</summary>
+    public string? TalkingFacesKey { get; set; }
 }
 
 /// <summary>Part of a scene's narration and who says it.</summary>
@@ -433,6 +621,12 @@ public sealed class StoryLine
     public string Speaker { get; set; } = StoryCastMember.Narrator;
 
     public string Text { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How the line is said and the face that goes with it (<c>laughing</c>, <c>angry</c>, <c>surprised</c>...), one of
+    /// the app's own emotion names; null for a plain line. It shapes the voice's delivery and the acting in the animation prompt.
+    /// </summary>
+    public string? Emotion { get; set; }
 }
 
 /// <summary>A character who speaks in the story.</summary>
@@ -452,6 +646,9 @@ public sealed class StoryCastMember
 
     /// <summary>The voice they were last given, so the person can see who speaks whom. Set when narration is made.</summary>
     public string? VoiceId { get; set; }
+
+    /// <summary>What they look like, in English, so every picture of them draws the same person; null when not given.</summary>
+    public string? Look { get; set; }
 }
 
 /// <summary>A quiet stretch in a clip, in seconds from its start.</summary>
@@ -479,6 +676,17 @@ public sealed class StoryScript
 
     /// <summary>Things the writer wants checked before this is published.</summary>
     public List<string> ReviewNotes { get; set; } = [];
+
+    /// <summary>What the video's YouTube thumbnail shows, in English, for an image model.</summary>
+    public string? ThumbnailPrompt { get; set; }
+
+    /// <summary>Object-store key of the thumbnail picture, once there is one.</summary>
+    public string? ThumbnailKey { get; set; }
+
+    /// <summary><c>upload</c>, or the image engine that drew it.</summary>
+    public string? ThumbnailSource { get; set; }
+
+    public string? ThumbnailName { get; set; }
 
     /// <summary>The text engine that wrote it, <c>manual</c> for a pasted reply, or <c>built-in</c>.</summary>
     public string? WrittenBy { get; set; }

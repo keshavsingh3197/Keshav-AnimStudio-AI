@@ -709,6 +709,16 @@ public sealed record AutoShortsRequest
     /// <summary>Every short runs exactly TargetSeconds with Spread and AllInEach too; FitLength always does.</summary>
     public bool ExactLength { get; init; }
 
+    /// <summary>Play every video start to finish: never trimmed, split or reused for another stretch.</summary>
+    public bool KeepClipsWhole { get; init; }
+
+    /// <summary>Bands above and below the footage, title, numbered parts, quiz or poll, call to action and memes.</summary>
+    public AutoShortPackagingRequest Packaging { get; init; } = new();
+
+    /// <summary>Project pictures and clips (usually from the effects library's memes) to pop over the footage.</summary>
+    [MaxLength(AutoShortPackager.MaxMemes)]
+    public List<string> MemeAssetIds { get; init; } = [];
+
     /// <summary>Where each short's videos go: anywhere, one to open on, or all of them first.</summary>
     [EnumDataType(typeof(AutoShortOrder))] public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
 
@@ -744,6 +754,49 @@ public sealed record AutoShortsRequest
 
     /// <summary>The shared topic every short of the batch is for; its Drive copies are filed under it.</summary>
     [RegularExpression("^[A-Za-z0-9_-]{1,64}$")] public string? TopicId { get; init; }
+}
+
+/// <summary>The dressing Auto Shorts puts around the footage; see <see cref="AutoShortPackaging"/>.</summary>
+public sealed record AutoShortPackagingRequest
+{
+    /// <summary>"none", "auto" (a different design per short) or a design id.</summary>
+    [RegularExpression("^[a-z0-9-]{1,32}$")] public string Design { get; init; } = "none";
+
+    [EnumDataType(typeof(AutoShortTopMode))] public AutoShortTopMode Top { get; init; }
+    [EnumDataType(typeof(AutoShortLanguage))] public AutoShortLanguage Language { get; init; }
+
+    [StringLength(AutoShortPackager.MaxTitleLength)] public string? Title { get; init; }
+
+    public bool NumberParts { get; init; }
+    [EnumDataType(typeof(AutoShortPartLabel))] public AutoShortPartLabel PartLabel { get; init; }
+    public bool CountDown { get; init; }
+
+    public bool CallToAction { get; init; }
+    [StringLength(AutoShortPackager.MaxCallToActionLength)] public string? CallToActionText { get; init; }
+
+    [RegularExpression("^@?[A-Za-z0-9._-]{1,40}$")] public string? ChannelHandle { get; init; }
+
+    /// <summary>"question | answer", one per entry.</summary>
+    [MaxLength(AutoShortPackager.MaxQuizLines)]
+    public List<string> QuizLines { get; init; } = [];
+
+    [Range(0, AutoShortPackager.MaxMemesPerShort)] public int MemesPerShort { get; init; }
+
+    public AutoShortPackaging ToPackaging() => new()
+    {
+        Design = AutoShortPackager.CleanDesignId(Design),
+        Top = Top,
+        Language = Language,
+        Title = Title,
+        NumberParts = NumberParts,
+        PartLabel = PartLabel,
+        CountDown = CountDown,
+        CallToAction = CallToAction,
+        CallToActionText = CallToActionText,
+        ChannelHandle = ChannelHandle,
+        QuizLines = [.. QuizLines.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Length > 200 ? l[..200] : l)],
+        MemesPerShort = MemesPerShort,
+    };
 }
 
 public sealed record TimelineItemTextStyleRequest

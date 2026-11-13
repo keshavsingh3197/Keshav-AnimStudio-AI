@@ -153,6 +153,7 @@ public sealed class AdminChannelPublishingController(
             if (!string.IsNullOrWhiteSpace(b.Tagline)) set.Add("tagline");
             if (!string.IsNullOrWhiteSpace(b.StudioUrl)) set.Add("studio link");
             if (!string.IsNullOrWhiteSpace(b.CreatorUrl)) set.Add("creator link");
+            if (!string.IsNullOrWhiteSpace(b.CreatorName)) set.Add("creator name");
             if (!string.IsNullOrWhiteSpace(b.EngineName)) set.Add("tool");
             if (!string.IsNullOrWhiteSpace(b.VisualsCredit)) set.Add("visuals");
             if (b.Hashtags.Count > 0) set.Add($"{b.Hashtags.Count} hashtags");

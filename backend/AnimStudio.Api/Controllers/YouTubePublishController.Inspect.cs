@@ -167,7 +167,7 @@ public sealed partial class YouTubePublishController
         var settings = await settingsRepo.GetAsync(ct);
         var footerChannel = owner?.ChannelId ?? chosen?.ChannelId;
         var brandPublishing = footerChannel is null ? null : BrandFor(settings, footerChannel).Publishing;
-        var footer = brandPublishing?.DescriptionFooter;
+        var footer = YouTubeBrandKit.CurrentFooter(brandPublishing, YouTubeBrandKit.Effective(settings, brandPublishing));
 
         var suggestRequest = new YouTubeSuggestRequest(YouTubeMetadataSuggester.NormalizeLanguage(request.Language), Fresh: true, Tone: request.Tone ?? "auto",
             Brief: request.Brief, ProviderId: request.ProviderId);

@@ -36,7 +36,7 @@ public sealed partial class YouTubePublishController
 
         return Ok(ApiResponse<YouTubeDraftResponse>.Ok(new YouTubeDraftResponse(
             song.Title,
-            YouTubePublishValidator.WithFooter(song.Description, defaults?.DescriptionFooter),
+            YouTubePublishValidator.WithFooter(song.Description, YouTubeBrandKit.CurrentFooter(defaults, null)),
             song.Tags,
             defaults?.Tags ?? [],
             // Always Music, whatever the channel's default: that is what lists it on YouTube Music.

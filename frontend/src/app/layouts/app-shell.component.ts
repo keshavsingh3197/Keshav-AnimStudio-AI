@@ -1,5 +1,6 @@
 import { Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationEnd, NavigationStart, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AdminAccess } from '../core/models/api.models';
 import { ActivityPanelComponent } from './activity-panel.component';
@@ -1084,5 +1085,20 @@ export class AppShellComponent {
       }
     });
 
+    /**
+     * A new screen opens at its top. Without this a button far down a long page - an idea at the foot of the channel
+     * analysis - opened the next screen still scrolled to the footer, so the click looked like it did nothing. Only a
+     * change of path counts: a tab kept in the query string stays where it is, and Back/Forward keep the browser's own
+     * position.
+     */
+    let path = this.router.url.split(/[?#]/)[0];
+    let popstate = false;
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
+      if (event instanceof NavigationStart) popstate = event.navigationTrigger === 'popstate';
+      if (!(event instanceof NavigationEnd)) return;
+      const next = event.urlAfterRedirects.split(/[?#]/)[0];
+      if (next !== path && !popstate) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      path = next;
+    });
   }
 }

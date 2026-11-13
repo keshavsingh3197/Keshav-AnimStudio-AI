@@ -30,6 +30,30 @@ public sealed record SpritePlan
     public int ZOrder { get; init; }
 }
 
+/// <summary>A mouth in the background still, as fractions of the picture, and when it talks.</summary>
+public sealed record MouthPlan
+{
+    public required double X { get; init; }
+    public required double Y { get; init; }
+    public required double FaceWidth { get; init; }
+    public IReadOnlyList<FrameRange> SpeakingWindows { get; init; } = [];
+
+    /// <summary>
+    /// Where the same mouth is in the open-mouth picture, as fractions of that picture; null means the same place as
+    /// in the background.
+    /// </summary>
+    public double? OpenX { get; init; }
+    public double? OpenY { get; init; }
+    public double? OpenFaceWidth { get; init; }
+}
+
+/// <summary>
+/// The background still with its mouths open: the size in pixels of the still it is laid over, and its own size. Each
+/// mouth is cut from where it is in this picture and scaled to that face's size in the still, so an image model that
+/// redrew it at another size or framing still lines up mouth by mouth.
+/// </summary>
+public sealed record TalkingBackgroundPlan(string RelativePath, int Width, int Height, int OpenWidth, int OpenHeight);
+
 public sealed record SceneRenderPlan
 {
     public required int SceneIndex { get; init; }
@@ -40,9 +64,25 @@ public sealed record SceneRenderPlan
     public required string BackgroundRelativePath { get; init; }
     /// <summary>The background is a moving clip (looped to the scene), not a still.</summary>
     public bool BackgroundIsVideo { get; init; }
+    public bool BackgroundHasAudio { get; init; }
     public AnimationSettings BackgroundAnimation { get; init; } = AnimationSettings.None;
 
     public IReadOnlyList<SpritePlan> Sprites { get; init; } = [];
+
+    /// <summary>Mouths drawn into the background still that talk; always empty over a clip, which moves already.</summary>
+    public IReadOnlyList<MouthPlan> Mouths { get; init; } = [];
+
+    /// <summary>
+    /// The still with the <see cref="Mouths"/> open, blended in around each mouth while it talks; null keeps the faces
+    /// still, which is what a still with no open-mouth version must do.
+    /// </summary>
+    public TalkingBackgroundPlan? TalkingBackground { get; init; }
+
+    /// <summary>
+    /// The scene has an open-mouth picture that could not be used (not approved, of unknown size, or framed differently
+    /// with its mouths not found in it), so its faces stay still; said in the render's warnings rather than silently.
+    /// </summary>
+    public bool TalkingBackgroundUnusable { get; init; }
 
     /// <summary>Null when the scene has no audio; the builder then supplies silence.</summary>
     public string? AudioRelativePath { get; init; }

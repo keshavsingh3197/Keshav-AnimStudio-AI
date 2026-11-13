@@ -207,8 +207,8 @@ export function footerSegments(line: string): { text: string; link: boolean }[] 
 
 // --------------------------------------------------------------------------------------- branding
 
-export const BRAND_TEXT_MAX: Readonly<Record<'channelName' | 'tagline' | 'engineName' | 'visualsCredit', number>> = {
-  channelName: 80, tagline: 120, engineName: 60, visualsCredit: 120,
+export const BRAND_TEXT_MAX: Readonly<Record<'channelName' | 'tagline' | 'creatorName' | 'engineName' | 'visualsCredit', number>> = {
+  channelName: 80, tagline: 120, creatorName: 80, engineName: 60, visualsCredit: 120,
 };
 
 export function brandTextProblem(value: string | null | undefined, max: number): string | null {
@@ -231,16 +231,16 @@ export function brandUrlProblem(value: string | null | undefined): string | null
 
 export function emptyBranding(): ChannelBranding {
   return {
-    channelName: null, tagline: null, channelUrl: null, studioUrl: null, creatorUrl: null,
+    channelName: null, tagline: null, channelUrl: null, studioUrl: null, creatorUrl: null, creatorName: null,
     engineName: null, visualsCredit: null, hashtags: [], tags: [],
   };
 }
 
 /** The single-line branding fields, in form order. */
-export type BrandTextField = 'channelName' | 'tagline' | 'channelUrl' | 'studioUrl' | 'creatorUrl' | 'engineName' | 'visualsCredit';
+export type BrandTextField = 'channelName' | 'tagline' | 'channelUrl' | 'studioUrl' | 'creatorUrl' | 'creatorName' | 'engineName' | 'visualsCredit';
 
 /** The fields that are the same for every channel, and so live in the studio-wide defaults. */
-export const SHARED_BRAND_FIELDS: readonly BrandTextField[] = ['tagline', 'studioUrl', 'creatorUrl', 'engineName', 'visualsCredit'];
+export const SHARED_BRAND_FIELDS: readonly BrandTextField[] = ['tagline', 'studioUrl', 'creatorUrl', 'creatorName', 'engineName', 'visualsCredit'];
 
 export type BrandSource = 'studio' | 'youtube';
 
@@ -262,7 +262,7 @@ const filled = (v: string | null | undefined): string | null => ((v ?? '').trim(
 
 export function hasAnyBranding(b: ChannelBranding | null | undefined): boolean {
   if (!b) return false;
-  return (['channelName', 'tagline', 'channelUrl', 'studioUrl', 'creatorUrl', 'engineName', 'visualsCredit'] as const).some((k) => !!filled(b[k]))
+  return (['channelName', 'tagline', 'channelUrl', 'studioUrl', 'creatorUrl', 'creatorName', 'engineName', 'visualsCredit'] as const).some((k) => !!filled(b[k]))
     || (b.hashtags?.length ?? 0) > 0 || (b.tags?.length ?? 0) > 0;
 }
 
@@ -425,7 +425,7 @@ export function bulkFieldCount(c: BulkChoice): number {
 /** How many branding fields a channel sets itself (the rest inherit). */
 export function brandOverrideCount(b: ChannelBranding | null | undefined): number {
   if (!b) return 0;
-  return (['channelName', 'tagline', 'channelUrl', 'studioUrl', 'creatorUrl', 'engineName', 'visualsCredit'] as const).filter((k) => !!filled(b[k])).length
+  return (['channelName', 'tagline', 'channelUrl', 'studioUrl', 'creatorUrl', 'creatorName', 'engineName', 'visualsCredit'] as const).filter((k) => !!filled(b[k])).length
     + ((b.hashtags?.length ?? 0) > 0 ? 1 : 0) + ((b.tags?.length ?? 0) > 0 ? 1 : 0);
 }
 

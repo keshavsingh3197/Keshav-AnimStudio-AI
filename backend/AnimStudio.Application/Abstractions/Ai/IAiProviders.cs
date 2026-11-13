@@ -108,6 +108,34 @@ public interface IMusicGeneratingProvider : IAiProvider
 
 public sealed record AiGeneratedMusic(byte[] Content, string MimeType, string Model);
 
+/// <summary>
+/// A hosted engine on the same Google key that looks at a picture and answers a question about it in JSON - used to
+/// find where the characters drawn into a story's picture have their mouths, so the renderer can make them talk.
+/// </summary>
+public interface IImageReadingProvider : IAiProvider
+{
+    /// <summary>
+    /// The engine's JSON answer to <paramref name="prompt"/> about <paramref name="image"/>, as text. It is the model's
+    /// own words: the caller parses and checks every field before anything uses it.
+    /// </summary>
+    Task<string> ReadImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct);
+}
+
+/// <summary>
+/// A hosted engine on the same Google key that redraws a picture from an instruction (Gemini's image models) - used to
+/// make the open-mouth version of a story picture, so a character painted into it can talk with real artwork.
+/// </summary>
+public interface IImageEditingProvider : IAiProvider
+{
+    /// <summary>
+    /// <paramref name="image"/> redrawn as <paramref name="prompt"/> asks, with <paramref name="model"/> (the engine's
+    /// default when null). The bytes are checked to be a PNG, JPEG or WebP before they are returned.
+    /// </summary>
+    Task<AiEditedImage> EditImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct);
+}
+
+public sealed record AiEditedImage(byte[] Content, string MimeType, string Model);
+
 public interface ITranscriptionProvider : IAiProvider
 {
     Task<AiTranscriptionResult> TranscribeAsync(AiTranscriptionRequest request, CancellationToken ct);

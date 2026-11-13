@@ -1,0 +1,302 @@
+<section class="st">
+  <header>
+    <a routerLink="/story-agent">← Story Agent</a>
+    <h1>Story Template Studio</h1>
+    <p>Build one template for a whole series — characters, backgrounds, actions, camera moves, dialogue and funny endings —
+      give it to ChatGPT or any AI tool, paste the filled template back, check every scene, and create the stories.
+      <strong>Nothing on this page uses AI credits.</strong></p>
+    <nav class="st-links">
+      <a routerLink="/memes">Manage memes &amp; reactions</a>
+      <a routerLink="/comedy">Comedy workspace</a>
+    </nav>
+  </header>
+
+  <ol class="st-steps" aria-label="Steps">
+    <li>Choose story, characters &amp; memes</li>
+    <li>Copy the template to your AI tool</li>
+    <li>Paste the filled template back</li>
+    <li>Check the live preview</li>
+    <li>Create the stories</li>
+  </ol>
+
+  <!-- 1. the story -->
+  <section class="card st-section">
+    <h2>1. Your story</h2>
+    <label for="st-title">Series title</label>
+    <input id="st-title" maxlength="160" [ngModel]="title()" (ngModelChange)="title.set($event)" placeholder="Golu and Dadi's crazy kitchen" />
+    <label for="st-idea">Story, idea or rough script <span class="muted">(optional — the AI tool writes the rest)</span></label>
+    <textarea id="st-idea" rows="6" maxlength="20000" [ngModel]="idea()" (ngModelChange)="idea.set($event)"
+      placeholder="Paste your story, plot points, jokes or a full script. Several stories are fine: they become episodes."></textarea>
+    <div class="st-row">
+      <label>Genre
+        <select [ngModel]="genreId()" (ngModelChange)="genreId.set($event)">
+          @for (genre of genres; track genre.id) { <option [value]="genre.id">{{ genre.label }}</option> }
+        </select>
+      </label>
+      <label>Language
+        <select [ngModel]="language()" (ngModelChange)="language.set($event)">
+          <option value="hi">Hindi</option><option value="en">English</option>
+        </select>
+      </label>
+      <label>Visual style
+        <select [ngModel]="style()" (ngModelChange)="style.set($event)">
+          <option value="2D">2D cartoon</option><option value="3D">3D cartoon</option>
+        </select>
+      </label>
+      <label>Frame
+        <select [ngModel]="format()" (ngModelChange)="format.set($event)">
+          <option value="Vertical">Vertical (Shorts)</option><option value="Wide">Wide (YouTube)</option>
+        </select>
+      </label>
+      <label>Speaking
+        <select [ngModel]="voicing()" (ngModelChange)="voicing.set($event)">
+          <option value="CharactersOnly">Characters only</option><option value="Narrated">With a narrator</option>
+        </select>
+      </label>
+    </div>
+    <div class="st-row">
+      <label>Episodes
+        <input type="number" min="1" [max]="maxEpisodes" [ngModel]="episodes()"
+          (ngModelChange)="episodes.set(Math.min(maxEpisodes, Math.max(1, +$event || 1)))" />
+      </label>
+      <label>Scenes per episode
+        <input type="number" min="2" max="30" [ngModel]="scenesPerEpisode()"
+          (ngModelChange)="scenesPerEpisode.set(Math.min(30, Math.max(2, +$event || 2)))" />
+      </label>
+      <label>Seconds per episode
+        <select [ngModel]="secondsPerEpisode()" (ngModelChange)="secondsPerEpisode.set(+$event)">
+          <option [ngValue]="30">About 30</option><option [ngValue]="60">About 60</option>
+          <option [ngValue]="120">About 2 minutes</option><option [ngValue]="300">About 5 minutes</option>
+        </select>
+      </label>
+      <label>Funny endings (memes)
+        <select [ngModel]="funnyEndings()" (ngModelChange)="funnyEndings.set($event)">
+          <option value="episode-end">At the end of each episode</option>
+          <option value="every-scene">After every scene</option>
+          <option value="ai-decides">Where a joke lands (AI decides)</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      <label>Pictures
+        <select [ngModel]="visuals()" (ngModelChange)="visuals.set($event)">
+          <option value="UploadsOnly">My uploads / plain placeholder (free)</option>
+          <option value="Auto">Configured image engine (may use credits)</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <!-- 2. characters -->
+  <section class="card st-section">
+    <h2>2. Characters</h2>
+    <p class="muted">Reuse characters you already made on a project's character page, or add new ones. Their looks go into the
+      template so the AI tool keeps them consistent in every scene.</p>
+    <label>Pick from a project
+      <select [ngModel]="projectId()" (ngModelChange)="selectProject($event)" [disabled]="loading()">
+        <option value="">Choose a project…</option>
+        @for (project of projects(); track project.id) { <option [value]="project.id">{{ project.name }}</option> }
+      </select>
+    </label>
+    @if (projectId()) {
+      @if (projectCharacters().length) {
+        <div class="st-chips" role="group" aria-label="Project characters">
+          @for (character of projectCharacters(); track character.id) {
+            <button type="button" class="st-chip" [class.on]="isPicked(character.name)" [attr.aria-pressed]="isPicked(character.name)"
+              (click)="toggleCharacter(character)">
+              {{ isPicked(character.name) ? '✓' : '+' }} {{ character.name }}
+            </button>
+          }
+        </div>
+      } @else {
+        <p class="muted">This project has no characters yet. <a [routerLink]="['/projects', projectId(), 'characters']">Open its character page</a>.</p>
+      }
+    }
+    <details>
+      <summary>Add a new character</summary>
+      <div class="st-row">
+        <label>Name <input maxlength="60" [ngModel]="newName()" (ngModelChange)="newName.set($event)" /></label>
+        <label>Gender
+          <select [ngModel]="newGender()" (ngModelChange)="newGender.set($event)">
+            <option value="">Any</option><option value="male">Male</option><option value="female">Female</option>
+          </select>
+        </label>
+        <label>Age
+          <select [ngModel]="newAge()" (ngModelChange)="newAge.set($event)">
+            <option value="">Any</option><option value="child">Child</option><option value="young">Young</option>
+            <option value="adult">Adult</option><option value="elder">Elder</option>
+          </select>
+        </label>
+      </div>
+      <label>Look <span class="muted">(English: body, face, hair, clothes, colours)</span>
+        <input maxlength="300" [ngModel]="newLook()" (ngModelChange)="newLook.set($event)" placeholder="chubby boy, messy black hair, yellow t-shirt" />
+      </label>
+      <button type="button" class="secondary" [disabled]="!newName().trim()" (click)="addCharacter()">Add character</button>
+    </details>
+    @if (picked().length) {
+      <ul class="st-cast">
+        @for (character of picked(); track character.name) {
+          <li>
+            <strong>{{ character.name }}</strong>
+            @if (character.fromLibrary) { <span class="st-badge ok">from library</span> } @else { <span class="st-badge">new</span> }
+            <span class="muted">{{ character.gender || '' }} {{ character.age || '' }}</span>
+            <span>{{ character.look || 'No look given — the AI tool will describe one.' }}</span>
+            <button type="button" class="link" (click)="removeCharacter(character.name)" [attr.aria-label]="'Remove ' + character.name">Remove</button>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="muted">No characters chosen: the AI tool will invent them.</p>
+    }
+  </section>
+
+  <!-- 3. memes -->
+  <section class="card st-section">
+    <h2>3. Memes for funny endings</h2>
+    <p class="muted">Pick the memes the AI tool may use. After the scene, the build plays the meme right from your library.
+      Only MP4 clips and pictures can be played. A meme name your library does not have (matched by name or tag) holds the scene's last picture as a freeze-frame under its caption instead.</p>
+    @if (memeLibrary().length) {
+      <div class="st-chips" role="group" aria-label="Memes">
+        @for (meme of memeLibrary(); track meme.id) {
+          <button type="button" class="st-chip" [class.on]="memeIds().has(meme.id)" [attr.aria-pressed]="memeIds().has(meme.id)"
+            (click)="toggleMeme(meme.id)">
+            {{ memeIds().has(meme.id) ? '✓' : '+' }} {{ meme.name }} <span class="muted">{{ meme.kind === 'Video' ? '🎞' : '🖼' }}</span>
+          </button>
+        }
+      </div>
+    } @else if (!loading()) {
+      <p class="muted">Your library has no memes yet. <a routerLink="/memes">Add some</a>, then come back.</p>
+    }
+  </section>
+
+  <!-- 4. the template -->
+  <section class="card st-section">
+    <h2>4. Template for your AI tool</h2>
+    <p>Copy this and paste it into ChatGPT, Gemini or any chat. It updates as you change the choices above.
+      Ask the tool to reply with the JSON only.</p>
+    <textarea aria-label="Template prompt" rows="12" readonly [value]="prompt()"></textarea>
+    <div class="st-actions">
+      <button type="button" (click)="copy(prompt(), 'Template')">Copy template</button>
+      <button type="button" class="secondary" (click)="downloadPrompt()">Download prompt (.txt)</button>
+      <button type="button" class="secondary" (click)="downloadTemplate()">Download JSON only</button>
+    </div>
+    <p class="muted">The prompt includes your idea, character names and looks, and meme names. That text goes to whichever tool you paste it into.</p>
+  </section>
+
+  <!-- 5. the reply -->
+  <section class="card st-section">
+    <h2>5. Paste the filled template</h2>
+    <label for="st-reply">The AI tool's reply (a story pack, or a single story file)</label>
+    <textarea id="st-reply" rows="12" [ngModel]="reply()" (ngModelChange)="updateReply($event)"
+      placeholder="Paste the whole JSON reply here. The preview below updates as you type."></textarea>
+    <div class="st-actions">
+      <label class="st-file">Or upload a file <input type="file" accept=".json,.txt,application/json,text/plain" (change)="pickFile($event)" /></label>
+      <button type="button" class="secondary" [disabled]="!pack()" (click)="autoFix()">Auto-fix common problems</button>
+      <button type="button" class="secondary" [disabled]="!pack()" (click)="downloadPack()">Download pack</button>
+      <button type="button" class="secondary" [disabled]="!reply()" (click)="clearReply()">Clear</button>
+    </div>
+    @if (parseError(); as problem) { <div class="notice error" role="alert">{{ problem }}</div> }
+  </section>
+
+  <!-- 6. the live preview -->
+  @if (review(); as preview) {
+    <section class="card st-section">
+      <h2>6. Live preview: {{ preview.title }}</h2>
+      <p>
+        {{ preview.episodes.length }} episode(s) ·
+        @if (preview.warningCount) { <span class="st-warn">{{ preview.warningCount }} thing(s) to check</span> }
+        @else { <span class="st-ok">Everything looks right</span> }
+      </p>
+      <div class="st-actions">
+        <button type="button" class="secondary" (click)="copy(characterPrompts(), 'Character prompts')">Copy character prompts</button>
+        <button type="button" class="secondary" (click)="copy(backgroundPrompts(), 'Background prompts')">Copy background prompts</button>
+      </div>
+      <p class="muted">Use these in any free image tool to make character sheets and empty backgrounds, then attach the pictures to each scene in Story Agent.</p>
+
+      @for (episode of preview.episodes; track episode.number) {
+        <article class="st-episode">
+          <header class="st-episode-head">
+            <h3>Episode {{ episode.number }}: {{ episode.title }}</h3>
+            <span class="muted">{{ episode.scenes.length }} scenes · about {{ formatSeconds(episode.seconds) }} · {{ episode.memeCount }} funny ending(s)</span>
+          </header>
+          @if (episode.summary) { <p>{{ episode.summary }}</p> }
+          <div class="st-chips">
+            @for (member of episode.cast; track member.name) {
+              <span class="st-chip static" [title]="member.look || 'No look given'">
+                {{ member.name }} @if (member.fromLibrary) { <span class="st-badge ok">library</span> }
+              </span>
+            }
+          </div>
+          @if (episode.warnings.length) {
+            <details class="notice error" open>
+              <summary>{{ episode.warnings.length }} thing(s) to check</summary>
+              <ul>@for (warning of episode.warnings; track $index) { <li>{{ warning }}</li> }</ul>
+            </details>
+          }
+          <ol class="st-scenes">
+            @for (scene of episode.scenes; track scene.number) {
+              <li class="st-scene">
+                <h4>{{ scene.number }}. {{ scene.headline }} <span class="muted">~{{ formatSeconds(scene.seconds) }}</span></h4>
+                <dl>
+                  <dt>🏞 Background</dt><dd>{{ scene.background || '—' }}</dd>
+                  <dt>👥 On screen</dt><dd>{{ scene.onScreen.join(', ') || '—' }}</dd>
+                  <dt>🎬 Action</dt><dd>{{ scene.action || '—' }}</dd>
+                  <dt>🎥 Camera</dt>
+                  <dd>{{ scene.camera || 'auto' }}@if (scene.cameraSpeed) { ({{ scene.cameraSpeed }}) } → {{ scene.transition || 'auto cut' }}</dd>
+                </dl>
+                <ul class="st-lines">
+                  @for (line of scene.lines; track $index) {
+                    <li><strong>{{ line.speaker }}</strong> {{ line.emoji }} <span class="muted">{{ line.emotion || '' }}</span>: {{ line.text }}</li>
+                  } @empty {
+                    <li><strong>narrator</strong>: {{ scene.narration }}</li>
+                  }
+                </ul>
+                @if (scene.meme; as meme) {
+                  <p class="st-meme" [class.missing]="!meme.found">
+                    😂 Funny ending: <strong>{{ meme.name }}</strong>
+                    @if (meme.caption) { — “{{ meme.caption }}” }
+                    @if (meme.seconds) { ({{ meme.seconds }}s) }
+                    @if (!meme.found) { <span class="st-badge">not in library: freeze-frame</span> }
+                  </p>
+                }
+              </li>
+            }
+          </ol>
+          <div class="st-actions">
+            @if (resultFor(episode.number); as result) {
+              @if (result.runId) { <a class="button" [routerLink]="['/story-agent', result.runId]">Open episode {{ episode.number }} in Story Agent →</a> }
+              @else { <span class="st-warn">{{ result.error }}</span>
+                <button type="button" class="secondary" [disabled]="busy()" (click)="importEpisodes(episode.number)">Try again</button> }
+            } @else {
+              <button type="button" class="secondary" [disabled]="busy()" (click)="importEpisodes(episode.number)">Create only this episode</button>
+            }
+          </div>
+        </article>
+      }
+    </section>
+
+    <!-- 7. create -->
+    <section class="card st-section">
+      <h2>7. Create the stories</h2>
+      <p>Each episode becomes its own Story Agent story, ready for review. The server checks every script again.
+        Nothing is built until you open an episode and press Build.
+        @if (visuals() === 'UploadsOnly') { Pictures use your uploads or a plain placeholder, so no image credits are spent. }</p>
+      <div class="st-actions">
+        <button type="button" [disabled]="busy()" (click)="importEpisodes()">
+          {{ busy() ? 'Creating…' : 'Create all ' + preview.episodes.length + ' episode(s)' }}
+        </button>
+      </div>
+      @if (results().length) {
+        <ul>
+          @for (result of results(); track result.episode) {
+            <li>Episode {{ result.episode }} — {{ result.title }}:
+              @if (result.runId) { <a [routerLink]="['/story-agent', result.runId]">open</a> } @else { <span class="st-warn">{{ result.error }}</span> }
+            </li>
+          }
+        </ul>
+      }
+    </section>
+  }
+
+  @if (error(); as problem) { <div class="notice error" role="alert">{{ problem }}</div> }
+  @if (notice(); as message) { <div class="notice" role="status">{{ message }}</div> }
+</section>

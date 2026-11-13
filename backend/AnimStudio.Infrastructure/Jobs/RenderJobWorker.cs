@@ -209,7 +209,8 @@ public sealed class RenderJobWorker(
                 Options.SubtitleFontSize,
                 lease,
                 DeliveryProfile(),
-                Options.IntermediatePreset);
+                Options.IntermediatePreset,
+                Math.Clamp(Options.MaxConcurrentScenes, 1, 6));
 
             await orchestrator.ExecuteAsync(job, leaseOwner, settings, ct).ConfigureAwait(false);
         }

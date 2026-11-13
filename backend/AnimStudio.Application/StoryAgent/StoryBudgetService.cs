@@ -283,6 +283,18 @@ public sealed class StoryBudgetService(
                         || s.AudioKey != StoryObjectKeys.Narration(run.Id, s.Number, StoryNarrator.Fingerprint(plan, s)))
                     .Sum(s => StoryNarrator.RequestsFor(plan, s));
 
+                // The dub is one more request a scene, on the same engine, for each scene not spoken in it yet.
+                if (run.Options.Dub)
+                {
+                    var language = StoryDub.LanguageOf(run);
+                    var dub = StoryNarrator.PlanDub(plan, language);
+                    if ((dub.Engine ?? registry.SpeechChain().FirstOrDefault()?.Id.Value) == engine)
+                    {
+                        requests += script.Scenes.Count(s => StoryDub.TextOf(s, language) is not { } text || s.DubAudioSeconds is not > 0
+                            || s.DubAudioKey != StoryObjectKeys.DubNarration(run.Id, s.Number, language, StoryNarrator.Fingerprint(dub, text)));
+                    }
+                }
+
                 if (requests > 0)
                 {
                     var model = plan.Model ?? ModelFor(engine);

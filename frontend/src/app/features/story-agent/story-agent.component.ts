@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { BrandChannel, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import {
   CreateStoryRunBody,
   StoryAgentOptions,
@@ -15,11 +16,13 @@ import {
   StoryTopic,
   StoryWriterMode,
 } from '../../core/models/story-agent.models';
+import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { StoryImportDialogComponent } from './story-import-dialog.component';
 import { StoryOptionsComponent } from './story-options.component';
 import { STATUS_LABEL, saveStoryFile, statusTone, timeAgo } from './story-agent.utils';
+import { COMEDY_TEMPLATES, ComedyTemplateId, comedyNotes } from './comedy-templates';
 
 /** The page's two halves: the stories already started, and a new one. */
 export type StoryAgentView = 'stories' | 'new';
@@ -62,6 +65,7 @@ const LIST_POLL_MS = 4000;
 
 /** Lengths a story is offered in. The script is written to about this; it is a target, not a promise. */
 const LENGTHS: { minutes: number; label: string }[] = [
+  { minutes: 0.5, label: 'About 30 seconds' },
   { minutes: 1, label: 'About 1 minute' },
   { minutes: 2.5, label: 'About 2½ minutes' },
   { minutes: 4, label: 'About 4 minutes' },
@@ -84,6 +88,7 @@ export class StoryAgentComponent {
   private readonly stories = inject(StoryAgentService);
   private readonly router = inject(Router);
   private readonly status = inject(StatusService);
+  private readonly api = inject(ApiService);
 
   readonly caps = signal<StoryAgentOptions | null>(null);
   readonly capsError = signal<string | null>(null);
@@ -96,6 +101,13 @@ export class StoryAgentComponent {
 
   readonly title = signal('');
   readonly notes = signal('');
+  readonly comedyTemplate = signal<ComedyTemplateId>('none');
+  readonly comedyCount = signal(3);
+  readonly comedyTemplates = COMEDY_TEMPLATES;
+  readonly preparedNotes = computed(() => this.genre()?.id === 'funny' && this.writer() !== 'BuiltIn'
+    ? comedyNotes(this.comedyTemplate(), this.comedyCount(), this.notes())
+    : this.notes().trim());
+  readonly notesTooLong = computed(() => this.preparedNotes().length > 2000);
   readonly language = signal<'hi' | 'en'>('hi');
   readonly minutes = signal(2.5);
   readonly format = signal<StoryFormat>('Wide');
@@ -107,6 +119,13 @@ export class StoryAgentComponent {
   readonly showAllTopics = signal(false);
   /** The engine that writes the script; '' walks the server's chain. */
   readonly textEngine = signal('');
+  /** The brand channels this person may make a story for; only the default one for someone who is not an administrator. */
+  readonly channels = signal<BrandChannel[]>([]);
+  /**
+   * The channel the story is for. Null until the person picks one when there is a choice: a story's project, watermark,
+   * end card and YouTube channel all follow it, so it is never guessed.
+   */
+  readonly channelId = signal<string | null>(null);
 
   /** Null until the person or the first list answer decides, so an empty list can open on a new story. */
   readonly view = signal<StoryAgentView | null>(null);
@@ -141,13 +160,19 @@ export class StoryAgentComponent {
   });
   readonly pack = computed(() => this.packs().find((pack) => pack.id === this.packId()) ?? null);
   readonly titleTooShort = computed(() => this.writer() !== 'BuiltIn' && this.title().trim().length < 3);
+  /** A choice of channel is offered only when there is more than one. */
+  readonly choosesChannel = computed(() => this.channels().length > 1);
+  readonly channel = computed(() => this.channels().find((c) => c.id === this.channelId()) ?? null);
+  readonly channelMissing = computed(() => this.choosesChannel() && !this.channel());
 
   /** Why Start is not pressed yet, in words, or null when it can be. */
   readonly missing = computed(() => {
     const caps = this.caps();
     if (!caps) return 'Loading…';
     if (!caps.enabled) return 'The Story Agent is switched off on this server.';
+    if (this.channelMissing()) return 'Pick the channel this story is for.';
     if (this.writer() === 'BuiltIn') return this.pack() ? null : 'Pick one of the built-in stories.';
+    if (this.notesTooLong()) return 'Shorten the points to cover; the template and your notes together must fit within 2000 characters.';
     return this.titleTooShort() ? 'Give the story a title.' : null;
   });
 
@@ -159,7 +184,7 @@ export class StoryAgentComponent {
 
   /** Which steps still need something before Start, so the step strip can mark them. */
   readonly stepMissing = computed<Record<NewStoryStep, boolean>>(() => ({
-    story: this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort(),
+    story: this.channelMissing() || (this.writer() === 'BuiltIn' ? !this.pack() : this.titleTooShort() || this.notesTooLong()),
     telling: false,
     making: false,
     start: this.missing() !== null,
@@ -190,7 +215,10 @@ export class StoryAgentComponent {
       : this.writer() === 'Manual' ? 'You, from a chat' : 'A built-in story';
     const length = LENGTHS.find((l) => l.minutes === this.minutes())?.label ?? `${this.minutes()} minutes`;
     return [
+      ...(this.choosesChannel() ? [{ label: 'Channel', value: this.channel()?.name ?? '—', step: 'story' as NewStoryStep }] : []),
       { label: 'Kind', value: this.genre()?.name ?? 'Devotional', step: 'story' as NewStoryStep },
+      ...(this.genre()?.id === 'funny' && !builtIn && this.comedyTemplate() !== 'none'
+        ? [{ label: 'Comedy format', value: this.comedyTemplates.find((t) => t.id === this.comedyTemplate())?.label ?? '', step: 'story' as NewStoryStep }] : []),
       { label: builtIn ? 'Story' : 'Title', value: (builtIn ? this.pack()?.titleEnglish : this.title().trim()) || '—', step: 'story' as NewStoryStep },
       { label: 'Written by', value: writer, step: 'story' as NewStoryStep },
       { label: 'Language', value: this.language() === 'en' ? 'English' : 'Hindi', step: 'telling' as NewStoryStep },
@@ -207,9 +235,12 @@ export class StoryAgentComponent {
   private destroyed = false;
 
   constructor() {
-    // `?title=&notes=&format=` - an idea from the channel analysis or a series, to start a story from.
+    // `?title=&notes=&format=&genre=&lang=` - an idea from the channel analysis or a series, to start a story from.
+    // The genre is applied first, since picking one resets the language, length and shape to its own.
     const query = inject(ActivatedRoute).snapshot.queryParamMap;
     const format = query.get('format');
+    const genreId = query.get('genre');
+    const lang = query.get('lang');
     if (query.get('title')) this.title.set(query.get('title')!.slice(0, 160));
     if (query.get('notes')) this.notes.set(query.get('notes')!.slice(0, 2000));
     // `?tab=new|stories` opens that half; an idea to start from opens a new story.
@@ -221,11 +252,15 @@ export class StoryAgentComponent {
       next: (caps) => {
         this.caps.set(caps);
         this.applyDefaults(caps);
+        const wanted = genreId ? caps.genres?.find((g) => g.id === genreId) : undefined;
+        if (wanted) this.setGenre(wanted);
+        if (lang === 'en' || lang === 'hi') this.language.set(lang);
         if (format === 'Wide' || format === 'Vertical') this.format.set(format);
       },
       error: (failure: unknown) => this.capsError.set(failure instanceof ApiFailure ? failure.message : 'The Story Agent could not be reached.'),
     });
     this.refresh();
+    this.loadChannels(query.get('channel'));
 
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
@@ -238,6 +273,8 @@ export class StoryAgentComponent {
     const mine = caps.speechEngine ? caps.myVoices.find((voice) => voice.tuned) : undefined;
     this.options.set({
       narration: mine ? 'MyVoice' : caps.speechEngine ? 'Stock' : 'None',
+      matchClipDuration: true,
+      keepClipAudio: false,
       voiceProfileId: mine?.id ?? null,
       voiceId: null,
       speechEngine: null,
@@ -280,6 +317,32 @@ export class StoryAgentComponent {
     const packs = this.packs();
     this.packId.set(packs[0]?.id ?? null);
     if (this.writer() === 'BuiltIn' && packs.length === 0) this.writer.set(this.caps()?.textModel ? 'Auto' : 'Manual');
+  }
+
+  /**
+   * The channels to choose from. With only one there is nothing to choose; with more, none is picked unless the link
+   * names one (`?channel=`), so the person decides before the story starts.
+   */
+  private loadChannels(wanted: string | null): void {
+    this.api.listBrandChannels().subscribe({
+      next: (channels) => {
+        if (this.destroyed) return;
+        this.channels.set(channels);
+        if (channels.length === 1) this.channelId.set(channels[0].id);
+        else if (wanted && channels.some((c) => c.id === wanted)) this.channelId.set(wanted);
+      },
+      // Without the list the story is made for the default channel, as it always was.
+      error: () => {
+        if (this.destroyed) return;
+        this.channels.set([]);
+        this.channelId.set(null);
+      },
+    });
+  }
+
+  pickChannel(id: string): void {
+    this.channelId.set(id);
+    this.startError.set(null);
   }
 
   // ------------------------------------------------------------------------------------------------ the list
@@ -361,6 +424,11 @@ export class StoryAgentComponent {
     this.startError.set(null);
   }
 
+  setComedyTemplate(value: string): void {
+    const template = this.comedyTemplates.find((item) => item.id === value);
+    if (template) this.comedyTemplate.set(template.id);
+  }
+
   async start(): Promise<void> {
     if (this.starting()) return;
     if (this.missing()) {
@@ -368,7 +436,7 @@ export class StoryAgentComponent {
       return;
     }
     const builtIn = this.writer() === 'BuiltIn';
-    const notes = this.notes().trim();
+    const notes = this.preparedNotes();
 
     const body: CreateStoryRunBody = {
       title: builtIn ? undefined : this.title().trim(),
@@ -381,6 +449,7 @@ export class StoryAgentComponent {
       packId: builtIn ? (this.packId() ?? undefined) : undefined,
       genreId: this.genre()?.id,
       textEngine: this.writer() !== 'BuiltIn' && this.textEngine() ? this.textEngine() : undefined,
+      brandChannelId: this.channel() && this.channel()!.id !== DEFAULT_BRAND_CHANNEL ? this.channel()!.id : undefined,
       options: this.options() ?? undefined,
     };
 

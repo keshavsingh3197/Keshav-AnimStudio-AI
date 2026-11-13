@@ -7,18 +7,23 @@ import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   EditStorySceneBody,
   EditStoryScriptBody,
+  StoryShot,
   StoryBasis,
   StoryRun,
   StoryScene,
   StoryScript,
   StorySource,
+  StoryFace,
 } from '../../core/models/story-agent.models';
 import { StatusService } from '../../core/services/status.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import {
   CLIP_ACCEPT,
+  MAX_SHOTS,
   PICTURE_ACCEPT,
+  STORY_EMOTIONS,
+  THUMBNAIL_FILE,
   basisLabel,
   clipPrompts,
   clipProblem,
@@ -26,10 +31,13 @@ import {
   clock,
   copyText,
   estimateSeconds,
+  isThumbnailFile,
   matchPictures,
   pictureFileName,
   picturePrompts,
   pictureProblem,
+  shotFileName,
+  shotOf,
 } from './story-agent.utils';
 
 /** The words of the script, or its pictures: the same draft, shown on two tabs of the story page. */
@@ -56,6 +64,22 @@ interface DraftScene {
   videoPrompt: string;
   imageKeywords: string[];
   mood: string | null;
+  shots: DraftShot[];
+  /** Who says which part of the narration, as the server split it; only each line's emotion is edited here. */
+  lines: DraftLine[];
+}
+
+interface DraftLine {
+  speaker: string;
+  text: string;
+  emotion: string | null;
+}
+
+/** One of a scene's further pictures as edited. `picture` is the number the server gave it (0: added here), which keeps its picture with it. */
+interface DraftShot {
+  key: number;
+  picture: number;
+  prompt: string;
 }
 
 interface DraftMeta {
@@ -63,6 +87,7 @@ interface DraftMeta {
   titleEnglish: string;
   summary: string;
   musicQuery: string;
+  thumbnailPrompt: string;
 }
 
 const MAX_SCENES = 60;
@@ -103,14 +128,24 @@ export class StoryScriptEditorComponent {
     { id: 'Reflection', label: 'Reflection' },
   ];
 
-  readonly meta = signal<DraftMeta>({ title: '', titleEnglish: '', summary: '', musicQuery: '' });
+  readonly meta = signal<DraftMeta>({ title: '', titleEnglish: '', summary: '', musicQuery: '', thumbnailPrompt: '' });
   readonly draft = signal<DraftScene[]>([]);
   readonly dirty = signal(false);
   readonly saving = signal(false);
   /** The scene a picture is being sent for, or 0 while several are. */
   readonly sending = signal<number | null>(null);
+  /** A further picture ("3.2": scene 3, picture 2) or the thumbnail ("thumb") being sent or taken off. */
+  readonly sendingShot = signal<string | null>(null);
+  /** Anything is being sent, so no other picture is sent alongside it. */
+  readonly busy = computed(() => this.sending() !== null || this.sendingShot() !== null);
+  readonly maxShots = MAX_SHOTS;
+  readonly thumbnailFile = THUMBNAIL_FILE;
   readonly error = signal<string | null>(null);
   readonly copied = signal<string | null>(null);
+  /** The speaker whose mouth is being placed with a click on their scene's picture. */
+  readonly placing = signal<{ scene: number; name: string } | null>(null);
+  /** Each scene picture's own width over height, once it has loaded, for placing marks on it as it is cropped. */
+  readonly pictureAspects = signal<Record<number, number>>({});
 
   /** Object URLs of the pictures, by what identifies that picture; revoked when replaced and on leave. */
   readonly pictures = signal<Record<string, string>>({});
@@ -129,7 +164,8 @@ export class StoryScriptEditorComponent {
   private queue: Promise<unknown> = Promise.resolve();
   private loadingPictures = false;
   private readonly failed = new Set<string>();
-  private readonly versions = new Map<number, number>();
+  /** How many times each picture was replaced here, by its id ("3", "3.2", "thumb"), so a replaced one is fetched again. */
+  private readonly versions = new Map<string, number>();
 
   constructor() {
     effect(() => {
@@ -160,6 +196,7 @@ export class StoryScriptEditorComponent {
       titleEnglish: script?.titleEnglish ?? '',
       summary: script?.summary ?? '',
       musicQuery: script?.musicQuery ?? '',
+      thumbnailPrompt: script?.thumbnailPrompt ?? '',
     });
     this.draft.set((script?.scenes ?? []).map((scene) => this.toDraft(scene)));
     this.dirty.set(false);
@@ -184,6 +221,8 @@ export class StoryScriptEditorComponent {
       videoPrompt: scene.videoPrompt ?? '',
       imageKeywords: [...scene.imageKeywords],
       mood: scene.mood,
+      shots: (scene.shots ?? []).map((shot) => ({ key: ++this.nextKey, picture: shot.picture, prompt: shot.imagePrompt ?? '' })),
+      lines: (scene.lines ?? []).map((line) => ({ speaker: line.speaker, text: line.text, emotion: line.emotion ?? null })),
     };
   }
 
@@ -195,6 +234,21 @@ export class StoryScriptEditorComponent {
 
   badge = checkBadge;
   basis = basisLabel;
+  readonly emotions = STORY_EMOTIONS;
+
+  /** "Narrator" for the narrator's lines, the character's name otherwise. */
+  speakerLabel(line: DraftLine): string {
+    return line.speaker === 'narrator' ? 'Narrator' : line.speaker;
+  }
+
+  emojiOf(emotion: string | null): string {
+    return this.emotions.find((e) => e.id === emotion)?.emoji ?? '💬';
+  }
+
+  setEmotion(line: DraftLine, emotion: string): void {
+    line.emotion = emotion || null;
+    this.touch();
+  }
 
   /** How long a scene takes: the real narration when it exists and the words are unchanged, otherwise an estimate. */
   seconds(scene: DraftScene): number {
@@ -230,7 +284,7 @@ export class StoryScriptEditorComponent {
     if (!this.canAdd()) return;
     const scene: DraftScene = {
       key: ++this.nextKey, number: 0, headline: '', narration: '', english: '', basis: 'Reflection',
-      sources: [], imagePrompt: '', videoPrompt: '', imageKeywords: [], mood: null,
+      sources: [], imagePrompt: '', videoPrompt: '', imageKeywords: [], mood: null, shots: [], lines: [],
     };
     this.draft.update((list) => [...list.slice(0, after + 1), scene, ...list.slice(after + 1)]);
     this.touch();
@@ -315,6 +369,8 @@ export class StoryScriptEditorComponent {
       videoPrompt: draft.videoPrompt.trim() || null,
       imageKeywords: draft.imageKeywords,
       mood: draft.mood,
+      shots: draft.shots.map((shot) => ({ picture: shot.picture, imagePrompt: shot.prompt.trim() || null })),
+      lineEmotions: draft.lines.length ? draft.lines.map((line) => line.emotion) : null,
     });
 
     return {
@@ -322,11 +378,18 @@ export class StoryScriptEditorComponent {
       titleEnglish: meta.titleEnglish.trim() || null,
       summary: meta.summary.trim() || null,
       musicQuery: meta.musicQuery.trim() || null,
+      thumbnailPrompt: meta.thumbnailPrompt.trim(),
       scenes: this.draft().map(scene),
     };
   }
 
   // ------------------------------------------------------------------------------------------------ pictures
+
+  /** The staging a story template gave the scene; null for a scene without any. Kept by the server across edits. */
+  stagingOf(number: number): StoryScene | null {
+    const scene = this.byNumber().get(number);
+    return scene && (scene.background || scene.action || scene.onScreen?.length || scene.meme) ? scene : null;
+  }
 
   /** The picture to show for a scene, once it has arrived. */
   pictureOf(number: number): string | null {
@@ -352,18 +415,118 @@ export class StoryScriptEditorComponent {
   /** Where a scene's picture came from, in a few words. */
   pictureNote(number: number): string {
     const scene = this.byNumber().get(number);
-    if (!scene?.hasImage) return '';
-    // The server names the image engine that drew a picture by its provider id.
-    switch (scene.imageSource) {
-      case 'upload': return scene.imageName ? `Yours · ${scene.imageName}` : 'Your picture';
-      case 'placeholder': return 'A plain background, because no picture was attached';
-      case null: case '': return '';
-      default: return `Drawn by the AI image engine (${scene.imageSource})`;
+    return scene?.hasImage ? sourceNote(scene.imageSource, scene.imageName) : '';
+  }
+
+  // ------------------------------------------------------------------------------------------------ speaker mouth positions
+
+  /** The characters who speak in the scene, for optional mouth-position metadata. */
+  speakersOf(scene: DraftScene): string[] {
+    const names: string[] = [];
+    for (const line of scene.lines) {
+      const name = line.speaker.trim();
+      if (!name || name.toLowerCase() === 'narrator' || !line.text.trim()) continue;
+      if (!names.some((n) => n.toLowerCase() === name.toLowerCase())) names.push(name);
+    }
+    return names;
+  }
+
+  /** The faces in the scene's picture; null until a build has looked for them. */
+  facesOf(number: number): StoryFace[] | null {
+    return this.byNumber().get(number)?.faces ?? null;
+  }
+
+  faceFor(number: number, name: string): StoryFace | null {
+    return this.facesOf(number)?.find((f) => f.name.toLowerCase() === name.toLowerCase()) ?? null;
+  }
+
+  onPictureLoad(number: number, event: Event): void {
+    const img = event.target as HTMLImageElement;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    this.pictureAspects.update((all) => ({ ...all, [number]: img.naturalWidth / img.naturalHeight }));
+  }
+
+  /** Where a face's mark sits on the frame, in percent, with the picture cropped to fill it. */
+  markAt(number: number, face: StoryFace): { left: number; top: number } {
+    const { cropX, cropY } = this.crop(number);
+    return { left: ((face.x - cropX) / (1 - 2 * cropX)) * 100, top: ((face.y - cropY) / (1 - 2 * cropY)) * 100 };
+  }
+
+  startPlacing(scene: DraftScene, name: string): void {
+    const now = this.placing();
+    this.placing.set(now?.scene === scene.number && now.name === name ? null : { scene: scene.number, name });
+  }
+
+  /** A click on the picture while placing: that speaker's mouth is there. */
+  async placeAt(scene: DraftScene, event: MouseEvent): Promise<void> {
+    const placing = this.placing();
+    if (!placing || placing.scene !== scene.number || this.locked() || this.dirty()) return;
+
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const { cropX, cropY } = this.crop(scene.number);
+    const x = cropX + ((event.clientX - rect.left) / rect.width) * (1 - 2 * cropX);
+    const y = cropY + ((event.clientY - rect.top) / rect.height) * (1 - 2 * cropY);
+    const others = (this.facesOf(scene.number) ?? []).filter((f) => f.name.toLowerCase() !== placing.name.toLowerCase());
+    // A face placed for the first time is sized like the others in the picture, or as a typical face.
+    const width = this.faceFor(scene.number, placing.name)?.width
+      ?? (others.length ? others.reduce((sum, f) => sum + f.width, 0) / others.length : this.vertical() ? 0.16 : 0.08);
+    this.placing.set(null);
+    await this.saveFaces(scene, [...others, { name: placing.name, x: clamp01(x), y: clamp01(y), width, manual: true }]);
+  }
+
+  async removeFace(scene: DraftScene, name: string): Promise<void> {
+    const faces = (this.facesOf(scene.number) ?? []).filter((f) => f.name.toLowerCase() !== name.toLowerCase());
+    await this.saveFaces(scene, faces);
+  }
+
+  /** Forgets the scene picture's faces, so the next build finds them again. */
+  async findFacesAgain(scene: DraftScene): Promise<void> {
+    if (this.locked() || this.dirty()) return;
+    this.sending.set(scene.number);
+    try {
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.resetFaces(this.run().id, scene.number, 1)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'The faces could not be reset.');
+    } finally {
+      this.sending.set(null);
     }
   }
 
+  private async saveFaces(scene: DraftScene, faces: StoryFace[]): Promise<void> {
+    if (this.locked() || this.dirty()) return;
+    this.sending.set(scene.number);
+    try {
+      const body = faces.map(({ name, x, y, width }) => ({ name, x, y, width }));
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.placeFaces(this.run().id, scene.number, 1, body)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'The faces could not be saved.');
+    } finally {
+      this.sending.set(null);
+    }
+  }
+
+  /** How much of the picture is cut off each side to fill the frame (object-fit: cover), as fractions of it. */
+  private crop(number: number): { cropX: number; cropY: number } {
+    const frame = this.vertical() ? 9 / 16 : 16 / 9;
+    const picture = this.pictureAspects()[number] ?? frame;
+    return picture > frame
+      ? { cropX: (1 - frame / picture) / 2, cropY: 0 }
+      : { cropX: 0, cropY: (1 - picture / frame) / 2 };
+  }
+
   private pictureKey(scene: StoryScene): string {
-    return `${scene.number}:${this.versions.get(scene.number) ?? 0}:${scene.imageSource ?? ''}:${scene.imageName ?? ''}`;
+    return this.keyOf(String(scene.number), scene.imageSource, scene.imageName);
+  }
+
+  /** Identifies one version of a picture: its id, how often it was replaced here, and what the server says it is. */
+  private keyOf(id: string, source: string | null | undefined, name: string | null | undefined): string {
+    return `${id}:${this.versions.get(id) ?? 0}:${source ?? ''}:${name ?? ''}`;
+  }
+
+  private bump(id: string): void {
+    this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
 
   async attach(scene: DraftScene, file: File | undefined): Promise<void> {
@@ -399,7 +562,8 @@ export class StoryScriptEditorComponent {
 
   /**
    * Several pictures at once - the whole set from an image tool. A file named by its scene (01.png, scene-3.jpg) goes to
-   * that scene; otherwise the files go to the scenes in file-name order.
+   * that scene; otherwise the files go to the scenes in file-name order. A scene's further pictures (01-2.png) go after
+   * its own, in order, and thumbnail.png becomes the thumbnail.
    */
   async attachMany(files: File[]): Promise<void> {
     const refused = files.map(pictureProblem).find((problem) => problem !== null);
@@ -408,13 +572,22 @@ export class StoryScriptEditorComponent {
       return;
     }
 
+    const thumbnail = files.find((file) => isThumbnailFile(file.name));
+    const shotFiles = files
+      .filter((file) => file !== thumbnail && shotOf(file.name) !== null)
+      .map((file) => ({ file, ...shotOf(file.name)! }))
+      .sort((a, b) => a.scene - b.scene || a.picture - b.picture);
+    const sceneFiles = files.filter((file) => file !== thumbnail && shotOf(file.name) === null);
+
     const scenes = this.draft();
-    const { byNumber, slots } = matchPictures(files.map((file) => file.name), scenes.length);
+    const { byNumber, slots } = matchPictures(sceneFiles.map((file) => file.name), scenes.length);
     // A scene added here and not saved yet has no number on the server, so nothing can be attached to it.
-    const plan = files
+    const plan = sceneFiles
       .map((file, at) => ({ file, position: slots[at] }))
       .filter((item) => item.position >= 0 && scenes[item.position].number > 0)
       .sort((a, b) => a.position - b.position);
+    // Further pictures need the words saved, so the server's numbering of each scene's pictures is the one on screen.
+    const shots = this.dirty() ? [] : shotFiles.filter((item) => scenes[item.scene - 1]?.number > 0);
 
     this.sending.set(0);
     let added = 0;
@@ -423,9 +596,24 @@ export class StoryScriptEditorComponent {
         await this.upload(scenes[item.position].number, item.file);
         added++;
       }
-      const skipped = files.length - plan.length;
+      // A picture numbered past the scene's last goes on after it, so 01-4.png with no 01-3.png still lands.
+      const counts = new Map((this.run().script?.scenes ?? []).map((scene) => [scene.number, scene.shots?.length ?? 0]));
+      for (const item of shots) {
+        const number = scenes[item.scene - 1].number;
+        const count = counts.get(number) ?? 0;
+        const picture = Math.min(item.picture, count + 2);
+        await this.uploadShot(number, picture, item.file);
+        if (picture === count + 2) counts.set(number, count + 1);
+        added++;
+      }
+      if (thumbnail) {
+        await this.uploadThumbnail(thumbnail);
+        added++;
+      }
+      const skipped = files.length - added;
       const where = byNumber ? 'by the number in each file name' : 'in file-name order';
-      this.status.showNotice(`Added ${added} picture${added === 1 ? '' : 's'} ${where}.${skipped > 0 ? ` ${skipped} had no scene to go to, so they were left out.` : ''}`);
+      const why = this.dirty() && shotFiles.length > 0 ? ' Save your changes, then add the scenes\' further pictures (01-2.png …).' : '';
+      this.status.showNotice(`Added ${added} picture${added === 1 ? '' : 's'} ${where}.${skipped > 0 ? ` ${skipped} had no place to go, so they were left out.` : ''}${why}`);
     } catch (failure: unknown) {
       this.error.set(`${failure instanceof ApiFailure ? failure.message : 'A picture could not be added.'}${added > 0 ? ` (${added} were added before it.)` : ''}`);
     } finally {
@@ -435,7 +623,7 @@ export class StoryScriptEditorComponent {
 
   private async upload(number: number, file: File): Promise<void> {
     const updated = await this.enqueue(() => firstValueFrom(this.stories.attachImage(this.run().id, number, file)));
-    this.versions.set(number, (this.versions.get(number) ?? 0) + 1);
+    this.bump(String(number));
     this.runChange.emit(updated);
   }
 
@@ -450,6 +638,178 @@ export class StoryScriptEditorComponent {
     const files = Array.from(input.files ?? []);
     input.value = '';
     if (files.length > 0) void this.attachMany(files);
+  }
+
+  // ------------------------------------------------------------------------------------------------ further pictures
+
+  /** The server's record of a scene's further picture, by the number it gave it; null for one added here and not saved. */
+  shotOn(number: number, picture: number): StoryShot | null {
+    return picture > 0 ? (this.byNumber().get(number)?.shots?.find((shot) => shot.picture === picture) ?? null) : null;
+  }
+
+  shotPictureOf(number: number, picture: number): string | null {
+    const shot = this.shotOn(number, picture);
+    return shot?.hasImage ? (this.pictures()[this.keyOf(`${number}.${picture}`, shot.imageSource, shot.imageName)] ?? null) : null;
+  }
+
+  shotNote(number: number, picture: number): string {
+    const shot = this.shotOn(number, picture);
+    return shot?.hasImage ? sourceNote(shot.imageSource, shot.imageName) : '';
+  }
+
+  shotFile(index: number, at: number): string {
+    return shotFileName(index, this.draft().length, at + 2);
+  }
+
+  /** A prompt for one more picture, to write now and save; its picture is added after saving. */
+  addShot(scene: DraftScene): void {
+    if (scene.shots.length >= MAX_SHOTS) return;
+    scene.shots = [...scene.shots, { key: ++this.nextKey, picture: 0, prompt: '' }];
+    this.touch();
+  }
+
+  removeShot(scene: DraftScene, shot: DraftShot): void {
+    if (this.shotOn(scene.number, shot.picture)?.hasImage && !confirm('Remove this picture from the scene? It is deleted when you save.')) return;
+    scene.shots = scene.shots.filter((s) => s !== shot);
+    this.touch();
+  }
+
+  moveShot(scene: DraftScene, index: number, by: -1 | 1): void {
+    const to = index + by;
+    if (to < 0 || to >= scene.shots.length) return;
+    const next = [...scene.shots];
+    [next[index], next[to]] = [next[to], next[index]];
+    scene.shots = next;
+    this.touch();
+  }
+
+  /**
+   * Puts a picture on a further picture of a scene - `picture` 0 adds a new one after the last. Pictures go up the moment
+   * they are chosen, so this waits for the words to be saved: the server numbers the scene's pictures as it has them.
+   */
+  async attachShot(scene: DraftScene, picture: number, file: File | undefined): Promise<void> {
+    if (!file || scene.number === 0 || this.dirty()) return;
+    const problem = pictureProblem(file);
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+
+    const at = picture > 0 ? picture : (this.byNumber().get(scene.number)?.shots?.length ?? 0) + 2;
+    this.sendingShot.set(`${scene.number}.${picture}`);
+    try {
+      await this.uploadShot(scene.number, at, file);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That picture could not be added.');
+    } finally {
+      this.sendingShot.set(null);
+    }
+  }
+
+  async detachShot(scene: DraftScene, shot: DraftShot): Promise<void> {
+    if (scene.number === 0 || shot.picture === 0 || this.dirty()) return;
+    this.sendingShot.set(`${scene.number}.${shot.picture}`);
+    try {
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.removeShot(this.run().id, scene.number, shot.picture)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That picture could not be removed.');
+    } finally {
+      this.sendingShot.set(null);
+    }
+  }
+
+  private async uploadShot(number: number, picture: number, file: File): Promise<StoryRun> {
+    const updated = await this.enqueue(() => firstValueFrom(this.stories.attachShot(this.run().id, number, picture, file)));
+    this.bump(`${number}.${picture}`);
+    this.runChange.emit(updated);
+    return updated;
+  }
+
+  onPickedShot(scene: DraftScene, picture: number, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    void this.attachShot(scene, picture, input.files?.[0]);
+    input.value = '';
+  }
+
+  async copyShotPrompt(scene: DraftScene, index: number, shot: DraftShot, at: number): Promise<void> {
+    const style = this.run().options.imageStyle?.trim();
+    const context = this.context(scene);
+    const parts = [
+      context ? `What happens: ${context}` : '',
+      shot.prompt.trim(),
+      style ? `Style: ${style}` : '',
+      `${this.vertical() ? '9:16 vertical' : '16:9 wide'}. Save as ${this.shotFile(index, at)}.png`,
+    ];
+    await this.flash(`p${shot.key}`, parts.filter(Boolean).join('\n\n'), `Picture ${at + 2} of scene ${index + 1} is copied.`);
+  }
+
+  // ------------------------------------------------------------------------------------------------ the thumbnail
+
+  thumbnailPicture(): string | null {
+    const script = this.run().script;
+    return script?.hasThumbnail ? (this.pictures()[this.keyOf('thumb', script.thumbnailSource, script.thumbnailName)] ?? null) : null;
+  }
+
+  hasThumbnail(): boolean {
+    return this.run().script?.hasThumbnail ?? false;
+  }
+
+  thumbnailNote(): string {
+    const script = this.run().script;
+    return script?.hasThumbnail ? sourceNote(script.thumbnailSource ?? null, script.thumbnailName ?? null) : '';
+  }
+
+  async attachThumbnail(file: File | undefined): Promise<void> {
+    if (!file) return;
+    const problem = pictureProblem(file);
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+
+    this.sendingShot.set('thumb');
+    try {
+      await this.uploadThumbnail(file);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'That thumbnail could not be added.');
+    } finally {
+      this.sendingShot.set(null);
+    }
+  }
+
+  async detachThumbnail(): Promise<void> {
+    this.sendingShot.set('thumb');
+    try {
+      const updated = await this.enqueue(() => firstValueFrom(this.stories.removeThumbnail(this.run().id)));
+      this.runChange.emit(updated);
+    } catch (failure: unknown) {
+      this.error.set(failure instanceof ApiFailure ? failure.message : 'The thumbnail could not be removed.');
+    } finally {
+      this.sendingShot.set(null);
+    }
+  }
+
+  private async uploadThumbnail(file: File): Promise<void> {
+    const updated = await this.enqueue(() => firstValueFrom(this.stories.attachThumbnail(this.run().id, file)));
+    this.bump('thumb');
+    this.runChange.emit(updated);
+  }
+
+  onPickedThumbnail(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    void this.attachThumbnail(input.files?.[0]);
+    input.value = '';
+  }
+
+  async copyThumbnailPrompt(): Promise<void> {
+    const style = this.run().options.imageStyle?.trim();
+    const parts = [
+      this.meta().thumbnailPrompt.trim(),
+      style ? `Style: ${style}` : '',
+      `16:9 wide (landscape), a YouTube thumbnail. No words or letters. Save as ${THUMBNAIL_FILE}.png`,
+    ];
+    await this.flash('thumb', parts.filter(Boolean).join('\n\n'), 'The thumbnail prompt is copied.');
   }
 
   // ------------------------------------------------------------------------------------------------ moving clips
@@ -558,31 +918,45 @@ export class StoryScriptEditorComponent {
     if (files.length > 0) void this.attachManyClips(files);
   }
 
+  /** Every picture the server has for the story, with what fetches it: the scenes', their further ones, the thumbnail. */
+  private wantedPictures(run: StoryRun): { id: string; key: string; fetch: () => Promise<Blob> }[] {
+    const wanted: { id: string; key: string; fetch: () => Promise<Blob> }[] = [];
+    for (const scene of run.script?.scenes ?? []) {
+      if (scene.hasImage) {
+        wanted.push({ id: String(scene.number), key: this.pictureKey(scene), fetch: () => lastValueFrom(this.stories.sceneImage(run.id, scene.number)) });
+      }
+      for (const shot of scene.shots ?? []) {
+        if (!shot.hasImage) continue;
+        const id = `${scene.number}.${shot.picture}`;
+        wanted.push({ id, key: this.keyOf(id, shot.imageSource, shot.imageName), fetch: () => lastValueFrom(this.stories.shotImage(run.id, scene.number, shot.picture)) });
+      }
+    }
+    if (run.script?.hasThumbnail) {
+      wanted.push({ id: 'thumb', key: this.keyOf('thumb', run.script.thumbnailSource, run.script.thumbnailName), fetch: () => lastValueFrom(this.stories.thumbnailImage(run.id)) });
+    }
+    return wanted;
+  }
+
   /** Fetches the pictures the server has, one at a time, as they appear. A picture that will not load is not asked for again. */
   private async loadPictures(): Promise<void> {
     if (this.loadingPictures) return;
     this.loadingPictures = true;
     try {
       for (;;) {
-        const run = this.run();
-        const wanted = (run.script?.scenes ?? []).find((scene) => {
-          const key = this.pictureKey(scene);
-          return scene.hasImage && !this.pictures()[key] && !this.failed.has(key);
-        });
+        const wanted = this.wantedPictures(this.run()).find((item) => !this.pictures()[item.key] && !this.failed.has(item.key));
         if (!wanted) break;
 
-        const key = this.pictureKey(wanted);
         try {
-          const blob = await lastValueFrom(this.stories.sceneImage(run.id, wanted.number));
+          const blob = await wanted.fetch();
           this.pictures.update((all) => {
             // A replaced picture's old copy is no longer shown anywhere.
-            const stale = Object.keys(all).filter((k) => k.startsWith(`${wanted.number}:`));
+            const stale = Object.keys(all).filter((k) => k.startsWith(`${wanted.id}:`));
             stale.forEach((k) => URL.revokeObjectURL(all[k]));
             const kept = Object.fromEntries(Object.entries(all).filter(([k]) => !stale.includes(k)));
-            return { ...kept, [key]: URL.createObjectURL(blob) };
+            return { ...kept, [wanted.key]: URL.createObjectURL(blob) };
           });
         } catch {
-          this.failed.add(key);
+          this.failed.add(wanted.key);
         }
       }
     } finally {
@@ -605,9 +979,12 @@ export class StoryScriptEditorComponent {
     const text = picturePrompts(
       meta.titleEnglish.trim() ? `${title} (${meta.titleEnglish.trim()})` : title,
       meta.summary,
-      this.draft().map((scene) => ({ headline: scene.headline, imagePrompt: scene.imagePrompt, context: this.context(scene) })),
+      this.draft().map((scene) => ({
+        headline: scene.headline, imagePrompt: scene.imagePrompt, context: this.context(scene), shots: scene.shots.map((shot) => shot.prompt),
+      })),
       run.options.imageStyle,
       this.vertical(),
+      meta.thumbnailPrompt,
     );
     await this.flash('all', text, 'The picture prompts are copied, numbered. Save each picture under its number, then add them all at once.');
   }
@@ -625,6 +1002,7 @@ export class StoryScriptEditorComponent {
       })),
       run.options.imageStyle,
       this.vertical(),
+      run.brief.voicing === 'CharactersOnly',
     );
     await this.flash('clips', text, 'The video clip prompts are copied, numbered. Save each clip under its number (01.mp4 …), then add them all at once.');
   }
@@ -633,7 +1011,7 @@ export class StoryScriptEditorComponent {
     const style = this.run().options.imageStyle?.trim();
     const parts = [
       scene.imagePrompt.trim() ? `Shot: ${scene.imagePrompt.trim()}` : '',
-      `Motion: ${scene.videoPrompt.trim() || 'a gentle, slow push in; light and cloth move softly'}`,
+      `Motion: ${scene.videoPrompt.trim() || (this.run().brief.voicing === 'CharactersOnly' ? 'characters act and react expressively' : 'a gentle, slow push in; light and cloth move softly')}`,
       style ? `Look: ${style}` : '',
       `8 seconds, ${this.vertical() ? '9:16 vertical' : '16:9 wide'}, no speech, no words or letters. Save as ${this.fileName(index)}.mp4`,
     ];
@@ -675,6 +1053,16 @@ export class StoryScriptEditorComponent {
   }
 }
 
+/** Where a picture came from, in a few words. The server names the image engine that drew one by its provider id. */
+function sourceNote(source: string | null, name: string | null): string {
+  switch (source) {
+    case 'upload': return name ? `Yours · ${name}` : 'Your picture';
+    case 'placeholder': return 'A plain background, because no picture was attached';
+    case null: case '': return '';
+    default: return `Drawn by the AI image engine (${source})`;
+  }
+}
+
 /** Identifies the words of a script - not its pictures or narration files - so the editor knows when they changed under it. */
 function signatureOf(script: StoryScript | null): string {
   if (!script) return '';
@@ -683,6 +1071,12 @@ function signatureOf(script: StoryScript | null): string {
     script.scenes.map((scene) => [
       scene.number, scene.headline, scene.narration, scene.english, scene.basis, scene.imagePrompt, scene.videoPrompt ?? null,
       scene.sources.map((source) => [source.textId, source.ref, source.note, source.check]),
+      (scene.shots ?? []).map((shot) => [shot.picture, shot.imagePrompt]),
     ]),
+    script.thumbnailPrompt ?? null,
   ]);
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, Math.round(value * 10000) / 10000));
 }

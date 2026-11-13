@@ -14,8 +14,27 @@ public static class StoryObjectKeys
     public static string Image(string runId, int scene, string extension) =>
         $"{Root(runId)}/images/s{scene:00}-{Guid.NewGuid().ToString("N")[..12]}{extension}";
 
+    /// <summary>A scene's further picture; <paramref name="shot"/> counts from 2, the scene's own picture being the first.</summary>
+    /// <summary>The open-mouth version of a scene's picture; <paramref name="picture"/> counts from 1 like a shot's.</summary>
+    public static string TalkingImage(string runId, int scene, int picture, string extension) =>
+        $"{Root(runId)}/images/s{scene:00}-{picture}-talk-{Guid.NewGuid().ToString("N")[..12]}{extension}";
+
+    public static string ShotImage(string runId, int scene, int shot, string extension) =>
+        $"{Root(runId)}/images/s{scene:00}-{shot}-{Guid.NewGuid().ToString("N")[..12]}{extension}";
+
+    public static string Thumbnail(string runId, string extension) =>
+        $"{Root(runId)}/images/thumbnail-{Guid.NewGuid().ToString("N")[..12]}{extension}";
+
     public static string Narration(string runId, int scene, string fingerprint) =>
         $"{Root(runId)}/narration/s{scene:00}-{fingerprint}.wav";
+
+    /// <summary>A scene spoken in the dub's language.</summary>
+    public static string DubNarration(string runId, int scene, string language, string fingerprint) =>
+        $"{Root(runId)}/dub/s{scene:00}-{language}-{fingerprint}.wav";
+
+    /// <summary>The whole dub, the length of the video: the file added to YouTube as a second audio track.</summary>
+    public static string DubTrack(string runId, string language) =>
+        $"{Root(runId)}/dub/track-{language}-{Guid.NewGuid().ToString("N")[..12]}.wav";
 
     public static string Video(string runId, int scene) =>
         $"{Root(runId)}/clips/s{scene:00}-{Guid.NewGuid().ToString("N")[..12]}.mp4";
@@ -35,9 +54,16 @@ public static class StoryObjectKeys
             if (!string.IsNullOrEmpty(scene.ImageKey)) keys.Add(scene.ImageKey);
             if (!string.IsNullOrEmpty(scene.AudioKey)) keys.Add(scene.AudioKey);
             if (!string.IsNullOrEmpty(scene.VideoKey)) keys.Add(scene.VideoKey);
+            if (!string.IsNullOrEmpty(scene.DubAudioKey)) keys.Add(scene.DubAudioKey);
+            if (!string.IsNullOrEmpty(scene.TalkingImageKey)) keys.Add(scene.TalkingImageKey);
+            keys.AddRange(scene.Shots.Select(s => s.ImageKey).OfType<string>().Where(k => k.Length > 0));
+            keys.AddRange(scene.Shots.Select(s => s.TalkingImageKey).OfType<string>().Where(k => k.Length > 0));
         }
 
+        if (!string.IsNullOrEmpty(run.Script?.ThumbnailKey)) keys.Add(run.Script.ThumbnailKey);
+
         if (!string.IsNullOrEmpty(run.Music?.StorageKey)) keys.Add(run.Music.StorageKey);
+        if (!string.IsNullOrEmpty(run.DubAudioKey)) keys.Add(run.DubAudioKey);
         return [.. keys.Distinct(StringComparer.Ordinal)];
     }
 

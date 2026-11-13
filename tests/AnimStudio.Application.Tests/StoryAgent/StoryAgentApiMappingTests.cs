@@ -272,12 +272,16 @@ public sealed class StoryAgentApiMappingTests
             Narration = StoryNarrationMode.MyVoice, VoiceProfileId = "vp_0123456789abcdef0123456789abcdef", VoiceId = "hf_alpha",
             SpeechEngine = "kokoro", SpeechRate = 0.9, ClosestToMyVoice = true, Visuals = StoryVisualMode.UploadsOnly,
             ImageStyle = "oil painting", Music = false, UploadsAreAiMade = false, MusicQuery = "flute", MusicVolume = 0.35,
-            RenderWhenReady = false, AutoApprove = true
+            RenderWhenReady = false, AutoApprove = true, MatchClipDuration = true, KeepClipAudio = true
         };
 
         var options = request.ToOptions();
 
         Assert.Equal(request.Narration, options.Narration);
+        Assert.True(options.MatchClipDuration);
+        Assert.True(options.KeepClipAudio);
+        Assert.True(StoryBuildOptionsRequest.From(options).MatchClipDuration);
+        Assert.True(StoryBuildOptionsRequest.From(options).KeepClipAudio);
         Assert.Equal(request.VoiceProfileId, options.VoiceProfileId);
         Assert.Equal(request.VoiceId, options.VoiceId);
         Assert.Equal(request.SpeechEngine, options.SpeechEngine);

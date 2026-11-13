@@ -658,6 +658,47 @@ public sealed class NarrationStageTests
     }
 
     [Fact]
+    public async Task With_gemini_each_lines_emotion_is_its_delivery_and_a_new_emotion_is_new_narration()
+    {
+        var world = Build();
+        var run = DialogueRun();
+        var lines = run.Script!.Scenes[0].Lines;
+        lines[1].Emotion = "excited";
+        lines[3].Emotion = "laughing";
+        var before = StoryNarrator.Fingerprint(new NarrationPlan(StoryNarrationMode.Stock, "Charon", KnownAiProviders.GeminiTts, 1.0, null, false,
+            Cast: new Dictionary<string, string> { ["राम"] = "Orus", ["सीता"] = "Leda" }), run.Script.Scenes[0]);
+
+        await world.Stage.RunAsync(Context(run), CancellationToken.None);
+
+        // Narrator, Ram (excited), narrator in one dialogue: only Ram's turn has its own delivery.
+        var dialogue = world.Ai.SpeechCalls[0];
+        Assert.Equal(3, dialogue.LineStyles!.Count);
+        Assert.Null(dialogue.LineStyles[0]);
+        Assert.Contains("excitedly", dialogue.LineStyles[1]);
+        Assert.Null(dialogue.LineStyles[2]);
+        // Sita alone: her emotion is the request's delivery.
+        Assert.Contains("laughing", world.Ai.SpeechCalls[1].Style);
+
+        lines[3].Emotion = "sad";
+        var after = StoryNarrator.Fingerprint(new NarrationPlan(StoryNarrationMode.Stock, "Charon", KnownAiProviders.GeminiTts, 1.0, null, false,
+            Cast: new Dictionary<string, string> { ["राम"] = "Orus", ["सीता"] = "Leda" }), run.Script.Scenes[0]);
+        Assert.NotEqual(before, after);
+    }
+
+    [Fact]
+    public void An_engine_that_takes_no_delivery_ignores_emotions_so_its_narration_is_still_found()
+    {
+        var scene = DialogueRun().Script!.Scenes[0];
+        var plan = new NarrationPlan(StoryNarrationMode.Stock, "hf_alpha", KnownAiProviders.Kokoro, 1.0, null, false,
+            Cast: new Dictionary<string, string> { ["राम"] = "hm_omega", ["सीता"] = "hf_beta" });
+        var plain = StoryNarrator.Fingerprint(plan, scene);
+
+        scene.Lines[1].Emotion = "angry";
+
+        Assert.Equal(plain, StoryNarrator.Fingerprint(plan, scene));
+    }
+
+    [Fact]
     public async Task With_gemini_each_character_speaks_in_their_own_voice_two_voices_to_a_call()
     {
         var world = Build();

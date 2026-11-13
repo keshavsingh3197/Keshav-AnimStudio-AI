@@ -7,6 +7,7 @@ import { VoiceoverVoice } from '../../core/models/api.models';
 import {
   EditSceneLookBody,
   STORY_EFFECTS,
+  STORY_LOOK_STYLES,
   STORY_TRANSITIONS,
   StoryAgentOptions,
   StoryEffect,
@@ -49,14 +50,8 @@ export const EFFECT_LABEL: Record<StoryEffect, string> = {
 export const TRANSITION_LABEL: Record<StoryTransition, string> = {
   None: 'Cut', Fade: 'Crossfade', Dissolve: 'Dissolve', WipeLeft: 'Wipe left', WipeRight: 'Wipe right', SlideLeft: 'Slide left',
   SlideRight: 'Slide right', SlideUp: 'Slide up', SlideDown: 'Slide down', CircleOpen: 'Iris open', CircleClose: 'Iris close', ZoomIn: 'Zoom through',
+  Blur: 'Blur through', FadeBlack: 'Dip to black', FadeWhite: 'Dip to white', CircleCrop: 'Iris through black', DiagonalWipe: 'Diagonal wipe',
 };
-
-const LOOK_STYLES: { id: StoryLookStyle; label: string; hint: string }[] = [
-  { id: 'Auto', label: 'Automatic', hint: 'Picked from each scene\'s mood: slow pushes for calm, quicker moves for drama, a reveal for wonder.' },
-  { id: 'Gentle', label: 'Gentle', hint: 'Slow, small moves and soft crossfades. Suits devotional and reflective stories.' },
-  { id: 'Cinematic', label: 'Cinematic', hint: 'Deliberate pushes and pulls, longer crossfades, an iris reveal at the turning points.' },
-  { id: 'Lively', label: 'Lively', hint: 'Quicker moves and slides, for a Short that has to hold attention.' },
-];
 
 /** Where Google's own music tool is, for making a track by hand from the brief. */
 const GOOGLE_MUSIC_TOOL = 'https://labs.google/fx/tools/music-fx';
@@ -76,6 +71,9 @@ interface LookEdit {
  * scene, the music with the brief it was composed from, and the look of the rendered video - its effects and transitions.
  * Nothing changes here until a button is pressed, and every button says what it will make again.
  */
+/** Speeds the narration can be listened at on this page. */
+const LISTEN_SPEEDS = [1, 1.25, 1.5, 1.75, 2] as const;
+
 @Component({
   selector: 'app-story-review',
   imports: [DecimalPipe],
@@ -89,8 +87,10 @@ export class StoryReviewComponent {
 
   readonly run = input.required<StoryRun>();
   readonly caps = input<StoryAgentOptions | null>(null);
-  /** `sound`: the voice and the music. `look`: the effects and transitions of the rendered video. */
-  readonly part = input<'sound' | 'look'>('sound');
+  /** `voice`, `music`, or `sound` for both. `look`: the effects and transitions of the rendered video. */
+  readonly part = input<'sound' | 'voice' | 'music' | 'look'>('sound');
+  readonly showVoice = computed(() => this.part() === 'sound' || this.part() === 'voice');
+  readonly showMusic = computed(() => this.part() === 'sound' || this.part() === 'music');
   readonly runChange = output<StoryRun>();
 
   readonly busy = signal<Busy>(null);
@@ -99,7 +99,7 @@ export class StoryReviewComponent {
 
   readonly deliverySuggestions = DELIVERY_SUGGESTIONS;
   readonly musicSuggestions = MUSIC_SUGGESTIONS;
-  readonly lookStyles = LOOK_STYLES;
+  readonly lookStyles = STORY_LOOK_STYLES;
   readonly effects = STORY_EFFECTS;
   readonly transitions = STORY_TRANSITIONS;
   readonly effectLabel = EFFECT_LABEL;
@@ -126,6 +126,12 @@ export class StoryReviewComponent {
   readonly edits = signal<Record<number, LookEdit>>({});
 
   // --- listening --------------------------------------------------------------------------------
+  /**
+   * How fast the narration plays here, to hear it at a Short's pace without making anything again. Only this page
+   * listens faster; the video's own speed is set on the Video tab, and the voice's on "Change the voice" below.
+   */
+  readonly listenSpeeds = LISTEN_SPEEDS;
+  readonly listenSpeed = signal(1);
   /** Object URLs of the files fetched to listen to, by what they are (so a new take is fetched afresh). */
   readonly audio = signal<Record<string, string>>({});
   readonly loadingAudio = signal<string | null>(null);

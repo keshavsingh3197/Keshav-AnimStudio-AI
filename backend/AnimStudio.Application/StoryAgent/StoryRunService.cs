@@ -6,8 +6,10 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Ai;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Voices;
+using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.Voices;
@@ -38,7 +40,12 @@ public sealed record StorySceneEdit(
     string? ImagePrompt,
     IReadOnlyList<string>? ImageKeywords,
     string? Mood,
-    string? VideoPrompt = null);
+    string? VideoPrompt = null,
+    IReadOnlyList<StoryShotEdit>? Shots = null,
+    IReadOnlyList<string?>? LineEmotions = null);
+
+/// <summary>One of a scene's further pictures as edited: the picture number it had (0 for a new one), so its picture stays with it.</summary>
+public sealed record StoryShotEdit(int Picture, string? ImagePrompt);
 
 /// <summary>
 /// Make the narration again. <paramref name="Scenes"/> are retaken as they are (a new take of the same words); a changed
@@ -70,12 +77,18 @@ public sealed record StoryLookRedo(
     IReadOnlyList<StorySceneLookEdit>? Scenes = null);
 
 /// <summary>The script as the person edited it. Scenes carry the number they had, so what was made for them can be kept; files are never named by the client.</summary>
+/// <remarks>
+/// A null <see cref="ThumbnailPrompt"/>, or a scene's null <see cref="StorySceneEdit.Shots"/>, keeps what the script has,
+/// so an older page that does not know them leaves them alone. A scene's shots are its further pictures in their new
+/// order; each named by the picture number it had keeps its picture, and the pictures of shots left out are deleted.
+/// </remarks>
 public sealed record StoryScriptEdit(
     string? Title,
     string? TitleEnglish,
     string? Summary,
     string? MusicQuery,
-    IReadOnlyList<StorySceneEdit>? Scenes);
+    IReadOnlyList<StorySceneEdit>? Scenes,
+    string? ThumbnailPrompt = null);
 
 /// <summary>What the page needs to know to offer the right choices.</summary>
 public sealed record StoryAgentCapabilities(
@@ -122,7 +135,7 @@ public sealed partial class StoryRunService(
     public const int MinTitleChars = 3;
     public const int MaxTitleChars = 160;
     public const int MaxNotesChars = 2_000;
-    public const int MinTargetSeconds = 45;
+    public const int MinTargetSeconds = 30;
     public const int MaxTargetSeconds = 600;
     public const int MaxScriptReplyChars = 120_000;
 
@@ -321,6 +334,12 @@ public sealed partial class StoryRunService(
             Language = run.Brief.Language,
             Summary = AiOutputSanitizer.ToSafeLine(edit.Summary, 600),
             MusicQuery = AiOutputSanitizer.ToSafeLine(edit.MusicQuery, 80),
+            ThumbnailPrompt = edit.ThumbnailPrompt is null
+                ? current.ThumbnailPrompt
+                : AiOutputSanitizer.ToSafeLine(edit.ThumbnailPrompt, StoryScriptParser.MaxPromptChars),
+            ThumbnailKey = current.ThumbnailKey,
+            ThumbnailSource = current.ThumbnailSource,
+            ThumbnailName = current.ThumbnailName,
             ReviewNotes = current.ReviewNotes,
             // The cast is the writer's; the editor changes words, and lines that no longer match them are dropped below.
             Cast = current.Cast,
@@ -330,6 +349,7 @@ public sealed partial class StoryRunService(
 
         var before = current.Scenes.ToDictionary(s => s.Number);
         var kept = new HashSet<int>();
+        var dropped = new List<string?>();
         foreach (var incoming in (edit.Scenes ?? []).Take(StoryScriptParser.MaxScenes))
         {
             var narration = AiOutputSanitizer.ToSafeLine(incoming.Narration, StoryScriptParser.MaxNarrationChars);
@@ -373,7 +393,31 @@ public sealed partial class StoryRunService(
                 scene.AudioName = old.AudioName;
                 scene.AudioSource = old.AudioSource;
                 scene.Pauses = old.Pauses;
-                scene.Lines = old.Lines;
+                // The dub's voice stays with the scene (narrating again replaces it if its words changed); a Hindi
+                // translation only while the words it was made from are the same.
+                scene.DubAudioKey = old.DubAudioKey;
+                scene.DubAudioSeconds = old.DubAudioSeconds;
+                scene.DubPauses = old.DubPauses;
+                scene.Hindi = old.Narration == narration ? old.Hindi : null;
+                scene.Lines = WithEmotions(old.Lines, incoming.LineEmotions);
+                scene.Shots = incoming.Shots is null ? old.Shots : KeepShots(old.Shots, incoming.Shots, dropped);
+                // The template's staging and a look the person pinned are the scene's, not its words'.
+                scene.Background = old.Background;
+                scene.OnScreen = old.OnScreen;
+                scene.Action = old.Action;
+                scene.Meme = old.Meme;
+                if (old.LookPinned)
+                {
+                    scene.Effect = old.Effect;
+                    scene.EffectIntensity = old.EffectIntensity;
+                    scene.Transition = old.Transition;
+                    scene.TransitionSeconds = old.TransitionSeconds;
+                    scene.LookPinned = true;
+                }
+            }
+            else if (incoming.Shots is not null)
+            {
+                scene.Shots = KeepShots([], incoming.Shots, dropped);
             }
 
             script.Scenes.Add(scene);
@@ -389,9 +433,10 @@ public sealed partial class StoryRunService(
             throw new StoryRunException(StoryRunErrorKind.Invalid, ex.Code, ex.Message, "scenes");
         }
 
-        // Pictures and narration of scenes that were taken out go with them.
+        // Pictures and narration of scenes that were taken out go with them, and so do further pictures taken out of a scene.
         foreach (var gone in before.Values.Where(s => !kept.Contains(s.Number)))
-            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [gone.ImageKey, gone.AudioKey, gone.VideoKey, gone.DubAudioKey, .. gone.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
+        await DeleteFilesAsync(run, dropped, ct).ConfigureAwait(false);
 
         run.Script = result.Script;
         run.ScriptWarnings = [.. result.Warnings];
@@ -478,6 +523,183 @@ public sealed partial class StoryRunService(
         return run;
     }
 
+    /// <summary>
+    /// Attaches the person's picture as one of a scene's further pictures. <paramref name="picture"/> counts the scene's own
+    /// picture as 1, so 2 is its first further picture; one past the last adds a new one.
+    /// </summary>
+    public async Task<StoryRun> AttachShotImageAsync(
+        string userId, string id, int sceneNumber, int picture, byte[] image, string? fileName, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var scene = RequireScene(RequireEditableScript(run), sceneNumber);
+        var index = picture - 2;
+        if (index < 0 || index > scene.Shots.Count || index >= StoryScriptParser.MaxShots)
+        {
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "shot-invalid",
+                $"A scene can have up to {StoryScriptParser.MaxShots + 1} pictures, added in order.", "picture");
+        }
+
+        var mime = RequirePicture(image);
+        var key = StoryObjectKeys.ShotImage(run.Id, scene.Number, picture, StoryBundleBuilder.ImageExtension(mime));
+        await using (var content = new MemoryStream(image, writable: false))
+            await store.SaveAsync(key, content, mime, ct).ConfigureAwait(false);
+
+        if (index == scene.Shots.Count) scene.Shots.Add(new StoryShot());
+        var shot = scene.Shots[index];
+        await DeleteFilesAsync(run, [shot.ImageKey], ct).ConfigureAwait(false);
+        shot.ImageKey = key;
+        shot.ImageSource = "upload";
+        shot.ImageName = SafeFileLabel(fileName) ?? $"Scene {scene.Number}, picture {picture}";
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>Takes a further picture off a scene. A shot with no prompt to draw it again from goes with it.</summary>
+    public async Task<StoryRun> RemoveShotImageAsync(string userId, string id, int sceneNumber, int picture, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var scene = RequireScene(RequireEditableScript(run), sceneNumber);
+        var shot = scene.Shots.ElementAtOrDefault(picture - 2)
+            ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "shot-not-found", "That picture is not in the scene.");
+
+        await DeleteFilesAsync(run, [shot.ImageKey], ct).ConfigureAwait(false);
+        shot.ImageKey = null;
+        shot.ImageSource = null;
+        shot.ImageName = null;
+        if (string.IsNullOrWhiteSpace(shot.ImagePrompt)) scene.Shots.Remove(shot);
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>
+    /// Places speaker mouth anchors in one of a scene's pictures by hand (<paramref name="picture"/> 1 is its own picture),
+    /// replacing what was found; an empty list means no anchors are saved. With <paramref name="faces"/> null the picture's
+    /// anchors are forgotten, and the next build looks for them again.
+    /// </summary>
+    public async Task<StoryRun> PlaceFacesAsync(
+        string userId, string id, int sceneNumber, int picture, IReadOnlyList<StoryFace>? faces, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireEditableScript(run);
+        var scene = RequireScene(script, sceneNumber);
+        var shot = picture == 1 ? null
+            : scene.Shots.ElementAtOrDefault(picture - 2)
+              ?? throw new StoryRunException(StoryRunErrorKind.NotFound, "shot-not-found", "That picture is not in the scene.");
+        var imageKey = shot is null ? scene.ImageKey : shot.ImageKey;
+        if (!StoryObjectKeys.Owns(run.Id, imageKey))
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "picture-required", "The picture needs to exist before its faces can be placed.", "picture");
+
+        List<StoryFace> placed = [];
+        if (faces is not null)
+        {
+            var speakers = StoryFaces.Speakers(script, scene);
+            if (faces.Count > MouthCell.MaxMouths)
+                throw new StoryRunException(StoryRunErrorKind.Invalid, "faces-invalid", $"At most {MouthCell.MaxMouths} faces a picture.", "faces");
+            foreach (var face in faces)
+            {
+                var speaker = speakers.FirstOrDefault(s => string.Equals(s.Name, face.Name?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "faces-invalid", "Only a character who speaks in the scene can have a talking face.", "faces");
+                if (!double.IsFinite(face.X) || !double.IsFinite(face.Y) || !double.IsFinite(face.Width)
+                    || face.X is < 0 or > 1 || face.Y is < 0 or > 1
+                    || face.Width < RenderPlanFactory.MinFaceWidth || face.Width > RenderPlanFactory.MaxFaceWidth)
+                    throw new StoryRunException(StoryRunErrorKind.Invalid, "faces-invalid", "A face's place and size are fractions of the picture.", "faces");
+                if (placed.Any(f => f.Name == speaker.Name)) continue;
+                placed.Add(new StoryFace
+                {
+                    Name = speaker.Name, X = Math.Round(face.X, 4), Y = Math.Round(face.Y, 4), Width = Math.Round(face.Width, 4), Manual = true
+                });
+            }
+        }
+
+        var key = faces is null ? null : imageKey;
+        // The open-mouth picture was drawn for the old places, so the next build draws it again for these.
+        if (shot is null) (scene.Faces, scene.FacesImageKey, scene.TalkingImageFor) = (placed, key, null);
+        else (shot.Faces, shot.FacesImageKey, shot.TalkingImageFor) = (placed, key, null);
+        ReopenForEditing(run);
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>Attaches the person's picture as the video's YouTube thumbnail, replacing whatever it had.</summary>
+    public async Task<StoryRun> AttachThumbnailAsync(string userId, string id, byte[] image, string? fileName, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireEditableScript(run);
+
+        var mime = RequirePicture(image);
+        var key = StoryObjectKeys.Thumbnail(run.Id, StoryBundleBuilder.ImageExtension(mime));
+        await using (var content = new MemoryStream(image, writable: false))
+            await store.SaveAsync(key, content, mime, ct).ConfigureAwait(false);
+
+        await DeleteFilesAsync(run, [script.ThumbnailKey], ct).ConfigureAwait(false);
+        script.ThumbnailKey = key;
+        script.ThumbnailSource = "upload";
+        script.ThumbnailName = SafeFileLabel(fileName) ?? "Thumbnail";
+        // The thumbnail is not in the video, so changing it sends nothing back to the build.
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    public async Task<StoryRun> RemoveThumbnailAsync(string userId, string id, CancellationToken ct)
+    {
+        var run = await OwnedAsync(userId, id, ct).ConfigureAwait(false);
+        var script = RequireEditableScript(run);
+
+        await DeleteFilesAsync(run, [script.ThumbnailKey], ct).ConfigureAwait(false);
+        script.ThumbnailKey = null;
+        script.ThumbnailSource = null;
+        script.ThumbnailName = null;
+        await Save(run, ct).ConfigureAwait(false);
+        return run;
+    }
+
+    /// <summary>The kind of picture <paramref name="image"/> is, refusing one too large or not a PNG, JPEG or WebP.</summary>
+    private static string RequirePicture(byte[] image)
+    {
+        if (image.Length > VisualsStage.MaxImageBytes)
+            throw new StoryRunException(StoryRunErrorKind.Invalid, "image-too-large", $"A picture can be at most {VisualsStage.MaxImageBytes / 1024 / 1024} MB.", "image");
+        return AiImageValidator.Sniff(image)
+            ?? throw new StoryRunException(StoryRunErrorKind.Invalid, "image-invalid", "That is not a PNG, JPEG or WebP picture.", "image");
+    }
+
+    /// <summary>
+    /// The scene's own lines with the emotions the person chose, one per line in order. The words and speakers always come
+    /// from the server's record; a list that does not name one per line changes nothing.
+    /// </summary>
+    private static List<StoryLine> WithEmotions(List<StoryLine> lines, IReadOnlyList<string?>? emotions)
+    {
+        if (emotions is null || emotions.Count != lines.Count) return lines;
+        return [.. lines.Select((l, i) => new StoryLine { Speaker = l.Speaker, Text = l.Text, Emotion = StoryEmotions.Normalize(emotions[i]) })];
+    }
+
+    /// <summary>
+    /// A scene's further pictures as edited, in their new order. Each one named by the picture number it had keeps its
+    /// picture - only the server's record says which file that is - and the pictures of shots left out are added to
+    /// <paramref name="dropped"/> to be deleted.
+    /// </summary>
+    private static List<StoryShot> KeepShots(IReadOnlyList<StoryShot> old, IReadOnlyList<StoryShotEdit> edits, List<string?> dropped)
+    {
+        var used = new HashSet<int>();
+        var shots = new List<StoryShot>();
+        foreach (var edit in edits.Take(StoryScriptParser.MaxShots))
+        {
+            var index = edit.Picture - 2;
+            var had = index >= 0 && index < old.Count && used.Add(index) ? old[index] : null;
+            shots.Add(new StoryShot
+            {
+                ImagePrompt = AiOutputSanitizer.ToSafeLine(edit.ImagePrompt, StoryScriptParser.MaxPromptChars),
+                ImageKey = had?.ImageKey,
+                ImageSource = had?.ImageSource,
+                ImageName = had?.ImageName
+            });
+        }
+
+        dropped.AddRange(old.Where((_, i) => !used.Contains(i)).Select(s => s.ImageKey));
+        return shots;
+    }
+
     /// <summary>The largest moving clip a scene takes: an 8-second 1080p clip from Google Flow is well under this.</summary>
     public const int MaxVideoBytes = 100 * 1024 * 1024;
 
@@ -496,7 +718,8 @@ public sealed partial class StoryRunService(
         await using (var content = new MemoryStream(video, writable: false))
             await store.SaveAsync(key, content, "video/mp4", ct).ConfigureAwait(false);
 
-        await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
+        if (!string.Equals(scene.VideoKey, key, StringComparison.Ordinal))
+            await DeleteFilesAsync(run, [scene.VideoKey], ct).ConfigureAwait(false);
         scene.VideoKey = key;
         scene.VideoName = SafeFileLabel(fileName) ?? $"Scene {scene.Number} clip";
         scene.VideoSource = StoryScene.AttachedClip;
@@ -977,7 +1200,9 @@ public sealed partial class StoryRunService(
             PackId = pack?.Id,
             GenreId = genre.Id,
             Mode = genre.Mode,
-            TextEngine = CheckTextEngine(brief.TextEngine)
+            TextEngine = CheckTextEngine(brief.TextEngine),
+            // Checked by the caller against who may use it; a channel deleted since falls back to the default at the build.
+            BrandChannelId = string.IsNullOrWhiteSpace(brief.BrandChannelId) ? null : brief.BrandChannelId.Trim()
         };
     }
 
@@ -1029,6 +1254,8 @@ public sealed partial class StoryRunService(
         return new StoryBuildOptions
         {
             Narration = o.Narration,
+            MatchClipDuration = o.MatchClipDuration,
+            KeepClipAudio = o.KeepClipAudio,
             VoiceProfileId = profileId,
             VoiceId = voiceId,
             SpeechEngine = engine,
@@ -1051,7 +1278,10 @@ public sealed partial class StoryRunService(
             AutoApprove = o.AutoApprove,
             VideoSpeed = StoryVideoSpeed.Normalize(o.VideoSpeed),
             AutoPace = o.AutoPace,
-            ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto
+            Pace = Enum.IsDefined(o.Pace) ? o.Pace : StoryPaceStyle.Auto,
+            ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto,
+            // A dub is a second voice: nothing to dub when the story has none.
+            Dub = o.Dub && o.Narration != StoryNarrationMode.None
         };
     }
 
@@ -1242,7 +1472,8 @@ public sealed partial class StoryRunService(
     private async Task DeleteScriptFilesAsync(StoryRun run, CancellationToken ct)
     {
         foreach (var scene in run.Script?.Scenes ?? [])
-            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey], ct).ConfigureAwait(false);
+            await DeleteFilesAsync(run, [scene.ImageKey, scene.AudioKey, scene.VideoKey, scene.DubAudioKey, .. scene.Shots.Select(s => s.ImageKey)], ct).ConfigureAwait(false);
+        await DeleteFilesAsync(run, [run.Script?.ThumbnailKey], ct).ConfigureAwait(false);
     }
 
     private async Task DeleteAllFilesAsync(StoryRun run, CancellationToken ct) =>

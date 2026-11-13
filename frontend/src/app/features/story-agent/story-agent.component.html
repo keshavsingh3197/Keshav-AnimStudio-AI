@@ -63,6 +63,8 @@
       </button>
     </div>
     <div class="sa-bar-actions">
+      <a routerLink="/story-template" class="sa-bar-link">🧩 Story template</a>
+      <a routerLink="/comedy" class="sa-bar-link">Comedy workspace</a>
       <a routerLink="/story-agent/series" class="sa-bar-link">📚 Series</a>
       <a routerLink="/story-agent/board" class="sa-bar-link">▦ Storyboard</a>
       <button type="button" class="secondary small" [disabled]="!caps()?.enabled" (click)="importing.set(true)"
@@ -173,6 +175,33 @@
             @switch (step()) {
               @case ('story') {
                 <!-- ---------------------------------------------------------- 1. the story -->
+                @if (choosesChannel()) {
+                  <div class="sa-field">
+                    <div class="sa-label" id="sa-channel-label">Which channel is it for?</div>
+                    <div class="sa-genres sa-channels" role="radiogroup" aria-labelledby="sa-channel-label">
+                      @for (ch of channels(); track ch.id) {
+                        <label class="sa-genre" [class.selected]="channelId() === ch.id"
+                               [title]="ch.youTubeChannelTitle ? 'Publishes to ' + ch.youTubeChannelTitle + ' on YouTube' : 'Not linked to a YouTube channel yet'">
+                          <input type="radio" name="sa-channel" [checked]="channelId() === ch.id" (change)="pickChannel(ch.id)" />
+                          @if (ch.youTubeThumbnailUrl) {
+                            <img class="sa-channel-pic" [src]="ch.youTubeThumbnailUrl" alt="" width="22" height="22" referrerpolicy="no-referrer" />
+                          } @else {
+                            <span class="sa-genre-icon" aria-hidden="true">📺</span>
+                          }
+                          <span class="sa-genre-name">{{ ch.name }}</span>
+                        </label>
+                      }
+                    </div>
+                    <p class="sa-help">
+                      @if (channel(); as ch) {
+                        The project is made for {{ ch.name }}: its watermark and end card{{ ch.youTubeChannelTitle ? ', and it publishes to ' + ch.youTubeChannelTitle : '' }}.
+                      } @else {
+                        Pick one first - the project, its watermark, end card and YouTube channel all follow it.
+                      }
+                    </p>
+                  </div>
+                }
+
                 @if (genres().length > 0) {
                   <div class="sa-field">
                     <div class="sa-label" id="sa-genre-label">What kind of story?</div>
@@ -249,6 +278,29 @@
                       } @else {
                         The first engine that is on and has quota writes it, falling back to the next.
                       }
+                    </p>
+                  </div>
+                }
+
+                @if (genre()?.id === 'funny' && writer() !== 'BuiltIn') {
+                  <div class="sa-field">
+                    <label for="sa-comedy-template">Comedy format</label>
+                    <select id="sa-comedy-template" [value]="comedyTemplate()" (change)="setComedyTemplate(text($event))">
+                      @for (template of comedyTemplates; track template.id) {
+                        <option [value]="template.id" [selected]="template.id === comedyTemplate()">{{ template.label }}</option>
+                      }
+                    </select>
+                    @if (comedyTemplate() === 'levels') {
+                      <label for="sa-comedy-count">Target number of funny situations</label>
+                      <select id="sa-comedy-count" [value]="comedyCount()" (change)="comedyCount.set(+text($event))">
+                        @for (count of [2, 3, 4, 5, 6]; track count) {
+                          <option [value]="count" [selected]="count === comedyCount()">{{ count }}</option>
+                        }
+                      </select>
+                      <p class="sa-help">The writer is asked for this many situations; check and edit its script. Situations are not necessarily separate scenes.</p>
+                    }
+                    <p class="sa-help">Templates guide the script; they do not automatically add numbered graphics or reactions.
+                      <a routerLink="/memes">Manage your memes and reactions</a>.
                     </p>
                   </div>
                 }

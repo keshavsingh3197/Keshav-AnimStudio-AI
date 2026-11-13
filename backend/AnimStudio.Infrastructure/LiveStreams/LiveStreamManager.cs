@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.LiveStreams;
+using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Application.Media;
 using AnimStudio.Domain.Errors;
 using AnimStudio.Infrastructure.Ffmpeg;
@@ -47,8 +49,9 @@ public enum LiveStreamGoLiveOutcome { Started, NotFound, NotReady, AlreadyRunnin
 /// into a stream-ready segment, which the owner can preview) and <b>send</b> (copy the
 /// segments to an RTMPS ingest at playback speed, reconnecting if the connection drops).
 /// <para>
-/// Streams are deliberately not persisted. After a restart there is nothing running to
-/// resume, so the table lives in memory and leftover work folders are cleared at startup.
+/// Streams themselves are not resumable: after a restart there is nothing running to
+/// resume, so the live table is in memory and leftover work folders are cleared at startup.
+/// A record of each stream (never a key) is saved to the history so it survives restarts.
 /// A pasted stream key is held only by its stream until it is sent and is gone with it; a
 /// channel's saved key is read from <see cref="LiveStreamKeyStore"/> at the moment of
 /// connecting. Neither is ever logged or returned.
@@ -172,6 +175,7 @@ public sealed class LiveStreamManager(
             };
             _sessions[id] = session;
         }
+        session.Changed = Record;
 
         logger.LogInformation(
             "Live stream {StreamId} preparing for user {UserId}: {ItemCount} items to {Destination} ({Quality}, {Orientation}, loops {Loops}, shuffle {Shuffle})",
@@ -179,9 +183,75 @@ public sealed class LiveStreamManager(
             request.Settings.Quality, request.Settings.Orientation, request.Settings.Loops, request.Settings.Shuffle);
 
         session.Work = Task.Run(() => PrepareAsync(session));
+        Record(session);
         status = session.Snapshot();
         return LiveStreamCreateOutcome.Created;
     }
+
+    private readonly SemaphoreSlim _historyGate = new(1, 1);
+    private const int MaxHistoryPerUser = 100;
+
+    /// <summary>
+    /// Saves the stream's current state to the history. A failure here never affects the stream,
+    /// and a name the owner chose is kept.
+    /// </summary>
+    private void Record(Session session) => _ = Task.Run(async () =>
+    {
+        try
+        {
+            var s = session.Snapshot();
+            await _historyGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                var history = scope.ServiceProvider.GetRequiredService<ILiveStreamHistoryRepository>();
+                var existing = await history.GetAsync(session.OwnerUserId, session.Id, CancellationToken.None).ConfigureAwait(false);
+                var isNew = existing is null;
+                var entry = existing
+                    ?? new LiveStreamHistoryEntry
+                    {
+                        Id = session.Id,
+                        UserId = session.OwnerUserId,
+                        Name = s.Label,
+                        CreatedAtUtc = s.CreatedAt
+                    };
+
+                entry.DestinationId = s.DestinationId;
+                entry.DestinationName = s.DestinationName;
+                entry.Quality = s.Quality.ToString();
+                entry.Orientation = s.Orientation.ToString();
+                entry.Loops = s.Loops;
+                entry.Shuffle = s.Shuffle;
+                entry.ChannelId = s.ChannelId;
+                entry.ItemTitles = s.Items.Select(i => i.Title).ToList();
+                entry.State = s.State.ToString();
+                entry.Message = s.Message;
+                entry.StreamedSeconds = s.StreamedSeconds;
+                entry.Reconnects = s.Reconnects;
+                entry.LiveSinceUtc = s.LiveSince;
+                entry.EndedAtUtc = s.EndedAt;
+                entry.UpdatedAtUtc = clock.GetUtcNow().UtcDateTime;
+
+                await history.UpsertAsync(entry, CancellationToken.None).ConfigureAwait(false);
+
+                // Keeps each person's history bounded so the table stays small however many people use it.
+                if (isNew)
+                {
+                    var all = await history.ListAsync(session.OwnerUserId, CancellationToken.None).ConfigureAwait(false);
+                    foreach (var old in all.Skip(MaxHistoryPerUser))
+                        await history.DeleteAsync(session.OwnerUserId, old.Id, CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _historyGate.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Saving live stream {StreamId} to the history failed: {ErrorType}", session.Id, ex.GetType().Name);
+        }
+    });
 
     /// <summary>Sends a prepared stream. Also how an ended, stopped or failed stream is sent again.</summary>
     public LiveStreamGoLiveOutcome TryGoLive(string id, string userId, LiveStreamKeyTarget target, out LiveStreamStatus? status)
@@ -924,6 +994,14 @@ public sealed class LiveStreamManager(
         public DateTime LastActivity { get; private set; }
         public Task? Work { get; set; }
 
+        /// <summary>Raised (off the caller's thread) whenever the stream starts, becomes ready, goes live or ends.</summary>
+        public Action<Session>? Changed { get; set; }
+
+        private void Notify()
+        {
+            if (Changed is { } changed) _ = Task.Run(() => changed(this));
+        }
+
         /// <summary>Holds a pasted key only until the stream it was given for has been sent.</summary>
         public LiveStreamKeyTarget? AutoStart { get; set; }
         public LiveStreamKeyTarget? KeyTarget { get; private set; }
@@ -1024,6 +1102,7 @@ public sealed class LiveStreamManager(
                 KeyNeedsAttention = false;
                 LastActivity = _clock.GetUtcNow().UtcDateTime;
             }
+            Notify();
         }
 
         public void SetState(LiveStreamState state)
@@ -1043,6 +1122,7 @@ public sealed class LiveStreamManager(
                 State = LiveStreamState.Ready;
                 Message = message;
             }
+            Notify();
         }
 
         public void CountReconnect(string message)
@@ -1059,6 +1139,7 @@ public sealed class LiveStreamManager(
         /// <param name="sent">Seconds sent by the current connection.</param>
         public void Report(double offset, double sent, double? speed, int currentItem)
         {
+            bool wentLive = false;
             lock (_gate)
             {
                 if (State is not (LiveStreamState.Connecting or LiveStreamState.Reconnecting or LiveStreamState.Live)) return;
@@ -1070,10 +1151,12 @@ public sealed class LiveStreamManager(
                 if (State != LiveStreamState.Live && sent > 0)
                 {
                     State = LiveStreamState.Live;
+                    wentLive = LiveSince is null;
                     LiveSince ??= _clock.GetUtcNow().UtcDateTime;
                     Message = null;
                 }
             }
+            if (wentLive) Notify();
         }
 
         public void Finish(LiveStreamState state, string message)
@@ -1086,6 +1169,7 @@ public sealed class LiveStreamManager(
                 Speed = null;
                 CurrentItem = null;
             }
+            Notify();
         }
 
         public void Fail(string message, bool keyNeedsAttention = false)

@@ -64,6 +64,16 @@ fieldset.se-fields:disabled { opacity: .72; }
 .se-empty { padding: .75rem; text-align: center; font-size: .82rem; color: var(--muted); }
 .se-busy { position: absolute; inset: 0; display: grid; place-items: center; background: var(--scrim); }
 .se-art-actions { gap: .4rem; }
+.se-frame img.se-placing { cursor: crosshair; }
+.se-face {
+  position: absolute; width: 1.3rem; height: 1.3rem; margin: -.65rem 0 0 -.65rem; display: grid; place-items: center;
+  border-radius: 50%; border: 2px solid var(--surface); background: var(--brand); color: var(--surface);
+  font-size: .7rem; font-weight: 700; pointer-events: none; box-shadow: 0 0 0 1px var(--brand);
+}
+.se-faces { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .6rem; font-size: .8rem; }
+.se-face-chip { display: inline-flex; align-items: center; gap: .15rem; }
+.se-face-chip button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+.se-face-missing { color: var(--muted); }
 .se-art-note { font-size: .78rem; overflow-wrap: anywhere; }
 .se-copy { justify-self: start; }
 
@@ -122,3 +132,37 @@ fieldset.se-fields:disabled { opacity: .72; }
 .se-anim { margin-top: 0.4rem; }
 .se-anim > summary { cursor: pointer; font-size: 0.82rem; color: var(--text-dim); }
 .se-anim-text { margin: 0.35rem 0; font-size: 0.8rem; line-height: 1.45; color: var(--muted); white-space: pre-wrap; }
+
+/* ---- a scene's further pictures ------------------------------------------------- */
+.se-shots { display: grid; gap: .5rem; border-top: 1px dashed var(--border); padding-top: .5rem; }
+.se-shots-head { font-size: .85rem; }
+.se-shots-head .muted { font-size: .78rem; }
+.se-shot { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .55rem; align-items: start; }
+.se-shot-frame.se-frame, .se-pic .se-shot-frame.se-frame.se-vertical { width: 100%; max-height: 9rem; }
+.se-shot-frame .se-empty { padding: .3rem; font-size: .7rem; }
+.se-shot-body { display: grid; gap: .35rem; min-width: 0; }
+.se-shot-head { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
+.se-shot-body textarea { min-height: 3.2rem; font-size: .82rem; }
+
+/* ---- the thumbnail ------------------------------------------------------------------ */
+.se-thumb { margin: 0 0 1rem; padding: .8rem; display: grid; gap: .6rem; }
+.se-thumb-body { display: grid; grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.se-thumb-frame { width: 100%; }
+.se-thumb-side { display: grid; gap: .55rem; min-width: 0; }
+@media (max-width: 560px) {
+  .se-thumb-body { grid-template-columns: 1fr; }
+}
+
+/* Who says which line, and how. */
+.se-lines { display: grid; gap: .35rem; margin: 0; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.se-lines legend { padding: 0 .3rem; font-size: .85rem; }
+.se-line { display: grid; grid-template-columns: auto minmax(4.5rem, auto) minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+.se-line-face { font-size: 1.15rem; line-height: 1; }
+.se-line-who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 9rem; }
+.se-line-text { min-width: 0; overflow-wrap: anywhere; }
+.se-line select { width: auto; min-height: 36px; }
+@media (max-width: 560px) {
+  .se-line { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .se-line-text { grid-column: 1 / -1; order: 3; }
+}
+.se-staging { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: 0; font-size: .85rem; }

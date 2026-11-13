@@ -7,7 +7,7 @@ namespace AnimStudio.Domain.Publishing;
 /// </summary>
 public sealed class ChannelBranding
 {
-    /// <summary>The channel as viewers know it, e.g. "OMKR".</summary>
+    /// <summary>The channel as viewers know it, e.g. "Omkar Shiv Bhakti".</summary>
     public string? ChannelName { get; set; }
 
     /// <summary>What the channel is about, shown after the name, e.g. "Devotional 3D Animations".</summary>
@@ -22,10 +22,13 @@ public sealed class ChannelBranding
     /// <summary>The creator's own site or portfolio (https only).</summary>
     public string? CreatorUrl { get; set; }
 
+    /// <summary>Who makes the videos, credited by name, e.g. "Keshav Singh".</summary>
+    public string? CreatorName { get; set; }
+
     /// <summary>The animation tool credited, e.g. "AnimStudio".</summary>
     public string? EngineName { get; set; }
 
-    /// <summary>The visuals credit line, e.g. "OMKR 3D Devotional Animations".</summary>
+    /// <summary>The visuals credit line, e.g. "Omkar Shiv Bhakti 3D Devotional Animations".</summary>
     public string? VisualsCredit { get; set; }
 
     /// <summary>Hashtags always offered in a description, without the "#".</summary>
@@ -41,6 +44,7 @@ public sealed class ChannelBranding
         ChannelUrl = ChannelUrl,
         StudioUrl = StudioUrl,
         CreatorUrl = CreatorUrl,
+        CreatorName = CreatorName,
         EngineName = EngineName,
         VisualsCredit = VisualsCredit,
         Hashtags = [.. Hashtags],

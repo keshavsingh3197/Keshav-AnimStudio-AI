@@ -1,6 +1,7 @@
 using System.Text;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Publishing;
@@ -10,6 +11,28 @@ namespace AnimStudio.Application.Tests.StoryAgent;
 
 public class StoryBundleBuilderTests
 {
+    [Fact]
+    public void Attached_clip_timing_uses_four_seconds_instead_of_longer_estimates_or_voice()
+    {
+        Assert.Equal(4, AssembleStage.SceneDuration(15, 13, 4));
+        Assert.Equal(13, AssembleStage.SceneDuration(15, 13, null));
+        Assert.Equal(15, AssembleStage.SceneDuration(15, null, null));
+    }
+
+    [Fact]
+    public void Four_four_second_clips_produce_sixteen_seconds_before_transition_overlap()
+    {
+        var script = StorySamples.Script();
+        script.Scenes = script.Scenes.Take(4).ToList();
+        var media = SceneMedia(script, withAudio: false)
+            .Select(s => s with { Video = [0, 0, 0, 24, 102, 116, 121, 112], DurationSeconds = 4 }).ToList();
+        var result = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions(), "Story", media, null);
+        var data = WorkbookReader.Read(result.Bundle.Workbook);
+
+        Assert.All(data.Scenes, scene => Assert.Equal(4, scene.Number("DurationSeconds")));
+        Assert.InRange(result.TotalSeconds, 14.5, 16);
+    }
+
     private static readonly byte[] Jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46];
     private static readonly byte[] Wav = Encoding.ASCII.GetBytes("RIFF....WAVEfmt ");
 
@@ -51,6 +74,33 @@ public class StoryBundleBuilderTests
     }
 
     [Fact]
+    public void A_talking_picture_carries_its_open_mouth_version_next_to_its_mouths()
+    {
+        var script = StorySamples.Script();
+        script.Cast = [new StoryCastMember { Name = "Masterji" }];
+        script.Scenes[0].Lines = [new StoryLine { Speaker = "Masterji", Text = "Pappu, look here at the board!" }];
+        var media = SceneMedia(script, withAudio: false);
+        var open = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x47 };
+        media[0] = media[0] with
+        {
+            Faces = [new StoryFace { Name = "Masterji", X = 0.4, Y = 0.5, Width = 0.2 }],
+            TalkingImage = new StoryBundleTalkingImage(open, "image/jpeg")
+        };
+        // A picture with nobody talking in it gets no open-mouth version even if one is offered.
+        media[1] = media[1] with { TalkingImage = new StoryBundleTalkingImage(open, "image/jpeg") };
+
+        var output = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions(), "Story", media, null);
+        var data = WorkbookReader.Read(output.Bundle.Workbook);
+
+        Assert.Empty(data.Errors);
+        Assert.StartsWith("Masterji:", data.Scenes[0].Text("Mouths"));
+        Assert.Equal("media/talk-s01.jpg", data.Scenes[0].Text("TalkingBackground"));
+        Assert.Equal(open, output.Bundle.Media["media/talk-s01.jpg"].Content);
+        Assert.Null(data.Scenes[1].Text("TalkingBackground"));
+        Assert.DoesNotContain("media/talk-s02.jpg", output.Bundle.Media.Keys);
+    }
+
+    [Fact]
     public void A_scene_with_a_moving_clip_plays_it_without_ken_burns_and_keeps_the_picture_as_an_asset()
     {
         var script = StorySamples.Script();
@@ -67,6 +117,22 @@ public class StoryBundleBuilderTests
         Assert.Equal(AssetKind.Video, output.Bundle.Media["media/clip-s02.mp4"].Kind);
         Assert.Contains(output.Bundle.Media.Keys, k => k.StartsWith("media/img-s02", StringComparison.Ordinal));
         Assert.NotEqual("None", data.Scenes[0].Text("Effect"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Attached_clip_audio_choice_is_written_to_the_project_bundle(bool keepAudio)
+    {
+        var script = StorySamples.Script();
+        var media = SceneMedia(script);
+        media[0] = media[0] with { Video = Encoding.ASCII.GetBytes("\0\0\0\u0018ftypmp42"), VideoHasAudio = true };
+        var output = StoryBundleBuilder.Build(script, StorySamples.Brief(), new StoryBuildOptions { KeepClipAudio = keepAudio }, "Story", media, null);
+        var data = WorkbookReader.Read(output.Bundle.Workbook);
+
+        Assert.Empty(data.Errors);
+        Assert.Equal(keepAudio, data.Scenes[0].Flag("BackgroundAudio"));
+        Assert.False(data.Scenes[1].Flag("BackgroundAudio"));
     }
 
     [Fact]
@@ -196,9 +262,9 @@ public class StoryKitBuilderTests
             } : null,
             new ChannelBranding
             {
-                ChannelName = "OMKR", ChannelUrl = "https://youtube.com/@omkr-shiv", StudioUrl = "https://studio.keshavsingh.in/",
-                CreatorUrl = "https://keshavsingh.in/", EngineName = "AnimStudio", Hashtags = ["OMKR", "AnimStudio", "KeshavSingh"],
-                Tags = ["omkr", "keshav singh"]
+                ChannelName = "Omkar Shiv Bhakti", ChannelUrl = "https://youtube.com/@OmkarShivBhakti", StudioUrl = "https://studio.keshavsingh.in/",
+                CreatorUrl = "https://keshavsingh.in/", EngineName = "AnimStudio", Hashtags = ["OmkarShivBhakti", "AnimStudio", "KeshavSingh"],
+                Tags = ["omkar shiv bhakti", "keshav singh"]
             });
     }
 
@@ -303,11 +369,11 @@ public class StoryKitBuilderTests
         var kit = Kit();
 
         Assert.Contains("Animation Engine: AnimStudio - https://studio.keshavsingh.in/", kit.Description);
-        Assert.Contains("Creator: https://keshavsingh.in/ | Presented by: OMKR", kit.Description);
-        Assert.Contains("🔔 Subscribe to OMKR: https://youtube.com/@omkr-shiv", kit.Description);
+        Assert.Contains("Creator: https://keshavsingh.in/ | Presented by: Omkar Shiv Bhakti", kit.Description);
+        Assert.Contains("🔔 Subscribe to Omkar Shiv Bhakti: https://youtube.com/@OmkarShivBhakti", kit.Description);
         Assert.EndsWith(string.Join(' ', kit.Hashtags), kit.Description);
-        Assert.Contains("#OMKR", kit.Hashtags);
-        Assert.Contains("omkr", kit.Tags);
+        Assert.Contains("#OmkarShivBhakti", kit.Hashtags);
+        Assert.Contains("omkar shiv bhakti", kit.Tags);
         Assert.Contains("keshav singh", kit.Tags);
     }
 

@@ -621,6 +621,15 @@ interface PublishPrefs {
                       }
                     </div>
                   }
+                  @if (savedTitles().length) {
+                    <div class="yt-ideas" role="group" aria-label="Titles from your similar videos">
+                      <span class="yt-ideas-label">From your similar videos</span>
+                      @for (t of savedTitles(); track t) {
+                        <button type="button" class="yt-chip" [class.active]="t === title()" (click)="title.set(t)"
+                                [disabled]="uploading()">{{ t }}</button>
+                      }
+                    </div>
+                  }
                 </section>
 
                 <section class="yt-field">
@@ -1477,6 +1486,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly brief = signal('');
   /** Every title the last suggestion offered, the chosen one included, so it can be switched back. */
   readonly titleOptions = signal<string[]>([]);
+  /** Titles from earlier videos of the same kind, kept from their own suggestions. */
+  readonly savedTitles = signal<string[]>([]);
   /** Every description the last suggestion offered: the main one first, then short and detailed. */
   readonly descriptionOptions = signal<string[]>([]);
   /** Extra tags the last suggestion offered, to add with a click. */
@@ -1490,7 +1501,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
 
   private static readonly ToneLabels: Record<string, string> = {
-    auto: '🎯 Any tone', 'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
+    auto: '🎯 Any tone', 'devotional-omkr': '🕉️ Omkar Shiv Bhakti 3D Devotional (Brand Rules)',
     funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
     dramatic: '🎭 Dramatic', informative: '📘 Informative', energetic: '⚡ Energetic', kids: '🧸 For kids',
     motivational: '💪 Motivational', 'clickbait-free': '✅ Honest / no clickbait',
@@ -1855,6 +1866,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         if (given?.description?.trim()) this.description.set(given.description.trim());
         if (given?.tags?.length) this.tagsText.set(given.tags.join(', '));
         if (given?.firstComment?.trim()) this.firstComment.set(given.firstComment.trim());
+        if (given?.thumbnail) void this.usePrefillThumbnail(given.thumbnail);
 
         // A brand channel with a publishing setup decides; otherwise this browser's last choices.
         const brand = draft.channelId ? status.channels.find((c) => c.channelId === draft.channelId) : undefined;
@@ -1972,6 +1984,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       next: (s) => {
         this.title.set(s.title);
         this.titleOptions.set(s.titleOptions?.length ? [s.title, ...s.titleOptions] : []);
+        this.savedTitles.set(s.savedTitles ?? []);
         this.description.set(s.description);
         this.descriptionOptions.set(s.descriptionOptions?.length ? [s.description, ...s.descriptionOptions] : []);
         this.tagsText.set(s.tags.join(', '));
@@ -1984,8 +1997,14 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.suggestedOnce.set(true);
         // New words, maybe a new category.
         if (!this.isMusic()) this.suggestCategory();
-        const by = this.engines().find((e) => e.id === s.providerId)?.name ?? s.providerId;
-        this.suggestNote.set(`Filled in by ${by}. Read it through and edit before publishing.`);
+        if (s.savedAtUtc) {
+          const when = new Date(s.savedAtUtc).toLocaleDateString();
+          const which = (s.savedSimilarity ?? 1) >= 1 ? 'this video' : 'a very similar video';
+          this.suggestNote.set(`Reused the details saved on ${when} for ${which} - no AI call. Press Suggest again for fresh ones.`);
+        } else {
+          const by = this.engines().find((e) => e.id === s.providerId)?.name ?? s.providerId;
+          this.suggestNote.set(`Filled in by ${by}. Read it through and edit before publishing.`);
+        }
         this.suggesting.set(false);
       },
       error: (e: Error) => {
@@ -2177,6 +2196,19 @@ export class YouTubePublishDialogComponent implements OnInit {
     });
   }
 
+  /** The picture the opener made for this video, made fit for YouTube and chosen - unless the person already chose one. */
+  private async usePrefillThumbnail(picture: Blob): Promise<void> {
+    try {
+      const dataUrl = await this.libraryDataUrl(picture);
+      if (this.thumbMode() === 'auto' && !this.thumbImage()) {
+        this.thumbImage.set(dataUrl);
+        this.thumbMode.set('upload');
+      }
+    } catch {
+      // Only a head start: the person can still pick a thumbnail themselves.
+    }
+  }
+
   onThumbFile(input: HTMLInputElement): void {
     const file = input.files?.[0];
     input.value = '';
@@ -2289,6 +2321,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
       publishAt: publishAt ? publishAt.toISOString() : null,
+      language: this.prefill()?.language ?? null,
     }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice(),
     this.selectedPlan()?.id ?? null).subscribe({
       next: (upload) => {

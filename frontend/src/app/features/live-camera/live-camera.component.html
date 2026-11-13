@@ -1016,6 +1016,7 @@
             @if (form.keyMode === 'youtube') {
               <app-youtube-live-setup kind="camera" [initial]="youTubeBroadcast()" [disabled]="onAir()" (broadcastChange)="youTubeBroadcast.set($event)" />
             } @else if (form.keyMode === 'channel') {
+              <p class="muted">Check the broadcast's visibility in YouTube Studio and share its watch link with viewers. YouTube controls subscriber notifications; a saved key does not identify the watch page here.</p>
               <select [(ngModel)]="form.channelId" aria-label="Channel">
                 @for (c of setup()?.channels ?? []; track c.id) {
                   <option [value]="c.id">{{ c.name }} - {{ keyStatus(c)?.state === 'Saved' ? 'key ' + keyStatus(c)?.masked : 'no usable key' }}</option>
@@ -1025,6 +1026,7 @@
                 <a routerLink="/admin/channels" class="cs-note">Set this channel's key →</a>
               }
             } @else {
+              <p class="muted">Check the broadcast's visibility in YouTube Studio and share its watch link with viewers. YouTube controls subscriber notifications; a stream key does not identify the watch page here.</p>
               <div class="cs-keyrow">
                 <input [type]="showKey() ? 'text' : 'password'" [(ngModel)]="streamKey" autocomplete="off" spellcheck="false"
                        placeholder="xxxx-xxxx-xxxx-xxxx-xxxx" aria-label="Stream key" />

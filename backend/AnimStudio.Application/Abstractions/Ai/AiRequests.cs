@@ -99,6 +99,12 @@ public sealed record AiSpeechRequest
     /// is lines of "Label: words". Never sent to an engine without dialogue support, which would read the labels aloud.
     /// </summary>
     public IReadOnlyList<AiSpeechSpeaker>? Speakers { get; init; }
+
+    /// <summary>
+    /// For a dialogue: a delivery for each line of <see cref="Text"/>, in order, used for that line instead of
+    /// <see cref="Style"/> (null entries keep it). Only an engine that takes a delivery per line reads it.
+    /// </summary>
+    public IReadOnlyList<string?>? LineStyles { get; init; }
 }
 
 /// <summary>A voice in a dialogue: the label its lines carry, and the voice that speaks them.</summary>

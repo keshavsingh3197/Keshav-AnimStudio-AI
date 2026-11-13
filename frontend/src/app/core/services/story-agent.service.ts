@@ -17,6 +17,7 @@ import {
   StoryBuildOptionsBody,
   StoryCaptionsSent,
   StoryExportFile,
+  StoryFace,
   StoryReviewStage,
   StoryRun,
   StoryRunSummary,
@@ -97,6 +98,37 @@ export class StoryAgentService {
     return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/image`));
   }
 
+  /** One of a scene's further pictures: `picture` 2 is the first after the scene's own, and one past the last adds one. */
+  attachShot(id: string, scene: number, picture: number, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}`, form));
+  }
+
+  removeShot(id: string, scene: number, picture: number): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}`));
+  }
+
+  /** Places the talking faces in one of a scene's pictures (1 is its own) by hand, replacing what a build found. */
+  placeFaces(id: string, scene: number, picture: number, faces: Pick<StoryFace, 'name' | 'x' | 'y' | 'width'>[]): Observable<StoryRun> {
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}/faces`, { faces }));
+  }
+
+  /** Forgets a picture's faces, so the next build looks for them again. */
+  resetFaces(id: string, scene: number, picture: number): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/scenes/${scene}/pictures/${picture}/faces`));
+  }
+
+  attachThumbnail(id: string, file: File): Observable<StoryRun> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(this.http.put<ApiResponse<StoryRun>>(`${this.run(id)}/thumbnail`, form));
+  }
+
+  removeThumbnail(id: string): Observable<StoryRun> {
+    return this.unwrap(this.http.delete<ApiResponse<StoryRun>>(`${this.run(id)}/thumbnail`));
+  }
+
   attachVideo(id: string, scene: number, file: File): Observable<StoryRun> {
     const form = new FormData();
     form.append('file', file, file.name);
@@ -112,12 +144,25 @@ export class StoryAgentService {
     return this.http.get(`${this.run(id)}/scenes/${scene}/image`, { responseType: 'blob' });
   }
 
+  shotImage(id: string, scene: number, picture: number): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/scenes/${scene}/pictures/${picture}`, { responseType: 'blob' });
+  }
+
+  thumbnailImage(id: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/thumbnail`, { responseType: 'blob' });
+  }
+
   /**
    * The finished video, fetched through HttpClient for the same reason. A <video> or a download link cannot send the
    * guest identity, so for someone who is not signed in it is the only way to get a render they own.
    */
   renderFile(jobId: string): Observable<Blob> {
     return this.http.get(`${environment.apiUrl}/api/render-jobs/${encodeURIComponent(jobId)}/download`, { responseType: 'blob' });
+  }
+
+  /** The dub track as a WAV, for YouTube Studio's multi-language audio. Fetched through HttpClient so it carries the caller's identity. */
+  dubTrack(id: string): Observable<Blob> {
+    return this.http.get(`${this.run(id)}/dub`, { responseType: 'blob' });
   }
 
   /** One subtitle track as an SRT file (UTF-8). Fetched through HttpClient so it carries the caller's identity. */

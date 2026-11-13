@@ -76,39 +76,55 @@ public static class StoryAnimation
         var builder = new StringBuilder();
         var cast = run.Script?.Cast ?? [];
 
-        var action = Clean(scene.VideoPrompt, MaxActionChars) ?? Clean(scene.ImagePrompt, MaxActionChars);
+        var action = Clean(scene.VideoPrompt, MaxActionChars) ?? Clean(scene.Action, MaxActionChars) ?? Clean(scene.ImagePrompt, MaxActionChars);
         builder.Append("Bring this picture to life as one continuous shot. ");
         if (action is not null) builder.Append(Sentence(action)).Append(' ');
 
         var speeches = scene.Lines
             .Where(l => !IsNarrator(l.Speaker) && !string.IsNullOrWhiteSpace(l.Text))
-            .Select(l => (Speaker: Clean(l.Speaker, 60) ?? "The character", Words: Quote(l.Text)))
+            .Select(l => (Speaker: Clean(l.Speaker, 60) ?? "The character", Words: Quote(l.Text), Emotion: StoryEmotions.Find(l.Emotion)))
             .Where(l => l.Words.Length > 0)
             .ToList();
 
+        var comic = IsComic(run, scene);
         if (speeches.Count > 0)
         {
             var room = MaxQuotedChars;
             var said = new List<string>();
-            foreach (var (speaker, words) in speeches)
+            var reactions = new List<string>();
+            foreach (var (speaker, words, emotion) in speeches)
             {
                 if (room <= 20) break;
                 var quoted = words.Length <= room ? words : words[..room].TrimEnd() + "…";
                 room -= quoted.Length;
-                said.Add($"{speaker}{Describe(cast, speaker)} speaks, saying: “{quoted}”");
+                said.Add(emotion is null
+                    ? $"{speaker}{Describe(cast, speaker)} speaks, saying: “{quoted}”"
+                    : $"{speaker}{Describe(cast, speaker)} speaks {emotion.Adverb}, with {emotion.Face}, saying: “{quoted}”");
+                if (emotion is not null) reactions.Add(emotion.Reaction);
             }
 
             builder.Append(string.Join(" Then ", said)).Append(". ");
             builder.Append(
                 "Whoever speaks faces the viewer or the one they talk to, and their lips, jaw and cheeks move clearly and in time " +
-                "with every word, with natural blinks, small nods and head turns, and hand gestures that match what they say. " +
-                "The others listen and react with their eyes and faces. ");
+                "with every word, with natural blinks, small nods and head turns, and hand gestures that match what they say. ");
+            if (comic)
+            {
+                builder.Append("The others react with big, funny cartoon reactions timed to what is said");
+                builder.Append(reactions.Count > 0 ? $": {string.Join(", then ", reactions.Distinct())}. " : ". ");
+                builder.Append("Expressions are exaggerated and easy to read, with comic timing: a beat of stillness before each reaction. ");
+            }
+            else
+            {
+                builder.Append("The others listen and react with their eyes and faces. ");
+            }
         }
         else
         {
             builder.Append(
                 "Nobody talks: the characters act without speaking, with natural breathing, blinking, small head and body " +
                 "movements and the action described, so the picture feels alive. ");
+            if (comic)
+                builder.Append("Play it for laughs with exaggerated, easy-to-read cartoon acting and comic timing. ");
         }
 
         builder.Append("The background moves too where it would in life: cloth, hair, leaves, water, smoke, flames, light. ");
@@ -125,6 +141,20 @@ public static class StoryAnimation
             "Start exactly from the given picture and keep every character's face, body, clothes and colours and the setting " +
             "the same throughout. Smooth, steady motion. No text, captions, subtitles, letters, logos or watermarks.");
         return builder.ToString();
+    }
+
+    /// <summary>Moods of a scene meant to make the viewer laugh.</summary>
+    private static readonly string[] ComicMoods = ["playful", "funny", "comic", "silly", "mischiev"];
+
+    /// <summary>
+    /// A scene played for laughs: in the funny genre, or with a playful mood. Never in a scripture story, whatever its mood.
+    /// </summary>
+    public static bool IsComic(StoryRun run, StoryScene scene)
+    {
+        if (run.Brief.Mode == StoryGenreMode.Scripture) return false;
+        if (string.Equals(run.Genre?.Id ?? run.Brief.GenreId, StoryGenres.FunnyId, StringComparison.Ordinal)) return true;
+        var mood = scene.Mood?.ToLowerInvariant() ?? string.Empty;
+        return ComicMoods.Any(m => mood.Contains(m, StringComparison.Ordinal));
     }
 
     private static string MotionStyle(StoryArtStyle style) => style switch

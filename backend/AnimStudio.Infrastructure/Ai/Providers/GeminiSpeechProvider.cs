@@ -43,8 +43,16 @@ public sealed partial class GeminiSpeechProvider(
     IOptionsMonitor<AiOptions> options,
     ILogger<GeminiSpeechProvider> logger,
     TimeProvider? clock = null)
-    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider
+    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider,
+      IImageReadingProvider, IImageEditingProvider
 {
+    private const string DefaultReadingModel = "gemini-3.8-flash";
+    /// <summary>Gemini 2.5 Flash Image ("Nano Banana"): edits a picture and keeps the rest of it, a few cents a picture.</summary>
+    internal const string DefaultEditingModel = "gemini-2.5-flash-image";
+    private const int MaxReadImageBytes = 15 * 1024 * 1024;
+    private const int MaxReadPromptLength = 8_000;
+    private const int MaxReadAnswerLength = 20_000;
+
     private const string DefaultModel = "gemini-3.8-flash-tts";
     private const string DefaultMusicModel = "lyria-3.5";
     private const string InteractionsRevision = "2026-05-20";
@@ -169,16 +177,22 @@ public sealed partial class GeminiSpeechProvider(
         if (request.Speakers is { Count: > 0 } turnSpeakers)
         {
             // Gemini 3.8 reads text as a verbatim transcript: each turn is its own part, its speaker named in the metadata.
-            foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            var turns = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (var turn = 0; turn < turns.Length; turn++)
             {
+                var line = turns[turn];
                 var colon = line.IndexOf(':');
                 var label = colon > 0 ? line[..colon] : null;
                 var words = colon > 0 ? line[(colon + 1)..].Trim() : string.Empty;
                 if (label is null || words.Length == 0 || !turnSpeakers.Any(s => string.Equals(s.Label, label, StringComparison.Ordinal)))
                     throw new AiProviderException("speakers-invalid", "Each line of a Gemini dialogue starts with one of its speakers' labels.");
 
+                // The line's own delivery (its emotion) when the caller gave one, else the request's.
+                var turnStyle = request.LineStyles is { } lineStyles && turn < lineStyles.Count && !string.IsNullOrWhiteSpace(lineStyles[turn])
+                    ? DeliveryOf(lineStyles[turn], request.Rate)
+                    : style;
                 var metadata = new Dictionary<string, object> { ["speaker"] = label };
-                if (style is not null) metadata["style"] = style;
+                if (turnStyle is not null) metadata["style"] = turnStyle;
                 parts.Add(new Dictionary<string, object> { ["text"] = words, ["speechMetadata"] = metadata });
             }
         }
@@ -356,6 +370,119 @@ public sealed partial class GeminiSpeechProvider(
             throw new AiProviderException("malformed-response", $"'{Id.Value}' returned music in a format that can't be used.");
 
         return new AiGeneratedMusic(audio, sniffed, model);
+    }
+
+    /// <summary>
+    /// <c>generateContent</c> with the picture inline and a JSON answer asked for. The answer's text parts are joined and
+    /// returned as they are; nothing here trusts them.
+    /// </summary>
+    public async Task<string> ReadImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct)
+    {
+        if (image is not { Length: > 0 } || image.Length > MaxReadImageBytes)
+            throw new AiProviderException("bad-request", "The picture is empty or too large to read.");
+        if (mimeType is not ("image/png" or "image/jpeg" or "image/webp"))
+            throw new AiProviderException("bad-request", "Only PNG, JPEG and WebP pictures can be read.");
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > MaxReadPromptLength)
+            throw new AiProviderException("bad-request", "The question about the picture is empty or too long.");
+
+        model = string.IsNullOrWhiteSpace(model) ? DefaultReadingModel : model.Trim();
+        if (!IsSafePathValue(model, allowSlashes: false, maxLength: 64))
+            throw new AiProviderException("bad-request", "That model name can't be used.");
+
+        var body = new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new object[]
+                    {
+                        new { inline_data = new { mime_type = mimeType, data = Convert.ToBase64String(image) } },
+                        new { text = prompt }
+                    }
+                }
+            },
+            generationConfig = new { responseMimeType = "application/json", temperature = 0 }
+        };
+
+        using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
+
+        var answer = new StringBuilder();
+        if (response.RootElement.TryGetProperty("candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array
+            && candidates.GetArrayLength() > 0
+            && candidates[0].TryGetProperty("content", out var content)
+            && content.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var part in parts.EnumerateArray())
+            {
+                if (part.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
+                    answer.Append(text.GetString());
+            }
+        }
+
+        if (answer.Length == 0)
+            throw new AiProviderException("empty-response", $"'{Id.Value}' said nothing about the picture.");
+        if (answer.Length > MaxReadAnswerLength)
+            throw new AiProviderException("response-too-large", $"'{Id.Value}' said more about the picture than is allowed.");
+        return answer.ToString();
+    }
+
+    /// <summary>
+    /// <c>generateContent</c> on an image model with the picture inline and only an image asked back. The first inline
+    /// image part is returned once its bytes are sniffed to be a picture and fit the limit; any text the model adds is
+    /// ignored.
+    /// </summary>
+    public async Task<AiEditedImage> EditImageAsync(byte[] image, string mimeType, string prompt, string? model, CancellationToken ct)
+    {
+        if (image is not { Length: > 0 } || image.Length > MaxReadImageBytes)
+            throw new AiProviderException("bad-request", "The picture is empty or too large to redraw.");
+        if (mimeType is not ("image/png" or "image/jpeg" or "image/webp"))
+            throw new AiProviderException("bad-request", "Only PNG, JPEG and WebP pictures can be redrawn.");
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > MaxReadPromptLength)
+            throw new AiProviderException("bad-request", "The instruction for the picture is empty or too long.");
+
+        model = string.IsNullOrWhiteSpace(model) ? DefaultEditingModel : model.Trim();
+        if (!IsSafePathValue(model, allowSlashes: false, maxLength: 64))
+            throw new AiProviderException("bad-request", "That model name can't be used.");
+
+        var body = new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new object[]
+                    {
+                        new { inline_data = new { mime_type = mimeType, data = Convert.ToBase64String(image) } },
+                        new { text = prompt }
+                    }
+                }
+            },
+            generationConfig = new { responseModalities = new[] { "IMAGE" } }
+        };
+
+        using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
+
+        if (ReadInlineData(response.RootElement, "image/") is not { } inline)
+            throw new AiProviderException("empty-response", $"'{Id.Value}' did not send a picture back.");
+
+        // Base64 is four characters for every three bytes, so the text alone says whether it is too large.
+        if (inline.Data.Length / 4L * 3 > MaxReadImageBytes)
+            throw new AiProviderException("response-too-large", $"'{Id.Value}' sent back a picture larger than is allowed.");
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(inline.Data);
+        }
+        catch (FormatException)
+        {
+            throw new AiProviderException("invalid-response", $"'{Id.Value}' sent back a picture that could not be read.");
+        }
+
+        var sniffed = AiImageValidator.Sniff(bytes)
+            ?? throw new AiProviderException("invalid-response", $"'{Id.Value}' sent back something that is not a PNG, JPEG or WebP.");
+        return new AiEditedImage(bytes, sniffed, model);
     }
 
     /// <summary>The first <c>{"type":"audio","data":"…"}</c> block, wherever the revision of the API nests it.</summary>
@@ -615,7 +742,13 @@ public sealed partial class GeminiSpeechProvider(
         Property(element, snake, camel) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
 
     /// <summary>The first inline audio part of the first candidate, in either casing.</summary>
-    private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root)
+    private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root) => ReadInlineData(root, null);
+
+    /// <summary>
+    /// The first inline part of the first candidate, in either casing, whose mime type starts with
+    /// <paramref name="mimePrefix"/> (any part when null).
+    /// </summary>
+    private static (string Data, string? MimeType)? ReadInlineData(JsonElement root, string? mimePrefix)
     {
         if (!root.TryGetProperty("candidates", out var candidates) ||
             candidates.ValueKind != JsonValueKind.Array ||
@@ -633,8 +766,11 @@ public sealed partial class GeminiSpeechProvider(
 
             if (Property(part, "inline_data", "inlineData") is not { } inline) continue;
 
+            var mime = StringOf(inline, "mime_type", "mimeType");
+            if (mimePrefix is not null && mime?.StartsWith(mimePrefix, StringComparison.OrdinalIgnoreCase) != true) continue;
+
             if (StringOf(inline, "data", "data") is { Length: > 0 } value)
-                return (value, StringOf(inline, "mime_type", "mimeType"));
+                return (value, mime);
         }
 
         return null;

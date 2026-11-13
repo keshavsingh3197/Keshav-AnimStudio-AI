@@ -442,6 +442,7 @@ public sealed class ProjectEditingService(
                 Description = srcScene.Description,
                 DurationFrames = srcScene.DurationFrames,
                 BackgroundAssetId = MapAsset(srcScene.BackgroundAssetId),
+                BackgroundAudio = srcScene.BackgroundAudio,
                 Animation = srcScene.Animation,
                 TransitionToNext = srcScene.TransitionToNext,
                 TransitionDurationFrames = srcScene.TransitionDurationFrames,
