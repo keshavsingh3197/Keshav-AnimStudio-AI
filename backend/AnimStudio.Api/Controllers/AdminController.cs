@@ -1171,13 +1171,14 @@ public sealed class AdminController(
 
     [HttpGet("access-control")]
     public ActionResult<ApiResponse<AdminAccessControlResponse>> GetAccessControl(
-        [FromServices] IOptionsMonitor<AdminOptions> adminOpts)
+        [FromServices] IOptionsMonitor<AdminOptions> adminOpts,
+        [FromServices] AnimStudio.Application.Ecosystem.UiNavigationState uiNavState)
     {
         var options = adminOpts.CurrentValue;
         return Ok(ApiResponse<AdminAccessControlResponse>.Ok(new AdminAccessControlResponse(
             options.Mode.ToString(),
             options.AnonymousPolicy,
-            options.UiNavigation,
+            uiNavState.Get(options.UiNavigation),
             new[] { "Admin", "StudioUser", "Editor", "Viewer", "Anonymous" })));
     }
 
@@ -1185,7 +1186,9 @@ public sealed class AdminController(
     public async Task<ActionResult<ApiResponse<AdminAccessControlResponse>>> UpdateAccessControl(
         [FromBody] UpdateAccessControlRequest request,
         [FromServices] AnimStudio.Infrastructure.Settings.WebSettingsService webSettings,
+        [FromServices] IWebSettingRepository webSettingRepo,
         [FromServices] IOptionsMonitor<AdminOptions> adminOpts,
+        [FromServices] AnimStudio.Application.Ecosystem.UiNavigationState uiNavState,
         CancellationToken ct)
     {
         if (request.AnonymousPolicy is not null)
@@ -1209,14 +1212,27 @@ public sealed class AdminController(
             {
                 adminOpts.CurrentValue.UiNavigation.Tabs = tabs;
             }
-            await audit.RecordAsync("access-control.ui-navigation", "ui-tabs", null, "Updated UI tab navigation visibility rules", RemoteAddress(), ct);
+            var effectiveNav = new AnimStudio.Application.Options.UiNavigationSettings
+            {
+                EnforceGuestRestrictions = adminOpts.CurrentValue.UiNavigation.EnforceGuestRestrictions,
+                Tabs = adminOpts.CurrentValue.UiNavigation.Tabs,
+            };
+            uiNavState.Set(effectiveNav);
+            await webSettingRepo.UpsertAsync(new AnimStudio.Domain.System.WebSetting
+            {
+                Id = AnimStudio.Infrastructure.Ecosystem.EcosystemConfigService.UiNavigationSettingKey,
+                Value = System.Text.Json.JsonSerializer.Serialize(effectiveNav),
+                UpdatedByUserId = currentUser.UserId,
+                UpdatedAt = DateTime.UtcNow,
+            }, ct);
+            await audit.RecordAsync("access-control.ui-navigation", "ui-tabs", null, "Updated and persisted UI tab navigation visibility rules", RemoteAddress(), ct);
         }
 
         var options = adminOpts.CurrentValue;
         return Ok(ApiResponse<AdminAccessControlResponse>.Ok(new AdminAccessControlResponse(
             options.Mode.ToString(),
             options.AnonymousPolicy,
-            options.UiNavigation,
+            uiNavState.Get(options.UiNavigation),
             new[] { "Admin", "StudioUser", "Editor", "Viewer", "Anonymous" })));
     }
 
@@ -1307,6 +1323,56 @@ public sealed class AdminController(
     {
         channel = settings.FindChannel(channelId);
         return BrandChannel.IsDefault(channelId) || channel is not null;
+    }
+
+    /// <summary>
+    /// Pulls creator channels, studio branding defaults, and retired channel aliases from the
+    /// Central Admin registry into Studio's persistent database and active brand kit.
+    /// </summary>
+    [HttpPost("ecosystem/sync")]
+    public async Task<ActionResult<ApiResponse<AnimStudio.Application.Ecosystem.CentralChannelSyncSummary>>> SyncEcosystem(
+        [FromServices] AnimStudio.Application.Ecosystem.IEcosystemConfigProvider ecosystem,
+        CancellationToken ct)
+    {
+        var result = await ecosystem.SyncToAiSettingsAsync(currentUser.UserId, ct);
+        await audit.RecordAsync("ecosystem.synced", "central-channels", null,
+            $"Synced {result.SyncedChannelsCount} channel(s) (+{result.CreatedBrandChannels} created, {result.UpdatedBrandChannels} updated)",
+            RemoteAddress(), ct);
+        return Ok(ApiResponse<AnimStudio.Application.Ecosystem.CentralChannelSyncSummary>.Ok(result));
+    }
+
+    /// <summary>
+    /// Updates Studio's retired channel URLs and former channel names/aliases used for YouTube
+    /// Video Checkup and metadata hygiene. Merged dynamically with Central Admin channel aliases.
+    /// </summary>
+    [HttpPut("publishing/retired-aliases")]
+    public async Task<ActionResult<ApiResponse<AnimStudio.Application.Ecosystem.UpdateRetiredAliasesRequest>>> UpdateRetiredAliases(
+        [FromBody] AnimStudio.Application.Ecosystem.UpdateRetiredAliasesRequest request,
+        [FromServices] IAiSettingsRepository aiSettingsRepo,
+        [FromServices] AnimStudio.Application.Ecosystem.IEcosystemConfigProvider ecosystem,
+        CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        settings.RetiredChannelUrls = (request.RetiredChannelUrls ?? [])
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim().TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        settings.RetiredChannelNames = (request.RetiredChannelNames ?? [])
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim().TrimStart('@', '#'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        settings.UpdatedByUserId = currentUser.UserId;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await aiSettingsRepo.SaveAsync(settings, ct);
+        await ecosystem.GetAsync(forceRefresh: true, ct);
+        await audit.RecordAsync("publishing.retired-aliases", "retired-aliases", null,
+            $"Updated retired aliases ({settings.RetiredChannelUrls.Count} URLs, {settings.RetiredChannelNames.Count} names)",
+            RemoteAddress(), ct);
+
+        return Ok(ApiResponse<AnimStudio.Application.Ecosystem.UpdateRetiredAliasesRequest>.Ok(
+            new AnimStudio.Application.Ecosystem.UpdateRetiredAliasesRequest(settings.RetiredChannelUrls, settings.RetiredChannelNames)));
     }
 
     private NotFoundObjectResult ChannelNotFound()

@@ -15,38 +15,59 @@ public static partial class YouTubeBrandKit
     private const string Rule = "━━━━━━━━━━━━━━━━━━━━━━━━━━━";
     public const int MaxHashtags = 15;
 
-    /// <summary>The studio's own branding, used by a channel that hasn't set any.</summary>
-    public static ChannelBranding Default => new()
+    private sealed record RuntimeBrandState(
+        ChannelBranding DefaultBranding,
+        IReadOnlyList<string> RetiredChannelUrls,
+        IReadOnlyList<string> RetiredChannelNames);
+
+    private static RuntimeBrandState _runtime = new(new ChannelBranding(), [], []);
+
+    /// <summary>
+    /// Installs the studio-wide fallback branding and retired channel aliases from Central Admin + Studio DB
+    /// at startup or whenever configuration refreshes. Starts clean/unbranded until configured.
+    /// </summary>
+    public static void ConfigureRuntime(
+        ChannelBranding? defaultBranding,
+        IEnumerable<string>? retiredUrls,
+        IEnumerable<string>? retiredNames)
     {
-        ChannelName = "Omkar Shiv Bhakti",
-        Tagline = "Devotional 3D Animations",
-        ChannelUrl = "https://youtube.com/@OmkarShivBhakti",
-        StudioUrl = "https://studio.keshavsingh.in/",
-        CreatorUrl = "https://keshavsingh.in/",
-        CreatorName = "Keshav Singh",
-        EngineName = "AnimStudio",
-        VisualsCredit = "Omkar Shiv Bhakti 3D Devotional Animations",
-        Hashtags = ["OmkarShivBhakti", "AnimStudio", "KeshavSingh"],
-        // The retired short name stays as a tag so viewers who still search it find the channel.
-        Tags = ["omkar shiv bhakti", "omkar shiv", "AnimStudio", "omkr", "keshav singh"],
-    };
+        var branding = defaultBranding?.Copy() ?? new ChannelBranding();
+        var urls = (retiredUrls ?? [])
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim().TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var names = (retiredNames ?? [])
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim().TrimStart('@', '#'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Interlocked.Exchange(ref _runtime, new RuntimeBrandState(branding, urls, names));
+    }
+
+    /// <summary>Restores the unconfigured empty runtime state (intended for isolated unit tests).</summary>
+    public static void ResetRuntime() =>
+        Interlocked.Exchange(ref _runtime, new RuntimeBrandState(new ChannelBranding(), [], []));
+
+    /// <summary>The studio's runtime branding, configured dynamically from Central Admin / Studio settings.</summary>
+    public static ChannelBranding Default => Volatile.Read(ref _runtime).DefaultBranding.Copy();
 
     /// <summary>
-    /// Channel addresses the studio used before a rename. YouTube no longer opens them, so a video
-    /// still linking one sends viewers to a dead page - the checkup flags it.
+    /// Channel addresses retired before a rename. Configured dynamically by admins and checked
+    /// during Video Checkup / metadata hygiene.
     /// </summary>
-    public static readonly IReadOnlyList<string> RetiredChannelUrls = ["youtube.com/@omkr-shiv"];
+    public static IReadOnlyList<string> RetiredChannelUrls => Volatile.Read(ref _runtime).RetiredChannelUrls;
 
     /// <summary>
-    /// Names the channel went by before a rename. Text still carrying one (a stored credit, a
-    /// footer) is written with the current name instead - see <see cref="CurrentText"/>.
-    /// Search tags are left alone on purpose: people still type the old name.
+    /// Names the channel went by before a rename. Configured dynamically by admins; text still
+    /// carrying one is rewritten with the current name (<see cref="CurrentText"/>).
     /// </summary>
-    public static readonly IReadOnlyList<string> RetiredChannelNames = ["OMKR"];
+    public static IReadOnlyList<string> RetiredChannelNames => Volatile.Read(ref _runtime).RetiredChannelNames;
 
-    /// <summary>The channel's branding; when it has set none, the studio's own for the Omkar Shiv Bhakti devotional tone and nothing otherwise.</summary>
+    /// <summary>The channel's branding; when it has set none, falls back to configured studio defaults for brand tones.</summary>
     public static ChannelBranding Resolve(ChannelBranding? branding, string? toneId = null) =>
-        branding ?? (string.Equals(toneId, "devotional-omkr", StringComparison.Ordinal) ? Default : new ChannelBranding());
+        branding ?? (toneId is "devotional-omkr" or "devotional-brand" ? Default : new ChannelBranding());
 
     /// <summary>
     /// The branding a channel's videos actually carry, merged field by field:

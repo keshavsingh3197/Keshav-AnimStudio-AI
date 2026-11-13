@@ -11,6 +11,7 @@ import {
 } from '../../core/models/youtube.models';
 import { ContentTopic } from '../../core/models/calendar.models';
 import { ContentCalendarService } from '../../core/services/content-calendar.service';
+import { EcosystemConfigService } from '../../core/services/ecosystem-config.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { rank } from './checkup-match';
 import { MAX_PROMPT_VIDEOS, buildHandoffPrompt, channelUrlFor, hasRetiredLink, replaceRetiredLinks } from './checkup-ai-handoff';
@@ -148,8 +149,10 @@ function loadViewMode(): ViewMode {
 export class YouTubeCheckupComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
   private readonly calendar = inject(ContentCalendarService);
+  private readonly ecosystem = inject(EcosystemConfigService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly route = inject(ActivatedRoute);
+  private readonly _ecoInit = (() => { this.ecosystem.ensureLoaded(); return true; })();
 
   /** A video to open once its channel's check has loaded - from "Open in checkup" on the details page. */
   private pendingOpen: string | null = null;
@@ -253,7 +256,8 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly exportScope = computed(() => (this.selected().size > 0 ? this.selectedVideos() : this.rows()));
   /** Ticked videos whose description still links the channel's old address. */
   readonly selectedWithOldLink = computed(() =>
-    this.selectedVideos().filter((v) => hasRetiredLink(this.state(v.videoId).draft?.description ?? v.description)));
+    this.selectedVideos().filter((v) =>
+      hasRetiredLink(this.state(v.videoId).draft?.description ?? v.description, this.ecosystem.retiredChannelUrls())));
 
   // Automated YouTube URL -> Transcript + SEO Generator (100% Free supported)
   readonly urlSeoOpen = signal(false);
@@ -775,16 +779,20 @@ export class YouTubeCheckupComponent implements OnInit {
   private sheetContext(): SheetContext {
     const channel = this.channel();
     const brand = this.brand();
+    const retiredUrls = this.ecosystem.retiredChannelUrls();
+    const retiredNames = this.ecosystem.retiredChannelNames();
     const brandAdded = !!brand && (!!brand.creditsEnglish || !!brand.footer || brand.hashtags.length > 0 || brand.tags.length > 0);
     return {
       settings: {
         channelTitle: brand?.channelName ?? channel?.channelTitle ?? this.checkup()?.channelTitle ?? '',
-        channelUrl: brand?.channelUrl ?? channelUrlFor(channel?.channelHandle),
+        channelUrl: brand?.channelUrl ?? channelUrlFor(channel?.channelHandle, retiredUrls),
         tone: this.tone(),
         language: this.language(),
         brief: this.brief(),
         playlists: this.playlists().map((p) => p.title),
         brandAdded,
+        retiredUrls,
+        retiredNames,
       },
       playlists: this.playlists(),
       brand,
@@ -793,7 +801,7 @@ export class YouTubeCheckupComponent implements OnInit {
 
   /** The channel's current address, for fixing old links: the brand's, else built from the @handle. */
   private currentChannelUrl(): string | null {
-    return this.brand()?.channelUrl ?? channelUrlFor(this.channel()?.channelHandle);
+    return this.brand()?.channelUrl ?? channelUrlFor(this.channel()?.channelHandle, this.ecosystem.retiredChannelUrls());
   }
 
   /** Downloads the videos in scope as an AI package (JSON), a spreadsheet (CSV) or a prompt (text). */
@@ -977,7 +985,7 @@ export class YouTubeCheckupComponent implements OnInit {
     for (const v of targets) {
       if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
       const d = this.state(v.videoId).draft!;
-      this.setDraft(v.videoId, { description: replaceRetiredLinks(d.description, url) });
+      this.setDraft(v.videoId, { description: replaceRetiredLinks(d.description, url, this.ecosystem.retiredChannelUrls()) });
     }
     this.notice.set(`Changed the old channel link to ${url} in ${targets.length} draft${targets.length === 1 ? '' : 's'}. Review, then Save.`);
   }

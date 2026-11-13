@@ -17,6 +17,10 @@
         </div>
       </div>
       <div class="pb-head-actions">
+        <button type="button" class="secondary" (click)="syncFromCentral()" [disabled]="syncingCentral()"
+                title="Import Central Admin creator channels (@keshavsinghworld, @OmkarShivBhakti, etc.) and studio defaults">
+          <app-ico name="refresh" [class.is-spinning]="syncingCentral()" /> {{ syncingCentral() ? 'Syncing…' : 'Sync Central Channels' }}
+        </button>
         <button type="button" class="secondary" (click)="checkConnections()" [disabled]="checking() || yt()?.configured === false"
                 title="Ask YouTube whether each connection still works - this is what turns up an expired one">
           <app-ico name="refresh" [class.is-spinning]="checking()" /> {{ checking() ? 'Checking…' : 'Check connections' }}
@@ -27,6 +31,14 @@
         </button>
       </div>
     </header>
+
+    @if (centralSyncMessage(); as msg) {
+      <div class="pb-alert is-info" role="status">
+        <app-ico name="info" />
+        <div class="pb-alert-body">{{ msg }}</div>
+        <button type="button" class="pb-x" (click)="centralSyncMessage.set(null)" aria-label="Dismiss"><app-ico name="x" [size]="14" /></button>
+      </div>
+    }
 
     @if (staleNotice(); as n) {
       <div class="pb-alert is-info" role="status">
@@ -540,6 +552,21 @@
                         @if (studioError(); as e) { <span class="pb-err" role="alert">{{ e }}</span> }
                         @else if (studioSavedAt()) { <span class="muted small" role="status">Saved - every channel’s blank fields use these now.</span> }
                       </div>
+                      <div class="pb-grid" style="margin-top: .85rem; padding-top: .85rem; border-top: 1px solid var(--border);">
+                        <div class="pb-field">
+                          <label for="pb-s-retiredUrls">Retired channel URLs (comma-separated)</label>
+                          <input id="pb-s-retiredUrls" type="text" [value]="retiredUrlsText()" (input)="retiredUrlsText.set(val($event))" placeholder="e.g. youtube.com/@old-handle" />
+                        </div>
+                        <div class="pb-field">
+                          <label for="pb-s-retiredNames">Retired channel aliases (comma-separated)</label>
+                          <input id="pb-s-retiredNames" type="text" [value]="retiredNamesText()" (input)="retiredNamesText.set(val($event))" placeholder="e.g. OldName" />
+                        </div>
+                      </div>
+                      <div class="pb-row" style="margin-top: .4rem;">
+                        <button type="button" class="secondary small" (click)="saveRetiredAliases()" [disabled]="aliasesSaving()">
+                          {{ aliasesSaving() ? 'Saving aliases…' : 'Save retired aliases' }}
+                        </button>
+                      </div>
                     }
                   }
                 </details>
@@ -557,7 +584,7 @@
                     Type a value only to override it for this channel.
                   </p>
                   <div class="pb-row">
-                    <button type="button" class="secondary small" (click)="useStudioPreset()">Use the Omkar Shiv Bhakti preset</button>
+                    <button type="button" class="secondary small" (click)="useStudioPreset()">Use synced Central Studio preset</button>
                     <button type="button" class="secondary small" (click)="clearBranding()" [disabled]="!f.branding">Clear overrides</button>
                   </div>
                   <div class="pb-grid">

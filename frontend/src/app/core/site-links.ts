@@ -5,7 +5,7 @@
  * Only public profile links belong here - never an address that should not be scraped.
  */
 export interface SiteLink {
-  id: 'portfolio' | 'youtube' | 'github';
+  id: 'portfolio' | 'youtube' | 'github' | string;
   label: string;
   /** Shown under the label on the contact page. */
   handle: string;
@@ -13,35 +13,16 @@ export interface SiteLink {
   description: string;
 }
 
+/**
+ * Fallback containers are neutral/empty; runtime ecosystem data is fetched from Central Admin
+ * (`/api/config`) and Studio's `/api/system/ecosystem` via `EcosystemConfigService`.
+ */
 export const CREATOR = {
-  name: 'Keshav Singh',
+  name: '',
   role: 'Creator & lead contributor',
-  portfolioUrl: 'https://keshavsingh.in/',
+  portfolioUrl: '',
 } as const;
 
-export const SOCIAL_LINKS: readonly SiteLink[] = [
-  {
-    id: 'portfolio',
-    label: 'Portfolio',
-    handle: 'keshavsingh.in',
-    url: 'https://keshavsingh.in/',
-    description: 'Projects, background and the quickest way to get in touch with the creator.',
-  },
-  {
-    id: 'youtube',
-    label: 'YouTube',
-    handle: '@OmkarShivBhakti',
-    url: 'https://youtube.com/@OmkarShivBhakti',
-    description: 'Omkar Shiv Bhakti devotional 3D animations, made end to end in AnimStudio.',
-  },
-  {
-    id: 'github',
-    label: 'GitHub',
-    handle: 'keshavsingh3197',
-    url: 'https://github.com/keshavsingh3197',
-    description: 'Open source work and the shared packages behind the keshavsingh.in apps.',
-  },
-];
+export const SOCIAL_LINKS: readonly SiteLink[] = [];
 
-/** Bump when the Terms or Privacy text changes in substance. */
-export const LEGAL_UPDATED = '1 November 2026';
+export const LEGAL_UPDATED = '';

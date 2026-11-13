@@ -1,7 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { CREATOR, SOCIAL_LINKS } from '../../core/site-links';
+import { EcosystemConfigService } from '../../core/services/ecosystem-config.service';
 import { SocialIconComponent } from '../../shared/social-icon.component';
 import { INFO_PAGE_STYLES } from './info-page.styles';
 
@@ -16,13 +16,13 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
           <h1>Contact us</h1>
           <p class="muted">
             Questions, bug reports, feature ideas or collaboration - AnimStudio AI is built and run by
-            {{ creator.name }}. Pick whichever channel suits you.
+            {{ creator().name }}. Pick whichever channel suits you.
           </p>
         </div>
       </header>
 
       <div class="contact-grid">
-        @for (link of links; track link.id) {
+        @for (link of links(); track link.key) {
           <a class="card contact-card" [href]="link.url" target="_blank" rel="noopener noreferrer">
             <span class="contact-icon"><app-social-icon [id]="link.id" [size]="20" /></span>
             <span class="contact-body">
@@ -105,6 +105,33 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
   `],
 })
 export class ContactComponent {
-  readonly creator = CREATOR;
-  readonly links = SOCIAL_LINKS;
+  readonly ecosystem = inject(EcosystemConfigService);
+  private readonly _eco = (() => { this.ecosystem.ensureLoaded(); return true; })();
+  readonly creator = computed(() => ({
+    name: this.ecosystem.creatorName() || 'Studio Team',
+    role: 'Creator & lead contributor',
+    portfolioUrl: this.ecosystem.creatorPortfolioUrl(),
+  }));
+  readonly links = computed(() => {
+    const items = this.ecosystem.socialLinks().map((s) => ({
+      key: s.key || s.url,
+      id: s.platform.toLowerCase(),
+      label: s.platform === 'YouTube' ? s.name : s.platform,
+      handle: s.handle || s.url,
+      url: s.url,
+      description: s.description || s.platform,
+    }));
+    const portfolioUrl = this.ecosystem.creatorPortfolioUrl();
+    if (portfolioUrl && !items.some((i) => i.url === portfolioUrl)) {
+      items.unshift({
+        key: 'portfolio',
+        id: 'portfolio',
+        label: 'Portfolio',
+        handle: portfolioUrl.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''),
+        url: portfolioUrl,
+        description: 'Projects, background and direct links across the ecosystem.',
+      });
+    }
+    return items;
+  });
 }

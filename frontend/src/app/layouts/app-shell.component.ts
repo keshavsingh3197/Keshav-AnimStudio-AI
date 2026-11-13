@@ -15,7 +15,7 @@ import { SessionTimeoutService } from '../core/services/session-timeout.service'
 import { StatusService } from '../core/services/status.service';
 import { ThemeService } from '../core/services/theme.service';
 import { UiNavigationService } from '../core/services/ui-navigation.service';
-import { CREATOR, SOCIAL_LINKS } from '../core/site-links';
+import { EcosystemConfigService } from '../core/services/ecosystem-config.service';
 import { SocialIconComponent } from '../shared/social-icon.component';
 
 /** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
@@ -36,6 +36,23 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
   host: { '(document:keydown.escape)': 'closeMobileNav()' },
   template: `
     <app-session-timeout></app-session-timeout>
+
+    @if (ecosystem.websites().length > 0) {
+      <div class="ecosystem-bar" aria-label="Keshav Ecosystem">
+        <div class="wrap ecosystem-bar-inner">
+          <span class="ecosystem-bar-label">ECOSYSTEM</span>
+          <nav class="ecosystem-links">
+            @for (site of ecosystem.websites(); track site.key) {
+              <a class="ecosystem-pill" [class.active]="site.key === 'studio'" [href]="site.url" target="_blank" rel="noopener noreferrer"
+                 [title]="site.tagline || site.description || site.name">
+                @if (site.icon) { <span aria-hidden="true">{{ site.icon }}</span> }
+                <span>{{ site.shortLabel || site.name }}</span>
+              </a>
+            }
+          </nav>
+        </div>
+      </div>
+    }
 
     <header class="topbar">
       <div class="wrap topbar-inner">
@@ -256,16 +273,24 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       <div class="wrap app-footer-inner">
         <div class="app-footer-top">
           <div class="app-footer-about">
-            <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
-            <p class="app-footer-tagline">Script to screen: scenes, clips, live broadcast, and renders in one studio.</p>
-            <p class="app-footer-creator">
-              Created by <a [href]="creator.portfolioUrl" target="_blank" rel="noopener noreferrer">{{ creator.name }}</a>
-            </p>
+            <a routerLink="/projects" class="brand">{{ ecosystem.config().studioTitle || 'AnimStudio' }}<span>AI</span></a>
+            <p class="app-footer-tagline">{{ ecosystem.config().studioTagline || 'Script to screen: scenes, clips, live broadcast, and renders in one studio.' }}</p>
+            @if (ecosystem.creatorName(); as cname) {
+              <p class="app-footer-creator">
+                Created by
+                @if (ecosystem.creatorPortfolioUrl(); as curl) {
+                  <a [href]="curl" target="_blank" rel="noopener noreferrer">{{ cname }}</a>
+                } @else {
+                  <span>{{ cname }}</span>
+                }
+              </p>
+            }
             <div class="app-footer-social">
-              @for (link of socialLinks; track link.id) {
+              @for (link of ecosystem.socialLinks(); track link.key) {
                 <a [href]="link.url" target="_blank" rel="noopener noreferrer"
-                   [attr.aria-label]="link.label + ' - ' + link.handle" [title]="link.label + ' - ' + link.handle">
-                  <app-social-icon [id]="link.id" />
+                   [attr.aria-label]="link.name + (link.handle ? ' - ' + link.handle : '')"
+                   [title]="link.name + (link.handle ? ' - ' + link.handle : '')">
+                  <app-social-icon [id]="link.platform.toLowerCase()" />
                 </a>
               }
             </div>
@@ -286,7 +311,9 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           <nav class="app-footer-col" aria-label="Company">
             <h2>Company</h2>
             <ul class="app-footer-links app-footer-links-stack">
-              <li><a [href]="creator.portfolioUrl" target="_blank" rel="noopener noreferrer">About the creator</a></li>
+              @if (ecosystem.creatorPortfolioUrl(); as curl) {
+                <li><a [href]="curl" target="_blank" rel="noopener noreferrer">About the creator</a></li>
+              }
               <li><a routerLink="/contact">Contact us</a></li>
               <li><a routerLink="/terms">Terms &amp; Conditions</a></li>
               <li><a routerLink="/privacy">Privacy Policy</a></li>
@@ -295,11 +322,13 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         </div>
 
         <div class="app-footer-bottom">
-          <span>&copy; {{ year }} AnimStudio AI. All rights reserved.</span>
-          <span>
-            Designed &amp; built by
-            <a [href]="creator.portfolioUrl" target="_blank" rel="noopener noreferrer">keshavsingh.in</a>
-          </span>
+          <span>{{ ecosystem.copyrightNotice() || ('© ' + year + ' AnimStudio AI. All rights reserved.') }}</span>
+          @if (ecosystem.creatorPortfolioUrl(); as curl) {
+            <span>
+              Designed &amp; built by
+              <a [href]="curl" target="_blank" rel="noopener noreferrer">{{ ecosystem.creatorName() || 'Creator' }}</a>
+            </span>
+          }
         </div>
       </div>
     </footer>
@@ -961,6 +990,66 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         grid-template-columns: minmax(0, 1fr);
       }
     }
+
+    .ecosystem-bar {
+      background: color-mix(in srgb, var(--surface) 96%, #000);
+      border-bottom: 1px solid var(--border);
+      font-size: .74rem;
+      padding: .28rem 0;
+    }
+
+    .ecosystem-bar-inner {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .ecosystem-bar-inner::-webkit-scrollbar {
+      display: none;
+    }
+
+    .ecosystem-bar-label {
+      font-weight: 800;
+      letter-spacing: .09em;
+      color: var(--muted);
+      font-size: .64rem;
+      flex-shrink: 0;
+    }
+
+    .ecosystem-links {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      flex-wrap: nowrap;
+    }
+
+    .ecosystem-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .28rem;
+      padding: .16rem .55rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      color: var(--muted);
+      text-decoration: none;
+      white-space: nowrap;
+      font-weight: 600;
+      transition: color .15s ease, background .15s ease, border-color .15s ease;
+    }
+
+    .ecosystem-pill:hover {
+      color: var(--text);
+      background: var(--ov-1);
+      border-color: var(--border);
+    }
+
+    .ecosystem-pill.active {
+      color: var(--text);
+      background: rgba(108, 140, 255, 0.16);
+      border-color: rgba(108, 140, 255, 0.4);
+    }
   `],
 })
 
@@ -969,6 +1058,7 @@ export class AppShellComponent {
   private readonly router = inject(Router);
   readonly auth = inject(AuthService);
   readonly theme = inject(ThemeService);
+  readonly ecosystem = inject(EcosystemConfigService);
   readonly sessionTimeout = inject(SessionTimeoutService);
   readonly uiNav = inject(UiNavigationService);
 
@@ -991,8 +1081,10 @@ export class AppShellComponent {
   readonly shortsAttention = signal(0);
   private readonly shorts = inject(ShortsService);
   readonly year = new Date().getFullYear();
-  readonly creator = CREATOR;
-  readonly socialLinks = SOCIAL_LINKS;
+  private readonly _ecoInit = (() => {
+    this.ecosystem.ensureLoaded();
+    return true;
+  })();
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
 
   private refreshShortsAttention() {

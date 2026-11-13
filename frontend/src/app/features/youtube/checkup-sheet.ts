@@ -1,6 +1,6 @@
 import { YouTubeCheckupBrand, YouTubeCheckupPlaylist, YouTubeCheckupVideo } from '../../core/models/youtube.models';
 import {
-  HandoffSettings, RETIRED_CHANNEL_URLS, cleanLine, cleanText, extractJson, hasRetiredLink, isRecord, joinLines, promptRules, replaceRetiredLinks,
+  HandoffSettings, cleanLine, cleanText, extractJson, hasRetiredLink, isRecord, joinLines, promptRules, replaceRetiredLinks,
   replaceRetiredNames,
 } from './checkup-ai-handoff';
 import { FILE_NAME_TITLE, HASHTAG, SHORT_DESCRIPTION_CHARS, TAGS_BUDGET, hasFooter, splitTags } from './checkup-draft';
@@ -207,10 +207,12 @@ function checkRow(row: RawRow, v: YouTubeCheckupVideo, ctx: SheetContext): Impor
 
   const brand = ctx.brand ?? null;
   const channelName = brand?.channelName ?? ctx.settings.channelTitle;
+  const retiredUrls = ctx.settings.retiredUrls ?? [];
+  const retiredNames = ctx.settings.retiredNames ?? [];
   const added: string[] = [];
 
-  const title = replaceRetiredNames(cleanLine(typeof row.title === 'string' ? row.title : ''), channelName);
-  let description = typeof row.description === 'string' ? replaceRetiredNames(cleanText(row.description), channelName) : '';
+  const title = replaceRetiredNames(cleanLine(typeof row.title === 'string' ? row.title : ''), channelName, retiredNames);
+  let description = typeof row.description === 'string' ? replaceRetiredNames(cleanText(row.description), channelName, retiredNames) : '';
   const rawTags = Array.isArray(row.tags) ? row.tags : typeof row.tags === 'string' ? row.tags.split(',') : [];
   const tagList = splitTags(rawTags.filter((t): t is string => typeof t === 'string').map((t) => cleanLine(t).slice(0, MAX_TAG)).join(','));
   const rawPlaylists = Array.isArray(row.playlists) ? row.playlists : typeof row.playlists === 'string' ? row.playlists.split('|') : [];
@@ -222,12 +224,12 @@ function checkRow(row: RawRow, v: YouTubeCheckupVideo, ctx: SheetContext): Impor
   else if (title.length > MAX_TITLE) problems.push(`The title is ${title.length} characters; YouTube allows ${MAX_TITLE}.`);
   else if (FILE_NAME_TITLE.test(title)) problems.push('The title looks like a file name.');
 
-  if (hasRetiredLink(description)) {
+  if (hasRetiredLink(description, retiredUrls)) {
     if (channelUrl) {
-      description = replaceRetiredLinks(description, channelUrl);
+      description = replaceRetiredLinks(description, channelUrl, retiredUrls);
       warnings.push(`The old channel link was changed to ${channelUrl}.`);
     } else {
-      warnings.push(`It still links ${RETIRED_CHANNEL_URLS.join(', ')}, which no longer opens.`);
+      warnings.push(`It still links ${retiredUrls.join(', ')}, which no longer opens.`);
     }
   }
   if (description) {
@@ -271,7 +273,7 @@ function checkRow(row: RawRow, v: YouTubeCheckupVideo, ctx: SheetContext): Impor
 
   const unchanged = title === v.title && description === v.description
     && tags.join(',') === v.tags.join(',') && playlistIds.length === 0;
-  const comment = (value: unknown) => (typeof value === 'string' && value.trim() ? replaceRetiredNames(cleanText(value), channelName).slice(0, 1000) : undefined);
+  const comment = (value: unknown) => (typeof value === 'string' && value.trim() ? replaceRetiredNames(cleanText(value), channelName, retiredNames).slice(0, 1000) : undefined);
   const pinned = comment(row.pinnedComment);
   const pinnedComment = pinned ? commentWithLinks(pinned, brand, ctx.settings.language) : undefined;
   if (pinned && pinnedComment !== pinned) added.push('the channel link to the pinned comment');

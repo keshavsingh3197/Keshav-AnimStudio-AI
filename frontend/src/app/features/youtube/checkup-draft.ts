@@ -235,7 +235,7 @@ export function draftChecklist(v: YouTubeCheckupVideo, d: Draft, footer: string 
 export function toneLabel(t: string): string {
   const labels: Record<string, string> = {
     auto: '🎯 Auto Tone',
-    'devotional-omkr': '🕉️ Omkar Shiv Bhakti 3D Devotional (Brand Rules)',
+    'devotional-omkr': '🕉️ Brand Devotional (Studio Rules)',
     devotional: '🙏 Devotional',
     funny: '😂 Funny',
     emotional: '🥹 Emotional',

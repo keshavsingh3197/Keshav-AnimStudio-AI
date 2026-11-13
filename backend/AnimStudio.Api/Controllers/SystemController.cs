@@ -530,6 +530,33 @@ public sealed class SystemController(
             new ServerLogsResponse(logFiles, targetName, entries)));
     }
 
+    /// <summary>
+    /// Returns live ecosystem configuration (websites switcher bar, central social/channel links,
+    /// creator attribution, and dynamic brand metadata) synced from Central Admin + Studio DB.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("ecosystem")]
+    public async Task<ActionResult<ApiResponse<AnimStudio.Application.Ecosystem.StudioEcosystemConfig>>> GetEcosystemConfig(
+        [FromServices] AnimStudio.Application.Ecosystem.IEcosystemConfigProvider ecosystem,
+        [FromQuery] bool refresh = false,
+        CancellationToken ct = default)
+    {
+        var force = refresh && AdminAccessRules.IsAdmitted(adminOptions.CurrentValue, HttpContext, User);
+        var config = await ecosystem.GetAsync(forceRefresh: force, ct);
+        return Ok(ApiResponse<AnimStudio.Application.Ecosystem.StudioEcosystemConfig>.Ok(config));
+    }
+
+    /// <summary>Forces an immediate refresh from Central Admin + Studio DB (Admin-only).</summary>
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = AnimStudio.Api.Security.AdminAccess.Policy)]
+    [HttpPost("ecosystem/refresh")]
+    public async Task<ActionResult<ApiResponse<AnimStudio.Application.Ecosystem.StudioEcosystemConfig>>> RefreshEcosystemConfig(
+        [FromServices] AnimStudio.Application.Ecosystem.IEcosystemConfigProvider ecosystem,
+        CancellationToken ct)
+    {
+        var config = await ecosystem.GetAsync(forceRefresh: true, ct);
+        return Ok(ApiResponse<AnimStudio.Application.Ecosystem.StudioEcosystemConfig>.Ok(config));
+    }
+
     private static ServerLogEntry ParseLogLine(string raw)
     {
         // Format written by DailyFileLoggerProvider:

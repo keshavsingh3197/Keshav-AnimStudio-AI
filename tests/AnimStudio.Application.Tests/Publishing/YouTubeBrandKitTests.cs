@@ -4,8 +4,43 @@ using AnimStudio.Domain.Publishing;
 
 namespace AnimStudio.Application.Tests.Publishing;
 
-public sealed class YouTubeBrandKitTests
+[CollectionDefinition("YouTubeBrandKitRuntime", DisableParallelization = true)]
+public sealed class YouTubeBrandKitRuntimeCollection;
+
+[Collection("YouTubeBrandKitRuntime")]
+public sealed class YouTubeBrandKitTests : IDisposable
 {
+    public YouTubeBrandKitTests()
+    {
+        YouTubeBrandKit.ConfigureRuntime(
+            new ChannelBranding
+            {
+                ChannelName = "Omkar Shiv Bhakti",
+                Tagline = "Devotional 3D Animations",
+                ChannelUrl = "https://youtube.com/@OmkarShivBhakti",
+                StudioUrl = "https://studio.keshavsingh.in/",
+                CreatorUrl = "https://keshavsingh.in/",
+                CreatorName = "Keshav Singh",
+                EngineName = "AnimStudio",
+                VisualsCredit = "Omkar Shiv Bhakti 3D Devotional Animations",
+                Hashtags = ["OmkarShivBhakti", "AnimStudio", "KeshavSingh"],
+                Tags = ["omkar shiv bhakti", "omkar shiv", "AnimStudio", "omkr", "keshav singh"],
+            },
+            ["youtube.com/@omkr-shiv"],
+            ["OMKR"]);
+    }
+
+    public void Dispose() => YouTubeBrandKit.ResetRuntime();
+
+    [Fact]
+    public void Unconfigured_runtime_has_zero_hardcoded_channel_or_retired_aliases()
+    {
+        YouTubeBrandKit.ResetRuntime();
+        Assert.Null(YouTubeBrandKit.Default.ChannelName);
+        Assert.Null(YouTubeBrandKit.Default.ChannelUrl);
+        Assert.Empty(YouTubeBrandKit.RetiredChannelUrls);
+        Assert.Empty(YouTubeBrandKit.RetiredChannelNames);
+    }
     private static ChannelBranding Brand() => new()
     {
         ChannelName = "Acme",

@@ -303,6 +303,7 @@ public sealed class YouTubeVideoInsightsTests
     }
 }
 
+[Collection("YouTubeBrandKitRuntime")]
 public sealed class YouTubeFreeSeoEngineTests
 {
     private const string Style = "a YouTube video - include topic hashtags in the description";
@@ -335,14 +336,35 @@ public sealed class YouTubeFreeSeoEngineTests
     [Fact]
     public void The_omkr_tone_keeps_the_devotional_template()
     {
-        var s = YouTubeFreeSeoEngine.Generate("Current title: Shiv Tandav", Style, "devotional-omkr", "hi", null, null);
-        var finished = YouTubeBrandKit.Compose(s.Description, YouTubeBrandKit.Resolve(null, "devotional-omkr"), "hi", null);
+        YouTubeBrandKit.ConfigureRuntime(
+            new Domain.Publishing.ChannelBranding
+            {
+                ChannelName = "Omkar Shiv Bhakti",
+                ChannelUrl = "https://youtube.com/@OmkarShivBhakti",
+                StudioUrl = "https://studio.keshavsingh.in/",
+                CreatorUrl = "https://keshavsingh.in/",
+                EngineName = "AnimStudio",
+                VisualsCredit = "Omkar Shiv Bhakti 3D Devotional Animations",
+                Hashtags = ["OmkarShivBhakti", "AnimStudio", "KeshavSingh"],
+                Tags = ["omkar shiv bhakti", "omkar shiv", "AnimStudio", "omkr", "keshav singh"],
+            },
+            ["youtube.com/@omkr-shiv"],
+            ["OMKR"]);
+        try
+        {
+            var s = YouTubeFreeSeoEngine.Generate("Current title: Shiv Tandav", Style, "devotional-omkr", "hi", null, null);
+            var finished = YouTubeBrandKit.Compose(s.Description, YouTubeBrandKit.Resolve(null, "devotional-omkr"), "hi", null);
 
-        Assert.Contains("Omkar Shiv Bhakti", finished);
-        Assert.Contains("https://youtube.com/@OmkarShivBhakti", finished);
-        Assert.Contains("omkr", s.Tags);
-        Assert.Contains("omkar shiv bhakti", s.Tags);
-        Assert.Contains("bhakti whatsapp status", s.Tags);
+            Assert.Contains("Omkar Shiv Bhakti", finished);
+            Assert.Contains("https://youtube.com/@OmkarShivBhakti", finished);
+            Assert.Contains("omkr", s.Tags);
+            Assert.Contains("omkar shiv bhakti", s.Tags);
+            Assert.Contains("bhakti whatsapp status", s.Tags);
+        }
+        finally
+        {
+            YouTubeBrandKit.ResetRuntime();
+        }
     }
 
     [Fact]

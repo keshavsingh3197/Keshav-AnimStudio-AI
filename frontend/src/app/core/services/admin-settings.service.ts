@@ -50,17 +50,17 @@ export interface ChannelBranding {
 }
 
 /** The studio's own branding, offered as a starting point. */
-export const STUDIO_BRANDING: ChannelBranding = {
-  channelName: 'Omkar Shiv Bhakti',
-  tagline: 'Devotional 3D Animations',
-  channelUrl: 'https://youtube.com/@OmkarShivBhakti',
-  studioUrl: 'https://studio.keshavsingh.in/',
-  creatorUrl: 'https://keshavsingh.in/',
-  creatorName: 'Keshav Singh',
-  engineName: 'AnimStudio',
-  visualsCredit: 'Omkar Shiv Bhakti 3D Devotional Animations',
-  hashtags: ['OmkarShivBhakti', 'AnimStudio', 'KeshavSingh'],
-  tags: ['omkar shiv bhakti', 'omkar shiv', 'AnimStudio', 'omkr', 'keshav singh'],
+export const EMPTY_STUDIO_BRANDING: ChannelBranding = {
+  channelName: null,
+  tagline: null,
+  channelUrl: null,
+  studioUrl: null,
+  creatorUrl: null,
+  creatorName: null,
+  engineName: null,
+  visualsCredit: null,
+  hashtags: [],
+  tags: [],
 };
 
 /** A brand channel's YouTube publishing setup. */

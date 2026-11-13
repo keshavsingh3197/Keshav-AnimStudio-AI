@@ -1,7 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { CREATOR, LEGAL_UPDATED } from '../../core/site-links';
+import { EcosystemConfigService } from '../../core/services/ecosystem-config.service';
 import { INFO_PAGE_STYLES } from './info-page.styles';
 
 @Component({
@@ -13,7 +13,7 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
         <div>
           <h1>Terms &amp; Conditions</h1>
           <p class="muted">The rules for using AnimStudio AI. By using the studio you agree to them.</p>
-          <span class="info-updated">Last updated {{ updated }}</span>
+          <span class="info-updated">Last updated {{ updated() }}</span>
         </div>
       </header>
 
@@ -21,7 +21,7 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
         <h2>1. The service</h2>
         <p>
           AnimStudio AI is a creative studio for scripting, animating, editing, publishing and streaming video,
-          created and operated by {{ creator.name }}. Features may change, be limited or be withdrawn at any time,
+          created and operated by {{ creator().name }}. Features may change, be limited or be withdrawn at any time,
           and guest access is subject to usage quotas.
         </p>
       </section>
@@ -101,6 +101,11 @@ import { INFO_PAGE_STYLES } from './info-page.styles';
   styles: [INFO_PAGE_STYLES],
 })
 export class TermsComponent {
-  readonly creator = CREATOR;
-  readonly updated = LEGAL_UPDATED;
+  readonly ecosystem = inject(EcosystemConfigService);
+  private readonly _eco = (() => { this.ecosystem.ensureLoaded(); return true; })();
+  readonly creator = computed(() => ({
+    name: this.ecosystem.creatorName() || 'Studio Administrator',
+    portfolioUrl: this.ecosystem.creatorPortfolioUrl(),
+  }));
+  readonly updated = computed(() => this.ecosystem.legalUpdatedDate() || new Date().toLocaleDateString());
 }
