@@ -19,6 +19,7 @@ namespace AnimStudio.Api.Controllers;
 [Route("api/animate")]
 public sealed class AnimateController(
     IImageAnimationRenderer renderer,
+    IProceduralVideoGenerator proceduralGenerator,
     IRenderCapabilities capabilities,
     IAiExecutor ai,
     IPromptLibrary prompts,
@@ -42,7 +43,10 @@ public sealed class AnimateController(
             ImageAnimation.MaxImageBytes,
             ImageAnimation.Motions,
             ImageAnimation.Looks,
-            ImageAnimation.Formats)));
+            ImageAnimation.Formats,
+            ProceduralVideoPlanner.Presets,
+            ProceduralVideoRequest.MinSeconds,
+            ProceduralVideoRequest.MaxSeconds)));
 
     /// <summary>Turns "slowly zoom into her face, warm sunset look" into settings the page shows and can adjust.</summary>
     [HttpPost("plan")]
@@ -186,6 +190,163 @@ public sealed class AnimateController(
         Response.Headers.XContentTypeOptions = "nosniff";
         Response.Headers.CacheControl = "no-store";
         return File(video, "video/mp4", "animated.mp4");
+    }
+
+    /// <summary>
+    /// Generates a complete 2D/3D procedural animated MP4 directly on the server from a title, prompt, and
+    /// optional script/captions with zero GPU or external paid video APIs, returning the playable MP4 bytes.
+    /// </summary>
+    [HttpPost("generate-video")]
+    public async Task<IActionResult> GenerateProceduralVideo(
+        [FromBody] ProceduralVideoGenerationRequest? request,
+        CancellationToken ct)
+    {
+        if (!capabilities.IsAvailable)
+            return Fail(StatusCodes.Status503ServiceUnavailable, "renderer-unavailable",
+                capabilities.UnavailableReason ?? "Video rendering (FFmpeg) isn't available on this server right now.");
+
+        var title = request?.Title?.Trim() ?? string.Empty;
+        var prompt = request?.Prompt?.Trim();
+        var script = request?.Script?.Trim();
+        if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(prompt) && string.IsNullOrEmpty(script))
+            return Fail(StatusCodes.Status400BadRequest, "prompt-required",
+                "Provide a title, motion prompt, or script to generate an animated video.");
+
+        var seconds = ProceduralVideoPlanner.ClampDuration(request?.DurationSeconds ?? ProceduralVideoRequest.DefaultSeconds);
+        var (allowed, reason) = access.CheckRenderQuota(currentUser, seconds);
+        if (!allowed)
+            return Fail(StatusCodes.Status403Forbidden, "render-not-allowed", reason ?? "Rendering isn't allowed.");
+
+        if (!await RenderSlots.WaitAsync(TimeSpan.FromSeconds(45), ct))
+            return Fail(StatusCodes.Status429TooManyRequests, "animate-busy",
+                "Other videos are rendering right now. Try again in a minute.");
+
+        ProceduralVideoResult result;
+        try
+        {
+            var saveJob = currentUser.IsAuthenticated && (request?.SaveAsRenderJob ?? false);
+            result = await proceduralGenerator.GenerateAsync(
+                currentUser.IsAuthenticated ? currentUser.UserId : string.Empty,
+                new ProceduralVideoRequest
+                {
+                    Title = string.IsNullOrEmpty(title) ? (prompt ?? "AnimStudio 3D") : title,
+                    Prompt = prompt,
+                    Script = script,
+                    Theme = request?.Theme ?? ProceduralSceneTheme.Auto,
+                    Format = request?.Format ?? "vertical",
+                    Resolution = request?.Resolution ?? "720p",
+                    DurationSeconds = seconds,
+                    IncludeCaptions = request?.IncludeCaptions ?? true,
+                    IncludeAmbientAudio = request?.IncludeAmbientAudio ?? true,
+                    Language = string.IsNullOrWhiteSpace(request?.Language) ? "hi" : request.Language.Trim(),
+                    FooterLabel = request?.FooterLabel,
+                    ProjectId = request?.ProjectId,
+                    TopicId = request?.TopicId,
+                    SaveAsRenderJob = saveJob,
+                    ReturnInlineBytes = true
+                },
+                ct);
+        }
+        finally
+        {
+            RenderSlots.Release();
+        }
+
+        Response.Headers.XContentTypeOptions = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers["X-Procedural-Theme"] = result.ThemeDisplayName;
+        if (!string.IsNullOrWhiteSpace(result.RenderJobId))
+            Response.Headers["X-Render-Job-Id"] = result.RenderJobId;
+
+        return File(result.InlineMp4Bytes!, "video/mp4", "animated-3d.mp4");
+    }
+
+    /// <summary>
+    /// Authenticated variant of <see cref="GenerateProceduralVideo"/> that persists the rendered MP4 into
+    /// Studio Renders (<see cref="RenderJob"/>) and returns its job ID, preview URL, and download URL.
+    /// </summary>
+    [Microsoft.AspNetCore.Authorization.Authorize]
+    [HttpPost("generate-render-job")]
+    public async Task<ActionResult<ApiResponse<ProceduralVideoResponse>>> GenerateProceduralRenderJob(
+        [FromBody] ProceduralVideoGenerationRequest? request,
+        CancellationToken ct)
+    {
+        if (!currentUser.IsAuthenticated)
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<ProceduralVideoResponse>.Fail("Sign in to save generated videos.",
+                    new ApiError("auth-required", "Sign in to save generated videos.")));
+
+        if (!capabilities.IsAvailable)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                ApiResponse<ProceduralVideoResponse>.Fail(
+                    capabilities.UnavailableReason ?? "Video rendering (FFmpeg) isn't available on this server right now.",
+                    new ApiError("renderer-unavailable",
+                        capabilities.UnavailableReason ?? "Video rendering (FFmpeg) isn't available on this server right now.")));
+
+        var title = request?.Title?.Trim() ?? string.Empty;
+        var prompt = request?.Prompt?.Trim();
+        var script = request?.Script?.Trim();
+        if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(prompt) && string.IsNullOrEmpty(script))
+            return BadRequest(ApiResponse<ProceduralVideoResponse>.Fail("Provide a title, motion prompt, or script.",
+                new ApiError("prompt-required", "Provide a title, motion prompt, or script.")));
+
+        var seconds = ProceduralVideoPlanner.ClampDuration(request?.DurationSeconds ?? ProceduralVideoRequest.DefaultSeconds);
+        var (allowed, reason) = access.CheckRenderQuota(currentUser, seconds);
+        if (!allowed)
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<ProceduralVideoResponse>.Fail(reason ?? "Rendering isn't allowed.",
+                    new ApiError("render-not-allowed", reason ?? "Rendering isn't allowed.")));
+
+        if (!await RenderSlots.WaitAsync(TimeSpan.FromSeconds(45), ct))
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                ApiResponse<ProceduralVideoResponse>.Fail("Render slots busy.",
+                    new ApiError("animate-busy", "Other videos are rendering right now. Try again in a minute.")));
+
+        ProceduralVideoResult result;
+        try
+        {
+            result = await proceduralGenerator.GenerateAsync(
+                currentUser.UserId,
+                new ProceduralVideoRequest
+                {
+                    Title = string.IsNullOrEmpty(title) ? (prompt ?? "AnimStudio 3D") : title,
+                    Prompt = prompt,
+                    Script = script,
+                    Theme = request?.Theme ?? ProceduralSceneTheme.Auto,
+                    Format = request?.Format ?? "vertical",
+                    Resolution = request?.Resolution ?? "720p",
+                    DurationSeconds = seconds,
+                    IncludeCaptions = request?.IncludeCaptions ?? true,
+                    IncludeAmbientAudio = request?.IncludeAmbientAudio ?? true,
+                    Language = string.IsNullOrWhiteSpace(request?.Language) ? "hi" : request.Language.Trim(),
+                    FooterLabel = request?.FooterLabel,
+                    ProjectId = request?.ProjectId,
+                    TopicId = request?.TopicId,
+                    SaveAsRenderJob = true,
+                    ReturnInlineBytes = false
+                },
+                ct);
+        }
+        finally
+        {
+            RenderSlots.Release();
+        }
+
+        var jobId = result.RenderJobId;
+        var payload = new ProceduralVideoResponse(
+            jobId,
+            result.ProjectId,
+            result.ResolvedTheme,
+            result.ThemeDisplayName,
+            result.Width,
+            result.Height,
+            result.DurationSeconds,
+            result.SizeBytes,
+            jobId is null ? null : $"/api/render-jobs/{jobId}/preview",
+            jobId is null ? null : $"/api/render-jobs/{jobId}/download",
+            result.Summary);
+
+        return Ok(ApiResponse<ProceduralVideoResponse>.Ok(payload));
     }
 
     private ObjectResult Fail(int status, string code, string message) =>

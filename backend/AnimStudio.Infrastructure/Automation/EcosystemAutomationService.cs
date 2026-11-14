@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Automation;
@@ -8,6 +9,7 @@ using AnimStudio.Application.Common;
 using AnimStudio.Application.Ecosystem;
 using AnimStudio.Application.Planning;
 using AnimStudio.Application.Publishing;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Domain.Automation;
 using AnimStudio.Domain.Jobs;
@@ -77,6 +79,7 @@ public sealed class EcosystemAutomationService(
     PublishQueueService publishQueue,
     YouTubeUploadManager uploadManager,
     StoryRunService storyRuns,
+    IProceduralVideoGenerator proceduralVideoGenerator,
     IAiExecutor ai,
     IObjectStore objectStore,
     AppDataPaths dataPaths,
@@ -660,6 +663,33 @@ public sealed class EcosystemAutomationService(
         return post;
     }
 
+    /// <summary>
+    /// Generates an instant CPU-friendly 2D/3D procedural animated MP4 for a prepared post right on this
+    /// server (zero GPU or external video AI keys required), saves it as a Studio RenderJob, and attaches it.
+    /// Keeps all AI Video Prompts intact on the post.
+    /// </summary>
+    public async Task<AutomationPost> GenerateAnimatedVideoAsync(
+        string userId,
+        string postId,
+        Application.Rendering.ProceduralSceneTheme theme,
+        int durationSeconds,
+        string? resolution,
+        CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
+            throw EditingException.Conflict("post-locked", "Cannot regenerate video once uploading or published.");
+
+        var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
+        await AttachProceduralAnimatedVideoAsync(userId, post, rule, theme, durationSeconds, resolution, ct)
+            .ConfigureAwait(false);
+
+        post.LastError = null;
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
     public async Task<AutomationPost> ApproveAndPublishAsync(
         string userId,
         string postId,
@@ -1090,6 +1120,20 @@ public sealed class EcosystemAutomationService(
             }
         }
 
+        if (rule.VideoStrategy == AutomationVideoStrategy.AutoGenerateAnimated3DVideo
+            && rule.Mode != AutomationPostMode.PreviewOnly)
+        {
+            try
+            {
+                await AttachProceduralAnimatedVideoAsync(userId, post, rule, ProceduralSceneTheme.Auto, 0, null, ct).ConfigureAwait(false);
+                return (true, false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                post.Notes = $"Auto 3D video deferred: {ex.Message}";
+            }
+        }
+
         if ((rule.VideoStrategy is AutomationVideoStrategy.PreferUnusedDriveClipThenAiRender or AutomationVideoStrategy.AutoGenerateStoryVideo)
             && rule.Mode != AutomationPostMode.PreviewOnly)
         {
@@ -1103,11 +1147,59 @@ public sealed class EcosystemAutomationService(
             }
             catch (StoryRunException ex)
             {
-                post.Notes = $"Auto-video deferred: {ex.Message}";
+                try
+                {
+                    await AttachProceduralAnimatedVideoAsync(userId, post, rule, ProceduralSceneTheme.Auto, 0, null, ct).ConfigureAwait(false);
+                    post.Notes = $"Generated built-in 3D animation (Story Agent deferred: {ex.Message})";
+                    return (true, false);
+                }
+                catch (Exception procEx) when (procEx is not OperationCanceledException)
+                {
+                    post.Notes = $"Auto-video deferred: {ex.Message}";
+                }
             }
         }
 
         return (false, false);
+    }
+
+    private async Task AttachProceduralAnimatedVideoAsync(
+        string userId,
+        AutomationPost post,
+        AutomationRule? rule,
+        ProceduralSceneTheme theme,
+        int durationSeconds,
+        string? resolution,
+        CancellationToken ct)
+    {
+        var duration = durationSeconds > 0
+            ? durationSeconds
+            : Math.Clamp(rule?.TargetSeconds ?? 24, 15, 45);
+        var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
+
+        var rendered = await proceduralVideoGenerator.GenerateAsync(userId, new ProceduralVideoRequest
+        {
+            Title = post.Title,
+            Prompt = post.AiVideoPrompt,
+            Script = post.Script,
+            Theme = theme,
+            Format = post.Format == AutomationVideoFormat.Wide ? "landscape" : "vertical",
+            Resolution = string.IsNullOrWhiteSpace(resolution) ? "720p" : resolution.Trim(),
+            DurationSeconds = duration,
+            IncludeCaptions = true,
+            IncludeAmbientAudio = true,
+            Language = post.Language,
+            FooterLabel = footer,
+            TopicId = post.TopicId ?? rule?.TopicId,
+            SaveAsRenderJob = true,
+            ReturnInlineBytes = false
+        }, ct).ConfigureAwait(false);
+
+        post.AttachedRenderJobId = rendered.RenderJobId;
+        post.AttachedHandoffId = null;
+        post.AttachedHandoffTitle = rendered.ThemeDisplayName;
+        post.AttachedVideoSourceLabel = $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
+        post.Status = AutomationPostStatus.VideoReadyForReview;
     }
 
     private async Task<StoryRun> StartStoryRunForPostAsync(

@@ -24,7 +24,16 @@ export type AutomationVideoStrategy =
   | 'PreferUnusedDriveClipOnly'
   | 'PreferFinishedRenderJob'
   | 'AutoGenerateStoryVideo'
-  | 'ManualAttachOnly';
+  | 'ManualAttachOnly'
+  | 'AutoGenerateAnimated3DVideo';
+
+export type ProceduralSceneTheme =
+  | 'Auto'
+  | 'VedicTempleSunrise3D'
+  | 'CosmosSacred3D'
+  | 'HistoryChronicle3D'
+  | 'NeonCyberGrid3D'
+  | 'SereneNatureGlow';
 
 export type AutomationVideoFormat = 'Vertical' | 'Wide';
 
@@ -362,6 +371,18 @@ export class AutomationService {
   generateVideo(postId: string): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/generate-video`, {})
+    );
+  }
+
+  generateAnimatedVideo(
+    postId: string,
+    body?: { theme?: ProceduralSceneTheme; durationSeconds?: number; resolution?: '720p' | '1080p' }
+  ): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/generate-animated-video`,
+        body ?? {}
+      )
     );
   }
 

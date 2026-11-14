@@ -1,20 +1,147 @@
 <section class="an">
   <header class="an-head">
-    <h2>Animate Image</h2>
-    <p>
-      Add a picture, say how it should move, and get a video. The camera zooms, pans, drifts or sways over your
-      picture with a colour grade of your choice. It's free and needs no AI key. With a free text AI set up, it also
-      understands longer descriptions.
-    </p>
+    <div class="an-head-row">
+      <div>
+        <h2>3D Animated Studio &amp; Image Animator</h2>
+        <p>
+          Generate full 2D/3D procedural animated MP4 videos directly on our server (free, zero GPU or external paid AI key needed)
+          or animate any still image with virtual camera motion — while keeping your copyable AI video prompt ready for external tools.
+        </p>
+      </div>
+      <div class="an-mode-tabs" role="tablist" aria-label="Generator mode">
+        <button type="button" [class.active]="studioMode() === 'procedural'" (click)="studioMode.set('procedural')">
+          ✨ 3D Animated Video (Prompt -> MP4)
+        </button>
+        <button type="button" [class.active]="studioMode() === 'image'" (click)="studioMode.set('image')">
+          🖼️ Animate Still Image
+        </button>
+      </div>
+    </div>
   </header>
 
   @if (caps()?.rendererAvailable === false) {
     <div class="an-alert">
-      Video rendering isn't available on this server right now. You can still preview the motion here.
+      Video rendering isn't available on this server right now.
       @if (caps()?.rendererUnavailableReason; as reason) { <span class="text-dim">({{ reason }})</span> }
     </div>
   }
 
+  @if (studioMode() === 'procedural') {
+    <div class="an-grid">
+      <div class="an-panel an-controls">
+        <div class="an-field">
+          <label for="proc-title">Video Title (Animated Opening Hook)</label>
+          <input id="proc-title" type="text" class="an-input" maxlength="120"
+                 [ngModel]="procTitle()" (ngModelChange)="procTitle.set($event)"
+                 placeholder="e.g. आज का शुभ पंचांग या महादेव कथा" />
+        </div>
+
+        <div class="an-field">
+          <div class="an-row">
+            <label for="proc-prompt">Visual Motion Prompt (Used for Auto 3D Theme + Copyable AI Prompt)</label>
+            <button type="button" class="an-btn tiny" (click)="copyProceduralPrompt()">
+              {{ procCopiedNotice() || 'Copy Prompt' }}
+            </button>
+          </div>
+          <textarea id="proc-prompt" rows="3" maxlength="800"
+                    [ngModel]="procPrompt()" (ngModelChange)="procPrompt.set($event)"
+                    placeholder="Describe visual world: Vedic sunrise temple, cosmic nakshatra rings, historical globe, neon cyber grid…"></textarea>
+          <div class="an-ideas">
+            @for (idea of proceduralIdeas; track idea.label) {
+              <button type="button" (click)="applyProceduralIdea(idea)">{{ idea.label }}</button>
+            }
+          </div>
+        </div>
+
+        <div class="an-field">
+          <label for="proc-script">Timed Subtitles / Narration Beat Text</label>
+          <textarea id="proc-script" rows="4" maxlength="2000"
+                    [ngModel]="procScript()" (ngModelChange)="procScript.set($event)"
+                    placeholder="Paste script lines or Hindi/English points separated by new lines or | or । …"></textarea>
+        </div>
+      </div>
+
+      <div class="an-panel an-controls">
+        <div class="an-field">
+          <label>3D Visual World Theme</label>
+          <div class="an-theme-grid">
+            @for (preset of proceduralThemes(); track preset.id) {
+              <button type="button" class="an-theme-card"
+                      [class.active]="procTheme() === preset.theme"
+                      (click)="procTheme.set(preset.theme)">
+                <span class="an-theme-dot" [style.background]="preset.accentHex"></span>
+                <span class="an-theme-meta">
+                  <strong>{{ preset.name }}</strong>
+                  <small>{{ preset.bestFor }}</small>
+                </span>
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="an-formats" role="group" aria-label="Video shape">
+          <button type="button" [class.active]="procFormat() === 'vertical'" (click)="procFormat.set('vertical')">9:16 Shorts / Reels</button>
+          <button type="button" [class.active]="procFormat() === 'landscape'" (click)="procFormat.set('landscape')">16:9 YouTube</button>
+          <button type="button" [class.active]="procFormat() === 'square'" (click)="procFormat.set('square')">1:1 Square</button>
+        </div>
+
+        <div class="an-sliders">
+          <label class="an-slider">
+            <span>Duration <em>{{ procDuration() }} s</em></span>
+            <input type="range" [min]="procMinSeconds()" [max]="procMaxSeconds()" step="1"
+                   [ngModel]="procDuration()" (ngModelChange)="setProceduralDuration($event)" />
+          </label>
+          <label class="an-field">
+            <span>Quality &amp; CPU Speed</span>
+            <select class="an-input" [ngModel]="procResolution()" (ngModelChange)="procResolution.set($event)">
+              <option value="720p">720p HD (Fast CPU — Recommended)</option>
+              <option value="1080p">1080p Full HD</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="an-field">
+          <label for="proc-footer">Optional Bottom Website / Brand Tag</label>
+          <input id="proc-footer" type="text" class="an-input" maxlength="80"
+                 [ngModel]="procFooter()" (ngModelChange)="procFooter.set($event)"
+                 placeholder="e.g. panchang.keshavsingh.in" />
+        </div>
+
+        <div class="an-row wrap">
+          <label class="an-check"><input type="checkbox" [ngModel]="procIncludeCaptions()" (ngModelChange)="procIncludeCaptions.set($event)" /> Burn Hindi/English Subtitles</label>
+          <label class="an-check"><input type="checkbox" [ngModel]="procIncludeAudio()" (ngModelChange)="procIncludeAudio.set($event)" /> Generate Ambient Music</label>
+          @if (isAuthenticated()) {
+            <label class="an-check"><input type="checkbox" [ngModel]="procSaveToLibrary()" (ngModelChange)="procSaveToLibrary.set($event)" /> Save to Studio Renders (for YouTube Publish)</label>
+          }
+        </div>
+
+        @if (procError(); as e) { <div class="an-alert" role="alert">{{ e }}</div> }
+
+        <button type="button" class="an-btn primary big"
+                [disabled]="procRendering() || caps()?.rendererAvailable === false"
+                (click)="generateProceduralVideo()">
+          {{ procRendering() ? 'Rendering 3D Animation & Audio…' : '⚡ Generate 3D Animated Video Now' }}
+        </button>
+      </div>
+    </div>
+
+    @if (procResultUrl(); as url) {
+      <div class="an-panel an-result">
+        <div class="an-row">
+          <h3>Your 3D Animated Video</h3>
+          @if (procRenderJobId(); as jid) {
+            <span class="text-dim">Saved to Studio Renders ({{ jid }}) — ready for Auto-Post &amp; YouTube Publish</span>
+          }
+        </div>
+        <video [src]="url" controls autoplay loop playsinline [style.aspect-ratio]="procAspect()"></video>
+        @if (procSummary(); as sum) { <p class="an-summary">{{ sum }}</p> }
+        <div class="an-row wrap">
+          <a class="an-btn primary" [href]="procDownloadUrl() ?? url" download="animstudio-3d.mp4">Download MP4</a>
+          <button type="button" class="an-btn" (click)="copyProceduralPrompt()">Copy AI Prompt</button>
+        </div>
+      </div>
+    }
+  } @else {
   <div class="an-grid">
     <!-- ------------------------------------------------------------ picture + preview -->
     <div class="an-panel an-stage-panel">
@@ -152,4 +279,5 @@
       Until then, use the Story Agent's motion prompt with a video tool, then add the clip to your scene.
     </p>
   </details>
+  }
 </section>

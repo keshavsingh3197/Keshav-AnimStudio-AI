@@ -1,5 +1,6 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Automation;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Automation;
 using AnimStudio.Infrastructure.Automation;
@@ -16,6 +17,11 @@ public sealed record PrepareAutomationRequest(
 public sealed record AttachAutomationVideoRequest(
     string? HandoffId = null,
     string? RenderJobId = null);
+
+public sealed record GenerateAnimatedAutomationVideoRequest(
+    ProceduralSceneTheme Theme = ProceduralSceneTheme.Auto,
+    int DurationSeconds = 0,
+    string? Resolution = null);
 
 public sealed record PublishAutomationPostRequest(
     bool PublishNow = true,
@@ -177,6 +183,22 @@ public sealed class AutomationController(
     {
         if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
         return Ok(ApiResponse<AutomationPost>.Ok(await automation.GenerateAiVideoAsync(currentUser.UserId, id, ct)));
+    }
+
+    [HttpPost("queue/{id}/generate-animated-video")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> GenerateAnimatedVideo(
+        string id,
+        [FromBody] GenerateAnimatedAutomationVideoRequest? request = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.GenerateAnimatedVideoAsync(
+            currentUser.UserId,
+            id,
+            request?.Theme ?? ProceduralSceneTheme.Auto,
+            request?.DurationSeconds ?? 0,
+            request?.Resolution,
+            ct)));
     }
 
     [HttpPost("queue/{id}/publish")]

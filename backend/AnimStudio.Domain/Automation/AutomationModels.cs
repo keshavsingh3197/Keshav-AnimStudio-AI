@@ -32,7 +32,10 @@ public enum AutomationVideoStrategy
     PreferUnusedDriveClipOnly = 1,
     PreferFinishedRenderJob = 2,
     AutoGenerateStoryVideo = 3,
-    ManualAttachOnly = 4
+    ManualAttachOnly = 4,
+
+    /// <summary>Generates a 2D/3D procedural animated MP4 directly on this machine with zero GPU or external AI keys required.</summary>
+    AutoGenerateAnimated3DVideo = 5
 }
 
 /// <summary>Orientation/shape for prepared video metadata & Story Agent renders.</summary>

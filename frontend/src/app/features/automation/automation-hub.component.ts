@@ -18,6 +18,7 @@ import {
   AutomationWorkspaceConfig,
 } from '../../core/services/automation.service';
 import { StatusService } from '../../core/services/status.service';
+import { ApiService } from '../../core/services/api.service';
 
 type HubTab = 'queue' | 'rules' | 'settings';
 type QueueStatusFilter = 'all' | 'pending' | 'ready' | 'generating' | 'published' | 'failed';
@@ -39,7 +40,8 @@ const MODE_LABELS: Record<AutomationPostMode, string> = {
 };
 
 const STRATEGY_LABELS: Record<AutomationVideoStrategy, string> = {
-  PreferUnusedDriveClipThenAiRender: 'Unused Drive Clip -> Else AI Story Render',
+  AutoGenerateAnimated3DVideo: 'Built-in 3D Animated Engine (Auto & Free)',
+  PreferUnusedDriveClipThenAiRender: 'Unused Drive Clip -> Else AI Story / 3D Auto',
   PreferUnusedDriveClipOnly: 'Unused Drive Clip Only',
   PreferFinishedRenderJob: 'Finished Studio Render Only',
   AutoGenerateStoryVideo: 'Always Generate AI Story Video',
@@ -272,12 +274,22 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                     }
                     @if (post.status !== 'Published' && post.status !== 'Publishing') {
                       <div class="video-actions">
+                        <button type="button" class="btn tiny primary" [disabled]="busy()"
+                                title="Generates an animated 2D/3D MP4 directly on this server with zero external AI keys"
+                                (click)="triggerAnimated3DVideo(post)">
+                          {{ busyAction() === 'anim3d:' + post.id ? 'Rendering 3D…' : '⚡ Auto 3D Video' }}
+                        </button>
                         <button type="button" class="btn tiny" [disabled]="busy()" (click)="openVideoPicker(post)">
                           Pick Drive / Render
                         </button>
                         <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="triggerAiVideo(post)">
-                          Generate AI Video
+                          AI Story Agent
                         </button>
+                        @if (post.attachedRenderJobId) {
+                          <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">
+                            ▶ Preview MP4
+                          </button>
+                        }
                       </div>
                     }
                   </div>
@@ -553,6 +565,26 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       }
 
       <!-- VIDEO PICKER MODAL -->
+      @if (previewingPost(); as pvPost) {
+        <div class="modal-backdrop" (click)="previewingPost.set(null)">
+          <div class="modal-card" (click)="$event.stopPropagation()">
+            <div class="modal-head">
+              <h2>Preview: {{ pvPost.title }}</h2>
+              <button type="button" class="link-btn" (click)="previewingPost.set(null)">Close ×</button>
+            </div>
+            <div class="modal-body">
+              @if (pvPost.attachedRenderJobId; as rJobId) {
+                <video class="preview-player" [src]="previewVideoUrl(rJobId)" controls autoplay playsinline></video>
+                <div class="modal-foot">
+                  <a class="btn primary" [href]="downloadVideoUrl(rJobId)" download>Download MP4</a>
+                  <button type="button" class="btn ghost" (click)="previewingPost.set(null)">Close</button>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      }
+
       @if (pickingPost(); as targetPost) {
         <div class="modal-backdrop" (click)="pickingPost.set(null)">
           <div class="modal-card" (click)="$event.stopPropagation()">
@@ -902,6 +934,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     .cand-row.used { opacity: .65; }
     .cand-info { display: flex; flex-direction: column; gap: 3px; }
     .cand-info small { color: var(--muted); font-size: 11.5px; }
+    .preview-player { width: 100%; max-height: 62vh; background: #000; border-radius: var(--radius-sm); object-fit: contain; }
     @media (max-width: 680px) {
       .auto-page { padding: 14px 12px 48px; }
       .posts-grid { grid-template-columns: 1fr; }
@@ -910,6 +943,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 })
 export class AutomationHubComponent implements OnInit {
   private readonly api = inject(AutomationService);
+  private readonly studioApi = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly status = inject(StatusService);
   private readonly destroyRef = inject(DestroyRef);
@@ -930,6 +964,7 @@ export class AutomationHubComponent implements OnInit {
   readonly editingPost = signal<AutomationPost | null>(null);
   editingTagsCsv = '';
 
+  readonly previewingPost = signal<AutomationPost | null>(null);
   readonly pickingPost = signal<AutomationPost | null>(null);
   readonly loadingCandidates = signal(false);
   readonly videoCandidates = signal<AutomationVideoCandidate[]>([]);
@@ -949,6 +984,7 @@ export class AutomationHubComponent implements OnInit {
   ];
   readonly modes: AutomationPostMode[] = ['PreviewOnly', 'AutoVideoAndPreview', 'FullAutopilot'];
   readonly strategies: AutomationVideoStrategy[] = [
+    'AutoGenerateAnimated3DVideo',
     'PreferUnusedDriveClipThenAiRender',
     'PreferUnusedDriveClipOnly',
     'PreferFinishedRenderJob',
@@ -1125,6 +1161,26 @@ export class AutomationHubComponent implements OnInit {
       this.status.showNotice('Started AI Story Agent render. It will attach automatically when finished.');
       await this.loadOverview(true);
     });
+  }
+
+  async triggerAnimated3DVideo(post: AutomationPost): Promise<void> {
+    await this.runAction(`anim3d:${post.id}`, async () => {
+      const updated = await firstValueFrom(this.api.generateAnimatedVideo(post.id));
+      this.status.showNotice(`Generated 3D animated MP4: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
+      await this.loadOverview(true);
+    });
+  }
+
+  openVideoPreview(post: AutomationPost): void {
+    this.previewingPost.set(post);
+  }
+
+  previewVideoUrl(jobId: string): string {
+    return this.studioApi.previewUrl(jobId);
+  }
+
+  downloadVideoUrl(jobId: string): string {
+    return this.studioApi.downloadUrl(jobId);
   }
 
   async publishNow(post: AutomationPost): Promise<void> {
