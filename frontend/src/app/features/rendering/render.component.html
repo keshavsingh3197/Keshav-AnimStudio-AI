@@ -414,7 +414,9 @@
                 <form class="rp-rename" (submit)="$event.preventDefault(); saveRename(item)">
                   <input type="text" [ngModel]="editName()" (ngModelChange)="editName.set($event)" name="rowName"
                          maxlength="120" aria-label="Render name" (keydown.escape)="cancelRename()" autofocus />
-                  <button type="submit" class="small" [disabled]="renaming()">Save</button>
+                  <button type="submit" class="small" [disabled]="renaming()">
+                    @if (renaming()) { <span class="btn-spin" aria-hidden="true"></span> Saving… } @else { Save }
+                  </button>
                   <button type="button" class="secondary small" (click)="cancelRename()">Cancel</button>
                 </form>
               } @else {

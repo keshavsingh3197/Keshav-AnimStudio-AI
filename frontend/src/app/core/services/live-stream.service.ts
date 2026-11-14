@@ -1,6 +1,7 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
@@ -33,8 +34,9 @@ export class LiveStreamService {
       .pipe(map((r) => r.data as LiveStreamSetup));
   }
 
-  list(): Observable<LiveStreamStatus[]> {
-    return this.http.get<ApiResponse<LiveStreamStatus[]>>(this.base).pipe(map((r) => r.data ?? []));
+  list(options?: { silent?: boolean }): Observable<LiveStreamStatus[]> {
+    const context: HttpContext | undefined = options?.silent ? silentHttpContext() : undefined;
+    return this.http.get<ApiResponse<LiveStreamStatus[]>>(this.base, { context }).pipe(map((r) => r.data ?? []));
   }
 
   /**
@@ -136,9 +138,10 @@ export class LiveStreamService {
 
   // ------------------------------------------------------------------ history
 
-  history(): Observable<LiveStreamHistoryEntry[]> {
+  history(options?: { silent?: boolean }): Observable<LiveStreamHistoryEntry[]> {
+    const context: HttpContext | undefined = options?.silent ? silentHttpContext() : undefined;
     return this.http
-      .get<ApiResponse<LiveStreamHistoryEntry[]>>(`${this.base}/history`)
+      .get<ApiResponse<LiveStreamHistoryEntry[]>>(`${this.base}/history`, { context })
       .pipe(map((r) => r.data ?? []));
   }
 

@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, model, signal } from '@angular/core';
+import { finalize } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
-import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { ApiService } from '../core/services/api.service';
 import { AuthService } from '../core/services/auth.service';
 import { Project, BrandChannel, StorageSummary, WatermarkBody, DEFAULT_BRAND_CHANNEL, formatBytes } from '../core/models/api.models';
@@ -9,11 +10,12 @@ import { FileDropDirective } from '../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../core/utils/image-utils';
 import { WatermarkPreviewComponent } from '../shared/watermark-preview.component';
 import { ChannelPickerComponent } from '../shared/channel-picker.component';
+import { LoadingStateComponent } from '../shared/loading-state.component';
 
 @Component({
   selector: 'app-project-hub-modal',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FileDropDirective, RouterLink, WatermarkPreviewComponent, ChannelPickerComponent],
+  imports: [DatePipe, DecimalPipe, FileDropDirective, RouterLink, WatermarkPreviewComponent, ChannelPickerComponent, LoadingStateComponent],
   template: `
     @if (isOpen()) {
       <div class="modal-backdrop" (click)="close()" (keydown.escape)="close()" tabindex="0" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
@@ -101,7 +103,9 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
               </div>
 
               <div class="projects-container" [class.grid-view]="viewMode() === 'grid'">
-                @if (filteredProjects().length === 0) {
+                @if (loadingProjects() && projects().length === 0) {
+                  <app-loading-state mode="list" [count]="4" [compact]="true" title="Loading studio projects…" />
+                } @else if (filteredProjects().length === 0) {
                   <div class="empty-state">No projects found.</div>
                 }
                 @for (p of filteredProjects(); track p.id) {
@@ -117,7 +121,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
                     <div class="thumb-preview" [style.aspect-ratio]="viewMode() === 'grid' ? (p.width + '/' + p.height) : '16/9'"
                          appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], p)">
                        @if (getCustomThumb(p.id); as customThumb) {
-                         <img [src]="customThumb" style="width:100%; height:100%; object-fit:cover; border-radius:4px;" />
+                         <img [src]="customThumb" loading="lazy" decoding="async" style="width:100%; height:100%; object-fit:cover; border-radius:4px;" />
                        } @else {
                          <div class="thumb-placeholder" [style.background]="getThumbColor(p.id)"></div>
                        }
@@ -850,6 +854,7 @@ export class ProjectHubModalComponent {
   readonly auth = inject(AuthService);
 
   readonly projects = signal<Project[]>([]);
+  readonly loadingProjects = signal(true);
   
   // Filters
   readonly searchQuery = signal('');
@@ -938,7 +943,10 @@ export class ProjectHubModalComponent {
     effect(() => {
       
       if (this.isOpen()) {
-        this.api.listProjects().subscribe(p => this.projects.set(p));
+        this.loadingProjects.set(true);
+        this.api.listProjects()
+          .pipe(finalize(() => this.loadingProjects.set(false)))
+          .subscribe({ next: p => this.projects.set(p), error: () => {} });
         this.api.storageSummary().subscribe({
           next: (s) => this.storage.set(s),
           error: () => this.storage.set(null),

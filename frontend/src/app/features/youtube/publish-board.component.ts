@@ -1,6 +1,7 @@
 
 import { csvCell } from './csv';
-import { YtNavComponent } from './yt-nav.component';import { Component, DestroyRef, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
+import { YtNavComponent } from './yt-nav.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';import { Component, DestroyRef, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -56,7 +57,7 @@ interface EditForm {
 @Component({
   selector: 'app-publish-board',
   standalone: true,
-  imports: [YtNavComponent, FormsModule, NgTemplateOutlet, RouterLink],
+  imports: [YtNavComponent, FormsModule, NgTemplateOutlet, RouterLink, LoadingStateComponent],
   templateUrl: './publish-board.component.html',
   styleUrl: './publish-board.component.css',
 })
@@ -75,6 +76,7 @@ export class PublishBoardComponent implements OnInit {
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
   readonly channels = signal<YouTubeChannel[]>([]);
+  readonly loadingChannels = signal(true);
   readonly categories = signal<YouTubeCategory[]>([]);
   readonly configured = signal(true);
   readonly busyId = signal<string | null>(null);
@@ -296,20 +298,25 @@ export class PublishBoardComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadingChannels.set(true);
     this.youtube.status().subscribe({
       next: (st) => {
         this.channels.set(st.channels);
         this.categories.set(st.categories);
         this.configured.set(st.configured);
+        this.loadingChannels.set(false);
         if (!this.bulkChannel() && st.channels.length) this.bulkChannel.set(st.channels[0].channelId);
       },
-      error: () => this.configured.set(false),
+      error: () => {
+        this.configured.set(false);
+        this.loadingChannels.set(false);
+      },
     });
   }
 
   load(quiet = false): void {
     if (!quiet) this.loading.set(true);
-    this.queue.board().subscribe({
+    this.queue.board({ silent: quiet }).subscribe({
       next: (b) => {
         this.board.set(b);
         this.loadError.set(null);

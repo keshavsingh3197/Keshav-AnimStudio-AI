@@ -8,6 +8,7 @@ import { MusicOptions, MusicSort, MusicTrack } from '../../core/models/music.mod
 import { MusicLibraryService } from '../../core/services/music-library.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 interface SortTab {
   id: MusicSort;
@@ -34,7 +35,7 @@ const SORT_TABS: SortTab[] = [
  */
 @Component({
   selector: 'app-music-library',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, LoadingStateComponent],
   templateUrl: './music-library.component.html',
   styleUrls: ['./music-library.component.css'],
 })

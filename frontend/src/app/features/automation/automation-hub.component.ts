@@ -19,6 +19,7 @@ import {
 } from '../../core/services/automation.service';
 import { StatusService } from '../../core/services/status.service';
 import { ApiService } from '../../core/services/api.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 type HubTab = 'queue' | 'rules' | 'settings';
 type QueueStatusFilter = 'all' | 'pending' | 'ready' | 'generating' | 'published' | 'failed';
@@ -64,7 +65,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 @Component({
   selector: 'app-automation-hub',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, LoadingStateComponent],
   template: `
     <div class="auto-page">
       <header class="auto-hero">
@@ -84,7 +85,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
             <input type="date" [ngModel]="selectedDate()" (ngModelChange)="onDateChange($event)" />
           </label>
           <button type="button" class="btn primary" [disabled]="busy()" (click)="prepareToday(false)">
-            @if (busyAction() === 'prepare') { Preparing… } @else { Prepare Daily List }
+            @if (busyAction() === 'prepare') { <span class="btn-spin" aria-hidden="true"></span> Preparing… } @else { Prepare Daily List }
           </button>
           <button type="button" class="btn ghost" [disabled]="busy()" (click)="prepareToday(true)" title="Re-compose non-published items from fresh signals">
             Re-Compose Unposted
@@ -484,7 +485,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
           </form>
         }
       } @else if (loading()) {
-        <div class="empty-state">Loading live Panchang, History, Funnel &amp; Pipeline overview…</div>
+        <app-loading-state mode="cards" [count]="4" title="Loading live Panchang, History, Funnel &amp; Pipeline overview…" subtitle="Connecting ecosystem content &amp; channel signals…" />
       }
 
       <!-- POST EDITOR MODAL -->
@@ -595,7 +596,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
             <div class="modal-body">
               @if (loadingCandidates()) {
-                <p>Loading Google Drive clips &amp; finished Studio renders…</p>
+                <app-loading-state mode="list" [count]="3" [compact]="true" title="Loading Google Drive clips &amp; finished Studio renders…" />
               } @else if (videoCandidates().length === 0) {
                 <div class="empty-state">
                   No Drive clips or completed renders found yet. Click <strong>Generate AI Video</strong> on the card to create one automatically via Story Agent!

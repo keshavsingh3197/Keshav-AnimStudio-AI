@@ -250,7 +250,7 @@
           Leave unticked when importing a partial update so existing scenes are preserved.
         </p>
 
-        <button type="button" [disabled]="status.busy()" (click)="apply()">
+        <button type="button" [disabled]="status.busy()" [class.btn-spin]="status.busy()" (click)="apply()">
           ✓ Apply Bundle Import
         </button>
       </div>

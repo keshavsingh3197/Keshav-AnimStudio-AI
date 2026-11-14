@@ -5,10 +5,11 @@ import { FormsModule } from '@angular/forms';
 import { ServerLogEntry, ServerLogFileItem } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 @Component({
   selector: 'app-logs',
-  imports: [DatePipe, DecimalPipe, FormsModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, LoadingStateComponent],
   templateUrl: './app-logs.component.html',
   styles: [`
     .filter-chip {

@@ -6,6 +6,7 @@ import { Asset, MyVoice, VoiceoverEngine, VoiceoverVoice } from '../../../../../
 import { ApiService } from '../../../../../core/services/api.service';
 import { ProjectStore } from '../../../../../core/services/project-store';
 import { StudioStateService } from '../../../services/studio-state.service';
+import { LoadingStateComponent } from '../../../../../shared/loading-state.component';
 import {
   MAX_LINE_CHARS, MY_VOICE_PREFIX, VoiceScriptLine, findCharacter, parseVoiceScript,
 } from './voice-script';
@@ -185,7 +186,7 @@ interface PendingSample {
 @Component({
   selector: 'app-voiceover-panel',
   standalone: true,
-  imports: [FormsModule, DecimalPipe],
+  imports: [FormsModule, DecimalPipe, LoadingStateComponent],
   templateUrl: './voiceover-panel.component.html',
   styleUrls: ['./voiceover-panel.component.css'],
 })

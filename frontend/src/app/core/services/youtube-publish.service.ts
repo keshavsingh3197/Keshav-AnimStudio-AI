@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
@@ -191,16 +192,18 @@ export class YouTubePublishService {
     return this.http.delete(`${this.base}/videos/${encodeURIComponent(id)}`);
   }
 
-  uploads(jobId?: string): Observable<YouTubeUpload[]> {
+  uploads(jobId?: string, options?: { silent?: boolean }): Observable<YouTubeUpload[]> {
     const query = jobId ? `?jobId=${encodeURIComponent(jobId)}` : '';
+    const context = options?.silent ? silentHttpContext() : undefined;
     return this.http
-      .get<ApiResponse<YouTubeUpload[]>>(`${this.base}/uploads${query}`)
+      .get<ApiResponse<YouTubeUpload[]>>(`${this.base}/uploads${query}`, { context })
       .pipe(map((r) => r.data ?? []));
   }
 
-  upload(uploadId: string): Observable<YouTubeUpload> {
+  upload(uploadId: string, options?: { silent?: boolean }): Observable<YouTubeUpload> {
+    const context = options?.silent ? silentHttpContext() : undefined;
     return this.http
-      .get<ApiResponse<YouTubeUpload>>(`${this.base}/uploads/${encodeURIComponent(uploadId)}`)
+      .get<ApiResponse<YouTubeUpload>>(`${this.base}/uploads/${encodeURIComponent(uploadId)}`, { context })
       .pipe(map((r) => r.data as YouTubeUpload));
   }
 
@@ -287,9 +290,10 @@ export class YouTubePublishService {
       .pipe(map((r) => r.data ?? []));
   }
 
-  handoff(id: string): Observable<PhoneHandoff> {
+  handoff(id: string, options?: { silent?: boolean }): Observable<PhoneHandoff> {
+    const context = options?.silent ? silentHttpContext() : undefined;
     return this.http
-      .get<ApiResponse<PhoneHandoff>>(`${this.base}/phone-handoffs/${encodeURIComponent(id)}`)
+      .get<ApiResponse<PhoneHandoff>>(`${this.base}/phone-handoffs/${encodeURIComponent(id)}`, { context })
       .pipe(map((r) => r.data as PhoneHandoff));
   }
 

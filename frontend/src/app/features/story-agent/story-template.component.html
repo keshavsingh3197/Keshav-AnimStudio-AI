@@ -98,7 +98,9 @@
       </select>
     </label>
     @if (projectId()) {
-      @if (projectCharacters().length) {
+      @if (loadingCharacters()) {
+        <app-loading-state mode="inline" [compact]="true" title="Loading project characters…" />
+      } @else if (projectCharacters().length) {
         <div class="st-chips" role="group" aria-label="Project characters">
           @for (character of projectCharacters(); track character.id) {
             <button type="button" class="st-chip" [class.on]="isPicked(character.name)" [attr.aria-pressed]="isPicked(character.name)"

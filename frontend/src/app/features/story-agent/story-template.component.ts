@@ -15,6 +15,7 @@ import {
   characterPrompts, episodeFiles, parseStoryPack, reviewStoryPack,
 } from './story-pack';
 import { saveBlob } from './story-agent.utils';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 interface ImportResult { episode: number; title: string; runId?: string; error?: string }
 
@@ -27,7 +28,7 @@ const DRAFT_KEY = 'animstudio.story-template.reply';
  */
 @Component({
   selector: 'app-story-template',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, LoadingStateComponent],
   templateUrl: './story-template.component.html',
   styleUrl: './story-template.component.css',
 })
@@ -73,6 +74,7 @@ export class StoryTemplateComponent implements OnInit, OnDestroy {
   readonly results = signal<ImportResult[]>([]);
   readonly busy = signal(false);
   readonly loading = signal(false);
+  readonly loadingCharacters = signal(false);
   readonly error = signal<string | null>(null);
   readonly notice = signal<string | null>(null);
   private parseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -137,11 +139,14 @@ export class StoryTemplateComponent implements OnInit, OnDestroy {
     this.projectId.set(id);
     this.projectCharacters.set([]);
     if (!id) return;
+    this.loadingCharacters.set(true);
     try {
       const characters = await firstValueFrom(this.api.listCharacters(id));
       this.projectCharacters.set(characters.filter(c => !c.isNarrator));
     } catch (failure: unknown) {
       this.error.set(this.message(failure, 'That project’s characters could not be loaded.'));
+    } finally {
+      this.loadingCharacters.set(false);
     }
   }
 

@@ -1,5 +1,5 @@
 @if (loading() && !overview()) {
-  <p class="sb-muted">Loading your shorts…</p>
+  <app-loading-state mode="cards" [count]="4" title="Loading shorts &amp; batches…" subtitle="Fetching renders, Drive status &amp; YouTube sync…" />
 } @else if (loadError() && !overview()) {
   <div class="sb-alert sb-error" role="alert">{{ loadError() }} <button type="button" class="sb-link" (click)="load()">Try again</button></div>
 } @else if (overview(); as o) {
@@ -154,7 +154,7 @@
           <p class="sb-muted">Ready shorts start copying now; ones still rendering are copied the moment they finish - on the server, so you can close this page.</p>
           <div class="sb-panel-actions">
             <button type="button" class="sb-btn sb-cta" (click)="saveToDrive()" [disabled]="working() || !!driveFolderError()">
-              {{ working() ? 'Sending…' : 'Save ' + selectedForDrive().length + ' to ' + (driveFolder().trim() || driveTarget()?.folderName || 'Drive') }}
+              @if (working()) { <span class="btn-spin" aria-hidden="true"></span> Sending… } @else { Save {{ selectedForDrive().length }} to {{ driveFolder().trim() || driveTarget()?.folderName || 'Drive' }} }
             </button>
           </div>
         }
@@ -164,7 +164,7 @@
     @if (panel() === 'youtube') {
       <div class="sb-panel">
         @if (channels() === null) {
-          <p class="sb-muted">Loading channels…</p>
+          <app-loading-state mode="inline" [compact]="true" title="Loading connected YouTube channels…" />
         } @else if ((channels() ?? []).length === 0) {
           <p class="sb-muted">No YouTube channel is connected. <a routerLink="/youtube">Connect one</a> first.</p>
         } @else {

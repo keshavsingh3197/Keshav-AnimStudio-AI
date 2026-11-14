@@ -178,14 +178,14 @@ export class ActivityService {
   resumeYouTubeUploads(): void {
     // Not knowing about an upload is not worth an error banner (YouTube may simply not be
     // set up on this server), so failures here are deliberately quiet.
-    this.youtube.uploads().subscribe({
+    this.youtube.uploads(undefined, { silent: true }).subscribe({
       next: (uploads) => uploads.filter((u) => !isUploadFinished(u)).forEach((u) => this.trackYouTubeUpload(u)),
       error: () => undefined,
     });
   }
 
   private pollJob(id: string, jobId: string): void {
-    this.schedule(id, () => this.api.job(jobId).subscribe({
+    this.schedule(id, () => this.api.job(jobId, { silent: true }).subscribe({
       next: (job) => {
         if (!this.find(id)) return;
         this.patch(id, this.fromJob(job));
@@ -198,7 +198,7 @@ export class ActivityService {
   }
 
   private pollHandoff(id: string, handoffId: string): void {
-    this.schedule(id, () => this.youtube.handoff(handoffId).subscribe({
+    this.schedule(id, () => this.youtube.handoff(handoffId, { silent: true }).subscribe({
       next: (copy) => {
         if (!this.find(id)) return;
         const fields = this.fromHandoff(copy);
@@ -232,7 +232,7 @@ export class ActivityService {
   }
 
   private pollUpload(id: string, uploadId: string): void {
-    this.schedule(id, () => this.youtube.upload(uploadId).subscribe({
+    this.schedule(id, () => this.youtube.upload(uploadId, { silent: true }).subscribe({
       next: (upload) => {
         if (!this.find(id)) return;
         this.patch(id, this.fromUpload(upload));

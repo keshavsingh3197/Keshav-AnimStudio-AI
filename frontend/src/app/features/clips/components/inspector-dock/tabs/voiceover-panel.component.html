@@ -10,7 +10,7 @@
   </div>
 
   @if (loadingVoices()) {
-    <div class="vo-note">Checking the speech engine…</div>
+    <app-loading-state mode="inline" [compact]="true" title="Checking the speech engine…" />
   } @else if (!available()) {
     <div class="vo-warn">
       <strong>{{ voiceHint() }}</strong>

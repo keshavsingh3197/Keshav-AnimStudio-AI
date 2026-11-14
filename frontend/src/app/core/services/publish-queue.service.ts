@@ -1,6 +1,7 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
@@ -20,8 +21,9 @@ export class PublishQueueService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/api/youtube`;
 
-  board(): Observable<PublishQueueBoard> {
-    return this.http.get<ApiResponse<PublishQueueBoard>>(`${this.base}/queue`).pipe(map((r) => r.data as PublishQueueBoard));
+  board(options?: { silent?: boolean }): Observable<PublishQueueBoard> {
+    const context: HttpContext | undefined = options?.silent ? silentHttpContext() : undefined;
+    return this.http.get<ApiResponse<PublishQueueBoard>>(`${this.base}/queue`, { context }).pipe(map((r) => r.data as PublishQueueBoard));
   }
 
   item(id: string): Observable<PublishQueueItem> {

@@ -179,8 +179,10 @@
       </div>
     </div>
 
-    <!-- Empty State -->
-    @if (filteredCharacters().length === 0) {
+    <!-- Empty / Loading State -->
+    @if (store.loading() && store.characters().length === 0) {
+      <app-loading-state mode="cards" [count]="4" title="Loading project characters…" subtitle="Preparing sprites &amp; voice profiles…" />
+    } @else if (filteredCharacters().length === 0) {
       <div class="empty-cast-state">
         <div class="studio-icon-badge" style="width: 3.25rem; height: 3.25rem; border-radius: 14px; margin: 0 auto 0.75rem;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

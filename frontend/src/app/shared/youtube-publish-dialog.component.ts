@@ -20,6 +20,7 @@ import { PublishQueueService } from '../core/services/publish-queue.service';
 import { CategorySuggestion, PublishQueueItem, PublishQueueMode, PublishSlot } from '../core/models/publish-queue.models';
 import { TopicPickerComponent } from './topic-picker.component';
 import { AuthService } from '../core/services/auth.service';
+import { LoadingStateComponent } from './loading-state.component';
 
 /** Remembered per browser so the next publish starts where the last one left off. */
 const PREFS_KEY = 'animstudio.youtube.publish';
@@ -106,7 +107,7 @@ interface PublishPrefs {
 @Component({
   selector: 'app-youtube-publish-dialog',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, RouterLink, TopicPickerComponent],
+  imports: [FormsModule, DecimalPipe, RouterLink, TopicPickerComponent, LoadingStateComponent],
   host: { '(document:keydown.escape)': 'closed.emit()' },
   template: `
     <div class="yt-backdrop" (click)="closed.emit()">
@@ -136,7 +137,7 @@ interface PublishPrefs {
             </div>
           </div>
         } @else if (loading()) {
-          <p class="yt-muted">Loading…</p>
+          <app-loading-state mode="list" [count]="3" [compact]="true" title="Checking YouTube &amp; Drive status…" />
         } @else if (status(); as st) {
           @if (!st.configured) {
             <p class="yt-err">Publishing to YouTube isn't set up on this server. An admin needs to set

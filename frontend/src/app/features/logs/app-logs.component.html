@@ -151,7 +151,9 @@
       @if (serverError(); as err) {
         <div class="notice error" style="margin: 1rem">{{ err }}</div>
       } @else if (loadingServer() && serverEntries().length === 0) {
-        <div class="muted" style="padding: 2.5rem; text-align: center">Loading server logs&hellip;</div>
+        <div style="padding: 1rem">
+          <app-loading-state mode="table" [count]="5" [compact]="true" title="Loading server rolling logs…" />
+        </div>
       } @else if (serverEntries().length === 0) {
         <div class="empty" style="margin: 1rem">
           No server log entries matched the active filters.

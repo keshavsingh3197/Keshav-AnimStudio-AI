@@ -17,6 +17,7 @@ import { ThemeService } from '../core/services/theme.service';
 import { UiNavigationService } from '../core/services/ui-navigation.service';
 import { EcosystemConfigService } from '../core/services/ecosystem-config.service';
 import { SocialIconComponent } from '../shared/social-icon.component';
+import { GlobalLoaderComponent } from '../shared/global-loader.component';
 
 /** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
 const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
@@ -32,9 +33,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent, SessionTimeoutComponent, SocialIconComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent, SessionTimeoutComponent, SocialIconComponent, GlobalLoaderComponent],
   host: { '(document:keydown.escape)': 'closeMobileNav()' },
   template: `
+    <app-global-loader />
     <app-session-timeout></app-session-timeout>
 
     @if (ecosystem.websites().length > 0) {
@@ -1092,7 +1094,7 @@ export class AppShellComponent {
 
   private refreshShortsAttention() {
     // A badge is a nicety: if the overview can't be read, there is simply no badge.
-    return this.shorts.overview().subscribe({
+    return this.shorts.overview(undefined, 'shorts', { silent: true }).subscribe({
       next: (o) => this.shortsAttention.set(o.alerts.filter((a) => a.severity !== 'info').length),
       error: () => undefined,
     });

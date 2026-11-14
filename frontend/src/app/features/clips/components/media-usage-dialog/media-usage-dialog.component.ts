@@ -3,6 +3,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Clip, EditFormat } from '../../../../core/models/api.models';
 import { StudioStateService } from '../../services/studio-state.service';
+import { LoadingStateComponent } from '../../../../shared/loading-state.component';
 
 /**
  * One library file's details and every video of the project that uses it - the open cut
@@ -11,7 +12,7 @@ import { StudioStateService } from '../../services/studio-state.service';
 @Component({
   selector: 'app-media-usage-dialog',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, RouterLink],
+  imports: [DatePipe, DecimalPipe, RouterLink, LoadingStateComponent],
   templateUrl: './media-usage-dialog.component.html',
   styleUrls: ['./media-usage-dialog.component.css'],
 })

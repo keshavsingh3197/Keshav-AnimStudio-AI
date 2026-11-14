@@ -6203,3 +6203,39 @@ tr.is-drag-over td {
     min-width: 0;
   }
 }
+
+/* Global button spinner, shimmer skeletons & inline loading helpers */
+.btn-spin {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  animation: animStudioSpin 0.72s linear infinite;
+  vertical-align: -0.1em;
+  margin-right: 0.35em;
+  flex-shrink: 0;
+}
+
+.anim-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--surface-3, var(--surface-2)) 85%, transparent) 25%,
+    color-mix(in srgb, var(--brand) 16%, var(--surface-2)) 50%,
+    color-mix(in srgb, var(--surface-3, var(--surface-2)) 85%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: animStudioShimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes animStudioSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes animStudioShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

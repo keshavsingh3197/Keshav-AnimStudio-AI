@@ -86,7 +86,7 @@
   </div>
 
   @if (loading()) {
-    <div class="card muted">Loading videos…</div>
+    <app-loading-state mode="cards" [count]="4" title="Loading project videos &amp; shorts…" />
   } @else if (visible().length === 0) {
     <div class="card vp-empty">
       <div class="muted">No videos match these filters.</div>

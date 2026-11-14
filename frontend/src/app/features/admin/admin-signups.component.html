@@ -108,7 +108,7 @@
   }
 
   @if (!loaded()) {
-    <div class="empty muted">Loading requests&hellip;</div>
+    <app-loading-state mode="list" [count]="4" title="Loading access requests…" />
   } @else if (rows().length === 0) {
     <div class="empty">
       @if (query().trim()) {
@@ -161,7 +161,7 @@
 } @else {
   <!-- Approved accounts: AnimStudio-only, nothing else -->
   @if (!membersLoaded()) {
-    <div class="empty muted">Loading members&hellip;</div>
+    <app-loading-state mode="table" [count]="4" title="Loading AnimStudio members…" />
   } @else if (memberRows().length === 0) {
     <div class="empty">
       @if (query().trim()) { Nobody matches “{{ query() }}”. } @else {

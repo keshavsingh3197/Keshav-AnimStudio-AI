@@ -367,8 +367,10 @@
     </div>
   }
 
-  <!-- Empty Search/Filter State -->
-  @if (filteredAndSortedProjects.length === 0) {
+  <!-- Empty Search/Filter / Initial Loading State -->
+  @if (loadingProjects() && projects().length === 0) {
+    <app-loading-state mode="cards" [count]="6" title="Loading your studio projects…" subtitle="Warming up workspace &amp; thumbnails…" />
+  } @else if (filteredAndSortedProjects.length === 0) {
     <div class="empty-projects-card">
       <div class="studio-icon-badge" style="width: 3.25rem; height: 3.25rem; border-radius: 14px; margin: 0 auto 0.5rem;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -427,7 +429,7 @@
                  appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], project)"
                  title="Drop an image or press Ctrl+V to set the thumbnail">
               @if (project.customThumbnail) {
-                <img [src]="project.customThumbnail" class="project-custom-img" alt="" />
+                <img [src]="project.customThumbnail" loading="lazy" decoding="async" class="project-custom-img" alt="" />
               } @else {
                 <!-- Procedural Geometric Poster when no custom thumbnail is uploaded -->
                 <div class="thumb-artwork-fallback">

@@ -32,7 +32,7 @@
             </label>
           </div>
           @if (loadingSource()) {
-            <p class="xfer-note">Opening that video…</p>
+            <app-loading-state mode="inline" [compact]="true" title="Opening that video…" />
           } @else if (isCrossProject()) {
             <p class="xfer-note">The files it uses are copied into this project, so they can be previewed and exported here.</p>
           }

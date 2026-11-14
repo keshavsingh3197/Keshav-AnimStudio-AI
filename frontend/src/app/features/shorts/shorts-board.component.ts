@@ -15,6 +15,7 @@ import { ShortsService } from '../../core/services/shorts.service';
 import { StatusService } from '../../core/services/status.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { TopicPickerComponent } from '../../shared/topic-picker.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 type StatusFilter = 'all' | 'rendering' | 'ready' | 'needs-youtube' | 'needs-drive' | 'on-youtube' | 'failed';
 type Panel = 'drive' | 'youtube' | null;
@@ -49,7 +50,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 @Component({
   selector: 'app-shorts-board',
   standalone: true,
-  imports: [FormsModule, RouterLink, TopicPickerComponent],
+  imports: [FormsModule, RouterLink, TopicPickerComponent, LoadingStateComponent],
   templateUrl: './shorts-board.component.html',
   styleUrl: './shorts-board.component.css',
 })
@@ -234,9 +235,9 @@ export class ShortsBoardComponent {
   setAllOpen(open: boolean): void {
     this.toggled.set(new Set(this.visibleGroups().filter((g, i) => this.isOpen(g, i) !== open).map((g) => g.key)));
   }
-  load(): void {
+  load(silent = false): void {
     this.stopTimer();
-    this.shorts.overview(this.projectId(), this.scope()).pipe(
+    this.shorts.overview(this.projectId(), this.scope(), { silent }).pipe(
       // A stalled request shows the error and Try again rather than "Loading" for ever.
       timeout(30000),
       catchError((err: unknown) => {
@@ -536,12 +537,12 @@ export class ShortsBoardComponent {
     // A hidden tab doesn't poll; it refreshes once when it is looked at again.
     this.timer = setTimeout(() => {
       if (typeof document !== 'undefined' && document.hidden) { this.waitForVisible(); return; }
-      this.load();
+      this.load(true);
     }, this.busy() ? BUSY_POLL_MS : IDLE_POLL_MS);
   }
 
   private waitForVisible(): void {
-    const onVisible = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', onVisible); this.load(); } };
+    const onVisible = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', onVisible); this.load(true); } };
     document.addEventListener('visibilitychange', onVisible);
   }
 

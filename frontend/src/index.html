@@ -21,8 +21,59 @@
       if (theme === 'light') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#f2f5fb');
     })();
   </script>
+  <style>
+    #boot-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.9rem;
+      background: radial-gradient(60rem 30rem at 50% 25%, rgba(108, 140, 255, 0.14), transparent), #07090e;
+      color: #f0f4ff;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: opacity 0.25s ease;
+    }
+    html[data-theme="light"] #boot-loader {
+      background: radial-gradient(60rem 30rem at 50% 25%, rgba(79, 111, 232, 0.1), transparent), #f2f5fb;
+      color: #131826;
+    }
+    #boot-loader.boot-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .boot-ring {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 3px solid rgba(108, 140, 255, 0.22);
+      border-top-color: #6c8cff;
+      animation: bootSpin 0.8s linear infinite;
+    }
+    .boot-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .boot-sub {
+      font-size: 0.82rem;
+      opacity: 0.72;
+      text-align: center;
+      padding: 0 1.25rem;
+    }
+    @keyframes bootSpin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
   <app-root></app-root>
+  <div id="boot-loader" role="status" aria-live="polite">
+    <div class="boot-ring" aria-hidden="true"></div>
+    <div class="boot-title">AnimStudio AI</div>
+    <div class="boot-sub">Warming up studio workspace &amp; media services…</div>
+  </div>
 </body>
 </html>
