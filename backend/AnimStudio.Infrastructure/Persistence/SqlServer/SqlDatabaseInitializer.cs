@@ -696,6 +696,37 @@ public sealed class SqlDatabaseInitializer(
             );
             CREATE INDEX IX_AdminAudit_AtUtc ON AdminAudit (AtUtc DESC);
         END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AutomationRules')
+        BEGIN
+            CREATE TABLE AutomationRules (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                Name NVARCHAR(200) NOT NULL,
+                Enabled BIT NOT NULL DEFAULT 1,
+                SortOrder INT NOT NULL DEFAULT 0,
+                UpdatedAtUtc DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_AutomationRules_User ON AutomationRules (UserId, SortOrder);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AutomationPosts')
+        BEGIN
+            CREATE TABLE AutomationPosts (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                DateKey NVARCHAR(16) NOT NULL,
+                Fingerprint NVARCHAR(256) NOT NULL,
+                Status INT NOT NULL DEFAULT 0,
+                CreatedAtUtc DATETIME2 NOT NULL,
+                UpdatedAtUtc DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_AutomationPosts_UserDate ON AutomationPosts (UserId, DateKey DESC);
+            CREATE INDEX IX_AutomationPosts_Fingerprint ON AutomationPosts (UserId, Fingerprint);
+            CREATE INDEX IX_AutomationPosts_Status ON AutomationPosts (Status, UpdatedAtUtc);
+        END;
         """;
 }
 

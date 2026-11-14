@@ -1,5 +1,6 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Automation;
 using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Ingest;
@@ -125,6 +126,10 @@ public static class MongoMappingRegistrar
 
             // App-assigned GUID - one file in a user's effects library.
             MapWithLiteralId<EffectClip>();
+
+            // Ecosystem daily content automation rules and prepared post queue.
+            MapWithLiteralId<AutomationRule>();
+            MapWithLiteralId<AutomationPost>();
         }
     }
 
