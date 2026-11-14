@@ -18,6 +18,7 @@ export const DEFAULT_UI_NAVIGATION_TABS: UiNavigationItemConfig[] = [
   { id: 'release', label: 'Music Release', path: '/release', icon: 'music-release', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Music master distribution and visualizer publishing' },
   { id: 'youtube', label: 'YouTube', path: '/youtube', icon: 'youtube', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Direct YouTube channel integration and video analytics' },
   { id: 'queue', label: 'Publishing', path: '/youtube/queue', icon: 'queue', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Publishing board: videos queued for YouTube and when they go out' },
+  { id: 'automation', label: 'Auto Post', path: '/automation', icon: 'sparkles', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: false, enabled: true, description: 'Daily Panchang, History & Ecosystem Auto-Post pipeline and website funnel studio' },
   { id: 'details', label: 'Video Details', path: '/youtube/details', icon: 'details', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'SEO audit and video metadata generator' },
   { id: 'live', label: 'Go Live', path: '/live', icon: 'live', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'YouTube live stream broadcaster' },
   { id: 'camera', label: 'Camera Studio', path: '/live/camera', icon: 'camera', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Local camera feed capture and background removal' },
@@ -84,7 +85,14 @@ export class UiNavigationService {
         map((r) => r.data ?? { enforceGuestRestrictions: true, tabs: DEFAULT_UI_NAVIGATION_TABS }),
         tap((cfg) => {
           if (cfg && cfg.tabs && cfg.tabs.length > 0) {
-            this.settings.set(cfg);
+            const seen = new Set(cfg.tabs.map((t) => t.id));
+            const merged = [...cfg.tabs];
+            for (const def of DEFAULT_UI_NAVIGATION_TABS) {
+              if (!seen.has(def.id)) {
+                merged.push(def);
+              }
+            }
+            this.settings.set({ ...cfg, tabs: merged });
           }
         }),
         catchError(() => {

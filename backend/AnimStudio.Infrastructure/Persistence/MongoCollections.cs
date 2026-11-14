@@ -36,4 +36,6 @@ public static class MongoCollections
     public const string ContentPlanItems = "contentPlanItems";
     public const string ContentSourceLinks = "contentSourceLinks";
     public const string EffectClips = "effectClips";
+    public const string AutomationRules = "automationRules";
+    public const string AutomationPosts = "automationPosts";
 }

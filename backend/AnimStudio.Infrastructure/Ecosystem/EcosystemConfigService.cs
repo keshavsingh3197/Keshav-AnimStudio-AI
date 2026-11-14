@@ -75,10 +75,17 @@ public sealed class EcosystemConfigService(
                         var nav = JsonSerializer.Deserialize<UiNavigationSettings>(navRow.Value, JsonOpts);
                         if (nav is not null)
                         {
+                            if (nav.Tabs is { Count: > 0 })
+                            {
+                                var knownIds = nav.Tabs.Select(t => t.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                                foreach (var fallbackTab in UiNavigationSettings.CreateDefault().Tabs)
+                                {
+                                    if (!knownIds.Contains(fallbackTab.Id)) nav.Tabs.Add(fallbackTab);
+                                }
+                                adminOptions.CurrentValue.UiNavigation.Tabs = nav.Tabs;
+                            }
                             uiNavigationState.Set(nav);
                             adminOptions.CurrentValue.UiNavigation.EnforceGuestRestrictions = nav.EnforceGuestRestrictions;
-                            if (nav.Tabs is { Count: > 0 })
-                                adminOptions.CurrentValue.UiNavigation.Tabs = nav.Tabs;
                         }
                     }
                     catch (JsonException ex)

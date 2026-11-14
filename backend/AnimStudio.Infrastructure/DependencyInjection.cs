@@ -157,6 +157,7 @@ public static class DependencyInjection
             services.AddScoped<IContentPlanItemRepository, SqlContentPlanItemRepository>();
             services.AddScoped<IContentSourceLinkRepository, SqlContentSourceLinkRepository>();
             services.AddScoped<IEffectClipRepository, SqlEffectClipRepository>();
+            services.AddScoped<IAutomationRepository, SqlAutomationRepository>();
             services.AddHostedService<SqlDatabaseInitializer>();
 
             if (hasMongoConfig)
@@ -206,6 +207,7 @@ public static class DependencyInjection
             services.AddScoped<IContentPlanItemRepository, MongoContentPlanItemRepository>();
             services.AddScoped<IContentSourceLinkRepository, MongoContentSourceLinkRepository>();
             services.AddScoped<IEffectClipRepository, MongoEffectClipRepository>();
+            services.AddScoped<IAutomationRepository, MongoAutomationRepository>();
             services.AddHostedService<MongoIndexInitializer>();
         }
 
@@ -473,12 +475,16 @@ public static class DependencyInjection
         // --- running the server
         services.AddSingleton<AnimStudio.Application.Ecosystem.UiNavigationState>();
         services.AddSingleton<AnimStudio.Application.Ecosystem.IEcosystemConfigProvider, AnimStudio.Infrastructure.Ecosystem.EcosystemConfigService>();
+        services.Configure<AnimStudio.Application.Automation.EcosystemServiceOptions>(configuration.GetSection(AnimStudio.Application.Automation.EcosystemServiceOptions.Section));
+        services.AddSingleton<AnimStudio.Application.Automation.IEcosystemSignalsClient, AnimStudio.Infrastructure.Automation.EcosystemSignalsClient>();
+        services.AddScoped<AnimStudio.Infrastructure.Automation.EcosystemAutomationService>();
         services.AddScoped<AdminAuditService>();
         services.AddScoped<ISystemHealthService, SystemHealthService>();
 
         services.AddHostedService<RenderJobWorker>();
         services.AddHostedService<RenderWorkspaceJanitor>();
         services.AddHostedService<AnimStudio.Infrastructure.Ecosystem.EcosystemWarmup>();
+        services.AddHostedService<AnimStudio.Infrastructure.Automation.DailyEcosystemPostWorker>();
 
         return services;
     }

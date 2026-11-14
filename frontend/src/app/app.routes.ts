@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard, sensitiveFeatureGuard } from './core/guards/auth.guard';
+import { adminGuard, memberGuard, sensitiveFeatureGuard } from './core/guards/auth.guard';
 
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
@@ -244,6 +244,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/youtube/publish-board.component')
         .then((m) => m.PublishBoardComponent),
+  },
+
+  {
+    path: 'automation',
+    title: 'Auto Post Hub - AnimStudio AI',
+    canActivate: [memberGuard],
+    loadComponent: () =>
+      import('./features/automation/automation-hub.component')
+        .then((m) => m.AutomationHubComponent),
   },
 
   {

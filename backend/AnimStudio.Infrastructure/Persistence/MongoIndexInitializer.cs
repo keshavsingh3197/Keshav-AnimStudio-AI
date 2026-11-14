@@ -1,4 +1,5 @@
 using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Automation;
 using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.LiveStreams;
@@ -231,6 +232,26 @@ public sealed class MongoIndexInitializer(
                 }, cancellationToken: ct).ConfigureAwait(false);
                 logger.LogInformation("Seeded static HubConfig to database.");
             }
+
+            var autoRules = mongo.GetCollection<AutomationRule>(MongoCollections.AutomationRules);
+            await autoRules.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<AutomationRule>(Builders<AutomationRule>.IndexKeys
+                    .Ascending(r => r.UserId).Ascending(r => r.SortOrder)),
+                new CreateIndexModel<AutomationRule>(Builders<AutomationRule>.IndexKeys
+                    .Ascending(r => r.Enabled).Ascending(r => r.SortOrder)),
+            ], ct).ConfigureAwait(false);
+
+            var autoPosts = mongo.GetCollection<AutomationPost>(MongoCollections.AutomationPosts);
+            await autoPosts.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<AutomationPost>(Builders<AutomationPost>.IndexKeys
+                    .Ascending(p => p.UserId).Descending(p => p.DateKey).Descending(p => p.CreatedAtUtc)),
+                new CreateIndexModel<AutomationPost>(Builders<AutomationPost>.IndexKeys
+                    .Ascending(p => p.UserId).Ascending(p => p.Fingerprint)),
+                new CreateIndexModel<AutomationPost>(Builders<AutomationPost>.IndexKeys
+                    .Ascending(p => p.Status).Ascending(p => p.UpdatedAtUtc)),
+            ], ct).ConfigureAwait(false);
 
             logger.LogInformation("Mongo indexes verified.");
         }
