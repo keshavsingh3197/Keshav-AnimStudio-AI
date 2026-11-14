@@ -80,21 +80,47 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
             var name = AssTextSanitizer.SanitizeStyleName(style.Name);
             if (string.Equals(name, DefaultStyleName, StringComparison.Ordinal)) continue;
 
+            var scaledSize = Math.Max(14, request.FontSize * Math.Clamp(style.FontScalePercent, 40, 220) / 100);
+            var primary = AssColor.FromHex(style.ColorHex, AssColor.White);
+            var secondary = AssColor.FromHex(style.SecondaryColorHex, "&H000000FF");
+            var outline = AssColor.FromHex(style.OutlineColorHex, AssColor.NearBlack);
+            var back = AssColor.FromHex(style.BackColorHex, AssColor.SemiTransparentBlack);
+            var alignment = Math.Clamp(style.Alignment, 1, 9);
+            var marginV = Math.Max(8, style.MarginV);
+
             builder.AppendLine(StyleRow(
-                name, font, request.FontSize,
-                AssColor.FromHex(style.ColorHex, AssColor.White),
-                style.Bold));
+                name, font, scaledSize,
+                primary, secondary, outline, back,
+                style.Bold, alignment, marginV));
         }
 
         builder.AppendLine();
         return builder.ToString();
     }
 
-    private static string StyleRow(string name, string font, int size, string primary, bool bold) =>
+    private static string StyleRow(
+        string name,
+        string font,
+        int size,
+        string primary,
+        bool bold) =>
+        StyleRow(name, font, size, primary, "&H000000FF", AssColor.NearBlack, AssColor.SemiTransparentBlack, bold, 2, 64);
+
+    private static string StyleRow(
+        string name,
+        string font,
+        int size,
+        string primary,
+        string secondary,
+        string outline,
+        string back,
+        bool bold,
+        int alignment,
+        int marginV) =>
         string.Create(CultureInfo.InvariantCulture,
             // Bold is -1 for on and 0 for off in ASS, not 1.
-            $"Style: {name},{font},{size},{primary},&H000000FF,{AssColor.NearBlack},"
-            + $"{AssColor.SemiTransparentBlack},{(bold ? -1 : 0)},0,0,0,100,100,0,0,1,3.5,1.5,2,120,120,64,1");
+            $"Style: {name},{font},{size},{primary},{secondary},{outline},"
+            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,0,1,3.2,1.4,{alignment},72,72,{marginV},1");
 
     private static string Events(SubtitleRequest request)
     {
@@ -107,25 +133,61 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
 
         foreach (var line in request.Lines.OrderBy(l => l.RelativeStartFrame))
         {
-            var text = AssTextSanitizer.Sanitize(line.Text);
-            if (text.Length == 0) continue;
+            var sanitizedText = AssTextSanitizer.Sanitize(line.Text);
+            if (sanitizedText.Length == 0) continue;
 
             var styleName = DefaultStyleName;
+            SubtitleStyle? matchedStyle = null;
             if (line.SpeakerCharacterId is { } characterId
-                && request.StylesByCharacterId.TryGetValue(characterId, out var style))
+                && request.StylesByCharacterId.TryGetValue(characterId, out matchedStyle))
             {
-                styleName = AssTextSanitizer.SanitizeStyleName(style.Name);
+                styleName = AssTextSanitizer.SanitizeStyleName(matchedStyle.Name);
             }
 
-            var start = AssTimecode.Format(new Domain.Rendering.FrameCount(line.RelativeStartFrame).ToTimeSpan(rate));
-            var end = AssTimecode.Format(new Domain.Rendering.FrameCount(line.RelativeEndFrame).ToTimeSpan(rate));
+            var startSpan = new Domain.Rendering.FrameCount(line.RelativeStartFrame).ToTimeSpan(rate);
+            var endSpan = new Domain.Rendering.FrameCount(line.RelativeEndFrame).ToTimeSpan(rate);
+            var start = AssTimecode.Format(startSpan);
+            var end = AssTimecode.Format(endSpan);
             var speaker = AssTextSanitizer.SanitizeStyleName(line.SpeakerLabel);
+
+            var formattedText = ApplyMotionTags(sanitizedText, matchedStyle?.MotionPreset ?? SubtitleMotionPreset.None, endSpan - startSpan);
 
             // Text is the final field and absorbs the rest of the line, so a comma in the
             // dialogue needs no escaping here.
-            builder.AppendLine($"Dialogue: 0,{start},{end},{styleName},{speaker},0,0,0,,{text}");
+            builder.AppendLine($"Dialogue: 0,{start},{end},{styleName},{speaker},0,0,0,,{formattedText}");
         }
 
         return builder.ToString();
+    }
+
+    private static string ApplyMotionTags(string sanitizedText, SubtitleMotionPreset preset, TimeSpan duration)
+    {
+        return preset switch
+        {
+            SubtitleMotionPreset.EventGlow =>
+                @"{\fad(160,140)\t(0,180,\fscx106\fscy106)\t(180,340,\fscx100\fscy100)}" + sanitizedText,
+            SubtitleMotionPreset.TopBannerReveal =>
+                @"{\fad(320,160)\t(0,260,\fscx103\fscy103)\t(260,520,\fscx100\fscy100)}" + sanitizedText,
+            SubtitleMotionPreset.KaraokePulse =>
+                BuildKaraokeText(sanitizedText, duration),
+            _ => sanitizedText
+        };
+    }
+
+    private static string BuildKaraokeText(string sanitizedText, TimeSpan duration)
+    {
+        // Preserve ASS literal \N breaks as word separators while formatting trusted {\k} word timings.
+        var words = sanitizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return sanitizedText;
+
+        var totalCs = Math.Max(40, (int)Math.Round(duration.TotalMilliseconds / 10.0));
+        var perWordCs = Math.Clamp(totalCs / words.Length, 8, 90);
+        var sb = new StringBuilder(@"{\fad(130,130)}");
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (i > 0) sb.Append(' ');
+            sb.Append(@"{\k").Append(perWordCs.ToString(CultureInfo.InvariantCulture)).Append('}').Append(words[i]);
+        }
+        return sb.ToString();
     }
 }

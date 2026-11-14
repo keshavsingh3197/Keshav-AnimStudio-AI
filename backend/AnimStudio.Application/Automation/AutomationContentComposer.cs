@@ -1,5 +1,6 @@
 using System.Text;
 using AnimStudio.Application.Ecosystem;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Automation;
 
 namespace AnimStudio.Application.Automation;
@@ -16,7 +17,11 @@ public sealed record ComposedAutomationContent(
     string? PinnedComment,
     IReadOnlyList<string> Tags,
     string? PrimaryDestinationUrl,
-    IReadOnlyList<AutomationWebsiteLink> TrackedLinks);
+    IReadOnlyList<AutomationWebsiteLink> TrackedLinks,
+    string? CommunityPostText = null,
+    IReadOnlyList<string>? CommunityPollOptions = null,
+    string? HeaderBannerText = null,
+    string? EventColorHex = null);
 
 /// <summary>
 /// Builds rich bilingual YouTube & Shorts packages (Title, Narration Script, AI Video Prompt,
@@ -39,8 +44,12 @@ public static class AutomationContentComposer
             : signals.DateKey;
 
         var isHindi = !string.Equals(rule.Language, "en", StringComparison.OrdinalIgnoreCase);
-        var isVertical = rule.VideoFormat == AutomationVideoFormat.Vertical;
-        var ratioLabel = isVertical ? "9:16 vertical short reel" : "16:9 widescreen cinematic";
+        var ratioLabel = rule.VideoFormat switch
+        {
+            AutomationVideoFormat.Wide => "16:9 widescreen cinematic",
+            AutomationVideoFormat.CommunityPost => "1:1 square YouTube Community card",
+            _ => "9:16 vertical short reel"
+        };
 
         var links = BuildTrackedLinks(rule, signals, ecosystem, dateKey);
         var primaryLink = links.FirstOrDefault()?.TrackedUrl ?? ecosystem.StudioUrl;
@@ -49,7 +58,7 @@ public static class AutomationContentComposer
         var baseTags = channelMeta?.Tags ?? [];
         var baseHashtags = channelMeta?.Hashtags ?? [];
 
-        return rule.SourceType switch
+        IReadOnlyList<ComposedAutomationContent> items = rule.SourceType switch
         {
             AutomationSourceType.HinduPanchang when signals.Panchang is { } p =>
                 [ComposePanchang(rule, p, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
@@ -74,6 +83,9 @@ public static class AutomationContentComposer
 
             _ => []
         };
+
+        var palette = ProceduralEventPalette.Resolve(rule.SourceType.ToString(), ProceduralSceneTheme.Auto);
+        return [.. items.Select(item => EnrichCommunityAndTemplateMetadata(item, rule, palette, dateKey, isHindi))];
     }
 
     private static ComposedAutomationContent ComposePanchang(
@@ -238,22 +250,21 @@ public static class AutomationContentComposer
             ? Truncate($"{k.Title} | {k.DeityOrSage} की पावन कथा & जीवन मंत्र • {dateKey}", MaxTitleLength)
             : Truncate($"{k.Title} | Sacred Story of {k.DeityOrSage} & Daily Wisdom", MaxTitleLength);
 
+        var (speakerA, speakerB) = ResolveSpeakerPair(rule, k.Title, k.DeityOrSage);
         var script = isHindi
             ? $"""
-               [HOOK 0-4s] क्या आप जानते हैं {k.DeityOrSage} से जुड़ा यह पावन प्रसंग जीवन की दिशा कैसे बदल सकता है?
-               [STORY 4-42s]
-               {k.StorySummary}
-               • जीवन संदेश: {k.MoralTeaching ?? "सत्य, भक्ति और धैर्य से असंभव भी संभव हो जाता है।"}
-               • आज का मंत्र: {k.SanskritMantra ?? "ॐ नमो भगवते वासुदेवाय"}
-               [WEBSITE CTA 42-55s] आज का पूरा पंचांग, कथा और संस्कृत सुभाषित पढ़ने के लिए डिस्क्रिप्शन लिंक पर जाएं: {primaryLink}
+               [{speakerA}]: क्या आप जानते हैं {k.DeityOrSage} से जुड़ा यह पावन प्रसंग जीवन की दिशा कैसे बदल सकता है?
+               [{speakerB}]: {k.StorySummary}
+               [{speakerA}]: जीवन संदेश — {k.MoralTeaching ?? "सत्य, भक्ति और धैर्य से असंभव भी संभव हो जाता है।"}
+               [{speakerB}]: आज का मंत्र: {k.SanskritMantra ?? "ॐ नमो भगवते वासुदेवाय"}
+               [{speakerA}]: आज का पूरा पंचांग, कथा और संस्कृत सुभाषित पढ़ने के लिए डिस्क्रिप्शन लिंक पर जाएं: {primaryLink}
                """
             : $"""
-               [HOOK 0-4s] Here is today's sacred story from Indian wisdom: {k.Title}.
-               [STORY 4-42s]
-               {k.StorySummary}
-               • Takeaway: {k.MoralTeaching ?? "Faith anchored in dharma brings clarity under pressure."}
-               • Sacred Mantra: {k.SanskritMantra ?? "Om Shanti"}
-               [WEBSITE CTA 42-55s] Read full stories & daily Vedic Panchang at: {primaryLink}
+               [{speakerA}]: Here is today's sacred story from Indian wisdom: {k.Title}.
+               [{speakerB}]: {k.StorySummary}
+               [{speakerA}]: Takeaway — {k.MoralTeaching ?? "Faith anchored in dharma brings clarity under pressure."}
+               [{speakerB}]: Sacred Mantra: {k.SanskritMantra ?? "Om Shanti"}
+               [{speakerA}]: Read full stories & daily Vedic Panchang at: {primaryLink}
                """;
 
         var prompt = ApplyPromptOverride(rule,
@@ -651,6 +662,72 @@ public static class AutomationContentComposer
     {
         var chars = raw.Trim().TrimStart('@').Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray();
         return chars.Length > 0 ? new string(chars).ToLowerInvariant() : "creator";
+    }
+
+    private static (string SpeakerA, string SpeakerB) ResolveSpeakerPair(AutomationRule rule, string title, string? deityOrSage)
+    {
+        if (!string.IsNullOrWhiteSpace(rule.SpeakerAName) && !string.IsNullOrWhiteSpace(rule.SpeakerBName))
+            return (rule.SpeakerAName.Trim(), rule.SpeakerBName.Trim());
+
+        var (inferredA, inferredB) = DialogueScriptParser.InferCharacterPairFromTitle(title, rule.SourceType.ToString());
+        if (!string.IsNullOrWhiteSpace(inferredA) && !string.IsNullOrWhiteSpace(inferredB))
+            return (inferredA, inferredB);
+
+        var focus = !string.IsNullOrWhiteSpace(deityOrSage) ? deityOrSage.Trim() : "Sutradhar";
+        return ("Acharya", focus);
+    }
+
+    private static ComposedAutomationContent EnrichCommunityAndTemplateMetadata(
+        ComposedAutomationContent item,
+        AutomationRule rule,
+        ProceduralEventPalette palette,
+        string dateKey,
+        bool isHindi)
+    {
+        var poll = rule.SourceType switch
+        {
+            AutomationSourceType.HinduPanchang => isHindi
+                ? new[] { "हां, हर हर महादेव 🙏", "सुबह शुभ मुहूर्त चेक कर लिया ✨", "पूरी पंचांग वेबसाइट देखना चाहता हूं 🔗" }
+                : new[] { "Yes — checking Muhurat daily 🙏", "Useful Shubh Muhurat timing ✨", "Visit Panchang website 🔗" },
+            AutomationSourceType.HinduFestival => isHindi
+                ? new[] { "आज पूजा और व्रत कर रहे हैं 🪔", "कल के मुहूर्त की तैयारी ✨", "आरती व पूजा विधि लिंक देखें 🔗" }
+                : new[] { "Celebrating today with Puja 🪔", "Preparing for tomorrow's Vrat ✨", "Read full Puja Vidhi 🔗" },
+            AutomationSourceType.DailyKatha => isHindi
+                ? new[] { "बहुत प्रेरणादायक कथा 🙏", "सत्यमेव जयते ✨", "और वैदिक कथाएं लाएं 📖" }
+                : new[] { "Inspiring timeless wisdom 🙏", "Truth & Dharma always win ✨", "Share more Katha dialogues 📖" },
+            AutomationSourceType.AajKaItihaas => isHindi
+                ? new[] { "इतिहास से अनजानी जानकारी 📚", "एग्जाम GK के लिए उपयोगी ✅", "पूरी टाइमलाइन वेबसाइट पर पढ़ें 🔗" }
+                : new[] { "Did not know this event! 📚", "Great for GK & Exam prep ✅", "Read full timeline 🔗" },
+            AutomationSourceType.Pratiyogita => isHindi
+                ? new[] { "क्विज़ में हिस्सा ले लिया 🏆", "आज ही प्रैक्टिस करूंगा ✍️", "रैंक और रिजल्ट लिंक देखें 🔗" }
+                : new[] { "Already joined today's challenge 🏆", "Practicing right now ✍️", "View live leaderboard 🔗" },
+            _ => new[] { "Excited to try this tool 🚀", "Saving for daily workflow ⭐", "Visit full ecosystem links 🔗" }
+        };
+
+        var primaryUrl = item.PrimaryDestinationUrl ?? string.Empty;
+        var summaryLine = string.IsNullOrWhiteSpace(item.SourceSummary) ? string.Empty : $"{item.SourceSummary}\n\n";
+        var pollLines = string.Join("\n", poll.Select((opt, idx) => $"{idx + 1}. {opt}"));
+        var ctaBlock = !string.IsNullOrWhiteSpace(primaryUrl)
+            ? (isHindi ? $"🔗 पूरा विवरण व टूल्स यहाँ देखें: {primaryUrl}" : $"🔗 Explore full details here: {primaryUrl}")
+            : string.Empty;
+
+        var communityBody = $"""
+            📌 {item.Title}
+
+            {summaryLine}🗳️ {(isHindi ? "आपका वोट और विचार साझा करें:" : "Vote in today's Community Poll:")}
+            {pollLines}
+
+            {ctaBlock}
+            """.Trim();
+
+        var bannerText = $"{palette.HeaderBadgeText} • {dateKey}";
+        return item with
+        {
+            CommunityPostText = communityBody,
+            CommunityPollOptions = poll,
+            HeaderBannerText = bannerText,
+            EventColorHex = palette.PrimaryHex
+        };
     }
 
     private static string Truncate(string input, int maxLen) =>

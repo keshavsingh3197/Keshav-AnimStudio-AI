@@ -16,6 +16,7 @@ import {
   AutomationVideoFormat,
   AutomationVideoStrategy,
   AutomationWorkspaceConfig,
+  SubtitleMotionPreset,
 } from '../../core/services/automation.service';
 import { StatusService } from '../../core/services/status.service';
 import { ApiService } from '../../core/services/api.service';
@@ -24,15 +25,27 @@ import { LoadingStateComponent } from '../../shared/loading-state.component';
 type HubTab = 'queue' | 'rules' | 'settings';
 type QueueStatusFilter = 'all' | 'pending' | 'ready' | 'generating' | 'published' | 'failed';
 
-const SOURCE_LABELS: Record<AutomationSourceType, { label: string; icon: string; badge: string }> = {
-  HinduPanchang: { label: 'Hindu Panchang', icon: 'ॐ', badge: 'Hindu / Spiritual' },
-  HinduFestival: { label: 'Hindu Festival / Vrat', icon: '🪔', badge: 'Festival Alert' },
-  DailyKatha: { label: 'Daily Vedic Katha', icon: '📿', badge: 'Sacred Story' },
-  AajKaItihaas: { label: 'Aaj Ka Itihaas', icon: '🌍', badge: 'World / History' },
-  Pratiyogita: { label: 'Pratiyogita Spotlight', icon: '🏆', badge: 'Contests & GK' },
-  EcosystemSpotlight: { label: 'Ecosystem Promo', icon: '🚀', badge: 'Website Traffic' },
-  CustomPrompt: { label: 'Custom AI Prompt', icon: '✨', badge: 'Custom Pipeline' },
+const SOURCE_LABELS: Record<AutomationSourceType, { label: string; icon: string; badge: string; color: string; banner: string }> = {
+  HinduPanchang: { label: 'Hindu Panchang', icon: 'ॐ', badge: 'Hindu / Spiritual', color: '#F59E0B', banner: "TODAY'S HINDU PANCHANG" },
+  HinduFestival: { label: 'Hindu Festival / Vrat', icon: '🪔', badge: 'Festival Alert', color: '#EC4899', banner: 'FESTIVAL & VRAT SPECIAL' },
+  DailyKatha: { label: 'Daily Vedic Katha', icon: '📿', badge: 'Sacred Story', color: '#A855F7', banner: 'PAURANIK KATHA & DIALOGUE' },
+  AajKaItihaas: { label: 'Aaj Ka Itihaas', icon: '🌍', badge: 'World / History', color: '#E11D48', banner: 'AAJ KA ITIHAAS • ON THIS DAY' },
+  Pratiyogita: { label: 'Pratiyogita Spotlight', icon: '🏆', badge: 'Contests & GK', color: '#06B6D4', banner: 'PRATIYOGITA • EXAM & QUIZ PULSE' },
+  EcosystemSpotlight: { label: 'Ecosystem Promo', icon: '🚀', badge: 'Website Traffic', color: '#10B981', banner: 'CONTENT OF THE DAY • SPOTLIGHT' },
+  CustomPrompt: { label: 'Custom AI Prompt', icon: '✨', badge: 'Custom Pipeline', color: '#10B981', banner: 'CONTENT OF THE DAY • SPOTLIGHT' },
 };
+
+const FORMAT_OPTIONS: { value: AutomationVideoFormat; label: string; shortLabel: string }[] = [
+  { value: 'Vertical', label: '9:16 Vertical (Shorts / Reels)', shortLabel: 'Short 9:16' },
+  { value: 'Wide', label: '16:9 Wide (Full Video)', shortLabel: 'Full 16:9' },
+  { value: 'CommunityPost', label: 'YouTube Community Post + 1:1 Card', shortLabel: 'Community Post' },
+];
+
+const SUBTITLE_PRESETS: { value: SubtitleMotionPreset; label: string }[] = [
+  { value: 'event-glow', label: 'Event Color Glow' },
+  { value: 'karaoke-pulse', label: 'Karaoke Word Pulse' },
+  { value: 'classic-clean', label: 'Classic Editorial' },
+];
 
 const MODE_LABELS: Record<AutomationPostMode, string> = {
   PreviewOnly: 'Preview List Only (Manual Video/Post)',
@@ -239,10 +252,22 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
           } @else {
             <div class="posts-grid">
               @for (post of filteredPosts(); track post.id) {
-                <article class="post-card" [class.is-published]="post.status === 'Published'">
+                <article class="post-card" [class.is-published]="post.status === 'Published'"
+                         [style.border-top]="'3px solid ' + postEventColor(post)">
+                  <div class="template-banner" [style.border-color]="postEventColor(post) + '55'">
+                    <span class="event-dot" [style.background]="postEventColor(post)"></span>
+                    <span class="banner-text">{{ postHeaderBanner(post) }}</span>
+                    <span class="banner-sub">{{ postEventColor(post) }}</span>
+                  </div>
+
                   <div class="post-top">
                     <div class="badges-wrap">
-                      <span class="pill source">{{ sourceInfo(post.sourceType).icon }} {{ sourceInfo(post.sourceType).label }}</span>
+                      <span class="pill source"
+                            [style.background]="postEventColor(post) + '22'"
+                            [style.border-color]="postEventColor(post) + '88'"
+                            [style.color]="postEventColor(post)">
+                        {{ sourceInfo(post.sourceType).icon }} {{ sourceInfo(post.sourceType).label }}
+                      </span>
                       <span class="pill" [ngClass]="'tone-' + statusInfo(post.status).tone">
                         {{ statusInfo(post.status).label }}
                       </span>
@@ -262,38 +287,119 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                     }
                   </div>
 
-                  <!-- Video attachment box -->
-                  <div class="video-box" [class.has-video]="!!(post.attachedHandoffId || post.attachedRenderJobId)">
-                    @if (post.attachedVideoSourceLabel) {
-                      <div class="video-info">
-                        <strong>Video:</strong> {{ post.attachedVideoSourceLabel }}
-                      </div>
-                    } @else {
-                      <div class="video-info muted">
-                        No video attached yet — attach a Drive clip, attach a Studio Render, or generate one with AI.
-                      </div>
-                    }
-                    @if (post.status !== 'Published' && post.status !== 'Publishing') {
-                      <div class="video-actions">
-                        <button type="button" class="btn tiny primary" [disabled]="busy()"
-                                title="Generates an animated 2D/3D MP4 directly on this server with zero external AI keys"
-                                (click)="triggerAnimated3DVideo(post)">
-                          {{ busyAction() === 'anim3d:' + post.id ? 'Rendering 3D…' : '⚡ Auto 3D Video' }}
-                        </button>
-                        <button type="button" class="btn tiny" [disabled]="busy()" (click)="openVideoPicker(post)">
-                          Pick Drive / Render
-                        </button>
-                        <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="triggerAiVideo(post)">
-                          AI Story Agent
-                        </button>
-                        @if (post.attachedRenderJobId) {
-                          <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">
-                            ▶ Preview MP4
+                  @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                    <div class="format-strip">
+                      <span class="lbl">Format:</span>
+                      <div class="filter-pills">
+                        @for (fmt of formatOptions; track fmt.value) {
+                          <button type="button" [class.active]="post.format === fmt.value"
+                                  [disabled]="busy()" (click)="changePostFormat(post, fmt.value)">
+                            {{ fmt.shortLabel }}
                           </button>
                         }
                       </div>
+                    </div>
+                  }
+
+                  @if (post.format === 'CommunityPost') {
+                    <div class="community-box" [style.border-color]="postEventColor(post)">
+                      <div class="snip-label">
+                        <span>YouTube Community Post &amp; 1:1 Promo Card</span>
+                        <button type="button" class="copy-btn" (click)="copyCommunityPost(post)">Copy Post + Poll</button>
+                      </div>
+                      <p class="community-copy">{{ post.communityPostText || post.script }}</p>
+                      @if ((post.communityPollOptions?.length ?? 0) > 0) {
+                        <div class="poll-list">
+                          @for (opt of post.communityPollOptions ?? []; track $index) {
+                            <span class="poll-chip">{{ $index + 1 }}. {{ opt }}</span>
+                          }
+                        </div>
+                      }
+                      @if (post.communityCardStorageKey) {
+                        <div class="promo-preview-wrap">
+                          <img class="promo-card-thumb" [src]="communityCardUrl(post.id)" [alt]="post.title" loading="lazy" />
+                        </div>
+                      }
+                      <div class="video-actions">
+                        <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="generateCommunityCard(post)">
+                          {{ busyAction() === 'card:' + post.id ? 'Generating Card…' : (post.communityCardStorageKey ? 'Regenerate 1:1 Card' : 'Generate 1:1 Promo Card') }}
+                        </button>
+                        @if (post.communityCardStorageKey) {
+                          <a class="btn tiny ok" [href]="communityCardUrl(post.id)" [download]="'promo-' + post.dateKey + '-' + post.id + '.png'">
+                            Download 1:1 PNG
+                          </a>
+                        }
+                        <a class="btn tiny ghost" [href]="youtubeCommunityUrl(post)" target="_blank" rel="noopener">
+                          Open YT Studio Posts ↗
+                        </a>
+                        @if (post.status !== 'Published') {
+                          <button type="button" class="btn tiny ok" [disabled]="busy()" (click)="markCommunityPosted(post)">
+                            {{ busyAction() === 'mark-community:' + post.id ? 'Saving…' : 'Mark Community Posted' }}
+                          </button>
+                        }
+                      </div>
+                      <small class="muted-note">
+                        YouTube Data API v3 does not expose automated Community Tab posting — download your 1:1 card + copy text, post in YouTube Studio, then mark posted.
+                      </small>
+                    </div>
+                  } @else {
+                    <!-- Video attachment box -->
+                    <div class="video-box" [class.has-video]="!!(post.attachedHandoffId || post.attachedRenderJobId)">
+                      @if (post.attachedVideoSourceLabel) {
+                        <div class="video-info">
+                          <strong>Video:</strong> {{ post.attachedVideoSourceLabel }}
+                        </div>
+                      } @else {
+                        <div class="video-info muted">
+                          No video attached yet — attach a Drive clip, attach a Studio Render, or generate one with AI.
+                        </div>
+                      }
+                      @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                        <div class="video-actions">
+                          <button type="button" class="btn tiny primary" [disabled]="busy()"
+                                  title="Generates an animated 2D/3D MP4 directly on this server with zero external AI keys"
+                                  (click)="triggerAnimated3DVideo(post)">
+                            {{ busyAction() === 'anim3d:' + post.id ? 'Rendering 3D…' : '⚡ Auto 3D Video' }}
+                          </button>
+                          <button type="button" class="btn tiny" [disabled]="busy()" (click)="openVideoPicker(post)">
+                            Pick Drive / Render
+                          </button>
+                          <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="triggerAiVideo(post)">
+                            AI Story Agent
+                          </button>
+                          @if (post.attachedRenderJobId) {
+                            <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">
+                              ▶ Preview MP4
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+
+                    @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                      <div class="dialogue-bar">
+                        <label class="toggle-inline">
+                          <input type="checkbox" [ngModel]="post.enableCharacterDialogue ?? true"
+                                 (ngModelChange)="post.enableCharacterDialogue = $event; savePostAnimationPrefs(post)" />
+                          <span>2-Character Dialogue</span>
+                        </label>
+                        <select class="compact-select" [ngModel]="post.subtitlePreset || 'event-glow'"
+                                (ngModelChange)="post.subtitlePreset = $event; savePostAnimationPrefs(post)">
+                          @for (sp of subtitlePresets; track sp.value) {
+                            <option [value]="sp.value">{{ sp.label }}</option>
+                          }
+                        </select>
+                      </div>
+                      @if (post.enableCharacterDialogue ?? true) {
+                        <div class="speaker-row">
+                          <input type="text" [(ngModel)]="post.speakerAName" placeholder="Speaker A (e.g. Raja Harishchandra)"
+                                 (blur)="savePostAnimationPrefs(post)" />
+                          <input type="text" [(ngModel)]="post.speakerBName" placeholder="Speaker B (e.g. Maharishi Vishwamitra)"
+                                 (blur)="savePostAnimationPrefs(post)" />
+                        </div>
+                      }
                     }
-                  </div>
+                  }
 
                   <!-- Script & Prompt preview -->
                   <div class="preview-snippet">
@@ -332,6 +438,9 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                   @if (post.publishedVideoUrl) {
                     <div class="published-bar">
                       Published: <a [href]="post.publishedVideoUrl" target="_blank" rel="noopener">{{ post.publishedVideoUrl }}</a>
+                      @if (post.syncedToEcosystemAtUtc) {
+                        <span class="pill ok">Synced to Panchang Hub</span>
+                      }
                     </div>
                   }
 
@@ -339,19 +448,26 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                     <button type="button" class="btn ghost" (click)="openPostEditor(post)">
                       Preview &amp; Edit Full Details
                     </button>
-                    @if (post.status !== 'Published' && post.status !== 'Publishing') {
-                      <button type="button" class="btn ok"
-                              [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
-                              [title]="!post.targetChannelId ? 'Assign a YouTube channel in Edit or Rule first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Attach or generate a video first' : 'Publish to YouTube now')"
-                              (click)="publishNow(post)">
-                        Publish to YouTube
+                    @if (post.status === 'Published' && post.publishedVideoUrl && post.format !== 'CommunityPost') {
+                      <button type="button" class="btn ghost" [disabled]="busy()" (click)="syncToPanchangHub(post)">
+                        {{ busyAction() === 'sync:' + post.id ? 'Syncing…' : 'Sync to Panchang Hub' }}
                       </button>
-                      @if (post.scheduledAtUtc) {
-                        <button type="button" class="btn ghost"
+                    }
+                    @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                      @if (post.format !== 'CommunityPost') {
+                        <button type="button" class="btn ok"
                                 [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
-                                (click)="scheduleForRuleTime(post)">
-                          Approve Schedule
+                                [title]="!post.targetChannelId ? 'Assign a YouTube channel in Edit or Rule first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Attach or generate a video first' : 'Publish to YouTube now')"
+                                (click)="publishNow(post)">
+                          Publish to YouTube
                         </button>
+                        @if (post.scheduledAtUtc) {
+                          <button type="button" class="btn ghost"
+                                  [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                  (click)="scheduleForRuleTime(post)">
+                            Approve Schedule
+                          </button>
+                        }
                       }
                       <button type="button" class="btn danger-ghost" [disabled]="busy()" (click)="removePost(post)">
                         Delete
@@ -524,7 +640,45 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                   <span>Tags (comma separated)</span>
                   <input type="text" [(ngModel)]="editingTagsCsv" />
                 </label>
+                <label class="field">
+                  <span>Post Format</span>
+                  <select [(ngModel)]="draft.format">
+                    @for (fmt of formatOptions; track fmt.value) {
+                      <option [value]="fmt.value">{{ fmt.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Subtitle Animation Style</span>
+                  <select [(ngModel)]="draft.subtitlePreset">
+                    @for (sp of subtitlePresets; track sp.value) {
+                      <option [value]="sp.value">{{ sp.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Top Template Banner Label</span>
+                  <input type="text" [(ngModel)]="draft.headerBannerText" placeholder="e.g. TODAY'S HINDU PANCHANG" />
+                </label>
+                <label class="field">
+                  <span>Speaker A Character Name (2-Char Dialogue)</span>
+                  <input type="text" [(ngModel)]="draft.speakerAName" placeholder="e.g. Raja Harishchandra" />
+                </label>
+                <label class="field">
+                  <span>Speaker B Character Name (2-Char Dialogue)</span>
+                  <input type="text" [(ngModel)]="draft.speakerBName" placeholder="e.g. Maharishi Vishwamitra" />
+                </label>
               </div>
+
+              <label class="toggle-inline">
+                <input type="checkbox" [(ngModel)]="draft.enableCharacterDialogue" />
+                <span>Enable animated 2-character dialogue stage in 3D Auto Video</span>
+              </label>
+
+              <label class="field">
+                <span>YouTube Community Post Copy</span>
+                <textarea rows="3" [(ngModel)]="draft.communityPostText"></textarea>
+              </label>
 
               <label class="field">
                 <span>Narration / Spoken Script</span>
@@ -700,9 +854,29 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                 <label class="field">
                   <span>Format</span>
                   <select [(ngModel)]="rDraft.videoFormat">
-                    <option value="Vertical">9:16 Vertical (Shorts)</option>
-                    <option value="Wide">16:9 Wide (Long Video)</option>
+                    @for (fmt of formatOptions; track fmt.value) {
+                      <option [value]="fmt.value">{{ fmt.label }}</option>
+                    }
                   </select>
+                </label>
+
+                <label class="field">
+                  <span>Subtitle Animation Preset</span>
+                  <select [(ngModel)]="rDraft.subtitlePreset">
+                    @for (sp of subtitlePresets; track sp.value) {
+                      <option [value]="sp.value">{{ sp.label }}</option>
+                    }
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Default Speaker A (2-Character Stage)</span>
+                  <input type="text" [(ngModel)]="rDraft.speakerAName" placeholder="Optional default Speaker A" />
+                </label>
+
+                <label class="field">
+                  <span>Default Speaker B (2-Character Stage)</span>
+                  <input type="text" [(ngModel)]="rDraft.speakerBName" placeholder="Optional default Speaker B" />
                 </label>
 
                 <label class="field">
@@ -737,6 +911,11 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                   <input type="number" min="0" max="7" [(ngModel)]="rDraft.festivalLeadDays" />
                 </label>
               </div>
+
+              <label class="toggle-inline">
+                <input type="checkbox" [(ngModel)]="rDraft.enableCharacterDialogue" />
+                <span>Enable animated 2-character dialogue stage on 3D Auto Videos for this pipeline</span>
+              </label>
 
               <div class="field-group">
                 <span class="group-label">Days of Week (leave all unchecked for Daily)</span>
@@ -936,6 +1115,22 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     .cand-info { display: flex; flex-direction: column; gap: 3px; }
     .cand-info small { color: var(--muted); font-size: 11.5px; }
     .preview-player { width: 100%; max-height: 62vh; background: #000; border-radius: var(--radius-sm); object-fit: contain; }
+    .template-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .event-dot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; }
+    .banner-text { color: var(--text); flex: 1; }
+    .banner-sub { color: var(--muted); font-family: monospace; font-size: 10.5px; }
+    .format-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .format-strip .lbl { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+    .dialogue-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border-subtle); }
+    .compact-select { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+    .speaker-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .speaker-row input { background: var(--sunk-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 9px; font-size: 12px; }
+    .community-box { padding: 11px 13px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border-bright); display: flex; flex-direction: column; gap: 8px; }
+    .community-copy { margin: 0; font-size: 12.5px; color: var(--text); white-space: pre-line; line-height: 1.45; max-height: 120px; overflow: auto; }
+    .poll-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .poll-chip { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; background: var(--sunk-1); border: 1px solid var(--border); color: var(--text-dim); }
+    .promo-preview-wrap { display: flex; justify-content: center; background: #090b12; border-radius: var(--radius-sm); padding: 8px; border: 1px solid var(--border); }
+    .promo-card-thumb { width: min(220px, 100%); aspect-ratio: 1 / 1; border-radius: 6px; object-fit: cover; }
     @media (max-width: 680px) {
       .auto-page { padding: 14px 12px 48px; }
       .posts-grid { grid-template-columns: 1fr; }
@@ -974,6 +1169,8 @@ export class AutomationHubComponent implements OnInit {
   readonly editingRuleIsNew = signal(false);
 
   readonly dayNames = DAY_NAMES;
+  readonly formatOptions = FORMAT_OPTIONS;
+  readonly subtitlePresets = SUBTITLE_PRESETS;
   readonly sourceTypes: AutomationSourceType[] = [
     'HinduPanchang',
     'HinduFestival',
@@ -1040,6 +1237,33 @@ export class AutomationHubComponent implements OnInit {
 
   sourceInfo(type: AutomationSourceType) {
     return SOURCE_LABELS[type] ?? SOURCE_LABELS.CustomPrompt;
+  }
+
+  postEventColor(post: AutomationPost): string {
+    return post.eventColorHex || this.sourceInfo(post.sourceType).color;
+  }
+
+  postHeaderBanner(post: AutomationPost): string {
+    return post.headerBannerText || this.sourceInfo(post.sourceType).banner;
+  }
+
+  communityCardUrl(postId: string): string {
+    return this.api.communityCardUrl(postId);
+  }
+
+  youtubeCommunityUrl(post: AutomationPost): string {
+    if (post.targetChannelId && post.targetChannelId.startsWith('UC')) {
+      return `https://www.youtube.com/channel/${encodeURIComponent(post.targetChannelId)}/community`;
+    }
+    return 'https://studio.youtube.com/';
+  }
+
+  copyCommunityPost(post: AutomationPost): void {
+    const body = (post.communityPostText || post.script || '').trim();
+    const poll = (post.communityPollOptions?.length ?? 0) > 0
+      ? `\n\nPoll Options:\n${post.communityPollOptions!.map((o, idx) => `${idx + 1}. ${o}`).join('\n')}`
+      : '';
+    this.copyText(`${body}${poll}`, 'Community post text + poll copied!');
   }
 
   statusInfo(st: AutomationPostStatus) {
@@ -1166,8 +1390,56 @@ export class AutomationHubComponent implements OnInit {
 
   async triggerAnimated3DVideo(post: AutomationPost): Promise<void> {
     await this.runAction(`anim3d:${post.id}`, async () => {
-      const updated = await firstValueFrom(this.api.generateAnimatedVideo(post.id));
+      const updated = await firstValueFrom(
+        this.api.generateAnimatedVideo(post.id, {
+          format: post.format === 'CommunityPost' ? 'Vertical' : post.format,
+          enableCharacterDialogue: post.enableCharacterDialogue ?? true,
+          subtitlePreset: (post.subtitlePreset as SubtitleMotionPreset | undefined) || 'event-glow',
+          speakerAName: post.speakerAName ?? null,
+          speakerBName: post.speakerBName ?? null,
+        })
+      );
       this.status.showNotice(`Generated 3D animated MP4: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
+      await this.loadOverview(true);
+    });
+  }
+
+  async changePostFormat(post: AutomationPost, format: AutomationVideoFormat): Promise<void> {
+    if (post.format === format) return;
+    await this.runAction(`fmt:${post.id}`, async () => {
+      await firstValueFrom(this.api.updatePost(post.id, { ...post, format }));
+      this.status.showNotice(`Switched "${post.title}" format to ${format}.`);
+      await this.loadOverview(true);
+    });
+  }
+
+  async savePostAnimationPrefs(post: AutomationPost): Promise<void> {
+    await this.runAction(`prefs:${post.id}`, async () => {
+      await firstValueFrom(this.api.updatePost(post.id, { ...post }));
+      await this.loadOverview(true);
+    });
+  }
+
+  async generateCommunityCard(post: AutomationPost): Promise<void> {
+    await this.runAction(`card:${post.id}`, async () => {
+      await firstValueFrom(this.api.generateCommunityCard(post.id));
+      this.status.showNotice('Generated 1080×1080 event-themed PNG promo card!');
+      await this.loadOverview(true);
+    });
+  }
+
+  async markCommunityPosted(post: AutomationPost): Promise<void> {
+    await this.runAction(`mark-community:${post.id}`, async () => {
+      await firstValueFrom(this.api.markCommunityPosted(post.id));
+      this.status.showNotice('Marked Community Post as published.');
+      await this.loadOverview(true);
+    });
+  }
+
+  async syncToPanchangHub(post: AutomationPost): Promise<void> {
+    await this.runAction(`sync:${post.id}`, async () => {
+      await firstValueFrom(this.api.syncToPanchang(post.id));
+      this.status.showNotice(`Synced "${post.title}" to Panchang Videos Hub!`);
       await this.loadOverview(true);
     });
   }
@@ -1240,6 +1512,10 @@ export class AutomationHubComponent implements OnInit {
       categoryId: '22',
       madeForKids: false,
       includePinnedComment: true,
+      subtitlePreset: 'event-glow',
+      enableCharacterDialogue: true,
+      speakerAName: null,
+      speakerBName: null,
       sortOrder: (ov?.rules.length ?? 0) + 1,
     });
   }

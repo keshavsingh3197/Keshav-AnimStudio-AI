@@ -3,7 +3,25 @@ using AnimStudio.Domain.Scenes;
 
 namespace AnimStudio.Application.Abstractions.Rendering;
 
-public sealed record SubtitleStyle(string Name, string? ColorHex, bool Bold = true);
+public enum SubtitleMotionPreset
+{
+    None = 0,
+    EventGlow = 1,
+    KaraokePulse = 2,
+    TopBannerReveal = 3
+}
+
+public sealed record SubtitleStyle(
+    string Name,
+    string? ColorHex,
+    bool Bold = true,
+    int Alignment = 2,
+    int MarginV = 64,
+    int FontScalePercent = 100,
+    string? OutlineColorHex = null,
+    string? BackColorHex = null,
+    string? SecondaryColorHex = null,
+    SubtitleMotionPreset MotionPreset = SubtitleMotionPreset.None);
 
 public sealed record SubtitleRequest(
     Canvas Canvas,

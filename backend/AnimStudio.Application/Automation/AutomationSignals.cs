@@ -88,6 +88,7 @@ public sealed class EcosystemServiceOptions
     public string? PanchangApiBaseUrl { get; set; }
     public string? SocialApiBaseUrl { get; set; }
     public string? PratiyogitaApiBaseUrl { get; set; }
+    public string? SyncKey { get; set; }
 }
 
 public interface IEcosystemSignalsClient

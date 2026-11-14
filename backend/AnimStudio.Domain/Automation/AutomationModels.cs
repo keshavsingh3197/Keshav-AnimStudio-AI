@@ -38,11 +38,12 @@ public enum AutomationVideoStrategy
     AutoGenerateAnimated3DVideo = 5
 }
 
-/// <summary>Orientation/shape for prepared video metadata & Story Agent renders.</summary>
+/// <summary>Orientation/shape or surface type for prepared content & Story Agent / Procedural 3D renders.</summary>
 public enum AutomationVideoFormat
 {
     Vertical = 0,
-    Wide = 1
+    Wide = 1,
+    CommunityPost = 2
 }
 
 /// <summary>Lifecycle state of a prepared daily post item.</summary>
@@ -115,6 +116,15 @@ public sealed class AutomationRule
 
     /// <summary>For CustomPrompt rules or AI theme seeding.</summary>
     public string? CustomTopicPrompt { get; set; }
+
+    /// <summary>Animated ASS subtitle preset: <c>event-glow</c>, <c>karaoke-pulse</c>, or <c>classic-clean</c>.</summary>
+    public string SubtitlePreset { get; set; } = "event-glow";
+
+    /// <summary>When true, procedural 3D videos render animated 2-character dialogue stages for storytelling/discussions.</summary>
+    public bool EnableCharacterDialogue { get; set; } = true;
+
+    public string? SpeakerAName { get; set; }
+    public string? SpeakerBName { get; set; }
 
     public int SortOrder { get; set; }
     public string? LastPreparedDateKey { get; set; }
@@ -191,6 +201,29 @@ public sealed class AutomationPost
     public string? LastError { get; set; }
     public string? Notes { get; set; }
     public bool GeneratedByAi { get; set; }
+
+    /// <summary>Ready-to-paste YouTube Community Tab post body with CTA and question/poll prompt.</summary>
+    public string? CommunityPostText { get; set; }
+
+    /// <summary>2-4 concise poll choices tailored for YouTube Community Polls.</summary>
+    public List<string> CommunityPollOptions { get; set; } = [];
+
+    /// <summary>Storage key for the auto-generated 1080x1080 square PNG promo card.</summary>
+    public string? CommunityCardStorageKey { get; set; }
+
+    /// <summary>Fixed hex color accent bound to the event source type (used across template banner, subtitles, and UI).</summary>
+    public string? EventColorHex { get; set; }
+
+    /// <summary>Top template category/banner label rendered at the top of the video frame.</summary>
+    public string? HeaderBannerText { get; set; }
+
+    public bool EnableCharacterDialogue { get; set; } = true;
+    public string? SpeakerAName { get; set; }
+    public string? SpeakerBName { get; set; }
+    public string SubtitlePreset { get; set; } = "event-glow";
+
+    /// <summary>Timestamp when a published video was synced to sister HinduPanchang / ecosystem video hub.</summary>
+    public DateTime? SyncedToEcosystemAtUtc { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }

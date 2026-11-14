@@ -165,6 +165,57 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         await File.WriteAllBytesAsync(widePath, wideResult.InlineMp4Bytes!);
         Assert.Equal("h264,1280,720", FfmpegLocator.Probe(
             $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{widePath}\""));
+
+        // Test 2-character dialogue + karaoke subtitles + fixed DailyKatha palette AND 1:1 PNG Promo Card generation
+        var dialogueVideo = await service.GenerateAsync("user-auto-2", new ProceduralVideoRequest
+        {
+            Title = "Raja Harishchandra & Maharishi Vishwamitra",
+            EventType = "DailyKatha",
+            TopCategoryLabel = "PAURANIK KATHA & DIALOGUE",
+            Prompt = "Sacred royal sabha dialogue",
+            Script = "[Raja Harishchandra]: Truth and dharma never bend.\n[Maharishi Vishwamitra]: Your vow shines across the ages.",
+            Theme = ProceduralSceneTheme.Auto,
+            SubtitlePreset = "karaoke-pulse",
+            EnableCharacterDialogue = true,
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 5,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.Equal(ProceduralSceneTheme.VedicTempleSunrise3D, dialogueVideo.ResolvedTheme);
+        Assert.NotNull(dialogueVideo.InlineMp4Bytes);
+        Assert.True(dialogueVideo.SizeBytes > 5_000);
+
+        var cardGenerator = new ProceduralCommunityCardGenerator(
+            ffmpegOptions,
+            capabilities,
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            NullLogger<ProceduralCommunityCardGenerator>.Instance);
+        var (cardKey, cardBytes) = await cardGenerator.GenerateAndStoreAsync(
+            postId: "post-card-1",
+            title: "Raja Harishchandra & Maharishi Vishwamitra",
+            subtitle: "Truthfulness endures beyond every trial.",
+            eventType: "DailyKatha",
+            footerUrl: "panchang.keshavsingh.in",
+            enableCharacterDialogue: true,
+            speakerAName: "Raja Harishchandra",
+            speakerBName: "Maharishi Vishwamitra",
+            CancellationToken.None);
+
+        Assert.True(cardBytes > 5_000);
+        Assert.True(store.Contains(cardKey));
+        await using var cardStream = await store.OpenAsync(cardKey, CancellationToken.None);
+        Assert.NotNull(cardStream);
+        var header = new byte[8];
+        Assert.Equal(8, await cardStream!.ReadAsync(header));
+        Assert.Equal([137, 80, 78, 71, 13, 10, 26, 10], header);
     }
 
     private sealed class Workspaces(string root, IObjectStore store) : IRenderWorkspaceFactory

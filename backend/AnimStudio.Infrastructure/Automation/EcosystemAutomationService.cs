@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -18,8 +20,10 @@ using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Stories;
 using AnimStudio.Domain.System;
 using AnimStudio.Infrastructure.Publishing;
+using AnimStudio.Infrastructure.Rendering;
 using AnimStudio.Infrastructure.Storage;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AnimStudio.Infrastructure.Automation;
 
@@ -80,6 +84,9 @@ public sealed class EcosystemAutomationService(
     YouTubeUploadManager uploadManager,
     StoryRunService storyRuns,
     IProceduralVideoGenerator proceduralVideoGenerator,
+    ProceduralCommunityCardGenerator communityCardGenerator,
+    IHttpClientFactory httpClientFactory,
+    IOptionsMonitor<EcosystemServiceOptions> ecosystemServiceOptions,
     IAiExecutor ai,
     IObjectStore objectStore,
     AppDataPaths dataPaths,
@@ -246,6 +253,10 @@ public sealed class EcosystemAutomationService(
         rule.PromptTemplateOverride = string.IsNullOrWhiteSpace(draft.PromptTemplateOverride) ? null : draft.PromptTemplateOverride.Trim();
         rule.DescriptionFooterOverride = string.IsNullOrWhiteSpace(draft.DescriptionFooterOverride) ? null : draft.DescriptionFooterOverride.Trim();
         rule.CustomTopicPrompt = string.IsNullOrWhiteSpace(draft.CustomTopicPrompt) ? null : draft.CustomTopicPrompt.Trim();
+        rule.SubtitlePreset = NormalizeSubtitlePreset(draft.SubtitlePreset);
+        rule.EnableCharacterDialogue = draft.EnableCharacterDialogue;
+        rule.SpeakerAName = string.IsNullOrWhiteSpace(draft.SpeakerAName) ? null : draft.SpeakerAName.Trim();
+        rule.SpeakerBName = string.IsNullOrWhiteSpace(draft.SpeakerBName) ? null : draft.SpeakerBName.Trim();
         rule.SortOrder = draft.SortOrder;
         rule.UpdatedAtUtc = UtcNow;
 
@@ -430,7 +441,29 @@ public sealed class EcosystemAutomationService(
                 post.TrackedFunnelUrls = [.. refined.Content.TrackedLinks];
                 post.ScheduledAtUtc ??= scheduledUtc;
                 post.GeneratedByAi = refined.UsedAi;
+                post.CommunityPostText = refined.Content.CommunityPostText;
+                post.CommunityPollOptions = [.. (refined.Content.CommunityPollOptions ?? [])];
+                post.HeaderBannerText = refined.Content.HeaderBannerText;
+                post.EventColorHex = refined.Content.EventColorHex;
+                post.EnableCharacterDialogue = rule.EnableCharacterDialogue;
+                post.SpeakerAName = rule.SpeakerAName;
+                post.SpeakerBName = rule.SpeakerBName;
+                post.SubtitlePreset = NormalizeSubtitlePreset(rule.SubtitlePreset);
                 post.UpdatedAtUtc = UtcNow;
+
+                if (post.Format == AutomationVideoFormat.CommunityPost)
+                {
+                    if (string.IsNullOrWhiteSpace(post.CommunityCardStorageKey) && rule.Mode != AutomationPostMode.PreviewOnly)
+                    {
+                        await AttachCommunityPromoCardAsync(post, ct).ConfigureAwait(false);
+                    }
+                    post.Status = AutomationPostStatus.VideoReadyForReview;
+                    await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                    if (existing is null) created++;
+                    else updated++;
+                    touchedPosts.Add(post);
+                    continue;
+                }
 
                 var hasVideo = !string.IsNullOrWhiteSpace(post.AttachedHandoffId) || !string.IsNullOrWhiteSpace(post.AttachedRenderJobId);
                 if (!hasVideo)
@@ -520,6 +553,17 @@ public sealed class EcosystemAutomationService(
             }
         }
         post.ScheduledAtUtc = update.ScheduledAtUtc ?? post.ScheduledAtUtc;
+        if (Enum.IsDefined(update.Format))
+            post.Format = update.Format;
+        if (update.CommunityPostText is not null)
+            post.CommunityPostText = update.CommunityPostText.Trim();
+        if (update.CommunityPollOptions is { Count: > 0 })
+            post.CommunityPollOptions = [.. update.CommunityPollOptions.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim()).Take(5)];
+        post.EnableCharacterDialogue = update.EnableCharacterDialogue;
+        post.SpeakerAName = string.IsNullOrWhiteSpace(update.SpeakerAName) ? null : update.SpeakerAName.Trim();
+        post.SpeakerBName = string.IsNullOrWhiteSpace(update.SpeakerBName) ? null : update.SpeakerBName.Trim();
+        if (!string.IsNullOrWhiteSpace(update.SubtitlePreset))
+            post.SubtitlePreset = NormalizeSubtitlePreset(update.SubtitlePreset);
         if (update.Status == AutomationPostStatus.Skipped)
             post.Status = AutomationPostStatus.Skipped;
         post.Notes = string.IsNullOrWhiteSpace(update.Notes) ? null : update.Notes.Trim();
@@ -674,11 +718,34 @@ public sealed class EcosystemAutomationService(
         Application.Rendering.ProceduralSceneTheme theme,
         int durationSeconds,
         string? resolution,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? format = null,
+        bool? enableCharacterDialogue = null,
+        string? subtitlePreset = null,
+        string? speakerAName = null,
+        string? speakerBName = null)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
             throw EditingException.Conflict("post-locked", "Cannot regenerate video once uploading or published.");
+
+        if (!string.IsNullOrWhiteSpace(format))
+        {
+            post.Format = format.Trim().ToLowerInvariant() switch
+            {
+                "wide" or "landscape" or "16:9" or "video" => AutomationVideoFormat.Wide,
+                "community" or "communitypost" or "square" => AutomationVideoFormat.CommunityPost,
+                _ => AutomationVideoFormat.Vertical
+            };
+        }
+        if (enableCharacterDialogue.HasValue)
+            post.EnableCharacterDialogue = enableCharacterDialogue.Value;
+        if (!string.IsNullOrWhiteSpace(subtitlePreset))
+            post.SubtitlePreset = NormalizeSubtitlePreset(subtitlePreset);
+        if (speakerAName is not null)
+            post.SpeakerAName = string.IsNullOrWhiteSpace(speakerAName) ? null : speakerAName.Trim();
+        if (speakerBName is not null)
+            post.SpeakerBName = string.IsNullOrWhiteSpace(speakerBName) ? null : speakerBName.Trim();
 
         var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
         await AttachProceduralAnimatedVideoAsync(userId, post, rule, theme, durationSeconds, resolution, ct)
@@ -687,6 +754,62 @@ public sealed class EcosystemAutomationService(
         post.LastError = null;
         post.UpdatedAtUtc = UtcNow;
         await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
+    public async Task<AutomationPost> GenerateCommunityCardAsync(
+        string userId,
+        string postId,
+        CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        await AttachCommunityPromoCardAsync(post, ct).ConfigureAwait(false);
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
+    public async Task<byte[]?> GetCommunityCardBytesAsync(string userId, string postId, CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(post.CommunityCardStorageKey))
+            await AttachCommunityPromoCardAsync(post, ct).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(post.CommunityCardStorageKey))
+            return null;
+
+        await using var stream = await objectStore.OpenAsync(post.CommunityCardStorageKey, ct).ConfigureAwait(false);
+        if (stream is null) return null;
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, ct).ConfigureAwait(false);
+        return ms.ToArray();
+    }
+
+    public async Task<AutomationPost> MarkCommunityPostPublishedAsync(string userId, string postId, CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        post.Status = AutomationPostStatus.Published;
+        post.PublishedAtUtc ??= UtcNow;
+        post.Notes = "Marked as published manually in YouTube Studio Community Posts.";
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
+    public async Task<AutomationPost> SyncPostToEcosystemAsync(
+        string userId,
+        string postId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(post.PublishedVideoId) && string.IsNullOrWhiteSpace(post.PublishedVideoUrl))
+            throw EditingException.Invalid("video-not-published", "Publish the YouTube video first before syncing it to Panchang Video Hub.");
+
+        var ok = await TrySyncPublishedPostToEcosystemAsync(post, bearerToken, ct).ConfigureAwait(false);
+        if (!ok)
+            throw EditingException.Invalid("panchang-sync-failed", post.LastError ?? "Could not sync to HinduPanchang Video Hub (check Admin login or Ecosystem:SyncKey).");
+
         return post;
     }
 
@@ -966,6 +1089,7 @@ public sealed class EcosystemAutomationService(
                 post.PublishedAtUtc = view.FinishedAt ?? UtcNow;
                 post.UpdatedAtUtc = UtcNow;
                 await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
                 return 1;
             }
             if (view.State is PublishQueueState.Failed or PublishQueueState.Cancelled)
@@ -992,6 +1116,7 @@ public sealed class EcosystemAutomationService(
                     post.PublishedAtUtc = status.CompletedAt ?? UtcNow;
                     post.UpdatedAtUtc = UtcNow;
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                    await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
                     return 1;
                 }
                 if (status.State is YouTubeUploadState.Failed or YouTubeUploadState.Cancelled)
@@ -1019,6 +1144,7 @@ public sealed class EcosystemAutomationService(
                     post.PublishedAtUtc = found.PublishedAt;
                     post.UpdatedAtUtc = UtcNow;
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                    await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
                     return 1;
                 }
             }
@@ -1174,8 +1300,15 @@ public sealed class EcosystemAutomationService(
     {
         var duration = durationSeconds > 0
             ? durationSeconds
-            : Math.Clamp(rule?.TargetSeconds ?? 24, 15, 45);
+            : Math.Clamp(rule?.TargetSeconds ?? 24, 15, 60);
         var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
+        var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
+        var formatArg = post.Format switch
+        {
+            AutomationVideoFormat.Wide => "landscape",
+            AutomationVideoFormat.CommunityPost => "square",
+            _ => "vertical"
+        };
 
         var rendered = await proceduralVideoGenerator.GenerateAsync(userId, new ProceduralVideoRequest
         {
@@ -1183,13 +1316,19 @@ public sealed class EcosystemAutomationService(
             Prompt = post.AiVideoPrompt,
             Script = post.Script,
             Theme = theme,
-            Format = post.Format == AutomationVideoFormat.Wide ? "landscape" : "vertical",
+            Format = formatArg,
             Resolution = string.IsNullOrWhiteSpace(resolution) ? "720p" : resolution.Trim(),
             DurationSeconds = duration,
             IncludeCaptions = true,
             IncludeAmbientAudio = true,
             Language = post.Language,
             FooterLabel = footer,
+            EventType = post.SourceType.ToString(),
+            TopCategoryLabel = post.HeaderBannerText ?? $"{palette.HeaderBadgeText} • {post.DateKey}",
+            SubtitlePreset = NormalizeSubtitlePreset(post.SubtitlePreset),
+            EnableCharacterDialogue = post.EnableCharacterDialogue,
+            SpeakerAName = post.SpeakerAName ?? rule?.SpeakerAName,
+            SpeakerBName = post.SpeakerBName ?? rule?.SpeakerBName,
             TopicId = post.TopicId ?? rule?.TopicId,
             SaveAsRenderJob = true,
             ReturnInlineBytes = false
@@ -1198,9 +1337,122 @@ public sealed class EcosystemAutomationService(
         post.AttachedRenderJobId = rendered.RenderJobId;
         post.AttachedHandoffId = null;
         post.AttachedHandoffTitle = rendered.ThemeDisplayName;
+        post.EventColorHex ??= palette.PrimaryHex;
+        post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
         post.AttachedVideoSourceLabel = $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
         post.Status = AutomationPostStatus.VideoReadyForReview;
     }
+
+    private async Task AttachCommunityPromoCardAsync(AutomationPost post, CancellationToken ct)
+    {
+        var (storageKey, sizeBytes) = await communityCardGenerator.GenerateAndStoreAsync(
+            post.Id,
+            post.Title,
+            post.SourceSummary ?? post.CommunityPostText ?? post.Script,
+            post.SourceType.ToString(),
+            post.PrimaryDestinationUrl,
+            post.EnableCharacterDialogue,
+            post.SpeakerAName,
+            post.SpeakerBName,
+            ct).ConfigureAwait(false);
+
+        var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), ProceduralSceneTheme.Auto);
+        post.CommunityCardStorageKey = storageKey;
+        post.EventColorHex ??= palette.PrimaryHex;
+        post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
+        post.AttachedVideoSourceLabel = $"1:1 Promo Card PNG ({sizeBytes / 1024} KB)";
+    }
+
+    private async Task<bool> TrySyncPublishedPostToEcosystemAsync(
+        AutomationPost post,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(post.PublishedVideoId) && string.IsNullOrWhiteSpace(post.PublishedVideoUrl))
+            return false;
+
+        if (post.SourceType is not (AutomationSourceType.HinduPanchang
+            or AutomationSourceType.HinduFestival
+            or AutomationSourceType.DailyKatha
+            or AutomationSourceType.AajKaItihaas))
+        {
+            return false;
+        }
+
+        var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
+        var rawBase = !string.IsNullOrWhiteSpace(settings.PanchangApiBaseUrl)
+            ? settings.PanchangApiBaseUrl
+            : ecosystemServiceOptions.CurrentValue.PanchangApiBaseUrl;
+
+        if (!EcosystemSignalsClient.IsSafeEndpoint(rawBase, out var normalizedBase) || normalizedBase is null)
+            return false;
+
+        var syncKey = !string.IsNullOrWhiteSpace(ecosystemServiceOptions.CurrentValue.SyncKey)
+            ? ecosystemServiceOptions.CurrentValue.SyncKey!.Trim()
+            : Environment.GetEnvironmentVariable("ECOSYSTEM_SYNC_KEY")?.Trim();
+
+        if (string.IsNullOrWhiteSpace(syncKey) && string.IsNullOrWhiteSpace(bearerToken))
+            return false;
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{normalizedBase}/api/videohub/automation-sync");
+            if (!string.IsNullOrWhiteSpace(syncKey))
+                req.Headers.TryAddWithoutValidation("X-Ecosystem-Key", syncKey);
+            if (!string.IsNullOrWhiteSpace(bearerToken))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken.Trim());
+
+            req.Content = JsonContent.Create(new
+            {
+                AutomationPostId = post.Id,
+                Title = post.Title,
+                Description = post.Description,
+                YouTubeVideoId = post.PublishedVideoId,
+                YouTubeUrl = post.PublishedVideoUrl,
+                SourceType = post.SourceType.ToString(),
+                DateKey = post.DateKey,
+                PublishedDate = post.PublishedAtUtc ?? post.UpdatedAtUtc,
+                ChannelName = post.TargetChannelTitle,
+                SourceChannelHandle = post.TargetChannelHandle,
+                Format = post.Format == AutomationVideoFormat.Vertical ? "Short" : "Video",
+                IsFeaturedDailyVideo = post.SourceType == AutomationSourceType.HinduPanchang
+            }, options: JsonOpts);
+
+            using var res = await client.SendAsync(req, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                logger.LogWarning("Panchang Video Hub sync returned HTTP {Status} for post {PostId}: {Body}",
+                    (int)res.StatusCode, post.Id, body);
+                post.LastError = $"Panchang sync HTTP {(int)res.StatusCode}";
+                post.UpdatedAtUtc = UtcNow;
+                await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                return false;
+            }
+
+            post.SyncedToEcosystemAtUtc = UtcNow;
+            post.LastError = null;
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Panchang Video Hub sync failed for post {PostId}", post.Id);
+            post.LastError = ex.Message;
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return false;
+        }
+    }
+
+    private static string NormalizeSubtitlePreset(string? raw) => (raw ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "karaoke-pulse" or "karaoke" => "karaoke-pulse",
+        "classic-clean" or "clean" => "classic-clean",
+        _ => "event-glow"
+    };
 
     private async Task<StoryRun> StartStoryRunForPostAsync(
         string userId,
