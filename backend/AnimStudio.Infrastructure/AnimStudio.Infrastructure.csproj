@@ -44,4 +44,9 @@
     <ProjectReference Include="..\AnimStudio.Application\AnimStudio.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AnimStudio.Application.Tests" />
+    <InternalsVisibleTo Include="AnimStudio.Integration.Tests" />
+  </ItemGroup>
+
 </Project>

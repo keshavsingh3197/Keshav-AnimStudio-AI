@@ -109,12 +109,13 @@ public static class DependencyInjection
         // Adapts the package's IObjectStore to the Application layer's own port.
         services.AddSingleton<AppObjectStore, KeshavObjectStoreAdapter>();
         services.AddSingleton<IStorageUsageService, LocalStorageUsageService>();
-        // --- persistence: Dual database support (SqlServer on localhost or Mongo)
-        var dbProvider = configuration["Database:Provider"] ?? "SqlServer";
-        var useSqlServer = string.Equals(dbProvider, "SqlServer", StringComparison.OrdinalIgnoreCase);
-
+        // --- persistence: Dual database support ("Auto" switches to Mongo automatically when a Mongo secret is present; else SqlServer or explicit override)
         var mongoOptions = configuration.GetMongoOptions();
-        var hasMongoConfig = !string.IsNullOrWhiteSpace(mongoOptions.ConnectionString);
+        var resolvedConnStr = !string.IsNullOrWhiteSpace(mongoOptions.ConnectionString)
+            ? mongoOptions.ConnectionString
+            : configuration["Mongo:Uri"] ?? configuration.GetConnectionString("Mongo");
+        var hasMongoConfig = !string.IsNullOrWhiteSpace(resolvedConnStr);
+        var useSqlServer = ResolveUseSqlServer(configuration["Database:Provider"], hasMongoConfig);
 
         if (hasMongoConfig)
         {
@@ -302,6 +303,7 @@ public static class DependencyInjection
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IImageAnimationRenderer, ImageAnimationRenderer>();
         services.AddScoped<IProceduralVideoGenerator, AnimStudio.Infrastructure.Rendering.ProceduralVideoGeneratorService>();
+        services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralCommunityCardGenerator>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
 
         // The user's effects library: clips, stills and sounds reused across every project.
@@ -656,5 +658,18 @@ public static class DependencyInjection
             "  (run from backend/AnimStudio.Api)\n" +
             "or the environment variable Mongo__ConnectionString.\n" +
             "See SECURITY.md.");
+    }
+
+    internal static bool ResolveUseSqlServer(string? configuredProvider, bool hasMongoConnectionString)
+    {
+        var p = configuredProvider?.Trim();
+        if (string.Equals(p, "Mongo", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(p, "MongoDb", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.Equals(p, "Auto", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(p))
+            return !hasMongoConnectionString;
+
+        return string.Equals(p, "SqlServer", StringComparison.OrdinalIgnoreCase);
     }
 }

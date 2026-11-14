@@ -34,7 +34,11 @@ public sealed class ProceduralVideoGeneratorService(
     ILogger<ProceduralVideoGeneratorService> logger) : IProceduralVideoGenerator
 {
     private const string DefaultProjectName = "Procedural 3D Studio Renders";
+    private const string TopCategoryStyleCharId = "top-category";
+    private const string TopTitleStyleCharId = "top-header-title";
     private const string TitleStyleCharId = "title-hook";
+    private const string SpeakerAStyleCharId = "speaker-a";
+    private const string SpeakerBStyleCharId = "speaker-b";
     private const string BodyStyleCharId = "beat-body";
     private const string FooterStyleCharId = "footer-link";
     private static readonly TimeSpan EncodeTimeout = TimeSpan.FromMinutes(6);
@@ -61,8 +65,18 @@ public sealed class ProceduralVideoGeneratorService(
         var (width, height, normalizedFormat) = ProceduralVideoPlanner.ResolveDimensions(request.Format, request.Resolution);
         var resolvedTheme = ProceduralVideoPlanner.InferTheme(request.Theme, title, request.Prompt, request.Script);
         var preset = ProceduralVideoPlanner.DescribeTheme(resolvedTheme);
+        var palette = ProceduralEventPalette.Resolve(request.EventType, resolvedTheme);
+        var dialoguePlan = DialogueScriptParser.ParsePlan(
+            title,
+            request.Script,
+            request.Prompt,
+            durationSeconds,
+            request.EnableCharacterDialogue,
+            request.SpeakerAName,
+            request.SpeakerBName,
+            request.EventType);
 
-        var seed = StableSeed($"{title}|{resolvedTheme}|{normalizedFormat}");
+        var seed = StableSeed($"{title}|{resolvedTheme}|{palette.EventKey}|{normalizedFormat}");
         var swTotal = Stopwatch.StartNew();
 
         await using var workspace = await workspaces.CreateAsync($"proc3d-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
@@ -77,11 +91,11 @@ public sealed class ProceduralVideoGeneratorService(
             hasAudio = true;
         }
 
-        // 2. Optional beat-synchronized ASS subtitle overlay (reuses ScriptFonts Devanagari resolution)
+        // 2. Optional beat-synchronized ASS subtitle + top-header overlay (reuses ScriptFonts Devanagari resolution)
         var hasSubtitles = false;
         if (request.IncludeCaptions && capabilities.Supports(RenderFeature.BurnedSubtitles))
         {
-            var assContent = BuildAssSubtitles(title, request, resolvedTheme, preset, width, height, fps, durationSeconds);
+            var assContent = BuildAssSubtitles(title, request, palette, dialoguePlan, width, height, fps, durationSeconds);
             await File.WriteAllTextAsync(workspace.Resolve("in/subs.ass"), assContent, new UTF8Encoding(false), ct)
                 .ConfigureAwait(false);
             hasSubtitles = true;
@@ -129,7 +143,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var totalFrames = durationSeconds * fps;
         var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed);
+        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan);
 
         try
         {
@@ -248,27 +262,67 @@ public sealed class ProceduralVideoGeneratorService(
     private string BuildAssSubtitles(
         string title,
         ProceduralVideoRequest request,
-        ProceduralSceneTheme resolvedTheme,
-        ProceduralThemePreset preset,
+        ProceduralEventPalette palette,
+        ProceduralDialoguePlan dialoguePlan,
         int width,
         int height,
         int fps,
         int durationSeconds)
     {
-        var beats = ProceduralVideoPlanner.BuildCaptionBeats(title, request.Script, request.Prompt, durationSeconds);
         var canvas = new Canvas(width, height, new FrameRate(fps, 1));
-        var lines = new List<DialogueLine>(beats.Count + 1);
+        var lines = new List<DialogueLine>(dialoguePlan.Turns.Count + 4);
+        var endFrame = Math.Max(2, (durationSeconds * fps) - 2);
+        var index = 0;
 
-        foreach (var b in beats)
+        // 1. Fixed Top Header Template ("Content of the Day" badge + engaging top title)
+        var categoryText = string.IsNullOrWhiteSpace(request.TopCategoryLabel)
+            ? palette.HeaderBadgeText
+            : request.TopCategoryLabel.Trim();
+        lines.Add(new DialogueLine
         {
+            Index = index++,
+            SpeakerLabel = "Banner",
+            SpeakerCharacterId = TopCategoryStyleCharId,
+            Text = $"* {categoryText} *",
+            RelativeStartFrame = 0,
+            RelativeEndFrame = endFrame
+        });
+
+        var headerTitle = title.Length > 64 ? title[..63].TrimEnd() + "..." : title;
+        lines.Add(new DialogueLine
+        {
+            Index = index++,
+            SpeakerLabel = "HeaderTitle",
+            SpeakerCharacterId = TopTitleStyleCharId,
+            Text = headerTitle,
+            RelativeStartFrame = 0,
+            RelativeEndFrame = endFrame
+        });
+
+        // 2. Colorful Animated Subtitles (per speaker when 2-character dialogue is active)
+        foreach (var turn in dialoguePlan.Turns)
+        {
+            var styleCharId = turn.IsTitleHook
+                ? TitleStyleCharId
+                : turn.Slot switch
+                {
+                    DialogueSpeakerSlot.Left => SpeakerAStyleCharId,
+                    DialogueSpeakerSlot.Right => SpeakerBStyleCharId,
+                    _ => BodyStyleCharId
+                };
+
+            var displayText = !turn.IsTitleHook && dialoguePlan.HasCharacters && !string.IsNullOrWhiteSpace(turn.SpeakerName)
+                ? $"{turn.SpeakerName}: {turn.Text}"
+                : turn.Text;
+
             lines.Add(new DialogueLine
             {
-                Index = b.Index,
-                SpeakerLabel = b.IsTitleHook ? "Title" : "Narration",
-                SpeakerCharacterId = b.IsTitleHook ? TitleStyleCharId : BodyStyleCharId,
-                Text = b.Text,
-                RelativeStartFrame = Math.Max(0, (int)Math.Round(b.StartSeconds * fps)),
-                RelativeEndFrame = Math.Max(1, (int)Math.Round(b.EndSeconds * fps))
+                Index = index++,
+                SpeakerLabel = turn.SpeakerName,
+                SpeakerCharacterId = styleCharId,
+                Text = displayText,
+                RelativeStartFrame = Math.Max(0, (int)Math.Round(turn.StartSeconds * fps)),
+                RelativeEndFrame = Math.Max(1, (int)Math.Round(turn.EndSeconds * fps))
             });
         }
 
@@ -276,20 +330,36 @@ public sealed class ProceduralVideoGeneratorService(
         {
             lines.Add(new DialogueLine
             {
-                Index = beats.Count + 1,
+                Index = index++,
                 SpeakerLabel = "Source",
                 SpeakerCharacterId = FooterStyleCharId,
                 Text = request.FooterLabel.Trim(),
                 RelativeStartFrame = 0,
-                RelativeEndFrame = Math.Max(1, (durationSeconds * fps) - 2)
+                RelativeEndFrame = endFrame
             });
         }
 
+        var motionPreset = (request.SubtitlePreset ?? "event-glow").Trim().ToLowerInvariant() switch
+        {
+            "karaoke-pulse" or "karaoke" => SubtitleMotionPreset.KaraokePulse,
+            "classic-clean" or "clean" => SubtitleMotionPreset.None,
+            _ => SubtitleMotionPreset.EventGlow
+        };
+
+        var topCategoryMargin = Math.Max(12, height / 64);
+        var topTitleMargin = Math.Max(42, height / 20);
+        var dialogueMargin = dialoguePlan.HasCharacters ? Math.Max(52, height / 15) : Math.Max(58, height / 16);
+        var footerMargin = Math.Max(14, height / 68);
+
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
         {
-            [TitleStyleCharId] = new("TitleHook", preset.AccentHex, Bold: true),
-            [BodyStyleCharId] = new("BeatBody", "#FFFFFF", Bold: true),
-            [FooterStyleCharId] = new("FooterTag", "#CBD5E1", Bold: false)
+            [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
+            [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: 78, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
+            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 106, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow),
+            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
+            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset),
+            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
+            [FooterStyleCharId] = new("FooterTag", "#CBD5E1", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: 54, MotionPreset: SubtitleMotionPreset.None)
         };
 
         var fontSize = width >= height ? Math.Max(34, height / 17) : Math.Max(32, width / 18);

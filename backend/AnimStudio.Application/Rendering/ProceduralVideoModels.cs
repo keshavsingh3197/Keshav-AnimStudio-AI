@@ -51,6 +51,22 @@ public sealed class ProceduralVideoRequest
     public bool IncludeAmbientAudio { get; init; } = true;
     public string Language { get; init; } = "hi";
     public string? FooterLabel { get; init; }
+
+    /// <summary>Event source key (e.g. HinduPanchang, HinduFestival, DailyKatha, AajKaItihaas, Pratiyogita) driving fixed event colors.</summary>
+    public string? EventType { get; init; }
+
+    /// <summary>Top template header pill (e.g. TODAY'S HINDU PANCHANG • 2026-11-14).</summary>
+    public string? TopCategoryLabel { get; init; }
+
+    /// <summary>Animated ASS subtitle preset: event-glow, karaoke-pulse, or classic-clean.</summary>
+    public string SubtitlePreset { get; init; } = "event-glow";
+
+    /// <summary>When true, renders interactive animated 2-character stage + speaker-colored dialogue turns.</summary>
+    public bool EnableCharacterDialogue { get; init; }
+
+    public string? SpeakerAName { get; init; }
+    public string? SpeakerBName { get; init; }
+
     public string? ProjectId { get; init; }
     public string? TopicId { get; init; }
     public bool SaveAsRenderJob { get; init; } = true;

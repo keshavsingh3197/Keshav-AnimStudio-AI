@@ -1,4 +1,5 @@
 using AnimStudio.Api.Common;
+using AnimStudio.Api.Security;
 using AnimStudio.Application.Automation;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Security;
@@ -21,7 +22,12 @@ public sealed record AttachAutomationVideoRequest(
 public sealed record GenerateAnimatedAutomationVideoRequest(
     ProceduralSceneTheme Theme = ProceduralSceneTheme.Auto,
     int DurationSeconds = 0,
-    string? Resolution = null);
+    string? Resolution = null,
+    string? Format = null,
+    bool? EnableCharacterDialogue = null,
+    string? SubtitlePreset = null,
+    string? SpeakerAName = null,
+    string? SpeakerBName = null);
 
 public sealed record PublishAutomationPostRequest(
     bool PublishNow = true,
@@ -44,6 +50,13 @@ public sealed class AutomationController(
         if (currentUser.IsAuthenticated) return null;
         const string msg = "Sign in to access ecosystem auto-post pipelines and YouTube publishing.";
         return StatusCode(403, ApiResponse<T>.Fail(msg, new ApiError("auth-required", msg)));
+    }
+
+    [HttpGet("palettes")]
+    public ActionResult<ApiResponse<IReadOnlyList<ProceduralEventPalette>>> GetPalettes()
+    {
+        if (RequireAuthenticatedUser<IReadOnlyList<ProceduralEventPalette>>() is { } denied) return denied;
+        return Ok(ApiResponse<IReadOnlyList<ProceduralEventPalette>>.Ok(ProceduralEventPalette.All));
     }
 
     [HttpGet("overview")]
@@ -198,7 +211,56 @@ public sealed class AutomationController(
             request?.Theme ?? ProceduralSceneTheme.Auto,
             request?.DurationSeconds ?? 0,
             request?.Resolution,
-            ct)));
+            ct,
+            request?.Format,
+            request?.EnableCharacterDialogue,
+            request?.SubtitlePreset,
+            request?.SpeakerAName,
+            request?.SpeakerBName)));
+    }
+
+    [HttpPost("queue/{id}/community-card")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> GenerateCommunityCard(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.GenerateCommunityCardAsync(currentUser.UserId, id, ct)));
+    }
+
+    [AllowMediaTicket]
+    [HttpGet("queue/{id}/community-card")]
+    [HttpHead("queue/{id}/community-card")]
+    public async Task<IActionResult> DownloadCommunityCard(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (!currentUser.IsAuthenticated) return Forbid();
+        var bytes = await automation.GetCommunityCardBytesAsync(currentUser.UserId, id, ct);
+        if (bytes is null) return NotFound();
+        return File(bytes, "image/png", $"promo-card-{id}.png");
+    }
+
+    [HttpPost("queue/{id}/mark-community-posted")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> MarkCommunityPosted(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.MarkCommunityPostPublishedAsync(currentUser.UserId, id, ct)));
+    }
+
+    [HttpPost("queue/{id}/sync-panchang")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> SyncToPanchang(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        var rawAuth = Request.Headers.Authorization.FirstOrDefault();
+        var bearer = rawAuth is not null && rawAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? rawAuth["Bearer ".Length..].Trim()
+            : null;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.SyncPostToEcosystemAsync(currentUser.UserId, id, bearer, ct)));
     }
 
     [HttpPost("queue/{id}/publish")]

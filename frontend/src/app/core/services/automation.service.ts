@@ -7,6 +7,7 @@ import { ApiResponse } from '../models/api.models';
 import { ContentTopic } from '../models/calendar.models';
 import { YouTubeChannel } from '../models/youtube.models';
 import { EcosystemWebsite } from './ecosystem-config.service';
+import { MediaTicketService } from './media-ticket.service';
 
 export type AutomationSourceType =
   | 'HinduPanchang'
@@ -35,7 +36,21 @@ export type ProceduralSceneTheme =
   | 'NeonCyberGrid3D'
   | 'SereneNatureGlow';
 
-export type AutomationVideoFormat = 'Vertical' | 'Wide';
+export type AutomationVideoFormat = 'Vertical' | 'Wide' | 'CommunityPost';
+
+export type SubtitleMotionPreset = 'event-glow' | 'karaoke-pulse' | 'classic-clean';
+
+export interface ProceduralEventPalette {
+  eventKey: string;
+  displayLabel: string;
+  headerBadgeText: string;
+  recommendedTheme: ProceduralSceneTheme;
+  primaryHex: string;
+  secondaryHex: string;
+  speakerAHex: string;
+  speakerBHex: string;
+  titleHex: string;
+}
 
 export type AutomationPostStatus =
   | 'PreparedPreview'
@@ -174,6 +189,10 @@ export interface AutomationRule {
   promptTemplateOverride?: string | null;
   descriptionFooterOverride?: string | null;
   customTopicPrompt?: string | null;
+  subtitlePreset?: SubtitleMotionPreset | string;
+  enableCharacterDialogue?: boolean;
+  speakerAName?: string | null;
+  speakerBName?: string | null;
   sortOrder: number;
   lastPreparedDateKey?: string | null;
   createdAtUtc?: string;
@@ -224,6 +243,16 @@ export interface AutomationPost {
   lastError?: string | null;
   notes?: string | null;
   generatedByAi: boolean;
+  communityPostText?: string | null;
+  communityPollOptions?: string[];
+  communityCardStorageKey?: string | null;
+  eventColorHex?: string | null;
+  headerBannerText?: string | null;
+  enableCharacterDialogue?: boolean;
+  speakerAName?: string | null;
+  speakerBName?: string | null;
+  subtitlePreset?: SubtitleMotionPreset | string | null;
+  syncedToEcosystemAtUtc?: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
   publishedAtUtc?: string | null;
@@ -281,7 +310,14 @@ export interface AutomationOverview {
 @Injectable({ providedIn: 'root' })
 export class AutomationService {
   private readonly http = inject(HttpClient);
+  private readonly media = inject(MediaTicketService);
   private readonly base = `${environment.apiUrl}/api/automation`;
+
+  getPalettes(): Observable<ProceduralEventPalette[]> {
+    return this.unwrap(
+      this.http.get<ApiResponse<ProceduralEventPalette[]>>(`${this.base}/palettes`)
+    );
+  }
 
   getOverview(date?: string): Observable<AutomationOverview> {
     let params = new HttpParams();
@@ -376,12 +412,52 @@ export class AutomationService {
 
   generateAnimatedVideo(
     postId: string,
-    body?: { theme?: ProceduralSceneTheme; durationSeconds?: number; resolution?: '720p' | '1080p' }
+    body?: {
+      theme?: ProceduralSceneTheme;
+      durationSeconds?: number;
+      resolution?: '720p' | '1080p';
+      format?: AutomationVideoFormat;
+      enableCharacterDialogue?: boolean;
+      subtitlePreset?: SubtitleMotionPreset | string;
+      speakerAName?: string | null;
+      speakerBName?: string | null;
+    }
   ): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(
         `${this.base}/queue/${encodeURIComponent(postId)}/generate-animated-video`,
         body ?? {}
+      )
+    );
+  }
+
+  generateCommunityCard(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/community-card`,
+        {}
+      )
+    );
+  }
+
+  communityCardUrl(postId: string): string {
+    return this.media.sign(`${this.base}/queue/${encodeURIComponent(postId)}/community-card`);
+  }
+
+  markCommunityPosted(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/mark-community-posted`,
+        {}
+      )
+    );
+  }
+
+  syncToPanchang(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/sync-panchang`,
+        {}
       )
     );
   }
