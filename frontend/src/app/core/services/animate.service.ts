@@ -6,6 +6,52 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 
 export type AnimateFormat = 'landscape' | 'vertical' | 'square';
+export type ProceduralResolution = '720p' | '1080p';
+export type ProceduralSceneTheme =
+  | 'Auto'
+  | 'VedicTempleSunrise3D'
+  | 'CosmosSacred3D'
+  | 'HistoryChronicle3D'
+  | 'NeonCyberGrid3D'
+  | 'SereneNatureGlow';
+
+export interface ProceduralThemePreset {
+  id: string;
+  theme: ProceduralSceneTheme;
+  name: string;
+  bestFor: string;
+  accentHex: string;
+  description: string;
+}
+
+export interface ProceduralVideoGenerationRequest {
+  title: string;
+  prompt?: string | null;
+  script?: string | null;
+  theme: ProceduralSceneTheme;
+  format: AnimateFormat;
+  resolution: ProceduralResolution;
+  durationSeconds: number;
+  includeCaptions: boolean;
+  includeAmbientAudio: boolean;
+  language: string;
+  footerLabel?: string | null;
+  saveAsRenderJob?: boolean;
+}
+
+export interface ProceduralVideoResponse {
+  renderJobId: string | null;
+  projectId: string | null;
+  resolvedTheme: ProceduralSceneTheme;
+  themeDisplayName: string;
+  width: number;
+  height: number;
+  durationSeconds: number;
+  sizeBytes: number;
+  previewUrl: string | null;
+  downloadUrl: string | null;
+  summary: string;
+}
 
 /** How a still moves and looks. Focus is percent of the frame, as the editor's image clips use. */
 export interface AnimatePlan {
@@ -38,9 +84,12 @@ export interface AnimateCapabilities {
   motions: string[];
   looks: string[];
   formats: AnimateFormat[];
+  proceduralThemes?: ProceduralThemePreset[];
+  proceduralMinSeconds?: number;
+  proceduralMaxSeconds?: number;
 }
 
-/** The Animate Image page (api/animate). Nothing is stored on the server: the picture goes up, the MP4 comes back. */
+/** The Animate Image & Procedural 3D Generator page (api/animate). */
 @Injectable({ providedIn: 'root' })
 export class AnimateService {
   private readonly http = inject(HttpClient);
@@ -71,5 +120,16 @@ export class AnimateService {
     form.append('durationSeconds', String(plan.durationSeconds));
     form.append('format', plan.format);
     return this.http.post(`${this.base}/api/animate/render`, form, { responseType: 'blob' });
+  }
+
+  generateProceduralVideo(request: ProceduralVideoGenerationRequest): Observable<Blob> {
+    return this.http.post(`${this.base}/api/animate/generate-video`, request, { responseType: 'blob' });
+  }
+
+  generateProceduralRenderJob(request: ProceduralVideoGenerationRequest): Observable<ProceduralVideoResponse> {
+    return this.http.post<ApiResponse<ProceduralVideoResponse>>(
+      `${this.base}/api/animate/generate-render-job`,
+      request
+    ).pipe(map((r) => r.data as ProceduralVideoResponse));
   }
 }

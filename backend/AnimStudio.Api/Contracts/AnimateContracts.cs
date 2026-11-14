@@ -1,3 +1,5 @@
+using AnimStudio.Application.Rendering;
+
 namespace AnimStudio.Api.Contracts;
 
 /// <param name="Description">What the person wants the picture to do, in their words.</param>
@@ -23,6 +25,36 @@ public sealed record AnimatePlanResponse(
     /// <summary>Why AI was not used, when it was asked for and could not answer.</summary>
     string? Note);
 
+/// <summary>Request to generate a built-in CPU 2D/3D procedural animated video directly on this server.</summary>
+public sealed record ProceduralVideoGenerationRequest(
+    string? Title,
+    string? Prompt,
+    string? Script,
+    ProceduralSceneTheme Theme = ProceduralSceneTheme.Auto,
+    string Format = "vertical",
+    string Resolution = "720p",
+    int DurationSeconds = ProceduralVideoRequest.DefaultSeconds,
+    bool IncludeCaptions = true,
+    bool IncludeAmbientAudio = true,
+    string Language = "hi",
+    string? FooterLabel = null,
+    string? ProjectId = null,
+    string? TopicId = null,
+    bool SaveAsRenderJob = true);
+
+public sealed record ProceduralVideoResponse(
+    string? RenderJobId,
+    string? ProjectId,
+    ProceduralSceneTheme ResolvedTheme,
+    string ThemeDisplayName,
+    int Width,
+    int Height,
+    double DurationSeconds,
+    long SizeBytes,
+    string? PreviewUrl,
+    string? DownloadUrl,
+    string Summary);
+
 /// <summary>What this page can offer on this server, so it never offers a render that cannot run.</summary>
 public sealed record AnimateCapabilitiesResponse(
     bool RendererAvailable,
@@ -32,4 +64,7 @@ public sealed record AnimateCapabilitiesResponse(
     long MaxImageBytes,
     IReadOnlyList<string> Motions,
     IReadOnlyList<string> Looks,
-    IReadOnlyList<string> Formats);
+    IReadOnlyList<string> Formats,
+    IReadOnlyList<ProceduralThemePreset> ProceduralThemes,
+    int ProceduralMinSeconds,
+    int ProceduralMaxSeconds);

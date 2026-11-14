@@ -2,8 +2,51 @@ import { Component, DestroyRef, ElementRef, OnInit, computed, effect, inject, si
 import { FormsModule } from '@angular/forms';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
-import { AnimateCapabilities, AnimateFormat, AnimatePlan, AnimateService } from '../../core/services/animate.service';
+import {
+  AnimateCapabilities,
+  AnimateFormat,
+  AnimatePlan,
+  AnimateService,
+  ProceduralResolution,
+  ProceduralSceneTheme,
+  ProceduralThemePreset,
+} from '../../core/services/animate.service';
+import { ApiService } from '../../core/services/api.service';
+import { AuthService } from '../../core/services/auth.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+
+const DEFAULT_PROCEDURAL_THEMES: readonly ProceduralThemePreset[] = [
+  { id: 'auto', theme: 'Auto', name: 'Smart Auto-Match', bestFor: 'Panchang, Katha, History & Tech', accentHex: '#F59E0B', description: 'Automatically selects 3D geometry, lighting and soundtrack from your title & prompt.' },
+  { id: 'vedic-sunrise', theme: 'VedicTempleSunrise3D', name: 'Vedic Temple Sunrise 3D', bestFor: 'Aarti, Katha & Festivals', accentHex: '#EA580C', description: 'Rotating 3D Sri Yantra geometry, rising solar rays, temple silhouettes & glowing diya sparks.' },
+  { id: 'cosmos-sacred', theme: 'CosmosSacred3D', name: 'Cosmos & Nakshatra 3D', bestFor: 'Panchang & Astronomy', accentHex: '#6366F1', description: '3D orbital celestial rings, warp starfield & deep indigo nebula glow.' },
+  { id: 'history-chronicle', theme: 'HistoryChronicle3D', name: 'History Chronicle 3D', bestFor: 'Aaj Ka Itihaas & Events', accentHex: '#D97706', description: 'Rotating 3D meridian wireframe globe, radar sweeps & archival lighting.' },
+  { id: 'neon-cyber', theme: 'NeonCyberGrid3D', name: 'Neon Cyber Grid 3D', bestFor: 'Pratiyogita, Tech & Analytics', accentHex: '#06B6D4', description: 'Scrolling 3D perspective synthwave grid, floating polyhedra & reactive pulses.' },
+  { id: 'serene-nature', theme: 'SereneNatureGlow', name: 'Serene Aurora Nature', bestFor: 'Wisdom, Quotes & Peace', accentHex: '#10B981', description: 'Layered parallax mountains, glowing aurora ribbons & golden fireflies.' },
+];
+
+const PROCEDURAL_IDEAS: readonly { label: string; title: string; prompt: string; script: string; theme: ProceduralSceneTheme }[] = [
+  {
+    label: 'ॐ Aaj Ka Panchang Short',
+    title: 'आज का शुभ पंचांग एवं राहुकाल',
+    prompt: 'Sacred 3D Vedic sunrise over golden temple spires, rotating Sri Yantra geometry, warm diya particles',
+    script: 'हर हर महादेव! आइए जानते हैं आज का शुभ मुहूर्त, तिथि, नक्षत्र और राहुकाल। अभिजीत मुहूर्त में आज के सभी शुभ कार्य संपन्न करें।',
+    theme: 'CosmosSacred3D',
+  },
+  {
+    label: '🌍 Aaj Ka Itihaas Reel',
+    title: 'Aaj Ka Itihaas — Historical Turning Point',
+    prompt: '3D rotating golden meridian globe in space with historical timeline radar waves and glowing stardust',
+    script: 'On this day in history, an unforgettable milestone shaped modern science and global civilization.',
+    theme: 'HistoryChronicle3D',
+  },
+  {
+    label: '🏆 Pratiyogita Quiz Motion',
+    title: 'Daily GK & Coding Challenge',
+    prompt: 'Futuristic 3D cyan and magenta perspective grid with floating rotating octahedron and equalizer bars',
+    script: 'Test your knowledge! Pause the screen, solve today’s top competitive question, and drop your answer in the comments.',
+    theme: 'NeonCyberGrid3D',
+  },
+];
 
 const MOTIONS: readonly { id: string; label: string }[] = [
   { id: 'zoom-in', label: 'Push in' },
@@ -66,8 +109,45 @@ const ACCEPT = 'image/png,image/jpeg,image/webp';
 })
 export class AnimateImageComponent implements OnInit {
   private readonly api = inject(AnimateService);
+  private readonly studioApi = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly stage = viewChild<ElementRef<HTMLImageElement>>('stage');
+
+  readonly studioMode = signal<'procedural' | 'image'>('procedural');
+
+  // --- Procedural 3D Animated Video Generator state
+  readonly procTitle = signal('आज का शुभ पंचांग एवं प्रेरणा');
+  readonly procPrompt = signal('Sacred 3D Vedic sunrise with rotating golden Sri Yantra geometry, temple horizon and floating diya lights');
+  readonly procScript = signal('हर हर महादेव! शुभ प्रभात। आज के पावन दिन की शुरुआत सकारात्मक ऊर्जा और शुभ मुहूर्त के साथ करें।');
+  readonly procTheme = signal<ProceduralSceneTheme>('Auto');
+  readonly procFormat = signal<AnimateFormat>('vertical');
+  readonly procResolution = signal<ProceduralResolution>('720p');
+  readonly procDuration = signal(15);
+  readonly procIncludeCaptions = signal(true);
+  readonly procIncludeAudio = signal(true);
+  readonly procLanguage = signal('hi');
+  readonly procFooter = signal('');
+  readonly procSaveToLibrary = signal(true);
+  readonly procRendering = signal(false);
+  readonly procResultUrl = signal<string | null>(null);
+  readonly procDownloadUrl = signal<string | null>(null);
+  readonly procRenderJobId = signal<string | null>(null);
+  readonly procSummary = signal<string | null>(null);
+  readonly procError = signal<string | null>(null);
+  readonly procCopiedNotice = signal<string | null>(null);
+  readonly proceduralIdeas = PROCEDURAL_IDEAS;
+  readonly isAuthenticated = computed(() => this.auth.isAuthenticated());
+  readonly proceduralThemes = computed(() => this.caps()?.proceduralThemes ?? DEFAULT_PROCEDURAL_THEMES);
+  readonly procMinSeconds = computed(() => this.caps()?.proceduralMinSeconds ?? 5);
+  readonly procMaxSeconds = computed(() => this.caps()?.proceduralMaxSeconds ?? 90);
+  readonly procAspect = computed(() => {
+    switch (this.procFormat()) {
+      case 'vertical': return '9 / 16';
+      case 'square': return '1 / 1';
+      default: return '16 / 9';
+    }
+  });
 
   readonly motions = MOTIONS;
   readonly looks = LOOKS;
@@ -130,6 +210,7 @@ export class AnimateImageComponent implements OnInit {
       this.animation?.cancel();
       this.revoke(this.imageUrl());
       this.revoke(this.videoUrl());
+      this.revokeBlobIfObjectUrl(this.procResultUrl());
     });
   }
 
@@ -217,6 +298,96 @@ export class AnimateImageComponent implements OnInit {
         this.error.set(this.errorText(err, 'The video could not be made. Try again.'));
       },
     });
+  }
+
+  applyProceduralIdea(idea: (typeof PROCEDURAL_IDEAS)[number]): void {
+    this.procTitle.set(idea.title);
+    this.procPrompt.set(idea.prompt);
+    this.procScript.set(idea.script);
+    this.procTheme.set(idea.theme);
+  }
+
+  copyProceduralPrompt(): void {
+    const text = this.procPrompt().trim();
+    if (!text) return;
+    void navigator.clipboard?.writeText(text);
+    this.procCopiedNotice.set('AI prompt copied to clipboard!');
+    setTimeout(() => this.procCopiedNotice.set(null), 2500);
+  }
+
+  setProceduralDuration(value: string | number): void {
+    const n = Number(value);
+    if (Number.isFinite(n)) this.procDuration.set(clamp(Math.round(n), this.procMinSeconds(), this.procMaxSeconds()));
+  }
+
+  generateProceduralVideo(): void {
+    if (this.procRendering()) return;
+    const title = this.procTitle().trim();
+    const prompt = this.procPrompt().trim();
+    const script = this.procScript().trim();
+    if (!title && !prompt && !script) {
+      this.procError.set('Enter a title, motion prompt, or script to render.');
+      return;
+    }
+
+    this.procRendering.set(true);
+    this.procError.set(null);
+    this.procSummary.set(null);
+    this.procRenderJobId.set(null);
+
+    const payload = {
+      title: title || prompt || 'AnimStudio 3D',
+      prompt,
+      script,
+      theme: this.procTheme(),
+      format: this.procFormat(),
+      resolution: this.procResolution(),
+      durationSeconds: this.procDuration(),
+      includeCaptions: this.procIncludeCaptions(),
+      includeAmbientAudio: this.procIncludeAudio(),
+      language: this.procLanguage(),
+      footerLabel: this.procFooter().trim() || null,
+      saveAsRenderJob: this.isAuthenticated() && this.procSaveToLibrary(),
+    };
+
+    if (this.isAuthenticated() && this.procSaveToLibrary()) {
+      this.api.generateProceduralRenderJob(payload).subscribe({
+        next: (res) => {
+          this.procRendering.set(false);
+          this.procRenderJobId.set(res.renderJobId);
+          this.procSummary.set(res.summary);
+          this.revokeBlobIfObjectUrl(this.procResultUrl());
+          const signedPreview = res.renderJobId ? this.studioApi.previewUrl(res.renderJobId) : null;
+          const signedDownload = res.renderJobId ? this.studioApi.downloadUrl(res.renderJobId) : null;
+          this.procResultUrl.set(signedPreview);
+          this.procDownloadUrl.set(signedDownload);
+        },
+        error: (err) => {
+          this.procRendering.set(false);
+          this.procError.set(this.errorText(err, 'Could not render 3D procedural video. Check FFmpeg availability.'));
+        },
+      });
+      return;
+    }
+
+    this.api.generateProceduralVideo(payload).subscribe({
+      next: (blob) => {
+        this.procRendering.set(false);
+        this.revokeBlobIfObjectUrl(this.procResultUrl());
+        const blobUrl = URL.createObjectURL(blob);
+        this.procResultUrl.set(blobUrl);
+        this.procDownloadUrl.set(blobUrl);
+        this.procSummary.set(`Rendered ${payload.durationSeconds}s ${payload.format} (${payload.resolution}) 3D animated MP4 ready to download.`);
+      },
+      error: (err) => {
+        this.procRendering.set(false);
+        this.procError.set(this.errorText(err, 'Could not render 3D procedural video. Check FFmpeg availability.'));
+      },
+    });
+  }
+
+  private revokeBlobIfObjectUrl(url: string | null): void {
+    if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
   }
 
   clearPicture(): void {

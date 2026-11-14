@@ -14,7 +14,10 @@ public enum RenderJobKind
     Project = 0,
 
     /// <summary>Whole video clips normalized to one canvas, watermarked and joined.</summary>
-    ClipMerge = 1
+    ClipMerge = 1,
+
+    /// <summary>On-server 2D/3D procedural animated video rendered directly from prompt, script, and theme.</summary>
+    ProceduralAnimated = 2
 }
 
 /// <summary>

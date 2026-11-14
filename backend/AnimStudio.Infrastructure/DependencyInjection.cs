@@ -301,6 +301,7 @@ public static class DependencyInjection
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IImageAnimationRenderer, ImageAnimationRenderer>();
+        services.AddScoped<IProceduralVideoGenerator, AnimStudio.Infrastructure.Rendering.ProceduralVideoGeneratorService>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
 
         // The user's effects library: clips, stills and sounds reused across every project.

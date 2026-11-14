@@ -47,13 +47,29 @@ public static class StoryPlaceholderImage
             {
                 var dx = (x - halfW) / halfW;
                 var dy = (y - halfH) / halfH;
-                var distance = Math.Min(1.0, Math.Sqrt(dx * dx + dy * dy) / Math.Sqrt(2.0) * 1.35);
+                var radial = Math.Sqrt(dx * dx + dy * dy);
+                var distance = Math.Min(1.0, radial / Math.Sqrt(2.0) * 1.35);
                 var glow = 1.0 - Math.Pow(distance, 1.5);
 
+                // Subtle 3D-perspective sacred horizon grid + concentric orbital aura rings (purely
+                // deterministic on palette index so scene-to-scene cadence stays intact).
+                var ring = Math.Exp(-Math.Pow((radial - 0.52) * 16.0, 2.0)) * 0.24
+                         + Math.Exp(-Math.Pow((radial - 0.78) * 18.0, 2.0)) * 0.14;
+                var grid = 0.0;
+                if (dy > 0.28)
+                {
+                    var depth = (dy - 0.28) / 0.72;
+                    var spoke = Math.Abs(dx / Math.Max(0.12, depth) * 3.0 % 1.0 - 0.5);
+                    var horizonLine = Math.Abs(depth * 6.0 % 1.0 - 0.5);
+                    if (spoke < 0.04 || horizonLine < 0.04)
+                        grid = 0.14 * (1.0 - depth * 0.45);
+                }
+
+                var boost = glow + ring + grid;
                 var at = row + 1 + x * 3;
-                raw[at] = (byte)(er + (cr - er) * glow);
-                raw[at + 1] = (byte)(eg + (cg - eg) * glow);
-                raw[at + 2] = (byte)(eb + (cb - eb) * glow);
+                raw[at] = (byte)Math.Clamp(er + (cr - er) * boost + ring * 65, 0, 255);
+                raw[at + 1] = (byte)Math.Clamp(eg + (cg - eg) * boost + (ring + grid) * 48, 0, 255);
+                raw[at + 2] = (byte)Math.Clamp(eb + (cb - eb) * boost + grid * 70, 0, 255);
             }
         }
 
