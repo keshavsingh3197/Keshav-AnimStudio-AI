@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { forkJoin } from 'rxjs';
+import { finalize, forkJoin } from 'rxjs';
 
 import { Asset, Character, Project, RendererStatus, Scene } from '../models/api.models';
 import { ApiService } from './api.service';
@@ -20,6 +20,7 @@ export class ProjectStore {
 
   readonly project = signal<Project | null>(null);
   readonly parentProject = signal<Project | null>(null);
+  readonly loading = signal(false);
 
   /** Cheap to fetch - the server probes ffmpeg once at startup - and every screen wants it. */
   readonly renderer = signal<RendererStatus | null>(null);
@@ -65,6 +66,7 @@ export class ProjectStore {
       this.scenes.set([]);
     }
     this.currentId = projectId;
+    this.loading.set(true);
 
     this.status.run(
       forkJoin({
@@ -74,7 +76,9 @@ export class ProjectStore {
         characters: this.api.listCharacters(projectId),
         scenes: this.api.listScenes(projectId),
         renderer: this.api.rendererStatus(),
-      }),
+      }).pipe(finalize(() => {
+        if (this.currentId === projectId) this.loading.set(false);
+      })),
       (loaded) => {
         if (this.currentId !== projectId) return;
         this.project.set(loaded.project);

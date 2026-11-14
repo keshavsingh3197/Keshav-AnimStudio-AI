@@ -251,7 +251,9 @@
     </div>
 
     <!-- Assets View Container -->
-    @if (filteredAssets().length === 0) {
+    @if (store.loading() && store.assets().length === 0) {
+      <app-loading-state mode="cards" [count]="6" title="Loading media assets…" subtitle="Preparing project clips, artwork &amp; audio…" />
+    } @else if (filteredAssets().length === 0) {
       <div class="card empty-state">
         <div class="studio-icon-badge" style="width: 3rem; height: 3rem; border-radius: 12px; margin: 0 auto 0.5rem;">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

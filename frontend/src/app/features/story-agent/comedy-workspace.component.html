@@ -54,7 +54,9 @@
       </label>
     </div>
     <div class="cw-actions">
-      <button type="button" [disabled]="!ready() || busy()" (click)="convert()">Convert with configured AI</button>
+      <button type="button" [disabled]="!ready() || busy()" (click)="convert()">
+        @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> Working… } @else { Convert with configured AI }
+      </button>
       <button type="button" class="secondary" [disabled]="!ready() || busy()" (click)="preparePrompt()">Prepare external prompt</button>
     </div>
     <p class="muted">AI conversion sends your text and reference to the configured provider and may use quota or incur charges. The external prompt is a manual alternative.</p>
@@ -86,7 +88,9 @@
       Generated output is not guaranteed to be original or copyright-safe. Use only media you have rights to.</p>
     <div class="cw-actions">
       <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="loadPastedStory()">Load and review script</button>
-      <button type="button" [disabled]="!reply().trim() || busy()" (click)="importStory()">Import into Story Agent</button>
+      <button type="button" [disabled]="!reply().trim() || busy()" (click)="importStory()">
+        @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> Importing… } @else { Import into Story Agent }
+      </button>
       <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="downloadStory()">Download story JSON</button>
     </div>
   </section>

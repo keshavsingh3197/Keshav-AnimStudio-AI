@@ -1,6 +1,7 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map, catchError, filter, of, tap } from 'rxjs';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 
 import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
@@ -516,9 +517,10 @@ export class ApiService {
         `${this.base}/api/projects/${projectId}/render-jobs`));
   }
 
-  job(jobId: string): Observable<RenderJob> {
+  job(jobId: string, options?: { silent?: boolean }): Observable<RenderJob> {
+    const context = options?.silent ? silentHttpContext() : undefined;
     return this.unwrap(
-      this.http.get<ApiResponse<RenderJob>>(`${this.base}/api/render-jobs/${jobId}`));
+      this.http.get<ApiResponse<RenderJob>>(`${this.base}/api/render-jobs/${jobId}`, { context }));
   }
 
   bulkCancelJobs(jobIds: string[]): Observable<{ done: string[]; skipped: string[] }> {

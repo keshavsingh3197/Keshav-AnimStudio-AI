@@ -13,6 +13,7 @@ import { EffectsService } from '../../core/services/effects.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { drawReaction, ReactionExpression } from './reaction-graphic';
 
 /** The inline editor's working copy of one card. */
@@ -33,7 +34,7 @@ interface EffectDraft {
 @Component({
   selector: 'app-effects-library',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, FileDropDirective, RouterLink],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, RouterLink, LoadingStateComponent],
   templateUrl: './effects-library.component.html',
   styleUrl: './effects-library.component.css',
 })

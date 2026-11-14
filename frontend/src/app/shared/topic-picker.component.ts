@@ -29,8 +29,8 @@ export function newTopicRequest(name: string): ContentTopicRequest {
       @if (label()) { <label class="tp-label">{{ label() }}</label> }
       <div class="tp-row">
         <span class="tp-dot" [style.background]="dot()"></span>
-        <select class="tp-select" [ngModel]="adding() ? NEW : (value() ?? '')" (ngModelChange)="pick($event)" [disabled]="disabled()">
-          <option value="">{{ emptyLabel() }}</option>
+        <select class="tp-select" [ngModel]="adding() ? NEW : (value() ?? '')" (ngModelChange)="pick($event)" [disabled]="disabled() || loadingTopics()">
+          <option value="">{{ loadingTopics() && topics().length === 0 ? 'Loading topics…' : emptyLabel() }}</option>
           @for (t of topics(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
           <option [value]="NEW">+ New topic…</option>
         </select>
@@ -39,7 +39,9 @@ export function newTopicRequest(name: string): ContentTopicRequest {
         <div class="tp-row">
           <input class="tp-input" maxlength="80" placeholder="Topic name, e.g. Mahadev" [ngModel]="draft()"
                  (ngModelChange)="draft.set($event)" (keydown.enter)="create()" autofocus />
-          <button type="button" class="tp-btn" (click)="create()" [disabled]="saving() || !draft().trim()">Add</button>
+          <button type="button" class="tp-btn" (click)="create()" [disabled]="saving() || !draft().trim()">
+            @if (saving()) { <span class="btn-spin" aria-hidden="true"></span> Adding… } @else { Add }
+          </button>
           <button type="button" class="tp-btn" (click)="cancel()">Cancel</button>
         </div>
       }
@@ -72,6 +74,7 @@ export class TopicPickerComponent {
   readonly refresh = input<unknown>(null);
 
   readonly topics = signal<ContentTopic[]>([]);
+  readonly loadingTopics = signal(true);
   readonly adding = signal(false);
   readonly draft = signal('');
   readonly saving = signal(false);
@@ -125,9 +128,16 @@ export class TopicPickerComponent {
   }
 
   private load(): void {
+    this.loadingTopics.set(true);
     this.calendar.listTopics().subscribe({
-      next: (t) => this.topics.set(t.filter((x) => !x.archived)),
-      error: () => this.error.set('Could not load topics.'),
+      next: (t) => {
+        this.topics.set(t.filter((x) => !x.archived));
+        this.loadingTopics.set(false);
+      },
+      error: () => {
+        this.loadingTopics.set(false);
+        this.error.set('Could not load topics.');
+      },
     });
   }
 }

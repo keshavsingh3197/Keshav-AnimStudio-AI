@@ -8,6 +8,7 @@ import { BACKGROUND_EFFECTS, Scene, TRANSITIONS } from '../../core/models/api.mo
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 /**
  * The running order. Everything here is about the sequence - what plays, in what order,
@@ -16,7 +17,7 @@ import { StatusService } from '../../core/services/status.service';
  */
 @Component({
   selector: 'app-scene-list',
-  imports: [DecimalPipe, FormsModule, RouterLink],
+  imports: [DecimalPipe, FormsModule, RouterLink, LoadingStateComponent],
   templateUrl: './scene-list.component.html',
 })
 export class SceneListComponent {

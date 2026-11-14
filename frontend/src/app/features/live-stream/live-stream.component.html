@@ -31,7 +31,7 @@
       </div>
 
       @if (!presetsLoaded()) {
-        <p class="muted">Loading…</p>
+        <app-loading-state mode="list" [count]="2" [compact]="true" title="Loading saved presets…" />
       } @else {
         <ul class="ls-preset-list">
           @for (p of presets(); track p.id) {
@@ -101,7 +101,7 @@
         </span>
       </div>
       @if (!historyLoaded()) {
-        <p class="muted">Loading…</p>
+        <app-loading-state mode="list" [count]="2" [compact]="true" title="Loading stream history…" />
       } @else {
         <ul class="ls-preset-list">
           @for (h of history(); track h.id) {
@@ -506,6 +506,9 @@
         @if (setup(); as s) { <span class="muted ls-total">{{ streams().length }} / {{ s.maxStreamsPerUser }}</span> }
       </div>
 
+      @if (!streamsLoaded()) {
+        <app-loading-state mode="list" [count]="2" [compact]="true" title="Checking prepared &amp; live streams…" />
+      } @else {
       @for (s of streams(); track s.id) {
         <article class="ls-stream" [class.ls-stream-live]="s.state === 'Live'">
           <header class="ls-stream-head">
@@ -601,12 +604,12 @@
               @if (s.canGoLive) {
                 <button type="button" class="ls-go" (click)="goLive(s)" [disabled]="busyStream() === s.id"
                         [title]="'Go live with ' + keyChoiceLabel()">
-                  {{ busyStream() === s.id ? 'Starting…' : (s.state === 'Ready' ? '🔴 Go live' : '🔁 Go live again') }}
+                  @if (busyStream() === s.id) { <span class="btn-spin" aria-hidden="true"></span> Starting… } @else { {{ s.state === 'Ready' ? '🔴 Go live' : '🔁 Go live again' }} }
                 </button>
               }
               @if (isBusy(s)) {
                 <button type="button" class="ls-stop" (click)="stop(s)" [disabled]="busyStream() === s.id">
-                  {{ busyStream() === s.id ? 'Stopping…' : '■ Stop' }}
+                  @if (busyStream() === s.id) { <span class="btn-spin" aria-hidden="true"></span> Stopping… } @else { ■ Stop }
                 </button>
               } @else {
                 <button type="button" class="secondary ls-small" (click)="discard(s)" [disabled]="busyStream() === s.id" aria-label="Delete stream">🗑</button>
@@ -622,6 +625,7 @@
           <div class="ls-empty-icon">📡</div>
           <p class="muted">No streams yet. Prepared streams run on the server: close this tab and come back to preview, start or stop them.</p>
         </div>
+      }
       }
     </section>
 

@@ -3,7 +3,7 @@ import { Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effe
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Observable, catchError, map, of, switchMap } from 'rxjs';
+import { Observable, catchError, finalize, map, of, switchMap } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
@@ -24,6 +24,7 @@ import {
 import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
 import { csvCell } from './csv';
 import { YtNavComponent } from './yt-nav.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 /** The issues the page counts and filters by, in the order they're shown. */
 const ISSUE_LABELS: readonly { code: string; label: string }[] = [
@@ -142,7 +143,7 @@ function loadViewMode(): ViewMode {
  */
 @Component({
   selector: 'app-youtube-checkup',
-  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent, YtNavComponent],
+  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent, YtNavComponent, LoadingStateComponent],
   templateUrl: './youtube-checkup.component.html',
   styleUrl: './youtube-checkup.component.css',
 })
@@ -164,6 +165,7 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly checkSizes = CHECK_SIZES;
 
   readonly channels = signal<YouTubeChannel[]>([]);
+  readonly loadingChannels = signal(true);
   readonly categories = signal<YouTubeCategory[]>([]);
   readonly engines = signal<YouTubeSuggestEngine[]>([]);
   readonly tones = signal<string[]>([]);
@@ -371,6 +373,7 @@ export class YouTubeCheckupComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.loadingChannels.set(true);
     this.api.status().pipe(
       catchError((e: unknown) => { this.error.set(message(e)); return of(null); }),
       // Re-read each channel's name and @handle from YouTube first: a renamed channel then gets its
@@ -380,6 +383,7 @@ export class YouTubeCheckupComponent implements OnInit {
         : this.api.refreshChannels().pipe(
           map((r) => ({ ...s, channels: r.channels.length > 0 ? r.channels : s.channels })),
           catchError(() => of(s)))),
+      finalize(() => this.loadingChannels.set(false)),
     ).subscribe((s) => {
       if (!s) return;
       this.configured.set(s.configured);

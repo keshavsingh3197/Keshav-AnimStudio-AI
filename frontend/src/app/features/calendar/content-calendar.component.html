@@ -76,7 +76,9 @@
     @if (filter() !== 'all' || topicFilter() !== 'all') {
       <button type="button" class="secondary small" (click)="filter.set('all'); topicFilter.set('all')">Reset filters</button>
     }
-    <button type="button" class="secondary small" (click)="refresh()" [disabled]="loading() || topicsLoading()">{{ loading() || topicsLoading() ? 'Loading…' : 'Refresh' }}</button>
+    <button type="button" class="secondary small" (click)="refresh()" [disabled]="loading() || topicsLoading()">
+      @if (loading() || topicsLoading()) { <span class="btn-spin" aria-hidden="true"></span> Loading… } @else { Refresh }
+    </button>
   </div>
 
   @if (error()) { <p class="cal-error" role="alert">{{ error() }}</p> }
@@ -84,7 +86,9 @@
     <p class="cal-error" role="alert">{{ topicsError() }} <button type="button" class="secondary small" (click)="loadTopics()" [disabled]="topicsLoading()">Retry topics</button></p>
   }
 
-  @if (!loading() && !topicsLoading() && !topicsError() && !error() && topics().length === 0) {
+  @if ((loading() || topicsLoading()) && items().length === 0 && topics().length === 0) {
+    <app-loading-state mode="list" [count]="5" title="Loading content calendar…" subtitle="Fetching topics &amp; scheduled posts…" />
+  } @else if (!loading() && !topicsLoading() && !topicsError() && !error() && topics().length === 0) {
     <section class="empty card">
       <h2>Start with a topic</h2>
       <p class="muted">
@@ -150,7 +154,7 @@
           }
         </ul>
       </div>
-      @if (progress().length === 0) {
+      @if (!topicsLoading() && progress().length === 0) {
         <p class="muted">No topics to show.</p>
       }
       <table class="prog-table">

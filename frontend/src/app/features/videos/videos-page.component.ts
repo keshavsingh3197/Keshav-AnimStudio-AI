@@ -6,6 +6,7 @@ import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { RangePickerComponent } from './range-picker/range-picker.component';
 import { ShortsBoardComponent } from '../shorts/shorts-board.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   CreateEditBody, CreateEditMode, EDIT_CATEGORY_SUGGESTIONS, EDIT_FORMATS, EditFormat, ProjectEdit, SHORTS_MAX_SECONDS,
@@ -38,7 +39,7 @@ interface EditForm {
 @Component({
   selector: 'app-videos-page',
   standalone: true,
-  imports: [RangePickerComponent, RouterLink, ShortsBoardComponent],
+  imports: [RangePickerComponent, RouterLink, ShortsBoardComponent, LoadingStateComponent],
   templateUrl: './videos-page.component.html',
   styleUrl: './videos-page.component.css',
 })

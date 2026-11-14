@@ -11,7 +11,7 @@
           @if (type() === 'audio') {
             <span class="usage-thumb-audio">🎵</span>
           } @else {
-            <img [src]="state.assetThumbnailUrl(clip().id)" alt="" />
+            <img [src]="state.assetThumbnailUrl(clip().id)" alt="" loading="lazy" decoding="async" />
           }
         </div>
         <div class="usage-facts">
@@ -43,7 +43,7 @@
       <div class="usage-summary" [class.unused]="places().length === 0">
         @if (places().length === 0) {
           @if (state.mediaUsageLoading()) {
-            Checking this project's videos…
+            <app-loading-state mode="inline" [compact]="true" title="Checking this project's videos…" />
           } @else {
             Not used in any video of this project yet.
           }

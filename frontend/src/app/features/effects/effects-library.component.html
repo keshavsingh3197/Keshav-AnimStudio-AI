@@ -128,7 +128,7 @@
   </div>
 
   @if (loading()) {
-    <p class="muted">Loading your effects…</p>
+    <app-loading-state mode="cards" [count]="4" title="Loading effects &amp; overlays…" />
   } @else if (loadError(); as err) {
     <div class="card fx-error"><p>{{ err }}</p><button type="button" (click)="load()">Try again</button></div>
   } @else if (effects().length === 0) {

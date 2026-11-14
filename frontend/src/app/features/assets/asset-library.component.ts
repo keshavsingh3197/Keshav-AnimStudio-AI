@@ -9,6 +9,7 @@ import { FileDropDirective } from '../../shared/file-drop.directive';
 import { UrlImportDialogComponent } from '../../shared/url-import-dialog.component';
 import { AssetReuseDialogComponent } from '../../shared/asset-reuse-dialog.component';
 import { InspectTarget, MediaInspectorDialogComponent } from '../../shared/transcript/media-inspector-dialog.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
@@ -16,7 +17,7 @@ import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-asset-library',
-  imports: [FormsModule, FileDropDirective, RouterLink, UrlImportDialogComponent, AssetReuseDialogComponent, MediaInspectorDialogComponent],
+  imports: [FormsModule, FileDropDirective, RouterLink, UrlImportDialogComponent, AssetReuseDialogComponent, MediaInspectorDialogComponent, LoadingStateComponent],
   templateUrl: './asset-library.component.html',
   styleUrls: ['./asset-library.component.css']
 })

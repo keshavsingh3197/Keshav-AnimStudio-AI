@@ -76,6 +76,8 @@
       <h3>Publishing isn't configured on this server</h3>
       <p>An administrator needs to configure the YouTube OAuth client ID and credentials first.</p>
     </div>
+  } @else if (loadingChannels() && channels().length === 0) {
+    <app-loading-state mode="cards" [count]="3" title="Loading connected YouTube channels…" subtitle="Checking channel permissions &amp; metadata…" />
   } @else if (channels().length === 0) {
     <div class="ck-empty-card">
       <div class="ck-empty-icon">▶</div>

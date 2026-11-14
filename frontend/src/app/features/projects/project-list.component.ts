@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { firstValueFrom } from 'rxjs';
+import { finalize, firstValueFrom } from 'rxjs';
 import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -13,12 +13,13 @@ import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
 import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
 import { AuthService } from '../../core/services/auth.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
 @Component({
   selector: 'app-project-list',
-  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective, AssetThumbnailPickerComponent],
+  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective, AssetThumbnailPickerComponent, LoadingStateComponent],
   templateUrl: './project-list.component.html',
   styleUrl: './project-list.component.css'
 })
@@ -29,6 +30,7 @@ export class ProjectListComponent {
 
   readonly status = inject(StatusService);
   readonly projects = signal<Project[]>([]);
+  readonly loadingProjects = signal(true);
 
   readonly presets = CANVAS_PRESETS;
   readonly intents = DISTRIBUTION_INTENTS;
@@ -725,7 +727,11 @@ export class ProjectListComponent {
   }
 
   private reload(): void {
-    this.status.run(this.api.listProjects(), (list) => this.projects.set(list));
+    this.loadingProjects.set(true);
+    this.status.run(
+      this.api.listProjects().pipe(finalize(() => this.loadingProjects.set(false))),
+      (list) => this.projects.set(list),
+    );
   }
 
   onUploadThumbnail(event: Event, p: Project): void {

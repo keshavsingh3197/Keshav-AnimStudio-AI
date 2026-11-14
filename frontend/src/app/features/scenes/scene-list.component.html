@@ -224,7 +224,9 @@
 </div>
 
 <!-- Scenes Presentation -->
-@if (store.scenes().length === 0) {
+@if (store.loading() && store.scenes().length === 0) {
+  <app-loading-state mode="cards" [count]="6" title="Loading storyboard…" subtitle="Preparing your scenes and visual timeline." />
+} @else if (store.scenes().length === 0) {
   <div class="card empty" style="padding: 3rem 1.5rem">
     <div class="studio-icon-badge" style="width: 3rem; height: 3rem; border-radius: 12px; margin: 0 auto .75rem;">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -263,7 +265,7 @@
              (drop)="onDrop($event, scene)">
           <a [routerLink]="['../scenes', scene.id]" class="storyboard-thumb-wrap" title="Open Scene Workbench">
             @if (thumbnail(scene.backgroundAssetId); as src) {
-              <img class="storyboard-thumb-img" [src]="src" [alt]="scene.title || 'Scene ' + scene.sceneNumber" />
+              <img class="storyboard-thumb-img" [src]="src" [alt]="scene.title || 'Scene ' + scene.sceneNumber" loading="lazy" decoding="async" />
             } @else {
               <div class="storyboard-thumb-empty">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.55; margin-bottom: 4px;">

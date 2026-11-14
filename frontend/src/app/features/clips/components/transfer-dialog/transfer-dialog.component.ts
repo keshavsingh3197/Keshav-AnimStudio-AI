@@ -6,6 +6,7 @@ import { ClipStudio, EDIT_FORMATS, EditFormat, Project, ProjectEdit, editNameTak
 import { ApiFailure } from '../../../../core/interceptors/api-error.interceptor';
 import { ApiService } from '../../../../core/services/api.service';
 import { StudioStateService } from '../../services/studio-state.service';
+import { LoadingStateComponent } from '../../../../shared/loading-state.component';
 import {
   ALL_TRANSFER_LAYERS, TRANSFER_LAYERS, TimelineFragment, TransferLayer, TransferRange,
   draftSpanSeconds, extractFragment, fragmentAssetIds, fragmentToDraft, isEmptyFragment, withPendingRange,
@@ -36,7 +37,7 @@ type RangeChoice = 'all' | 'selection' | 'custom';
 @Component({
   selector: 'app-transfer-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, LoadingStateComponent],
   templateUrl: './transfer-dialog.component.html',
   styleUrls: ['./transfer-dialog.component.css'],
 })

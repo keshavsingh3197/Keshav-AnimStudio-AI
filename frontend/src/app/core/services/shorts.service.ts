@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map, retry, throwError, timer } from 'rxjs';
 
@@ -9,6 +9,7 @@ import {
   LibraryBulk, LibraryPage, LibraryQuery, ShortsActive, ShortsBulkResponse, ShortsDriveCheck, ShortsOverview, YouTubeBulkPublishBody,
 } from '../models/shorts.models';
 import { MediaTicketService } from './media-ticket.service';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 
 /** The Shorts page's calls: every short across projects, and the bulk actions on them. */
 @Injectable({ providedIn: 'root' })
@@ -18,10 +19,11 @@ export class ShortsService {
   private readonly base = `${environment.apiUrl}/api/shorts`;
 
   /** Every short (or every render, with scope 'all'), its Drive and YouTube state, stock and alerts. */
-  overview(projectId?: string | null, scope: 'shorts' | 'all' = 'shorts'): Observable<ShortsOverview> {
+  overview(projectId?: string | null, scope: 'shorts' | 'all' = 'shorts', options?: { silent?: boolean }): Observable<ShortsOverview> {
     let params = new HttpParams().set('scope', scope);
     if (projectId) params = params.set('projectId', projectId);
-    return this.http.get<ApiResponse<ShortsOverview>>(`${this.base}/overview`, { params })
+    const context: HttpContext | undefined = options?.silent ? silentHttpContext() : undefined;
+    return this.http.get<ApiResponse<ShortsOverview>>(`${this.base}/overview`, { params, context })
       .pipe(map((r) => r.data as ShortsOverview));
   }
 

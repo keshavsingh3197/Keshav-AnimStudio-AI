@@ -13,6 +13,7 @@ import { cadenceLabel, errorText, localDayKey } from './calendar-helpers';
 import { DayPanelComponent } from './day-panel.component';
 import { PlanItemPanelComponent } from './plan-item-panel.component';
 import { TopicEditorComponent } from './topic-editor.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 type CalendarView = 'agenda' | 'month' | 'progress';
 type ProgressPeriod = 'month' | 'last30' | 'next30' | 'quarter';
@@ -70,7 +71,7 @@ const VIEW_KEY = 'animstudio.calendar.view';
  */
 @Component({
   selector: 'app-content-calendar',
-  imports: [DatePipe, FormsModule, RouterLink, DayPanelComponent, PlanItemPanelComponent, TopicEditorComponent],
+  imports: [DatePipe, FormsModule, RouterLink, DayPanelComponent, PlanItemPanelComponent, TopicEditorComponent, LoadingStateComponent],
   templateUrl: './content-calendar.component.html',
   styleUrl: './content-calendar.component.css',
 })

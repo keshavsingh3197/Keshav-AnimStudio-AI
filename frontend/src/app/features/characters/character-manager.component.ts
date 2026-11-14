@@ -9,6 +9,7 @@ import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { CharacterVoice, VOICE_PRESETS, describeVoice, sanitizeVoice, voiceFromPreset } from '../../shared/voice/character-voice';
 import { TEST_LINE_SECONDS, VoiceTester } from '../../shared/voice/voice-tester';
 
@@ -31,7 +32,7 @@ export interface ArchetypePreset {
 /** The cast: who appears, what they look like, and what colour their subtitles are. */
 @Component({
   selector: 'app-character-manager',
-  imports: [FormsModule, DecimalPipe, FileDropDirective],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, LoadingStateComponent],
   templateUrl: './character-manager.component.html',
   styleUrls: ['./character-manager.component.css'],
 })

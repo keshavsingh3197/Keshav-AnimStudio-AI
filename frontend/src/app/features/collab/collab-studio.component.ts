@@ -176,6 +176,7 @@ export class CollabStudioComponent {
   readonly rangeOut = signal(0);
   readonly loadingSource = signal(false);
   readonly projects = signal<Project[]>([]);
+  readonly loadingProjects = signal(true);
   readonly projectVideos = signal<Asset[]>([]);
   readonly loadingVideos = signal(false);
   projectId = '';
@@ -376,6 +377,7 @@ export class CollabStudioComponent {
   }
 
   async loadProjects(): Promise<void> {
+    this.loadingProjects.set(true);
     try {
       this.projects.set(await firstValueFrom(this.api.listProjects()));
       if (this.projectId && !this.projects().some((p) => p.id === this.projectId)) this.projectId = '';
@@ -384,6 +386,8 @@ export class CollabStudioComponent {
       void this.loadSpeakers();
     } catch {
       // Projects are optional here: a file from this computer still works.
+    } finally {
+      this.loadingProjects.set(false);
     }
   }
 

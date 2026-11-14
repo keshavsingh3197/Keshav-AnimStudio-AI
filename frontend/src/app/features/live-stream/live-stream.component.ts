@@ -33,6 +33,7 @@ import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { environment } from '../../../environments/environment';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { parseVideoList } from '../youtube/video-details.component';
 import { MediaPreview, MediaPreviewDialogComponent } from '../../shared/media-preview-dialog.component';
@@ -80,7 +81,7 @@ function youTubeVideoIdOf(url: string | undefined): string | undefined {
 
 @Component({
   selector: 'app-live-stream',
-  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent, YouTubeLiveSetupComponent],
+  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent, YouTubeLiveSetupComponent, LoadingStateComponent],
   templateUrl: './live-stream.component.html',
   styleUrls: ['./live-stream.component.css'],
 })
@@ -99,6 +100,7 @@ export class LiveStreamComponent {
 
   readonly setup = signal<LiveStreamSetup | null>(null);
   readonly streams = signal<LiveStreamStatus[]>([]);
+  readonly streamsLoaded = signal(false);
   readonly playlist = signal<PlaylistEntry[]>([]);
   readonly addMode = signal<AddMode>('upload');
   readonly error = signal<StreamError | null>(null);
@@ -674,11 +676,11 @@ export class LiveStreamComponent {
     }
   }
 
-  async loadHistory(): Promise<void> {
+  async loadHistory(quiet = false): Promise<void> {
     try {
-      this.history.set(await firstValueFrom(this.live.history()));
+      this.history.set(await firstValueFrom(this.live.history(quiet ? { silent: true } : undefined)));
     } catch (err: unknown) {
-      this.error.set(this.describe(err, 'Could not load your stream history.'));
+      if (!quiet) this.error.set(this.describe(err, 'Could not load your stream history.'));
     } finally {
       this.historyLoaded.set(true);
     }
@@ -1245,16 +1247,18 @@ export class LiveStreamComponent {
     if (signature === this.lastStreamSignature) return;
     this.lastStreamSignature = signature;
     if (this.historyTimer) clearTimeout(this.historyTimer);
-    this.historyTimer = setTimeout(() => void this.loadHistory(), 1200);
+    this.historyTimer = setTimeout(() => void this.loadHistory(true), 1200);
   }
 
-  private async refresh(): Promise<void> {
+  private async refresh(silent = false): Promise<void> {
     try {
-      const list = await firstValueFrom(this.live.list());
+      const list = await firstValueFrom(this.live.list({ silent }));
       this.streams.set(list);
+      this.streamsLoaded.set(true);
       this.syncHistory(list);
       if (list.some((s) => s.keyNeedsAttention)) void this.loadSetup();
     } catch {
+      this.streamsLoaded.set(true);
       // A missed poll is not worth an error banner; the next one will try again.
     }
     if (this.activeCount() > 0) this.ensurePolling();
@@ -1263,7 +1267,7 @@ export class LiveStreamComponent {
 
   private ensurePolling(): void {
     if (this.poll) return;
-    this.poll = setInterval(() => void this.refresh(), POLL_MS);
+    this.poll = setInterval(() => void this.refresh(true), POLL_MS);
   }
 
   private stopPolling(): void {

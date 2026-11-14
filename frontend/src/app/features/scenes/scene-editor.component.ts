@@ -11,6 +11,7 @@ import {
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 /**
  * Interactive Studio Workbench for a single scene.
@@ -21,7 +22,7 @@ import { StatusService } from '../../core/services/status.service';
  */
 @Component({
   selector: 'app-scene-editor',
-  imports: [DecimalPipe, FormsModule, RouterLink],
+  imports: [DecimalPipe, FormsModule, RouterLink, LoadingStateComponent],
   templateUrl: './scene-editor.component.html',
 })
 export class SceneEditorComponent implements OnDestroy {

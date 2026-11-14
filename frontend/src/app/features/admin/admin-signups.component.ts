@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { AdminMember, AdminSignupItem, SignupStatus } from '../../core/models/signup.models';
 import { SignupService } from '../../core/services/signup.service';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 type Tab = 'requests' | 'members';
 type Filter = 'pending' | 'approved' | 'rejected' | 'all';
@@ -25,7 +26,7 @@ interface Deciding {
  */
 @Component({
   selector: 'app-admin-signups',
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, LoadingStateComponent],
   templateUrl: './admin-signups.component.html',
   styleUrl: './admin-signups.component.css',
 })

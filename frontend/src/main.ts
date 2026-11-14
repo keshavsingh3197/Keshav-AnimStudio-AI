@@ -10,14 +10,22 @@ import { AppComponent } from './app/app.component';
 import { routes } from './app/app.routes';
 import { apiErrorInterceptor } from './app/core/interceptors/api-error.interceptor';
 import { authInterceptor } from './app/core/interceptors/auth.interceptor';
+import { loadingInterceptor } from './app/core/interceptors/loading.interceptor';
 import { MediaTicketService } from './app/core/services/media-ticket.service';
 import { ProjectRouteReuseStrategy } from './app/core/services/project-route-reuse.strategy';
+
+function dismissBootLoader(): void {
+  const el = document.getElementById('boot-loader');
+  if (!el) return;
+  el.classList.add('boot-hidden');
+  setTimeout(() => el.remove(), 280);
+}
 
 bootstrapApplication(AppComponent, {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZonelessChangeDetection(),
-    provideHttpClient(withFetch(), withInterceptors([authInterceptor, apiErrorInterceptor])),
+    provideHttpClient(withFetch(), withInterceptors([loadingInterceptor, authInterceptor, apiErrorInterceptor])),
     // Route parameters arrive as component inputs, so a screen declares what it needs.
     provideRouter(routes, withComponentInputBinding()),
     // A different project is a different screen: nothing per-project survives the switch.
@@ -29,4 +37,9 @@ bootstrapApplication(AppComponent, {
       return Promise.race([ticket, new Promise((resolve) => setTimeout(resolve, 4000))]).then(() => undefined);
     }),
   ],
-}).catch((err) => console.error(err));
+})
+  .then(() => dismissBootLoader())
+  .catch((err) => {
+    dismissBootLoader();
+    console.error(err);
+  });

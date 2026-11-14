@@ -11,7 +11,7 @@
     </div>
     <div class="pb-head-actions">
       <button type="button" class="secondary" (click)="load()" [disabled]="loading()">
-        <span aria-hidden="true">↻</span> {{ loading() ? 'Refreshing…' : 'Refresh' }}
+        @if (loading()) { <span class="btn-spin" aria-hidden="true"></span> Refreshing… } @else { <span aria-hidden="true">↻</span> Refresh }
       </button>
       <button type="button" class="secondary" (click)="exportCsv()" [disabled]="!board()" title="Download the filtered list as CSV">⬇ Export CSV</button>
       <button type="button" (click)="openAdd()">＋ Add from exports</button>
@@ -26,13 +26,13 @@
     @if (!b.autoPublish) {
       <div class="pb-banner warn" role="status">Automatic publishing is turned off on this server. Videos wait here until you press 🚀 Publish now.</div>
     }
-    @if (channels().length === 0) {
+    @if (!loadingChannels() && channels().length === 0) {
       <div class="pb-banner" role="status">No YouTube channel connected yet. <a routerLink="/youtube">Connect one</a> to start queueing videos.</div>
     }
   }
 
   @if (loading() && !board()) {
-    <p class="pb-muted">Loading the board…</p>
+    <app-loading-state mode="table" [count]="5" title="Loading publishing board…" subtitle="Fetching scheduled uploads &amp; queue state…" />
   } @else if (loadError() && !board()) {
     <div class="pb-banner err" role="alert">{{ loadError() }} <button type="button" class="link" (click)="load()">Try again</button></div>
   } @else if (board()) {
@@ -485,7 +485,7 @@
           <span class="pb-muted">{{ picked().size }} selected (up to 50)</span>
           <button type="button" class="secondary" (click)="addOpen.set(false)">Cancel</button>
           <button type="button" (click)="submitBulk()" [disabled]="bulkBusy() || picked().size === 0 || !bulkChannel()">
-            {{ bulkBusy() ? 'Adding…' : 'Add ' + picked().size + ' to the board' }}</button>
+            @if (bulkBusy()) { <span class="btn-spin" aria-hidden="true"></span> Adding… } @else { Add {{ picked().size }} to the board }</button>
         </footer>
       </div>
     </div>

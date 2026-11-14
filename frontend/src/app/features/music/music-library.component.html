@@ -128,7 +128,7 @@
       </ul>
 
       @if (loading()) {
-        <p class="muted ml-loading">Loading music…</p>
+        <app-loading-state mode="list" [count]="4" [compact]="true" title="Loading music tracks…" />
       } @else if (hasMore()) {
         <div class="ml-more"><button type="button" class="secondary" (click)="loadMore()">Load more</button></div>
       }
@@ -140,6 +140,6 @@
   } @else if (error()) {
     <p class="ml-error">{{ error() }}</p>
   } @else {
-    <p class="muted">Loading…</p>
+    <app-loading-state mode="list" [count]="4" title="Loading music library…" />
   }
 </section>

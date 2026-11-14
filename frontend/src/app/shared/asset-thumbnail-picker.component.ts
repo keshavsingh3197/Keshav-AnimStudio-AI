@@ -10,9 +10,12 @@ import { ApiService } from '../core/services/api.service';
  *     <app-asset-thumbnail-picker [projectId]="id" (picked)="use($event)" (closed)="open.set(false)" />
  *   }
  */
+import { LoadingStateComponent } from './loading-state.component';
+
 @Component({
   selector: 'app-asset-thumbnail-picker',
   standalone: true,
+  imports: [LoadingStateComponent],
   host: { '(document:keydown.escape)': 'closed.emit()' },
   template: `
     <div class="atp-backdrop" (click)="closed.emit()">
@@ -23,7 +26,7 @@ import { ApiService } from '../core/services/api.service';
         </div>
         <div class="atp-body">
           @if (loading()) {
-            <p class="atp-msg">Loading assets…</p>
+            <app-loading-state mode="cards" [count]="4" [compact]="true" title="Loading project images…" />
           } @else if (images().length === 0) {
             <p class="atp-msg">This project has no image assets yet. Upload images in the Asset Library first.</p>
           } @else {

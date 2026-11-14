@@ -192,11 +192,11 @@
             <button type="button" (click)="download(t)" [disabled]="busy()">⬇ Download</button>
             @if (canSaveToProject) {
               <select [(ngModel)]="projectId" (ngModelChange)="onProjectChange()" aria-label="Project to save to" class="co-project">
-                @if (!projects().length) { <option value="">No projects yet</option> }
+                @if (!projects().length) { <option value="">{{ loadingProjects() ? 'Loading projects…' : 'No projects yet' }}</option> }
                 @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
               </select>
               <button type="button" class="secondary" (click)="saveToProject(t)" [disabled]="busy() || !projectId">
-                {{ state() === 'saving' ? 'Saving…' : '💾 Save to project' }}
+                @if (state() === 'saving') { <span class="btn-spin" aria-hidden="true"></span> Saving… } @else { 💾 Save to project }
               </button>
             }
             <button type="button" class="secondary" (click)="useTakeAsSource(t)" [disabled]="busy()"
