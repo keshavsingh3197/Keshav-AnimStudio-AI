@@ -15,7 +15,8 @@ public enum CharacterVisualRole
     KingCrown = 1,
     SageRishi = 2,
     Divine = 3,
-    Scholar = 4
+    Scholar = 4,
+    ChildDevotee = 5
 }
 
 public sealed record ProceduralCharacterProfile(
@@ -46,13 +47,16 @@ public sealed record ProceduralDialoguePlan(
 public static partial class DialogueScriptParser
 {
     private static readonly string[] KingTokens =
-        ["raja", "king", "maharaj", "samrat", "emperor", "rana", "prince", "vikram", "harishchandra", "dasharath", "ashok", "राजा", "सम्राट"];
+        ["raja", "king", "maharaj", "samrat", "emperor", "rana", "prince", "vikram", "harishchandra", "dasharath", "ashok", "राजा", "सम्राट", "महाराज", "हरिश्चंद्र"];
 
     private static readonly string[] SageTokens =
-        ["rishi", "maharishi", "guru", "acharya", "pandit", "muni", "swami", "vishwamitra", "vasishtha", "chanakya", "narad", "valmiki", "vyas", "ऋषि", "महर्षि", "आचार्य", "गुरु"];
+        ["rishi", "maharishi", "guru", "acharya", "pandit", "muni", "swami", "vishwamitra", "vasishtha", "chanakya", "narad", "narada", "devarshi", "valmiki", "vyas", "ऋषि", "महर्षि", "आचार्य", "गुरु", "मुनि", "नारद", "देवर्षि", "पंडित"];
 
     private static readonly string[] DivineTokens =
-        ["shri", "lord", "bhagwan", "devi", "mata", "krishna", "ram", "shiv", "shiva", "vishnu", "surya", "hanuman", "durga", "parvati", "ganesh", "भगवान", "श्री", "माता"];
+        ["shri", "lord", "bhagwan", "devi", "mata", "krishna", "ram", "shiv", "shiva", "vishnu", "surya", "hanuman", "durga", "parvati", "ganesh", "भगवान", "श्री", "माता", "विष्णु", "कृष्ण", "शिव"];
+
+    private static readonly string[] ChildDevoteeTokens =
+        ["dhruva", "dhruv", "prahlad", "bhakta", "bhakt", "bal", "shishya", "jigyasu", "nachiketa", "eklavya", "lav", "kush", "child", "ध्रुव", "प्रह्लाद", "भक्त", "बाल", "शिष्य", "जिज्ञासु"];
 
     public static ProceduralDialoguePlan ParsePlan(
         string title,
@@ -132,11 +136,11 @@ public static partial class DialogueScriptParser
             0, 0.12, Math.Round(titleHold, 2),
             DialogueSpeakerSlot.Narrator,
             "Title",
-            Truncate(cleanTitle, 84),
+            Truncate(cleanTitle, 110),
             IsTitleHook: true));
 
         var remaining = Math.Max(2.0, total - (titleHold + 0.25));
-        var maxSlots = Math.Max(1, (int)Math.Floor(remaining / 1.15));
+        var maxSlots = Math.Max(1, (int)Math.Floor(remaining / 1.0));
         var consolidated = ConsolidateDialogueTurns(parsedLines, maxSlots);
         var step = remaining / consolidated.Count;
         var start = titleHold + 0.12;
@@ -171,7 +175,7 @@ public static partial class DialogueScriptParser
                 Math.Round(end, 2),
                 slot,
                 speakerLabel,
-                Truncate(lineText, 180),
+                Truncate(lineText, 240),
                 IsTitleHook: false));
 
             start += step;
@@ -234,6 +238,7 @@ public static partial class DialogueScriptParser
     public static CharacterVisualRole InferRole(string speakerName)
     {
         var lower = speakerName.Trim().ToLowerInvariant();
+        if (ChildDevoteeTokens.Any(lower.Contains)) return CharacterVisualRole.ChildDevotee;
         if (KingTokens.Any(lower.Contains)) return CharacterVisualRole.KingCrown;
         if (SageTokens.Any(lower.Contains)) return CharacterVisualRole.SageRishi;
         if (DivineTokens.Any(lower.Contains)) return CharacterVisualRole.Divine;
@@ -242,23 +247,35 @@ public static partial class DialogueScriptParser
 
     public static (string? SpeakerA, string? SpeakerB) InferCharacterPairFromTitle(string title, string? eventType)
     {
-        var sepMatch = PairSplitRegex().Match(title ?? string.Empty);
-        if (sepMatch.Success)
+        var matches = PairSplitRegex().Matches(title ?? string.Empty);
+        (string Left, string Right)? bestPair = null;
+        var bestScore = -1;
+        foreach (Match match in matches)
         {
-            var left = CleanEntityName(sepMatch.Groups[1].Value);
-            var right = CleanEntityName(sepMatch.Groups[2].Value);
-            if (!string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right))
-                return (left, right);
+            var left = CleanEntityName(match.Groups[1].Value);
+            var right = CleanEntityName(match.Groups[2].Value);
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) continue;
+
+            var score = (InferRole(left) != CharacterVisualRole.Scholar ? 2 : 0)
+                      + (InferRole(right) != CharacterVisualRole.Scholar ? 2 : 0)
+                      + (match.Value.Contains('&') ? 2 : 0);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestPair = (left, right);
+            }
         }
+        if (bestPair is { } pair)
+            return pair;
 
         return eventType switch
         {
-            "HinduPanchang" => ("Acharya", "Jigyasu"),
-            "HinduFestival" => ("Pandit Ji", "Bhakt"),
-            "DailyKatha" => ("Maharishi", "Rajan"),
-            "AajKaItihaas" => ("Itihaaskar", "Sutradhar"),
-            "Pratiyogita" => ("Mentor", "Topper"),
-            _ => ("Host", "Expert")
+            "HinduPanchang" => ("आचार्य", "जिज्ञासु"),
+            "HinduFestival" => ("पंडित जी", "भक्त"),
+            "DailyKatha" => ("देवर्षि नारद", "भक्त"),
+            "AajKaItihaas" => ("इतिहासकार", "सूत्रधार"),
+            "Pratiyogita" => ("मेंटर", "प्रतिभागी"),
+            _ => ("सूत्रधार", "विद्वान")
         };
     }
 
@@ -348,6 +365,8 @@ public static partial class DialogueScriptParser
         var colonIdx = stripped.LastIndexOf(':');
         if (colonIdx >= 0 && colonIdx + 1 < stripped.Length)
             stripped = stripped[(colonIdx + 1)..].Trim();
+
+        stripped = TrailingConnectorRegex().Replace(stripped, string.Empty).Trim();
         var words = stripped.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length > 3)
             stripped = string.Join(' ', words.TakeLast(2));
@@ -363,8 +382,11 @@ public static partial class DialogueScriptParser
     [GeneratedRegex(@"\[[^\]]+\]")]
     private static partial Regex SectionMarkerRegex();
 
-    [GeneratedRegex(@"([A-Za-z][A-Za-z\s]{2,28})\s*(?:&|and|vs\.?|Aur|और)\s*([A-Za-z][A-Za-z\s]{2,28})", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"([A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F\s]{1,28})\s*(?:&|and|vs\.?|Aur|और|एवं)\s*([A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F\s]{1,28})", RegexOptions.IgnoreCase)]
     private static partial Regex PairSplitRegex();
+
+    [GeneratedRegex(@"\s+(?:की\s+कथा|का\s+संवाद|की\s+कहानी|katha|story|samvad|dialogue).*$", RegexOptions.IgnoreCase)]
+    private static partial Regex TrailingConnectorRegex();
 
     [GeneratedRegex(@"https?://\S+", RegexOptions.IgnoreCase)]
     private static partial Regex UrlRegex();

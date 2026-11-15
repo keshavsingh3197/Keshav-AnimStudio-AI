@@ -31,7 +31,7 @@ public sealed record ProceduralCaptionBeat(
 public sealed class ProceduralVideoRequest
 {
     public const int MinSeconds = 5;
-    public const int MaxSeconds = 120;
+    public const int MaxSeconds = 300;
     public const int DefaultSeconds = 18;
 
     public string Title { get; init; } = string.Empty;
@@ -144,10 +144,51 @@ public static partial class ProceduralVideoPlanner
             ProceduralVideoRequest.MinSeconds,
             ProceduralVideoRequest.MaxSeconds);
 
-    public static ProceduralSceneTheme InferTheme(ProceduralSceneTheme requested, string? title, string? prompt, string? script)
+    public static ProceduralSceneTheme InferTheme(
+        ProceduralSceneTheme requested,
+        string? title,
+        string? prompt,
+        string? script) =>
+        InferTheme(requested, title, prompt, script, eventType: null);
+
+    public static ProceduralSceneTheme InferTheme(
+        ProceduralSceneTheme requested,
+        string? title,
+        string? prompt,
+        string? script,
+        string? eventType)
     {
         if (requested != ProceduralSceneTheme.Auto && Enum.IsDefined(requested))
             return requested;
+
+        if (!string.IsNullOrWhiteSpace(eventType))
+        {
+            var byEvent = eventType.Trim() switch
+            {
+                "DailyKatha" or "HinduFestival" => ProceduralSceneTheme.VedicTempleSunrise3D,
+                "HinduPanchang" => ProceduralSceneTheme.CosmosSacred3D,
+                "AajKaItihaas" => ProceduralSceneTheme.HistoryChronicle3D,
+                "Pratiyogita" => ProceduralSceneTheme.NeonCyberGrid3D,
+                _ => ProceduralSceneTheme.Auto
+            };
+            if (byEvent != ProceduralSceneTheme.Auto)
+                return byEvent;
+        }
+
+        // Prioritize title + prompt over script tail because CTA lines in Katha/History scripts often mention Panchang links.
+        var leadText = $"{title} {prompt}".ToLowerInvariant();
+        if (ContainsAny(leadText,
+            "katha", "कथा", "dhruva", "ध्रुव", "narad", "नारद", "harishchandra", "हरिश्चंद्र", "prahlad", "प्रह्लाद",
+            "sudama", "सुदामा", "tapasya", "तपस्या", "aarti", "आरती", "festival", "vrat", "व्रत", "puja", "पूजा", "bhakti", "भक्ति"))
+            return ProceduralSceneTheme.VedicTempleSunrise3D;
+
+        if (ContainsAny(leadText,
+            "panchang", "पंचांग", "nakshatra", "नक्षत्र", "tithi", "तिथि", "muhurat", "मुहूर्त",
+            "rahu", "राहुकाल", "cosmos", "planet", "orbit", "space", "eclipse", "zodiac", "samvat"))
+            return ProceduralSceneTheme.CosmosSacred3D;
+
+        if (ContainsAny(leadText, "temple", "mandir", "मंदिर", "krishna", "ram", "shiv"))
+            return ProceduralSceneTheme.VedicTempleSunrise3D;
 
         var combined = $"{title} {prompt} {script}".ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(combined))
@@ -189,7 +230,7 @@ public static partial class ProceduralVideoPlanner
 
         var beats = new List<ProceduralCaptionBeat>();
         var titleHold = Math.Min(3.4, total * 0.28);
-        beats.Add(new ProceduralCaptionBeat(0, 0.15, titleHold, TruncateLine(cleanTitle, 84), IsTitleHook: true));
+        beats.Add(new ProceduralCaptionBeat(0, 0.15, titleHold, TruncateLine(cleanTitle, 110), IsTitleHook: true));
 
         var rawBody = !string.IsNullOrWhiteSpace(script) ? script : prompt ?? string.Empty;
         var chunks = ExtractReadableSegments(rawBody);
@@ -211,7 +252,7 @@ public static partial class ProceduralVideoPlanner
                 i + 1,
                 Math.Round(start, 2),
                 Math.Round(end, 2),
-                TruncateLine(combinedChunks[i], 132),
+                TruncateLine(combinedChunks[i], 200),
                 IsTitleHook: false));
             start += step;
         }

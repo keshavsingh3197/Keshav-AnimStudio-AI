@@ -86,12 +86,14 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
             var outline = AssColor.FromHex(style.OutlineColorHex, AssColor.NearBlack);
             var back = AssColor.FromHex(style.BackColorHex, AssColor.SemiTransparentBlack);
             var alignment = Math.Clamp(style.Alignment, 1, 9);
+            var marginL = Math.Max(8, style.MarginL);
+            var marginR = Math.Max(8, style.MarginR);
             var marginV = Math.Max(8, style.MarginV);
 
             builder.AppendLine(StyleRow(
                 name, font, scaledSize,
                 primary, secondary, outline, back,
-                style.Bold, alignment, marginV));
+                style.Bold, alignment, marginL, marginR, marginV));
         }
 
         builder.AppendLine();
@@ -104,7 +106,7 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         int size,
         string primary,
         bool bold) =>
-        StyleRow(name, font, size, primary, "&H000000FF", AssColor.NearBlack, AssColor.SemiTransparentBlack, bold, 2, 64);
+        StyleRow(name, font, size, primary, "&H000000FF", AssColor.NearBlack, AssColor.SemiTransparentBlack, bold, 2, 72, 72, 64);
 
     private static string StyleRow(
         string name,
@@ -116,11 +118,13 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         string back,
         bool bold,
         int alignment,
+        int marginL,
+        int marginR,
         int marginV) =>
         string.Create(CultureInfo.InvariantCulture,
             // Bold is -1 for on and 0 for off in ASS, not 1.
             $"Style: {name},{font},{size},{primary},{secondary},{outline},"
-            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,0,1,3.2,1.4,{alignment},72,72,{marginV},1");
+            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,0,1,3.2,1.4,{alignment},{marginL},{marginR},{marginV},1");
 
     private static string Events(SubtitleRequest request)
     {
@@ -176,16 +180,23 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
 
     private static string BuildKaraokeText(string sanitizedText, TimeSpan duration)
     {
-        // Preserve ASS literal \N breaks as word separators while formatting trusted {\k} word timings.
-        var words = sanitizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        // Split around ASS hard breaks (\N) so every word receives clean timing without corrupting line breaks.
+        var normalized = sanitizedText.Replace(@"\N", @" \N ", StringComparison.Ordinal);
+        var words = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0) return sanitizedText;
 
+        var wordCount = Math.Max(1, words.Count(w => w != @"\N"));
         var totalCs = Math.Max(40, (int)Math.Round(duration.TotalMilliseconds / 10.0));
-        var perWordCs = Math.Clamp(totalCs / words.Length, 8, 90);
+        var perWordCs = Math.Clamp(totalCs / wordCount, 8, 90);
         var sb = new StringBuilder(@"{\fad(130,130)}");
         for (var i = 0; i < words.Length; i++)
         {
-            if (i > 0) sb.Append(' ');
+            if (words[i] == @"\N")
+            {
+                sb.Append(@"\N");
+                continue;
+            }
+            if (i > 0 && words[i - 1] != @"\N") sb.Append(' ');
             sb.Append(@"{\k").Append(perWordCs.ToString(CultureInfo.InvariantCulture)).Append('}').Append(words[i]);
         }
         return sb.ToString();

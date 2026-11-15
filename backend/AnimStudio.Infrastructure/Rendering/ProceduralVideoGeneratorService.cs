@@ -69,7 +69,7 @@ public sealed class ProceduralVideoGeneratorService(
         var durationSeconds = ProceduralVideoPlanner.ClampDuration(request.DurationSeconds);
         var fps = Math.Clamp(request.Fps <= 0 ? 24 : request.Fps, 12, 30);
         var (width, height, normalizedFormat) = ProceduralVideoPlanner.ResolveDimensions(request.Format, request.Resolution);
-        var resolvedTheme = ProceduralVideoPlanner.InferTheme(request.Theme, title, request.Prompt, request.Script);
+        var resolvedTheme = ProceduralVideoPlanner.InferTheme(request.Theme, title, request.Prompt, request.Script, request.EventType);
         var preset = ProceduralVideoPlanner.DescribeTheme(resolvedTheme);
         var palette = ProceduralEventPalette.Resolve(request.EventType, resolvedTheme);
         var dialoguePlan = DialogueScriptParser.ParsePlan(
@@ -197,7 +197,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var totalFrames = durationSeconds * fps;
         var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps);
+        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}");
 
         try
         {
@@ -299,6 +299,7 @@ public sealed class ProceduralVideoGeneratorService(
             "Generated {Theme} 3D animated video ({Width}x{Height}, {Duration}s, {Bytes} bytes) in {Elapsed}ms for user {UserId}.",
             resolvedTheme, width, height, durationSeconds, mp4Bytes.Length, swTotal.ElapsedMilliseconds, userId);
 
+        var summaryVoice = string.IsNullOrWhiteSpace(voiceSummary) ? string.Empty : $", voice={voiceSummary}";
         return new ProceduralVideoResult(
             jobId,
             projectId,
@@ -310,10 +311,31 @@ public sealed class ProceduralVideoGeneratorService(
             mp4Bytes.Length,
             storageKey,
             request.ReturnInlineBytes ? mp4Bytes : null,
-            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
+            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
     }
 
     private string BuildAssSubtitles(
+        string title,
+        ProceduralVideoRequest request,
+        ProceduralEventPalette palette,
+        ProceduralDialoguePlan dialoguePlan,
+        int width,
+        int height,
+        int fps,
+        int durationSeconds) =>
+        BuildAssSubtitlesWithWriter(
+            subtitleWriter,
+            title,
+            request,
+            palette,
+            dialoguePlan,
+            width,
+            height,
+            fps,
+            durationSeconds);
+
+    internal static string BuildAssSubtitlesWithWriter(
+        ISubtitleWriter subtitleWriter,
         string title,
         ProceduralVideoRequest request,
         ProceduralEventPalette palette,
@@ -327,8 +349,10 @@ public sealed class ProceduralVideoGeneratorService(
         var lines = new List<DialogueLine>(dialoguePlan.Turns.Count + 4);
         var endFrame = Math.Max(2, (durationSeconds * fps) - 2);
         var index = 0;
+        var isPortrait = height > width;
+        var isHindi = !string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase);
 
-        // 1. Fixed Top Header Template ("Content of the Day" badge + engaging top title)
+        // 1. Fixed Top Header Template ("Content of the Day" badge + clean 2-line full title without "..." cutoff)
         var categoryText = string.IsNullOrWhiteSpace(request.TopCategoryLabel)
             ? palette.HeaderBadgeText
             : request.TopCategoryLabel.Trim();
@@ -342,7 +366,7 @@ public sealed class ProceduralVideoGeneratorService(
             RelativeEndFrame = endFrame
         });
 
-        var headerTitle = title.Length > 64 ? title[..63].TrimEnd() + "..." : title;
+        var headerTitle = WrapLinesForAss(title, isPortrait ? 34 : 56, maxLines: 2);
         lines.Add(new DialogueLine
         {
             Index = index++,
@@ -353,19 +377,42 @@ public sealed class ProceduralVideoGeneratorService(
             RelativeEndFrame = endFrame
         });
 
-        // 2. Colorful Animated Subtitles (per speaker when 2-character dialogue is active)
+        // 2. Colorful Animated Subtitles (safe-zoned above YouTube Shorts UI on 9:16 portrait)
+        var bodyWrapWidth = isPortrait ? 30 : 54;
         foreach (var turn in dialoguePlan.Turns)
         {
-            var styleCharId = turn.IsTitleHook
-                ? TitleStyleCharId
-                : turn.Slot switch
+            if (turn.IsTitleHook)
+            {
+                if (dialoguePlan.HasCharacters
+                    && dialoguePlan.LeftCharacter is not null
+                    && dialoguePlan.RightCharacter is not null)
                 {
-                    DialogueSpeakerSlot.Left => SpeakerAStyleCharId,
-                    DialogueSpeakerSlot.Right => SpeakerBStyleCharId,
-                    _ => BodyStyleCharId
-                };
+                    var introText = isHindi
+                        ? $"पात्र संवाद: {dialoguePlan.LeftCharacter.Name} एवं {dialoguePlan.RightCharacter.Name}"
+                        : $"Dialogue: {dialoguePlan.LeftCharacter.Name} & {dialoguePlan.RightCharacter.Name}";
+                    lines.Add(new DialogueLine
+                    {
+                        Index = index++,
+                        SpeakerLabel = "TitleHook",
+                        SpeakerCharacterId = TitleStyleCharId,
+                        Text = introText,
+                        RelativeStartFrame = Math.Max(0, (int)Math.Round(turn.StartSeconds * fps)),
+                        RelativeEndFrame = Math.Max(1, (int)Math.Round(turn.EndSeconds * fps))
+                    });
+                }
+                continue;
+            }
 
-            var displayText = !turn.IsTitleHook && dialoguePlan.HasCharacters && !string.IsNullOrWhiteSpace(turn.SpeakerName)
+            var styleCharId = turn.Slot switch
+            {
+                DialogueSpeakerSlot.Left => SpeakerAStyleCharId,
+                DialogueSpeakerSlot.Right => SpeakerBStyleCharId,
+                _ => BodyStyleCharId
+            };
+
+            var displayText = dialoguePlan.HasCharacters
+                && !string.IsNullOrWhiteSpace(turn.SpeakerName)
+                && !turn.Text.StartsWith(turn.SpeakerName + ":", StringComparison.OrdinalIgnoreCase)
                 ? $"{turn.SpeakerName}: {turn.Text}"
                 : turn.Text;
 
@@ -374,7 +421,7 @@ public sealed class ProceduralVideoGeneratorService(
                 Index = index++,
                 SpeakerLabel = turn.SpeakerName,
                 SpeakerCharacterId = styleCharId,
-                Text = displayText,
+                Text = WrapLinesForAss(displayText, bodyWrapWidth, maxLines: 3),
                 RelativeStartFrame = Math.Max(0, (int)Math.Round(turn.StartSeconds * fps)),
                 RelativeEndFrame = Math.Max(1, (int)Math.Round(turn.EndSeconds * fps))
             });
@@ -400,30 +447,73 @@ public sealed class ProceduralVideoGeneratorService(
             _ => SubtitleMotionPreset.EventGlow
         };
 
-        var topCategoryMargin = Math.Max(12, height / 64);
-        var topTitleMargin = Math.Max(42, height / 20);
-        var titleHookMargin = Math.Max(108, height / 8);
-        var dialogueMargin = dialoguePlan.HasCharacters ? Math.Max(52, height / 15) : Math.Max(58, height / 16);
-        var footerMargin = Math.Max(14, height / 68);
+        var topCategoryMargin = Math.Max(14, height / 62);
+        var topTitleMargin = isPortrait ? Math.Max(48, height / 23) : Math.Max(42, height / 20);
+        var titleHookMargin = isPortrait ? Math.Max(215, (int)Math.Round(height * 0.175)) : Math.Max(118, (int)Math.Round(height * 0.165));
+
+        // On 9:16 mobile Shorts, reserve bottom ~27% for YouTube @handle/title/Share overlay and right ~18% for Like/Save/Comment/Share buttons.
+        var dialogueMargin = isPortrait
+            ? Math.Max(310, (int)Math.Round(height * 0.275))
+            : Math.Max(58, height / 11);
+        var captionMarginL = isPortrait ? Math.Max(46, width / 16) : Math.Max(68, width / 14);
+        var captionMarginR = isPortrait ? Math.Max(126, (int)Math.Round(width * 0.18)) : Math.Max(68, width / 14);
+        var footerMargin = isPortrait
+            ? Math.Max(265, (int)Math.Round(height * 0.228))
+            : Math.Max(18, height / 50);
 
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
         {
-            [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
-            [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: 78, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
-            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: 102, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow),
-            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
-            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset),
-            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
-            [FooterStyleCharId] = new("FooterTag", "#CBD5E1", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: 54, MotionPreset: SubtitleMotionPreset.None)
+            [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: isPortrait ? 54 : 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 40, MarginR: 40),
+            [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? 70 : 76, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 38, MarginR: 38),
+            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? 82 : 90, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait ? captionMarginR : captionMarginL),
+            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [FooterStyleCharId] = new("FooterTag", "#E2E8F0", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: isPortrait ? 52 : 54, OutlineColorHex: "#0F172A", MotionPreset: SubtitleMotionPreset.None, MarginL: captionMarginL, MarginR: captionMarginR)
         };
 
-        var fontSize = width >= height ? Math.Max(34, height / 17) : Math.Max(32, width / 18);
+        var fontSize = width >= height ? Math.Max(34, height / 17) : Math.Max(32, width / 19);
         return subtitleWriter.Write(new SubtitleRequest(
             canvas,
             lines,
             styles,
             AssSubtitleWriter.StockFontName,
             fontSize));
+    }
+
+    private static string WrapLinesForAss(string text, int maxCharsPerLine, int maxLines)
+    {
+        var clean = System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
+        if (clean.Length <= maxCharsPerLine || maxLines <= 1)
+            return clean;
+
+        var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var wrapped = new List<string>(maxLines);
+        var current = new StringBuilder();
+
+        foreach (var word in words)
+        {
+            if (current.Length > 0 && current.Length + 1 + word.Length > maxCharsPerLine)
+            {
+                wrapped.Add(current.ToString());
+                current.Clear();
+                if (wrapped.Count == maxLines - 1)
+                {
+                    // Last line absorbs remaining text cleanly without chopping mid-phrase unnecessarily
+                    var tail = string.Join(' ', words.Skip(Math.Max(0, wrapped.Sum(l => l.Split(' ').Length))));
+                    var maxTail = maxCharsPerLine * 2 + 8;
+                    wrapped.Add(tail.Length <= maxTail ? tail : tail[..(maxTail - 1)].TrimEnd() + "…");
+                    return string.Join('\n', wrapped);
+                }
+            }
+            if (current.Length > 0) current.Append(' ');
+            current.Append(word);
+        }
+
+        if (current.Length > 0)
+            wrapped.Add(current.ToString());
+
+        return string.Join('\n', wrapped);
     }
 
     private static List<string> BuildFfmpegArguments(
@@ -464,7 +554,7 @@ public sealed class ProceduralVideoGeneratorService(
             // Loudness-normalize speech to -16 LUFS, split for sidechain key + dry voice, and duck loopable BGM cleanly.
             var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
             var audioFilter = string.Create(CultureInfo.InvariantCulture,
-                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=channel_layouts=stereo,volume=0.28[bg];[bg][sp1]sidechaincompress=threshold=0.018:ratio=6:attack=35:release=320[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=channel_layouts=stereo,volume=0.18[bg];[bg][sp1]sidechaincompress=threshold=0.014:ratio=8:attack=30:release=340[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
 
             args.AddRange([
                 "-filter_complex", videoFilter + audioFilter,

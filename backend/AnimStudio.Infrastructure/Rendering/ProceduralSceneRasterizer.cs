@@ -22,6 +22,7 @@ public sealed class ProceduralSceneRasterizer
     private readonly ProceduralDialoguePlan? _dialoguePlan;
     private readonly float[]? _speechEnvelope;
     private readonly double _fps;
+    private readonly string _storyHint;
 
     internal float? ActiveSpeechLevel { get; private set; }
 
@@ -30,7 +31,7 @@ public sealed class ProceduralSceneRasterizer
     private readonly record struct ScreenPt(float X, float Y, float Z, bool Visible);
 
     public ProceduralSceneRasterizer(int width, int height, ProceduralSceneTheme theme, int seed = 108)
-        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0)
+        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0, storyHint: null)
     {
     }
 
@@ -42,7 +43,8 @@ public sealed class ProceduralSceneRasterizer
         ProceduralEventPalette? palette,
         ProceduralDialoguePlan? dialoguePlan,
         float[]? speechEnvelope = null,
-        double fps = 24.0)
+        double fps = 24.0,
+        string? storyHint = null)
     {
         Width = Math.Clamp(width, 160, 2160);
         Height = Math.Clamp(height, 160, 2160);
@@ -51,6 +53,7 @@ public sealed class ProceduralSceneRasterizer
         _dialoguePlan = dialoguePlan;
         _speechEnvelope = speechEnvelope is { Length: > 0 } ? speechEnvelope : null;
         _fps = fps > 0 ? fps : 24.0;
+        _storyHint = (storyHint ?? string.Empty).ToLowerInvariant();
         _frame = new byte[Width * Height * 4];
 
         var rng = new Random(seed ^ ((int)Theme * 7919));
@@ -185,77 +188,109 @@ public sealed class ProceduralSceneRasterizer
     private void RenderVedicSunrise3D(double t, double u, float pulse)
     {
         var cx = Width * 0.5f;
-        var horizonY = Height * 0.62f;
-        var sunY = Height * (0.43f - (float)u * 0.08f);
+        var isPortrait = Height > Width;
+        var horizonY = isPortrait ? Height * 0.56f : Height * 0.64f;
+        var sunY = isPortrait ? Height * (0.35f - (float)u * 0.06f) : Height * (0.42f - (float)u * 0.07f);
         var minSide = MathF.Min(Width, Height);
 
-        // Warm rising solar glow & rotating god-rays
-        DrawAdditiveDisc(cx, sunY, minSide * 0.44f, 255, 165, 45, 0.34f);
-        DrawAdditiveDisc(cx, sunY, minSide * 0.16f, 255, 232, 160, 0.85f);
+        // Act progression: dawn temple -> warm Sri Yantra tapasya energy -> celestial star / darshan blessing
+        var darshanBoost = (float)Math.Clamp((u - 0.50) / 0.45, 0.0, 1.0);
+        DrawAdditiveDisc(cx, sunY, minSide * (0.42f + 0.14f * darshanBoost), 255, 165, 45, 0.34f + 0.12f * darshanBoost);
+        DrawAdditiveDisc(cx, sunY, minSide * 0.15f, 255, 234, 165, 0.85f);
 
         for (var i = 0; i < _rays.Length; i++)
         {
             var angle = (float)(_rays[i].Azimuth + t * 0.08 * (i % 2 == 0 ? 1 : -1));
-            var rx = cx + MathF.Sin(angle) * minSide * 0.95f;
-            var ry = sunY - MathF.Cos(angle) * minSide * 0.95f;
-            DrawGlowLine(cx, sunY, rx, ry, minSide * 0.025f, 255, 196, 85, 0.12f);
+            var rx = cx + MathF.Sin(angle) * minSide * 0.92f;
+            var ry = sunY - MathF.Cos(angle) * minSide * 0.92f;
+            DrawGlowLine(cx, sunY, rx, ry, minSide * 0.024f, 255, 196, 85, 0.13f + 0.08f * darshanBoost);
         }
+
+        // Swinging sacred brass temple bells near upper corners
+        DrawTempleBell(Width * 0.11f, Height * (isPortrait ? 0.165f : 0.145f), minSide * 0.09f, (float)Math.Sin(t * 1.45) * 0.16f);
+        DrawTempleBell(Width * 0.89f, Height * (isPortrait ? 0.165f : 0.145f), minSide * 0.09f, (float)Math.Sin(t * 1.45 + 0.8) * 0.16f);
 
         // 3D perspective golden mandala / Sri Yantra geometry rotating smoothly in space
         var yaw = (float)(t * 0.32);
         var pitch = 0.38f + 0.18f * MathF.Sin((float)t * 0.4f);
-        var focal = minSide * 0.92f;
-        var camDist = 3.25f - (float)(u * 0.35);
+        var focal = minSide * 0.90f;
+        var camDist = 3.30f - (float)(u * 0.32);
 
-        DrawProjectedRing3D(cx, sunY, focal, camDist, 1.05f, 0f, yaw, pitch, 36, 255, 214, 110, 0.72f, 2.2f);
-        DrawProjectedRing3D(cx, sunY, focal, camDist, 0.78f, 0.08f, -yaw * 1.4f, pitch + 0.25f, 24, 255, 145, 50, 0.80f, 2.0f);
+        DrawProjectedRing3D(cx, sunY, focal, camDist, 1.02f, 0f, yaw, pitch, 36, 255, 214, 110, 0.72f, 2.2f);
+        DrawProjectedRing3D(cx, sunY, focal, camDist, 0.76f, 0.08f, -yaw * 1.4f, pitch + 0.25f, 24, 255, 145, 50, 0.80f, 2.0f);
+        DrawPolygon3D(cx, sunY, focal, camDist, 0.90f, 0.02f, yaw, pitch, 3, 0f, 255, 228, 140, 0.92f, 2.5f);
+        DrawPolygon3D(cx, sunY, focal, camDist, 0.90f, -0.02f, yaw, pitch, 3, MathF.PI, 255, 175, 80, 0.88f, 2.5f);
+        DrawPolygon3D(cx, sunY, focal, camDist, 0.54f, 0.06f, -yaw * 0.8f, pitch, 8, (float)t * 0.2f, 255, 245, 200, 0.75f, 1.8f);
 
-        // Nested 3D rotating interlocking sacred triangles (upward Shiva + downward Shakti)
-        DrawPolygon3D(cx, sunY, focal, camDist, 0.92f, 0.02f, yaw, pitch, 3, 0f, 255, 228, 140, 0.92f, 2.5f);
-        DrawPolygon3D(cx, sunY, focal, camDist, 0.92f, -0.02f, yaw, pitch, 3, MathF.PI, 255, 175, 80, 0.88f, 2.5f);
-        DrawPolygon3D(cx, sunY, focal, camDist, 0.56f, 0.06f, -yaw * 0.8f, pitch, 8, (float)t * 0.2f, 255, 245, 200, 0.75f, 1.8f);
+        // Eternal Pole Star (Dhruva Tara) & Polar Constellation emerging during Tapasya / Darshan climax
+        if (darshanBoost > 0.02f)
+        {
+            var starX = cx;
+            var starY = isPortrait ? Height * 0.24f : Height * 0.22f;
+            DrawPolarStarAndConstellation(starX, starY, minSide, t, darshanBoost);
+        }
 
-        // 3D Sacred Horizon Grid + Temple Silhouette
-        DrawPerspectiveGrid(t, horizonY, 210, 120, 42, 0.34f);
+        // Temple sanctuary + sacred reflecting pond shimmer below horizon
+        DrawPerspectiveGrid(t * 0.45, horizonY, 210, 128, 48, 0.28f);
         DrawMountainAndTempleSilhouette(horizonY, (float)t);
+        DrawFloatingDiyas(horizonY, minSide, (float)t);
 
-        // Floating golden diya embers drifting upward
-        DrawParticles(t, upward: true, 255, 205, 90, 255, 120, 40, minSide * 0.015f);
+        // Floating golden diya embers / celestial flower petals (Act 3) drifting peacefully
+        DrawParticles(t, upward: u < 0.72, 255, 205, 90, 255, (byte)(u >= 0.72 ? 150 : 120), (byte)(u >= 0.72 ? 175 : 40), minSide * 0.015f);
     }
 
     private void RenderCosmosSacred3D(double t, double u, float pulse)
     {
         var cx = Width * 0.5f;
-        var cy = Height * 0.44f;
+        var isPortrait = Height > Width;
+        var cy = isPortrait ? Height * 0.36f : Height * 0.43f;
+        var horizonY = isPortrait ? Height * 0.57f : Height * 0.69f;
         var minSide = MathF.Min(Width, Height);
 
-        DrawAdditiveDisc(cx, cy, minSide * 0.50f, 92, 62, 220, 0.32f);
-        DrawAdditiveDisc(cx, cy, minSide * 0.14f, 210, 232, 255, 0.85f);
+        DrawAdditiveDisc(cx, cy, minSide * 0.48f, 120, 82, 232, 0.30f);
+        DrawAdditiveDisc(cx, cy, minSide * 0.14f, 255, 224, 150, 0.82f);
 
-        // Warp starfield flying past camera
-        DrawStarfieldWarp(t, cx, cy, minSide, 180, 220, 255);
+        // Warp starfield flying gently in deep space
+        DrawStarfieldWarp(t, cx, cy, minSide, 190, 224, 255);
 
-        // 3D Orbital Zodiac & Nakshatra rings
+        // Radiant eastern Surya sunrise glow + upper-right waxing Chandra crescent
+        DrawAdditiveDisc(Width * 0.18f, horizonY - minSide * 0.04f, minSide * 0.18f, 255, 165, 62, 0.42f);
+        var moonX = Width * 0.82f;
+        var moonY = isPortrait ? Height * 0.23f : Height * 0.22f;
+        DrawAdditiveDisc(moonX, moonY, minSide * 0.07f, 210, 230, 255, 0.58f);
+        FillEllipse(moonX, moonY, minSide * 0.036f, minSide * 0.036f, 236, 244, 255, 0.92f);
+        FillEllipse(moonX + minSide * 0.014f, moonY - minSide * 0.008f, minSide * 0.030f, minSide * 0.032f, 20, 14, 48, 0.90f);
+
+        // 3D Orbital Nakshatra & Kalachakra rings
         var yaw = (float)(t * 0.28);
-        var focal = minSide * 0.95f;
-        var camDist = 3.1f - 0.25f * (float)u;
+        var focal = minSide * 0.94f;
+        var camDist = 3.15f - 0.22f * (float)u;
 
-        DrawProjectedRing3D(cx, cy, focal, camDist, 1.15f, 0f, yaw, 0.55f, 48, 125, 211, 252, 0.78f, 2.2f);
-        DrawProjectedRing3D(cx, cy, focal, camDist, 0.88f, 0f, -yaw * 1.2f, 1.05f, 40, 245, 198, 96, 0.84f, 2.4f);
-        DrawProjectedRing3D(cx, cy, focal, camDist, 0.62f, 0f, yaw * 1.6f, 0.22f, 32, 192, 132, 252, 0.75f, 2.0f);
+        DrawProjectedRing3D(cx, cy, focal, camDist, 1.12f, 0f, yaw, 0.55f, 48, 125, 211, 252, 0.78f, 2.2f);
+        DrawProjectedRing3D(cx, cy, focal, camDist, 0.86f, 0f, -yaw * 1.2f, 1.05f, 40, 245, 198, 96, 0.86f, 2.4f);
+        DrawProjectedRing3D(cx, cy, focal, camDist, 0.60f, 0f, yaw * 1.6f, 0.22f, 32, 245, 158, 11, 0.76f, 2.0f);
 
-        // Orbiting glowing planets on the primary ring
+        // 12 zodiac spoke rays from center Kalachakra hub
+        for (var s = 0; s < 12; s++)
+        {
+            var a = (float)(t * 0.18 + s * (Math.PI * 2.0 / 12.0));
+            DrawGlowLine(cx, cy, cx + MathF.Cos(a) * minSide * 0.28f, cy + MathF.Sin(a) * minSide * 0.28f,
+                1.4f, 253, 224, 71, 0.28f);
+        }
+
+        // Orbiting glowing grahas on rings
         for (var p = 0; p < 5; p++)
         {
             var a = (float)(t * (0.45 + p * 0.17) + p * 1.25);
-            var r = 0.62f + (p % 3) * 0.26f;
+            var r = 0.60f + (p % 3) * 0.26f;
             var world = Rotate3D(new Vec3(MathF.Cos(a) * r, 0f, MathF.Sin(a) * r), yaw, 0.65f + (p % 2) * 0.3f, 0f);
             var pt = Project(world, cx, cy, focal, camDist);
             if (pt.Visible)
                 DrawAdditiveDisc(pt.X, pt.Y, minSide * (0.018f + (p % 2) * 0.008f), 255, 220, 130, 0.95f);
         }
 
-        DrawPerspectiveGrid(t * 0.6, Height * 0.72f, 99, 102, 241, 0.28f);
+        DrawPerspectiveGrid(t * 0.55, horizonY, 245, 158, 11, 0.24f);
+        DrawMountainAndTempleSilhouette(horizonY, (float)t, includeTempleSpire: true);
         DrawParticles(t, upward: false, 165, 180, 255, 252, 211, 102, minSide * 0.013f);
     }
 
@@ -546,13 +581,77 @@ public sealed class ProceduralSceneRasterizer
         }
     }
 
+    private void DrawTempleBell(float anchorX, float anchorY, float ropeLen, float swingAngle)
+    {
+        var sin = MathF.Sin(swingAngle);
+        var cos = MathF.Cos(swingAngle);
+        var bellX = anchorX + sin * ropeLen;
+        var bellY = anchorY + cos * ropeLen;
+        var bellScale = ropeLen * 0.34f;
+
+        DrawGlowLine(anchorX, anchorY - 4f, bellX, bellY, 1.5f, 250, 204, 21, 0.85f);
+        FillEllipse(bellX, bellY, bellScale, bellScale * 0.85f, 217, 152, 34, 0.95f);
+        FillEllipse(bellX, bellY + bellScale * 0.55f, bellScale * 1.28f, bellScale * 0.38f, 250, 204, 21, 0.96f);
+        FillEllipse(bellX + sin * bellScale * 0.4f, bellY + bellScale * 0.88f, bellScale * 0.28f, bellScale * 0.28f, 255, 232, 160, 0.95f);
+        DrawAdditiveDisc(bellX, bellY + bellScale * 0.4f, bellScale * 2.1f, 255, 198, 80, 0.24f);
+    }
+
+    private void DrawPolarStarAndConstellation(float cx, float cy, float minSide, double t, float intensity)
+    {
+        var sparkle = 0.85f + 0.15f * MathF.Sin((float)t * 4.2f);
+        DrawAdditiveDisc(cx, cy, minSide * 0.16f, 180, 224, 255, 0.36f * intensity * sparkle);
+        DrawAdditiveDisc(cx, cy, minSide * 0.055f, 255, 250, 220, 0.85f * intensity);
+
+        // 8-point radiant Dhruva Tara star spikes
+        for (var i = 0; i < 8; i++)
+        {
+            var a = i * (MathF.PI / 4f) + (float)t * 0.08f;
+            var len = minSide * (i % 2 == 0 ? 0.11f : 0.065f) * intensity * sparkle;
+            DrawGlowLine(cx, cy, cx + MathF.Cos(a) * len, cy + MathF.Sin(a) * len,
+                i % 2 == 0 ? 2.2f : 1.5f, 255, 244, 196, 0.86f * intensity);
+        }
+
+        // Supporting Saptarishi constellation arc flanking the Pole Star
+        Span<(float Dx, float Dy)> starOffsets =
+        [
+            (-0.26f, 0.06f), (-0.18f, 0.03f), (-0.10f, 0.05f),
+            (0.11f, 0.04f), (0.19f, 0.02f), (0.27f, 0.07f)
+        ];
+        for (var i = 0; i < starOffsets.Length; i++)
+        {
+            var sx = cx + starOffsets[i].Dx * Width;
+            var sy = cy + starOffsets[i].Dy * Height;
+            DrawAdditiveDisc(sx, sy, minSide * 0.020f, 224, 242, 254, 0.70f * intensity);
+            if (i > 0 && i != 3)
+            {
+                var px = cx + starOffsets[i - 1].Dx * Width;
+                var py = cy + starOffsets[i - 1].Dy * Height;
+                DrawGlowLine(px, py, sx, sy, 1.1f, 148, 197, 253, 0.35f * intensity);
+            }
+        }
+    }
+
+    private void DrawFloatingDiyas(float horizonY, float minSide, float t)
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            var fx = Width * (0.12f + i * 0.19f) + MathF.Sin(t * 0.7f + i * 1.4f) * Width * 0.015f;
+            var fy = horizonY + MathF.Sin(t * 1.3f + i * 0.9f) * 3.5f + (i % 2) * 8f;
+            DrawAdditiveDisc(fx, fy - 4f, minSide * 0.045f, 255, 165, 45, 0.42f);
+            FillEllipse(fx, fy + 2f, minSide * 0.024f, minSide * 0.009f, 146, 64, 14, 0.92f);
+            FillEllipse(fx, fy - 4f, minSide * 0.008f, minSide * 0.014f, 255, 228, 128, 0.96f);
+        }
+    }
+
     private void ApplyTopTemplateBand(double progress)
     {
-        var bandBottom = Math.Max(48, (int)(Height * 0.145f));
+        var bandBottom = Height > Width
+            ? Math.Max(68, (int)(Height * 0.165f))
+            : Math.Max(48, (int)(Height * 0.145f));
         for (var y = 0; y < bandBottom; y++)
         {
             var k = (float)y / bandBottom;
-            var darken = 0.42f + k * 0.48f;
+            var darken = 0.40f + k * 0.48f;
             var rowStart = y * Width * 4;
             for (var x = 0; x < Width; x++)
             {
@@ -586,12 +685,15 @@ public sealed class ProceduralSceneRasterizer
 
     private void ApplyBottomCaptionScrim()
     {
-        var scrimTop = (int)(Height * 0.72f);
+        // On portrait Shorts, subtly boost contrast across the safe-zone subtitle window (57%..78%) and calm bottom chrome below 78%.
+        var scrimTop = Height > Width ? (int)(Height * 0.57f) : (int)(Height * 0.72f);
         var span = Math.Max(1, Height - scrimTop);
         for (var y = scrimTop; y < Height; y++)
         {
             var k = (float)(y - scrimTop) / span;
-            var darken = 1f - k * 0.56f;
+            var darken = Height > Width
+                ? 0.78f - k * 0.34f
+                : 1f - k * 0.56f;
             var rowStart = y * Width * 4;
             for (var x = 0; x < Width; x++)
             {
@@ -821,7 +923,7 @@ public sealed class ProceduralSceneRasterizer
     private void RenderVoiceWaveIndicator(double t, float speechLevel)
     {
         var centerX = Width * 0.5f;
-        var baseY = Height * 0.72f;
+        var baseY = Height > Width ? Height * 0.56f : Height * 0.72f;
         var unit = MathF.Min(Width, Height) * 0.008f;
         const int bars = 9;
         var spacing = unit * 2.4f;

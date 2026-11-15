@@ -216,6 +216,46 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         var header = new byte[8];
         Assert.Equal(8, await cardStream!.ReadAsync(header));
         Assert.Equal([137, 80, 78, 71, 13, 10, 26, 10], header);
+
+        // Verify Hindi DailyKatha portrait (>= 10s) renders with H.264 + AAC spoken voice track & safe margins
+        var hindiKathaVideo = await service.GenerateAsync("user-auto-hi", new ProceduralVideoRequest
+        {
+            Title = "भक्त ध्रुव और देवर्षि नारद मुनि की संपूर्ण कथा",
+            EventType = "DailyKatha",
+            TopCategoryLabel = "पौराणिक कथा संवाद",
+            Language = "hi",
+            Prompt = "Sacred forest tapasya dialogue leading to Dhruva Tara",
+            Script = "[भक्त ध्रुव]: देवर्षि नारद मुनि, कृपया मुझे भक्ति का अटल मार्ग बताइए।\n[देवर्षि नारद मुनि]: बालक ध्रुव, एकाग्र मन से पावन मंत्र ॐ नमो भगवते वासुदेवाय का जप करो।",
+            Theme = ProceduralSceneTheme.Auto,
+            SubtitlePreset = "event-glow",
+            EnableCharacterDialogue = true,
+            SpeakerAName = "भक्त ध्रुव",
+            SpeakerBName = "देवर्षि नारद मुनि",
+            FooterLabel = "panchang.keshavsingh.in",
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 10,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.Equal(ProceduralSceneTheme.VedicTempleSunrise3D, hindiKathaVideo.ResolvedTheme);
+        Assert.NotNull(hindiKathaVideo.InlineMp4Bytes);
+        Assert.True(hindiKathaVideo.SizeBytes > 5_000);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Contains("voice=", hindiKathaVideo.Summary);
+        }
+        var hindiPath = Path.Combine(_root, "verified-hindi-katha.mp4");
+        await File.WriteAllBytesAsync(hindiPath, hindiKathaVideo.InlineMp4Bytes!);
+        Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{hindiPath}\""));
+        Assert.Equal("aac", FfmpegLocator.Probe(
+            $"-v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 \"{hindiPath}\""));
     }
 
     private sealed class Workspaces(string root, IObjectStore store) : IRenderWorkspaceFactory

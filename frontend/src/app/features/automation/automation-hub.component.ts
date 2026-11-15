@@ -392,12 +392,20 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                       </div>
                       @if (post.enableCharacterDialogue ?? true) {
                         <div class="speaker-row">
-                          <input type="text" [(ngModel)]="post.speakerAName" placeholder="Speaker A (e.g. Raja Harishchandra)"
+                          <input type="text" [(ngModel)]="post.speakerAName" placeholder="Speaker A (e.g. भक्त ध्रुव)"
                                  (blur)="savePostAnimationPrefs(post)" />
-                          <input type="text" [(ngModel)]="post.speakerBName" placeholder="Speaker B (e.g. Maharishi Vishwamitra)"
+                          <input type="text" [(ngModel)]="post.speakerBName" placeholder="Speaker B (e.g. देवर्षि नारद मुनि)"
                                  (blur)="savePostAnimationPrefs(post)" />
                         </div>
                       }
+                      <select class="preset-select"
+                              [ngModel]="postDurationSeconds(post.id)"
+                              (ngModelChange)="setPostDurationSeconds(post.id, $event)"
+                              aria-label="Target 3D video duration">
+                        @for (opt of durationModeOptions; track opt.value) {
+                          <option [ngValue]="opt.value">{{ opt.label }}</option>
+                        }
+                      </select>
                     }
                   }
 
@@ -1212,6 +1220,28 @@ export class AutomationHubComponent implements OnInit {
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
+  readonly durationModeOptions: ReadonlyArray<{ value: number; label: string }> = [
+    { value: 0, label: 'Auto Fit (Short ~60s / Wide 16:9 Full Story)' },
+    { value: 60, label: 'Short (~60s)' },
+    { value: 90, label: 'Extended Short (~90s)' },
+    { value: 150, label: 'Full Story (~2.5 min)' },
+    { value: 240, label: 'Complete Katha (~4 min)' },
+  ];
+  private readonly postDurationMap = new Map<string, number>();
+
+  postDurationSeconds(postId: string): number {
+    return this.postDurationMap.get(postId) ?? 0;
+  }
+
+  setPostDurationSeconds(postId: string, seconds: number | string): void {
+    const val = Number(seconds);
+    if (!Number.isFinite(val) || val <= 0) {
+      this.postDurationMap.delete(postId);
+    } else {
+      this.postDurationMap.set(postId, val);
+    }
+  }
+
   ngOnInit(): void {
     const params = this.route.snapshot.queryParamMap;
     const qDate = params.get('date');
@@ -1389,10 +1419,12 @@ export class AutomationHubComponent implements OnInit {
   }
 
   async triggerAnimated3DVideo(post: AutomationPost): Promise<void> {
+    const chosenDuration = this.postDurationSeconds(post.id);
     await this.runAction(`anim3d:${post.id}`, async () => {
       const updated = await firstValueFrom(
         this.api.generateAnimatedVideo(post.id, {
           format: post.format === 'CommunityPost' ? 'Vertical' : post.format,
+          durationSeconds: chosenDuration > 0 ? chosenDuration : undefined,
           enableCharacterDialogue: post.enableCharacterDialogue ?? true,
           subtitlePreset: (post.subtitlePreset as SubtitleMotionPreset | undefined) || 'event-glow',
           speakerAName: post.speakerAName ?? null,

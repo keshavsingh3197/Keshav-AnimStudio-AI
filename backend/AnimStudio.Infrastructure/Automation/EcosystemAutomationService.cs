@@ -258,6 +258,7 @@ public sealed class EcosystemAutomationService(
         rule.SpeakerAName = string.IsNullOrWhiteSpace(draft.SpeakerAName) ? null : draft.SpeakerAName.Trim();
         rule.SpeakerBName = string.IsNullOrWhiteSpace(draft.SpeakerBName) ? null : draft.SpeakerBName.Trim();
         rule.SortOrder = draft.SortOrder;
+        rule.Language = string.IsNullOrWhiteSpace(rule.Language) ? "hi" : rule.Language.Trim().ToLowerInvariant();
         rule.UpdatedAtUtc = UtcNow;
 
         if (!string.IsNullOrWhiteSpace(rule.TargetChannelId))
@@ -498,7 +499,8 @@ public sealed class EcosystemAutomationService(
             }
 
             rule.LastPreparedDateKey = effectiveDate;
-            rule.UpdatedAtUtc = UtcNow;
+            rule.Language = string.IsNullOrWhiteSpace(rule.Language) ? "hi" : rule.Language.Trim().ToLowerInvariant();
+        rule.UpdatedAtUtc = UtcNow;
             await repository.UpsertRuleAsync(rule, ct).ConfigureAwait(false);
         }
 
@@ -1289,6 +1291,86 @@ public sealed class EcosystemAutomationService(
         return (false, false);
     }
 
+    private async Task EnsureRichPostDialogueBeforeRenderAsync(
+        string userId,
+        AutomationPost post,
+        AutomationRule? rule,
+        int durationSeconds,
+        CancellationToken ct)
+    {
+        var effectiveLang = string.IsNullOrWhiteSpace(post.Language)
+            ? (string.IsNullOrWhiteSpace(rule?.Language) ? "hi" : rule!.Language.Trim().ToLowerInvariant())
+            : post.Language.Trim().ToLowerInvariant();
+        post.Language = effectiveLang;
+
+        var dialogueEnabled = post.EnableCharacterDialogue || (rule?.EnableCharacterDialogue ?? true);
+        if (!dialogueEnabled) return;
+
+        var isWide = post.Format == AutomationVideoFormat.Wide;
+        if (!AutomationContentComposer.NeedsHindiDialogueUpgrade(post.SourceType, effectiveLang, post.Title, post.Script, isWide))
+            return;
+
+        var effectiveRule = rule ?? new AutomationRule
+        {
+            UserId = userId,
+            Name = post.RuleName,
+            SourceType = post.SourceType,
+            VideoFormat = post.Format,
+            Language = effectiveLang,
+            TargetSeconds = durationSeconds > 0 ? durationSeconds : (isWide ? 140 : 62),
+            EnableCharacterDialogue = true,
+            SpeakerAName = post.SpeakerAName,
+            SpeakerBName = post.SpeakerBName,
+            SubtitlePreset = post.SubtitlePreset ?? "event-glow"
+        };
+
+        var draft = new ComposedAutomationContent(
+            post.SourceItemKey,
+            post.SourceTitle,
+            post.SourceSummary,
+            post.Title,
+            post.Script,
+            post.AiVideoPrompt,
+            post.AiThumbnailPrompt,
+            post.Description,
+            post.PinnedComment,
+            post.Tags,
+            post.PrimaryDestinationUrl,
+            post.TrackedFunnelUrls,
+            post.CommunityPostText,
+            post.CommunityPollOptions?.ToArray(),
+            post.HeaderBannerText,
+            post.EventColorHex);
+
+        var (refined, usedAi) = await TryRefineWithAiAsync(userId, effectiveRule, draft, ct).ConfigureAwait(false);
+        if (usedAi && !AutomationContentComposer.NeedsHindiDialogueUpgrade(post.SourceType, effectiveLang, refined.Title, refined.Script, isWideFormat: false))
+        {
+            post.Title = refined.Title;
+            post.Script = refined.Script;
+            post.AiVideoPrompt = refined.AiVideoPrompt;
+            post.PinnedComment = refined.PinnedComment;
+            post.GeneratedByAi = true;
+            return;
+        }
+
+        var fallback = AutomationContentComposer.TryUpgradeLegacyPostToHindiDialogue(
+            post.SourceType,
+            effectiveLang,
+            post.Title,
+            post.Script,
+            post.DateKey,
+            post.PrimaryDestinationUrl,
+            post.SpeakerAName,
+            post.SpeakerBName);
+        if (fallback is { } upgraded)
+        {
+            post.Title = upgraded.Title;
+            post.Script = upgraded.Script;
+            post.SpeakerAName = string.IsNullOrWhiteSpace(post.SpeakerAName) ? upgraded.SpeakerA : post.SpeakerAName;
+            post.SpeakerBName = string.IsNullOrWhiteSpace(post.SpeakerBName) ? upgraded.SpeakerB : post.SpeakerBName;
+        }
+    }
+
     private async Task AttachProceduralAnimatedVideoAsync(
         string userId,
         AutomationPost post,
@@ -1298,9 +1380,14 @@ public sealed class EcosystemAutomationService(
         string? resolution,
         CancellationToken ct)
     {
-        var duration = durationSeconds > 0
+        await EnsureRichPostDialogueBeforeRenderAsync(userId, post, rule, durationSeconds, ct).ConfigureAwait(false);
+
+        var targetSeconds = durationSeconds > 0
             ? durationSeconds
-            : Math.Clamp(rule?.TargetSeconds ?? 36, 15, ProceduralVideoRequest.MaxSeconds);
+            : (post.Format == AutomationVideoFormat.Wide
+                ? Math.Max(rule?.TargetSeconds ?? 135, 120)
+                : Math.Max(rule?.TargetSeconds ?? 58, 55));
+        var duration = Math.Clamp(targetSeconds, 15, ProceduralVideoRequest.MaxSeconds);
         var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
         var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
         var formatArg = post.Format switch
@@ -1340,7 +1427,10 @@ public sealed class EcosystemAutomationService(
         post.AttachedHandoffTitle = rendered.ThemeDisplayName;
         post.EventColorHex ??= palette.PrimaryHex;
         post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
-        post.AttachedVideoSourceLabel = $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
+        var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
+        post.AttachedVideoSourceLabel = hasVoice
+            ? $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s • Voice)"
+            : $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
         post.Status = AutomationPostStatus.VideoReadyForReview;
     }
 
@@ -1493,10 +1583,31 @@ public sealed class EcosystemAutomationService(
         ComposedAutomationContent draft,
         CancellationToken ct)
     {
+        var isEnglish = string.Equals(rule.Language, "en", StringComparison.OrdinalIgnoreCase);
+        var isWideStory = rule.VideoFormat == AutomationVideoFormat.Wide || rule.TargetSeconds >= 90;
+        var dialogueEnabled = rule.EnableCharacterDialogue
+            || rule.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang or AutomationSourceType.AajKaItihaas;
+        var speakerHint = !string.IsNullOrWhiteSpace(rule.SpeakerAName) && !string.IsNullOrWhiteSpace(rule.SpeakerBName)
+            ? $"Use exact character names [{rule.SpeakerAName.Trim()}] and [{rule.SpeakerBName.Trim()}]."
+            : "Pick two authentic characters suited to the story (e.g. [भक्त ध्रुव] & [देवर्षि नारद मुनि], [राजा हरिश्चंद्र] & [महर्षि विश्वामित्र], [आचार्य] & [जिज्ञासु], [इतिहासकार] & [विद्यार्थी]).";
+        var dialogueGuidance = dialogueEnabled
+            ? $"""
+               - Dialogue Mode (MANDATORY): Write "script" EXCLUSIVELY as alternating first-person character dialogue lines formatted strictly as `[Character Name]: spoken line` on each line (NO narrator labels like "Focus:", "Moral:", "[HOOK]", "[STORY]", and NO bullet lists).
+               - {speakerHint}
+               - Characters themselves MUST talk to each other in direct conversation, enacting the story step-by-step from opening scene -> conflict/question -> spiritual teaching/climax -> blessing & call-to-action with the website URL on the final line.
+               - Turn count: {(isWideStory ? "10 to 14 complete story-arc turns (each 18-32 words) covering the FULL complete story without rushing or skipping the ending." : "6 to 8 vivid conversational turns (each 12-22 words) forming a complete micro-story + takeaway.")}
+               """
+            : "- Keep narration vivid, direct, and engaging without removing any facts or times.";
+
+        var languageGuidance = isEnglish
+            ? "English (clear natural spoken English)"
+            : "Pure Hindi in Devanagari script ONLY (translate ALL English story summaries, titles, headings, and labels like 'Focus:' / 'Moral:' completely into natural spoken Hindi; preserve ONLY website URLs and exact Panchang clock times/Tithi terms where needed).";
+
         var prompt = $"""
-            You refine short YouTube content packages without removing ANY facts, numbers, Tithi/Muhurat times, or website links.
-            Language: {(string.Equals(rule.Language, "en", StringComparison.OrdinalIgnoreCase) ? "English" : "Hindi (Devanagari) with clean English key terms")}
-            Return ONLY JSON with keys: "title", "script", "aiVideoPrompt", "pinnedComment".
+            You refine YouTube {(isWideStory ? "full-length" : "Shorts")} animated video scripts without removing ANY facts, numbers, Tithi/Muhurat times, or website links.
+            Target Language: {languageGuidance}
+            {dialogueGuidance}
+            Return ONLY raw JSON (no markdown code fences) with exact keys: "title", "script", "aiVideoPrompt", "pinnedComment".
             Draft Title: {draft.Title}
             Draft Script:
             {draft.Script}
@@ -1504,11 +1615,11 @@ public sealed class EcosystemAutomationService(
             {draft.AiVideoPrompt}
             Draft Pinned Comment:
             {draft.PinnedComment}
-            Keep all website URLs verbatim. Title max 92 chars.
+            Keep all website URLs verbatim. Title max 95 chars (complete readable title, never cut mid-word with '...').
             """;
 
         var outcome = await ai.TextAsync(
-            new AiTextRequest { Prompt = prompt, MaxOutputTokens = 2400, Temperature = 0.4 },
+            new AiTextRequest { Prompt = prompt, MaxOutputTokens = 3200, Temperature = 0.4 },
             new AiCallContext(UserId: userId),
             ct).ConfigureAwait(false);
 
