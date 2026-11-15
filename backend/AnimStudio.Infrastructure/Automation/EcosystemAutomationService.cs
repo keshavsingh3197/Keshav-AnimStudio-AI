@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -123,6 +125,7 @@ public sealed class EcosystemAutomationService(
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
     private const string CharacterLibraryProjectName = "Automation Characters Library";
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> PrepareLocks = new(StringComparer.OrdinalIgnoreCase);
     private static readonly string[] CharacterPalette =
     [
         "#93C5FD", "#FCA5A5", "#6EE7B7", "#DDD6FE", "#FDBA74", "#F9A8D4", "#A5F3FC"
@@ -389,6 +392,28 @@ public sealed class EcosystemAutomationService(
     {
         var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var effectiveDate = ResolveDateKey(dateKey, settings.DefaultTimeZone);
+        // Serialize preparation per (userId, effectiveDate) so overlapping worker/UI calls
+        // cannot race past the fingerprint check and insert duplicate cards.
+        var gate = PrepareLocks.GetOrAdd($"{userId}:{effectiveDate}", static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await PrepareForDateCoreAsync(userId, effectiveDate, ruleId, forceRegenerate, settings, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<AutomationPrepareResult> PrepareForDateCoreAsync(
+        string userId,
+        string effectiveDate,
+        string? ruleId,
+        bool forceRegenerate,
+        AutomationWorkspaceConfig settings,
+        CancellationToken ct)
+    {
         var rules = await repository.ListRulesAsync(userId, ct).ConfigureAwait(false);
         var selectedRules = string.IsNullOrWhiteSpace(ruleId)
             ? rules.Where(r => r.Enabled).ToList()
@@ -415,6 +440,7 @@ public sealed class EcosystemAutomationService(
             .Where(p => p.AttachedHandoffId is not null && p.Status != AutomationPostStatus.Skipped)
             .Select(p => p.AttachedHandoffId!)
             .ToHashSet(StringComparer.Ordinal);
+        var postsOnDate = (await repository.ListPostsAsync(userId, effectiveDate, effectiveDate, null, 400, ct).ConfigureAwait(false)).ToList();
 
         var userRenders = await LoadFinishedRendersAsync(userId, ct).ConfigureAwait(false);
         var created = 0;
@@ -436,7 +462,9 @@ public sealed class EcosystemAutomationService(
             foreach (var composed in composedItems)
             {
                 var fingerprint = $"{effectiveDate}:{rule.Id}:{composed.SourceItemKey}".ToLowerInvariant();
-                var existing = await repository.FindPostByFingerprintAsync(userId, fingerprint, ct).ConfigureAwait(false);
+                var existing = AutomationPost.SelectPreferred(
+                    postsOnDate.Where(p => string.Equals(p.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase)));
+                existing ??= await repository.FindPostByFingerprintAsync(userId, fingerprint, ct).ConfigureAwait(false);
 
                 if (existing is not null && !forceRegenerate)
                 {
@@ -516,6 +544,8 @@ public sealed class EcosystemAutomationService(
                     }
                     post.Status = AutomationPostStatus.VideoReadyForReview;
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                    if (!postsOnDate.Any(p => string.Equals(p.Id, post.Id, StringComparison.Ordinal)))
+                        postsOnDate.Add(post);
                     if (existing is null) created++;
                     else updated++;
                     touchedPosts.Add(post);
@@ -547,6 +577,9 @@ public sealed class EcosystemAutomationService(
                 {
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                 }
+
+                if (!postsOnDate.Any(p => string.Equals(p.Id, post.Id, StringComparison.Ordinal)))
+                    postsOnDate.Add(post);
 
                 if (existing is null) created++;
                 else updated++;
@@ -1714,7 +1747,10 @@ public sealed class EcosystemAutomationService(
             : Environment.GetEnvironmentVariable("ECOSYSTEM_SYNC_KEY")?.Trim();
 
         if (string.IsNullOrWhiteSpace(syncKey) && string.IsNullOrWhiteSpace(bearerToken))
+        {
+            post.LastError = "No SSO Bearer/ks_sso token or Ecosystem:SyncKey configured for Panchang Video Hub sync.";
             return false;
+        }
 
         try
         {
@@ -1745,9 +1781,14 @@ public sealed class EcosystemAutomationService(
             if (!res.IsSuccessStatusCode)
             {
                 var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var upstreamError = TryExtractEcosystemError(body);
                 logger.LogWarning("Panchang Video Hub sync returned HTTP {Status} for post {PostId}: {Body}",
                     (int)res.StatusCode, post.Id, body);
-                post.LastError = $"Panchang sync HTTP {(int)res.StatusCode}";
+                post.LastError = res.StatusCode == HttpStatusCode.Unauthorized
+                    ? BuildPanchangUnauthorizedMessage(upstreamError, hasSyncKey: !string.IsNullOrWhiteSpace(syncKey))
+                    : string.IsNullOrWhiteSpace(upstreamError)
+                        ? $"Panchang sync HTTP {(int)res.StatusCode}"
+                        : $"Panchang sync HTTP {(int)res.StatusCode}: {upstreamError}";
                 post.UpdatedAtUtc = UtcNow;
                 await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                 return false;
@@ -1767,6 +1808,40 @@ public sealed class EcosystemAutomationService(
             await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
             return false;
         }
+    }
+
+    private static string BuildPanchangUnauthorizedMessage(string? upstreamError, bool hasSyncKey)
+    {
+        var detail = string.IsNullOrWhiteSpace(upstreamError)
+            ? "Admin role or valid X-Ecosystem-Key required."
+            : upstreamError;
+        var hint = hasSyncKey
+            ? "Verify Ecosystem:SyncKey / ECOSYSTEM_SYNC_KEY matches HinduPanchang and that HinduPanchang's Jwt__SigningKey matches id.keshavsingh.in."
+            : "HinduPanchang rejected the SSO token (verify Jwt__SigningKey is configured on HinduPanchang to match id.keshavsingh.in) and AnimStudio has no Ecosystem:SyncKey / ECOSYSTEM_SYNC_KEY configured.";
+        return $"Panchang sync HTTP 401: {detail} {hint}";
+    }
+
+    private static string? TryExtractEcosystemError(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == System.Text.Json.JsonValueKind.String)
+                    return msg.GetString();
+                if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == System.Text.Json.JsonValueKind.String)
+                    return err.GetString();
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Non-JSON upstream responses fall back to bounded plain text below.
+        }
+
+        var trimmed = body.Trim();
+        return trimmed.Length <= 200 ? trimmed : trimmed[..200];
     }
 
     private static string NormalizeSubtitlePreset(string? raw) => (raw ?? string.Empty).Trim().ToLowerInvariant() switch

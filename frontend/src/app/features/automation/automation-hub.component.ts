@@ -546,6 +546,8 @@ const NARRATIVE_MODE_OPTIONS: { value: AutomationNarrativeMode; label: string; s
                           </button>
                         }
                       }
+                    }
+                    @if (post.status !== 'Publishing') {
                       <button type="button" class="btn danger-ghost" [disabled]="busy()" (click)="removePost(post)">
                         Delete
                       </button>
@@ -1819,6 +1821,14 @@ export class AutomationHubComponent implements OnInit {
   }
 
   async removePost(post: AutomationPost): Promise<void> {
+    if (post.status === 'Published') {
+      const refUrl = post.publishedVideoUrl ? ` (${post.publishedVideoUrl})` : '';
+      const confirmed = window.confirm(
+        `Remove this Auto Post card${refUrl} from AnimStudio?\n\nThis only cleans up the Auto Post history card in AnimStudio and will not delete or modify any video on YouTube Studio.`
+      );
+      if (!confirmed) return;
+    }
+
     await this.runAction('delete-post', async () => {
       await firstValueFrom(this.api.deletePost(post.id));
       this.status.showNotice('Prepared post removed.');

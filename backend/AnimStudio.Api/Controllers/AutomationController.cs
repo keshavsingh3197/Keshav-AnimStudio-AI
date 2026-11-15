@@ -285,7 +285,9 @@ public sealed class AutomationController(
         var rawAuth = Request.Headers.Authorization.FirstOrDefault();
         var bearer = rawAuth is not null && rawAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
             ? rawAuth["Bearer ".Length..].Trim()
-            : null;
+            : (Request.Cookies.TryGetValue("ks_sso", out var cookieToken) && !string.IsNullOrWhiteSpace(cookieToken)
+                ? cookieToken.Trim()
+                : null);
         return Ok(ApiResponse<AutomationPost>.Ok(await automation.SyncPostToEcosystemAsync(currentUser.UserId, id, bearer, ct)));
     }
 

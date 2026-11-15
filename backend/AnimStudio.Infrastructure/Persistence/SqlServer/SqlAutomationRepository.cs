@@ -170,15 +170,16 @@ public sealed class SqlAutomationRepository(ISqlConnectionFactory factory) : IAu
     {
         try
         {
-            return await SqlRows.ScalarJsonAsync<AutomationPost>(
+            var matches = await SqlRows.ListJsonAsync<AutomationPost>(
                 factory,
-                "SELECT DataJson FROM AutomationPosts WHERE UserId = @UserId AND Fingerprint = @Fingerprint",
+                "SELECT TOP (20) DataJson FROM AutomationPosts WHERE UserId = @UserId AND Fingerprint = @Fingerprint",
                 p =>
                 {
                     p.AddWithValue("@UserId", userId);
                     p.AddWithValue("@Fingerprint", fingerprint);
                 },
                 ct).ConfigureAwait(false);
+            return AutomationPost.SelectPreferred(matches);
         }
         catch (SqlException ex) when (ex.Number == InvalidObjectName)
         {

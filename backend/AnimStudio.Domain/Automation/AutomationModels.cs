@@ -268,6 +268,27 @@ public sealed class AutomationPost
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
     public DateTime? PublishedAtUtc { get; set; }
+
+    /// <summary>
+    /// Selects the highest-priority post when multiple records share the same fingerprint
+    /// (always prefers Published / in-flight / video-ready records over empty drafts).
+    /// </summary>
+    public static AutomationPost? SelectPreferred(IEnumerable<AutomationPost> candidates) =>
+        candidates
+            .OrderByDescending(p => p.Status switch
+            {
+                AutomationPostStatus.Published => 6,
+                AutomationPostStatus.Publishing => 5,
+                AutomationPostStatus.Approved => 4,
+                AutomationPostStatus.VideoReadyForReview => 3,
+                AutomationPostStatus.GeneratingVideo => 2,
+                AutomationPostStatus.PreparedPreview => 1,
+                _ => 0
+            })
+            .ThenByDescending(p => !string.IsNullOrWhiteSpace(p.PublishedVideoId))
+            .ThenByDescending(p => p.UpdatedAtUtc)
+            .ThenByDescending(p => p.CreatedAtUtc)
+            .FirstOrDefault();
 }
 
 /// <summary>

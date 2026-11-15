@@ -80,10 +80,14 @@ public sealed class MongoAutomationRepository(MongoDbService mongo) : IAutomatio
     public async Task<AutomationPost?> GetPostAsync(string id, CancellationToken ct) =>
         await Posts.Find(p => p.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
-    public async Task<AutomationPost?> FindPostByFingerprintAsync(string userId, string fingerprint, CancellationToken ct) =>
-        await Posts.Find(p => p.UserId == userId && p.Fingerprint == fingerprint)
-            .FirstOrDefaultAsync(ct)
+    public async Task<AutomationPost?> FindPostByFingerprintAsync(string userId, string fingerprint, CancellationToken ct)
+    {
+        var matches = await Posts.Find(p => p.UserId == userId && p.Fingerprint == fingerprint)
+            .Limit(20)
+            .ToListAsync(ct)
             .ConfigureAwait(false);
+        return AutomationPost.SelectPreferred(matches);
+    }
 
     public Task UpsertPostAsync(AutomationPost post, CancellationToken ct) =>
         Posts.ReplaceOneAsync(p => p.Id == post.Id, post, new ReplaceOptions { IsUpsert = true }, ct);
