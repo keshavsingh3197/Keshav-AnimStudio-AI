@@ -334,6 +334,12 @@ public sealed class AutomationStageSettings
     /// narration. A vertical video longer than 3 minutes is then uploaded as a normal video rather than a Short.
     /// </summary>
     public bool FollowScriptExactly { get; set; } = true;
+
+    /// <summary>
+    /// Story engines: pause after the voices, the music and the finished video so each can be checked (and redone) in
+    /// the Story Studio before the next step. Off runs straight through to the video.
+    /// </summary>
+    public bool ReviewSteps { get; set; }
 }
 
 /// <summary>Fractions of the frame: X = figure centre across, Y = ground line (feet) down, Scale = size multiplier.</summary>

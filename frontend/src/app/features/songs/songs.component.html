@@ -1,0 +1,130 @@
+<section class="sg">
+  <header>
+    <h1>Songs</h1>
+    <p>Write lyrics (or let AI draft them from a story), then Google Lyria composes the song. Download it for a video,
+      the <a routerLink="/release">Music Release kit</a>, or YouTube.</p>
+  </header>
+
+  @if (!loading() && !composerConfigured()) {
+    <div class="notice error" role="alert">
+      Google Lyria is not set up. Turn on <strong>Google Gemini speech</strong> in
+      <a routerLink="/admin">Settings → AI providers</a>; Lyria uses the same Google key. You can still draft lyrics here.
+    </div>
+  }
+
+  <div class="sg-grid">
+    <div class="sg-form">
+      <section class="card sg-section">
+        <h2>1. What is the song about?</h2>
+        <label for="sg-theme">Story, festival, deity or idea</label>
+        <textarea id="sg-theme" rows="6" maxlength="6000" [ngModel]="theme()" (ngModelChange)="theme.set($event)"
+          placeholder="e.g. Dhruva's devotion to Lord Vishnu as a child, or paste an auto post's script"></textarea>
+        <span class="muted">{{ theme().length }} / 6000</span>
+        <div class="sg-row">
+          <label>Language
+            <select [ngModel]="language()" (ngModelChange)="language.set($event)">
+              <option value="hi">Hindi</option><option value="en">English</option>
+            </select>
+          </label>
+          <label>Style
+            <select [ngModel]="style()" (ngModelChange)="style.set($event)">
+              @for (s of styles; track s.value) { <option [value]="s.value">{{ s.label }}</option> }
+            </select>
+          </label>
+          <label>Feel <span class="muted">(optional)</span>
+            <input maxlength="80" [ngModel]="mood()" (ngModelChange)="mood.set($event)" placeholder="peaceful, harmonium and tabla" />
+          </label>
+        </div>
+        <div class="sg-actions">
+          <button type="button" [disabled]="!canWriteLyrics()" (click)="writeLyrics()">
+            @if (busy() === 'lyrics') { <span class="btn-spin" aria-hidden="true"></span> Writing… } @else { ✍ Draft lyrics with AI }
+          </button>
+        </div>
+        <p class="muted">Uses your configured text model (one request). The lyrics are original; always read them before use.</p>
+      </section>
+
+      <section class="card sg-section">
+        <h2>2. Lyrics</h2>
+        <label for="sg-title">Song title</label>
+        <input id="sg-title" maxlength="120" [ngModel]="title()" (ngModelChange)="title.set($event)" placeholder="शिव वंदना" />
+        <label class="sg-check">
+          <input type="checkbox" [ngModel]="instrumental()" (ngModelChange)="instrumental.set($event)" />
+          Instrumental (no singing)
+        </label>
+        @if (!instrumental()) {
+          <label for="sg-lyrics">Lyrics <span class="muted">— section names go in square brackets: [Verse 1], [Chorus]</span></label>
+          <textarea id="sg-lyrics" class="sg-lyrics" rows="14" [ngModel]="lyrics()" (ngModelChange)="lyrics.set($event)"
+            [placeholder]="'[Verse 1]\n...\n\n[Chorus]\n...'"></textarea>
+          <span class="muted" [class.sg-over]="lyricsTooLong()">
+            {{ lyrics().length }} / {{ maxLyricsChars() }} characters
+            @if (lyricsTooLong()) { — too long for Lyria; shorten a verse. }
+          </span>
+        }
+      </section>
+
+      <section class="card sg-section">
+        <h2>3. Compose</h2>
+        <div class="choice-row" role="radiogroup" aria-label="Song length">
+          <button type="button" class="choice" [class.selected]="fullLength()" (click)="fullLength.set(true)" role="radio" [attr.aria-checked]="fullLength()">
+            <strong>Full song</strong><small>Lyria 3 Pro · intro, verses, chorus, outro</small>
+          </button>
+          <button type="button" class="choice" [class.selected]="!fullLength()" (click)="fullLength.set(false)" role="radio" [attr.aria-checked]="!fullLength()">
+            <strong>30-second clip</strong><small>Lyria 3 Clip · good for a Short</small>
+          </button>
+        </div>
+        <div class="sg-actions">
+          <button type="button" [disabled]="!canCompose()" (click)="compose()">
+            @if (busy() === 'compose') { <span class="btn-spin" aria-hidden="true"></span> Composing… this can take a minute }
+            @else { 🎵 Compose song }
+          </button>
+        </div>
+        <p class="muted">One Lyria request each time (your Tier 1 allowance is 500 a day). Keep this page open until it finishes.
+          Lyria may not follow every word; listen before you publish. Songs are AI-made: tick YouTube's altered-content box when you use one.</p>
+      </section>
+
+      @if (error(); as problem) { <div class="notice error" role="alert">{{ problem }}</div> }
+      @if (notice(); as message) { <div class="notice" role="status">{{ message }}</div> }
+    </div>
+
+    <aside class="card sg-section sg-list">
+      <h2>My songs @if (songs().length) { <span class="muted">({{ songs().length }})</span> }</h2>
+      @if (loading()) {
+        <p class="muted"><span class="btn-spin" aria-hidden="true"></span> Loading…</p>
+      } @else if (songs().length === 0) {
+        <p class="muted">No songs yet. Your composed songs appear here.</p>
+      } @else {
+        <ul>
+          @for (song of songs(); track song.id) {
+            <li class="sg-song" [class.open]="expanded() === song.id">
+              <button type="button" class="sg-song-head" (click)="toggle(song)" [attr.aria-expanded]="expanded() === song.id">
+                <strong>{{ song.title }}</strong>
+                <small>
+                  {{ styleLabel(song.style) }} · {{ song.language === 'hi' ? 'Hindi' : 'English' }}
+                  @if (song.instrumental) { · Instrumental }
+                  @if (song.durationSeconds) { · {{ duration(song.durationSeconds) }} }
+                  · {{ song.createdAtUtc | date: 'd MMM, HH:mm' }}
+                </small>
+              </button>
+              @if (expanded() === song.id) {
+                <div class="sg-song-body">
+                  @if (audioUrls()[song.id]; as url) {
+                    <audio controls preload="metadata" [src]="url"></audio>
+                  } @else {
+                    <p class="muted"><span class="btn-spin" aria-hidden="true"></span> Loading audio…</p>
+                  }
+                  @if (song.lyrics) { <pre class="sg-lyrics-view">{{ song.lyrics }}</pre> }
+                  <div class="sg-actions">
+                    <button type="button" class="secondary" (click)="download(song)">⬇ Download</button>
+                    <button type="button" class="secondary" (click)="reuse(song)">↺ Edit &amp; compose again</button>
+                    <button type="button" class="secondary danger" (click)="remove(song)">Delete</button>
+                  </div>
+                  <small class="muted">{{ song.model }}@if (song.sourcePostId) { · from an auto post }</small>
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </aside>
+  </div>
+</section>

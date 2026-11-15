@@ -71,6 +71,24 @@ public sealed class StoryReviewGateTests
     }
 
     [Fact]
+    public async Task Auto_approve_with_review_steps_still_stops_after_the_voices()
+    {
+        // An auto post with "Let me review each step": the script flows on, the voices are listened to first.
+        var (executor, runs, stages) = Make();
+        var run = StoryTestData.Run(StoryRunStatus.Building, withScript: true);
+        run.Options.AutoApprove = true;
+        run.Options.ReviewSteps = true;
+        runs.Seed(run);
+
+        await executor.ExecuteAsync(run.Id, default, default);
+
+        var saved = runs.Read(run.Id)!;
+        Assert.Equal(StoryRunStatus.AwaitingReview, saved.Status);
+        Assert.Equal(StoryStageIds.Narration, saved.Review);
+        Assert.Equal(0, stages[StoryStageIds.Music].Calls);
+    }
+
+    [Fact]
     public async Task A_step_switched_off_is_not_asked_about_but_music_that_could_not_be_made_is()
     {
         var (executor, runs, _) = Make(s =>

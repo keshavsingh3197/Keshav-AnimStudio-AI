@@ -134,6 +134,9 @@ public sealed partial class EcosystemAutomationService(
     private const string StagingFolderName = "automation-staging";
     private const string CharacterLibraryProjectName = "Automation Characters Library";
     private const string BackgroundTemplatesProjectName = "Automation Background Templates";
+
+    /// <summary>Start of the post's stage summary while its story waits for a review; the web app matches on it.</summary>
+    private const string ReviewSummaryPrefix = "Waiting for your review: ";
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PrepareLocks = new(StringComparer.OrdinalIgnoreCase);
     private static readonly string[] CharacterPalette =
     [
@@ -1041,6 +1044,29 @@ public sealed partial class EcosystemAutomationService(
     }
 
     /// <summary>
+    /// Starts the post's failed or stopped story run again from the step it stopped at (e.g. the voices, once the
+    /// speech engine is running). The script, pictures and voices already made are kept, so nothing is paid for twice.
+    /// </summary>
+    public async Task<AutomationPost> RetryAiVideoAsync(string userId, string postId, CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
+            throw EditingException.Conflict("post-locked", "Cannot regenerate video once uploading or published.");
+        if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId) || post.VisualEngine == AutomationVisualEngine.Procedural3D)
+            throw EditingException.Invalid("no-story-run", "This post has no story run to retry. Use Generate Video instead.");
+
+        // Ownership of the run is checked again inside the story service.
+        await storyRuns.RetryAsync(userId, post.AttachedStoryRunId, ct).ConfigureAwait(false);
+
+        post.Status = AutomationPostStatus.GeneratingVideo;
+        post.StoryStageSummary = "Retrying from the failed step";
+        post.LastError = null;
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
+    /// <summary>
     /// Generates an instant CPU-friendly 2D/3D procedural animated MP4 for a prepared post right on this
     /// server (zero GPU or external video AI keys required), saves it as a Studio RenderJob, and attaches it.
     /// Keeps all AI Video Prompts intact on the post.
@@ -1829,6 +1855,17 @@ public sealed partial class EcosystemAutomationService(
             // ready and is waiting for a pasted reply. Say so rather than showing a stalled percentage.
             summary = run.Research is null ? "Preparing script template" : "Waiting for your pasted script";
         }
+        else if (run.Status == StoryRunStatus.AwaitingReview)
+        {
+            // The card shows a "Review" button for this summary; the check itself happens in the Story Studio.
+            summary = run.Review switch
+            {
+                StoryStageIds.Narration => $"{ReviewSummaryPrefix}the voices",
+                StoryStageIds.Music => $"{ReviewSummaryPrefix}the music",
+                StoryStageIds.Render => $"{ReviewSummaryPrefix}the finished video",
+                _ => $"{ReviewSummaryPrefix}this step"
+            };
+        }
         if (!string.Equals(post.StoryStageSummary, summary, StringComparison.Ordinal)
             || post.StoryProgressPercent != percent)
         {
@@ -2600,9 +2637,14 @@ public sealed partial class EcosystemAutomationService(
                 ? StoryVisualMode.UploadsOnly
                 : StoryVisualMode.Auto,
             StorageAssetIds = attachedAssetIds,
-            Music = true,
+            // The Generate Video wizard's music step saves this on the post; "Voice only" leaves the track free for a
+            // song or score added later in YouTube or an editor. A post never opened in the wizard keeps music.
+            Music = post.Stage?.IncludeBackgroundMusic ?? true,
             RenderWhenReady = true,
             AutoApprove = true,
+            // The script still flows straight on (it was written by AI or pasted by the person); only the voices, music
+            // and finished video pause for a listen when the wizard's review choice is on.
+            ReviewSteps = post.Stage?.ReviewSteps ?? false,
             // Quality defaults for the realistic engine: film-like pictures, cinematic cuts and camera moves, one voice
             // per character, mouths that move on stills, and a voice brought to a comfortable pace. The storage-images
             // engine keeps the genre's own look, since its pictures are the person's own.

@@ -211,6 +211,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'songs',
+    title: 'Songs - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/songs/songs.component').then((m) => m.SongsComponent),
+  },
+
+  {
     path: 'release',
     title: 'Music Release Kit - AnimStudio AI',
     canActivate: [sensitiveFeatureGuard],

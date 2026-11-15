@@ -316,7 +316,8 @@ public static class KnownAiProviders
             "it suits short videos rather than a long transcript. It needs its own copy of the " +
             "Gemini key, since credentials are held per provider id.",
             "https://aistudio.google.com/apikey",
-            DefaultDailyRequestLimit: 50,
+            // Google's Tier 1 allowance for every TTS model is 100 a day; 90 keeps a margin for retries.
+            DefaultDailyRequestLimit: 90,
             Models:
             [
                 new("gemini-3.8-flash-tts", "3.8 Flash TTS - most natural voice (recommended)",

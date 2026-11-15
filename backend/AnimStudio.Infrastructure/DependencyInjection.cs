@@ -351,6 +351,8 @@ public static class DependencyInjection
         services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
         services.AddScoped<MyVoiceTuning>();
         services.AddScoped<MyVoiceReplication>();
+        // The Songs page: AI-drafted lyrics and Google Lyria songs, kept in object storage per user.
+        services.AddScoped<AnimStudio.Application.Songs.SongLibrary>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddSingleton<ReleaseKitStore>();
 

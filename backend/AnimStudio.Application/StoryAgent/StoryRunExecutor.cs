@@ -185,7 +185,8 @@ public sealed class StoryRunExecutor(
     /// </summary>
     internal static bool NeedsReview(StoryRun run, string stageId)
     {
-        if (run.Options.AutoApprove || !StoryStageIds.Reviewed.Contains(stageId) || run.ApprovedAt(stageId) is not null) return false;
+        var skipsReviews = run.Options.AutoApprove && !run.Options.ReviewSteps;
+        if (skipsReviews || !StoryStageIds.Reviewed.Contains(stageId) || run.ApprovedAt(stageId) is not null) return false;
 
         var state = run.Stage(stageId);
         return state.Status == StoryStageStatus.Completed

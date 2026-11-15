@@ -194,6 +194,12 @@ public sealed class StoryBuildOptions
     public bool AutoApprove { get; set; }
 
     /// <summary>
+    /// With <see cref="AutoApprove"/>: still pause after the voices, the music and the finished video so the person can
+    /// hear or watch each one and redo it before the next step is made. Used by auto posts reviewed in the Story Studio.
+    /// </summary>
+    public bool ReviewSteps { get; set; }
+
+    /// <summary>
     /// The look of the pictures and of the animation: a painting, a realistic film, a cartoon. Auto keeps the genre's
     /// picture style.
     /// </summary>

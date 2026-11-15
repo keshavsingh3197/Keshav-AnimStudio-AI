@@ -279,6 +279,8 @@ export interface AutomationStageSettings {
   includeBackgroundMusic: boolean;
   /** Speak every line as written at natural speed; the video ends with the narration. */
   followScriptExactly: boolean;
+  /** Story engines: pause after the voices, the music and the finished video for a check in the Story Studio. */
+  reviewSteps?: boolean;
 }
 
 export interface AutomationPost {
@@ -528,6 +530,13 @@ export class AutomationService {
         `${this.base}/queue/${encodeURIComponent(postId)}/generate-video`,
         body ?? {}
       )
+    );
+  }
+
+  /** Starts the post's failed story run again from the step it stopped at; what was already made is kept. */
+  retryVideo(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/retry-video`, {})
     );
   }
 

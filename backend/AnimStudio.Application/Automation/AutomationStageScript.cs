@@ -57,7 +57,8 @@ public static partial class AutomationStageScript
             LeftCharacter = ClampPlacement(input.LeftCharacter),
             RightCharacter = ClampPlacement(input.RightCharacter),
             IncludeBackgroundMusic = input.IncludeBackgroundMusic,
-            FollowScriptExactly = input.FollowScriptExactly
+            FollowScriptExactly = input.FollowScriptExactly,
+            ReviewSteps = input.ReviewSteps
         };
     }
 

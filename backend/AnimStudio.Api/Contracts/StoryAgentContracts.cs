@@ -99,6 +99,9 @@ public sealed record StoryBuildOptionsRequest
     public bool RenderWhenReady { get; init; } = true;
     public bool AutoApprove { get; init; }
 
+    /// <summary>With AutoApprove: still pause after the voices, the music and the finished video for a review.</summary>
+    public bool ReviewSteps { get; init; }
+
     [Range(StoryVideoSpeed.Min, StoryVideoSpeed.Max)]
     public double VideoSpeed { get; init; } = 1.0;
 
@@ -141,6 +144,7 @@ public sealed record StoryBuildOptionsRequest
         LookStyle = o.LookStyle,
         RenderWhenReady = o.RenderWhenReady,
         AutoApprove = o.AutoApprove,
+        ReviewSteps = o.ReviewSteps,
         VideoSpeed = o.VideoSpeed,
         AutoPace = o.AutoPace,
         Pace = o.Pace,
@@ -174,6 +178,7 @@ public sealed record StoryBuildOptionsRequest
         LookStyle = LookStyle,
         RenderWhenReady = RenderWhenReady,
         AutoApprove = AutoApprove,
+        ReviewSteps = ReviewSteps,
         VideoSpeed = VideoSpeed,
         AutoPace = AutoPace ?? true,
         Pace = Pace,
@@ -571,7 +576,7 @@ public sealed record StoryOptionsResponse(
     StoryMusicSource MusicSource = StoryMusicSource.Auto, string? MusicPrompt = null, StoryLookStyle LookStyle = StoryLookStyle.Auto,
     double VideoSpeed = 1.0, bool AutoPace = false, StoryArtStyle ArtStyle = StoryArtStyle.Auto,
     StoryPaceStyle Pace = StoryPaceStyle.Auto, bool MatchClipDuration = false, bool KeepClipAudio = false, bool Dub = false,
-    bool TalkingFaces = true, IReadOnlyList<string>? StorageAssetIds = null);
+    bool TalkingFaces = true, IReadOnlyList<string>? StorageAssetIds = null, bool ReviewSteps = false);
 
 /// <summary>The story's dub in its other language, for YouTube's multi-language audio.</summary>
 /// <param name="Language"><c>en</c> for a Hindi story, <c>hi</c> for an English one.</param>
@@ -861,7 +866,7 @@ public static class StoryAgentMapper
         o.Narration, o.VoiceProfileId, o.VoiceId, o.SpeechEngine, o.SpeechRate, o.ClosestToMyVoice, o.Visuals, o.ImageStyle,
         o.Music, o.UploadsAreAiMade, o.MusicQuery, o.MusicVolume, o.RenderWhenReady, o.AutoApprove, o.SpeechModel, o.SpeechStyle, o.CastVoices, o.MusicSource,
         o.MusicPrompt, o.LookStyle, o.VideoSpeed, o.AutoPace, o.ArtStyle, o.Pace, o.MatchClipDuration, o.KeepClipAudio, o.Dub,
-        o.TalkingFaces, o.StorageAssetIds);
+        o.TalkingFaces, o.StorageAssetIds, o.ReviewSteps);
 
     /// <summary>The dub, when one was asked for; the track only once the story's video it belongs with is rendered.</summary>
     private static StoryDubResponse? DubOf(StoryRun run)

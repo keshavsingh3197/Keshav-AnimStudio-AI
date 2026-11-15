@@ -1,7 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { SongSeed } from '../../core/services/songs.service';
 import { firstValueFrom } from 'rxjs';
 
 import {
@@ -108,14 +109,18 @@ const DEFAULT_STAGE: AutomationStageSettings = {
   locationPrompt: null,
   leftCharacter: null,
   rightCharacter: null,
-  includeBackgroundMusic: true,
+  // Voice only unless chosen: most posts get their own song or score added later in YouTube or an editor.
+  includeBackgroundMusic: false,
   followScriptExactly: true,
+  reviewSteps: false,
 };
 const MAX_TEMPLATE_BYTES = 25 * 1024 * 1024;
 const TEMPLATE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 /** Story-engine stage summaries (set by the server's poller) that mean the run is waiting for a pasted script. */
 const AWAITING_SCRIPT_SUMMARIES = new Set(['Waiting for your pasted script', 'Preparing script template']);
+/** Start of the stage summary while a story waits for a review (mirrors the server's ReviewSummaryPrefix). */
+const REVIEW_SUMMARY_PREFIX = 'Waiting for your review: ';
 const TEMPLATE_POLL_MS = 3_000;
 /** Poll faster than the 5s background poll while an Enhanced 3D render request is in flight. */
 const RENDER_POLL_MS = 2_000;
@@ -394,6 +399,12 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     @if (post.status !== 'Published' && post.status !== 'Publishing' && post.format !== 'CommunityPost') {
                       @if (isAwaitingScript(post)) {
                         <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="resumeTemplate(post)">📋 Paste Script</button>
+                      } @else if (isAwaitingReview(post)) {
+                        <a class="btn tiny primary" [routerLink]="['/story-agent', post.attachedStoryRunId]"
+                           [title]="post.storyStageSummary">👂 Review</a>
+                      } @else if (canRetryVideo(post)) {
+                        <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="retryVideo(post)"
+                                title="Carry on from the step that failed. The script, pictures and voices already made are kept.">↻ Retry</button>
                       } @else {
                         <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="openGenerateWizard(post)">🎬 Generate Video</button>
                       }
@@ -708,9 +719,20 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                             <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="resumeTemplate(post)">
                               📋 Paste Script
                             </button>
+                          } @else if (isAwaitingReview(post)) {
+                            <a class="btn tiny primary" [routerLink]="['/story-agent', post.attachedStoryRunId]">
+                              👂 Review {{ reviewTarget(post) }} in Story Studio ↗
+                            </a>
                           } @else {
-                            <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="openGenerateWizard(post)">
-                              🎬 Generate Video…
+                            @if (canRetryVideo(post)) {
+                              <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="retryVideo(post)"
+                                      title="Carry on from the step that failed. The script, pictures and voices already made are kept.">
+                                ↻ Retry from failed step
+                              </button>
+                            }
+                            <button type="button" class="btn tiny" [class.primary]="!canRetryVideo(post)" [class.ghost]="canRetryVideo(post)"
+                                    [disabled]="busy()" (click)="openGenerateWizard(post)">
+                              🎬 {{ canRetryVideo(post) ? 'Start Over…' : 'Generate Video…' }}
                             </button>
                           }
                           <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="openStoragePicker({ kind: 'post', post })">
@@ -725,6 +747,10 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                             Open in Story Studio ↗
                           </a>
                         }
+                        <button type="button" class="btn tiny ghost" (click)="openSongFor(post)"
+                                title="Write lyrics from this post's story and compose a song with Google Lyria">
+                          🎵 Make a song
+                        </button>
                         @if (post.attachedRenderJobId) {
                           <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">
                             ▶ Preview MP4
@@ -1078,6 +1104,16 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       <small>No music in the file, so you can add any track or sound in YouTube or another editor later.</small>
                     </button>
                   </div>
+                  @if (wz.engine !== 'Procedural3D') {
+                    <p class="muted-note">With music, a score is composed for the story (Google Lyria when set up). Voice only skips that step and saves a Lyria request.</p>
+                    <label class="check-row">
+                      <input type="checkbox" [ngModel]="!!wz.stage.reviewSteps" (ngModelChange)="setStageReview($event)" />
+                      <span>
+                        <strong>Let me review each step</strong><br />
+                        <small class="muted-note">The build pauses after the voices, the music and the finished video. The card shows a Review button that opens the Story Studio, where you can listen, redo a scene's voice or the music, then approve and carry on. Off runs straight through to the video.</small>
+                      </span>
+                    </label>
+                  } @else {
                   <label class="check-row">
                     <input type="checkbox" [ngModel]="wz.stage.followScriptExactly" (ngModelChange)="setStageFollowScript($event)" />
                     <span>
@@ -1088,6 +1124,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                   </label>
                   @if (!wz.stage.followScriptExactly) {
                     <p class="muted-note">Fit to length: voices may be sped up slightly and middle lines dropped to stay within {{ wp.format === 'Wide' ? '10 minutes' : 'the 3-minute Shorts limit' }}.</p>
+                  }
                   }
                 }
 
@@ -1142,10 +1179,10 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                   <button type="button" class="btn ghost" [disabled]="busy()" (click)="wizardBack()">Back</button>
                 }
                 <button type="button" class="btn ghost" (click)="closeWizard()">{{ wz.step === 'template' ? 'Finish later' : 'Cancel' }}</button>
-                @if (wz.step === 'engine' || wz.step === 'background' || (wz.step === 'source' && wz.engine === 'Procedural3D')) {
+                @if (wz.step === 'engine' || wz.step === 'background' || wz.step === 'source') {
                   <button type="button" class="btn primary" [disabled]="busy()" (click)="wizardNext()">Next</button>
                 }
-                @if (wz.step === 'audio' || (wz.step === 'source' && wz.engine !== 'Procedural3D')) {
+                @if (wz.step === 'audio') {
                   <button type="button" class="btn primary" [disabled]="busy()" (click)="startWizard()">
                     @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> }
                     {{ wz.source === 'template' ? 'Get Template' : (wz.engine === 'Procedural3D' ? 'Render 3D Video' : 'Start AI Story') }}
@@ -1966,8 +2003,20 @@ export class AutomationHubComponent implements OnInit {
   private readonly api = inject(AutomationService);
   private readonly studioApi = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly status = inject(StatusService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Opens the Songs page with this post's story filled in, to write and compose a song about it. */
+  openSongFor(post: AutomationPost): void {
+    const seed: SongSeed = {
+      title: post.title.slice(0, 120),
+      theme: `${post.title}\n\n${post.script ?? ''}`.slice(0, 6000),
+      language: post.language === 'en' ? 'en' : 'hi',
+      postId: post.id,
+    };
+    void this.router.navigate(['/songs'], { state: seed });
+  }
 
   readonly loading = signal(true);
   readonly busy = signal(false);
@@ -2218,6 +2267,33 @@ export class AutomationHubComponent implements OnInit {
     else if (this.detailPostId()) this.closePostDetail();
   }
 
+  /** The post's story paused for a listen or a look (the wizard's "Let me review each step"). */
+  isAwaitingReview(post: AutomationPost): boolean {
+    return post.status === 'GeneratingVideo'
+      && !!post.attachedStoryRunId
+      && (post.storyStageSummary ?? '').startsWith(REVIEW_SUMMARY_PREFIX);
+  }
+
+  /** "the voices", "the music" or "the finished video", from the server's summary. */
+  reviewTarget(post: AutomationPost): string {
+    return (post.storyStageSummary ?? '').slice(REVIEW_SUMMARY_PREFIX.length);
+  }
+
+  /** A story run that failed or was stopped can carry on from its failed step instead of starting over. */
+  canRetryVideo(post: AutomationPost): boolean {
+    return post.status === 'Failed'
+      && !!post.attachedStoryRunId
+      && post.visualEngine !== 'Procedural3D';
+  }
+
+  async retryVideo(post: AutomationPost): Promise<void> {
+    await this.runAction(`ai-video:${post.id}`, async () => {
+      await firstValueFrom(this.api.retryVideo(post.id));
+      this.status.showNotice('Retrying from the failed step. What was already made is kept.');
+      await this.loadOverview(true);
+    });
+  }
+
   isAwaitingScript(post: AutomationPost): boolean {
     return post.status === 'GeneratingVideo'
       && !!post.attachedStoryRunId
@@ -2266,6 +2342,8 @@ export class AutomationHubComponent implements OnInit {
     ];
     if (wz?.engine === 'Procedural3D') {
       steps.push({ key: 'background', label: 'Background' }, { key: 'audio', label: 'Music & voice' });
+    } else {
+      steps.push({ key: 'audio', label: 'Music' });
     }
     if (wz?.source === 'template' || wz?.step === 'template') steps.push({ key: 'template', label: 'Template & Paste' });
     return steps;
@@ -2322,6 +2400,10 @@ export class AutomationHubComponent implements OnInit {
 
   setStageFollowScript(on: boolean): void {
     this.updateStage({ followScriptExactly: !!on });
+  }
+
+  setStageReview(on: boolean): void {
+    this.updateStage({ reviewSteps: !!on });
   }
 
   async toggleTemplateLibrary(): Promise<void> {
@@ -2443,8 +2525,9 @@ export class AutomationHubComponent implements OnInit {
   /** Saves the stage draft to the post so every render path (AI, template paste, autopilot) uses it. */
   private async saveWizardStage(): Promise<boolean> {
     const wz = this.wizard();
-    if (!wz || wz.engine !== 'Procedural3D') return true;
-    if (wz.backdrop === 'picture' && !wz.stage.backgroundTemplateAssetId) {
+    if (!wz) return true;
+    // Story engines save the stage too: the server reads its music choice when it starts the run.
+    if (wz.engine === 'Procedural3D' && wz.backdrop === 'picture' && !wz.stage.backgroundTemplateAssetId) {
       this.status.showError('Upload or pick a background picture, or go Back and choose the animated 3D stage.');
       return false;
     }

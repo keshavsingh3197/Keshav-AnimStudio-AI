@@ -108,6 +108,13 @@ public sealed partial class GeminiSpeechProvider(
     private const int MaxReplicationAudioBytes = 4 * 1024 * 1024;
     private static readonly TimeSpan ReplicationRetryDelay = TimeSpan.FromSeconds(2);
 
+    /// <summary>
+    /// Every Gemini TTS model allows 10 requests a minute (aistudio.google.com/rate-limit), so speech
+    /// calls start at least 6.5 s apart (about 9 a minute). Static, so the limit holds even if more
+    /// than one instance of this provider exists in the process.
+    /// </summary>
+    private static readonly AiRequestPacer SpeechPacer = new(TimeSpan.FromSeconds(6.5));
+
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly SemaphoreSlim _catalogLock = new(1, 1);
     private Catalog? _catalog;
@@ -214,6 +221,7 @@ public sealed partial class GeminiSpeechProvider(
             }
         };
 
+        await SpeechPacer.WaitTurnAsync(ct).ConfigureAwait(false);
         using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
 
         var (data, mimeType) = ReadInlineAudio(response.RootElement)

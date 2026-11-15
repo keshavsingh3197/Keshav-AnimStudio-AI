@@ -402,6 +402,8 @@ export interface StoryBuildOptions {
   renderWhenReady: boolean;
   /** Skips every review: the script, the voice, the music and the video. */
   autoApprove: boolean;
+  /** With autoApprove (auto posts): still pause after the voice, the music and the video for a review. */
+  reviewSteps?: boolean;
   /** How fast the finished video plays (1 = as built). The download, YouTube and the subtitles all use it. */
   videoSpeed?: number;
   /** Let the app pick videoSpeed from how fast the narration came out. Choosing a speed by hand turns it off. */

@@ -239,6 +239,14 @@ public sealed class AutomationController(
             request?.UseTemplateScript ?? false)));
     }
 
+    /// <summary>Starts the post's failed story run again from the step it stopped at, keeping what was already made.</summary>
+    [HttpPost("queue/{id}/retry-video")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> RetryVideo(string id, CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.RetryAiVideoAsync(currentUser.UserId, id, ct)));
+    }
+
     /// <summary>The copy-and-paste script template for an outside AI tool (story JSON or 3D dialogue).</summary>
     [HttpGet("queue/{id}/script-template")]
     public async Task<ActionResult<ApiResponse<AutomationScriptTemplate>>> ScriptTemplate(
