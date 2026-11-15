@@ -75,9 +75,10 @@ public sealed class SystemHealthService(
             await LocalAiToolAsync(
                 KnownAiProviders.WhisperCppLocal, "Listening (whisper.cpp)", ["--help"],
                 "ModelsPath", ".bin", "model", ct).ConfigureAwait(false),
-            await DatabaseAsync(ct).ConfigureAwait(false),
             await StorageAsync(ct).ConfigureAwait(false)
         };
+
+        probes.AddRange(await DatabaseProbesAsync(ct).ConfigureAwait(false));
 
         return new SystemHealthReport(clock.GetUtcNow().UtcDateTime, probes);
     }
@@ -174,54 +175,71 @@ public sealed class SystemHealthService(
         }
     }
 
-    private async Task<HealthProbe> DatabaseAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<HealthProbe>> DatabaseProbesAsync(CancellationToken ct)
     {
+        var list = new List<HealthProbe>(2);
+
         if (sqlFactory != null)
         {
-            try
-            {
-                await using var conn = await sqlFactory.OpenConnectionAsync(ct).ConfigureAwait(false);
-                await using var cmd = new SqlCommand("SELECT 1", conn);
-                var res = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-                return Convert.ToInt32(res) == 1
-                    ? new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Ok, "Responding on localhost.", Required: true)
-                    : new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed, "Did not return expected probe result.", Required: true);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "SQL Server health probe failed.");
-                return new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed,
-                    "Could not connect to SQL Server on localhost.",
-                    "Ensure SQL Server service is running in SQL Server Configuration Manager or SSMS.",
-                    Required: true);
-            }
+            list.Add(await ProbeSqlServerAsync(sqlFactory, ct).ConfigureAwait(false));
         }
 
         if (mongo != null)
         {
-            try
-            {
-                var result = await mongo.Database
-                    .RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct)
-                    .ConfigureAwait(false);
-
-                return result.GetValue("ok", 0).ToDouble() >= 1
-                    ? new HealthProbe("mongo", "Database (MongoDB)", HealthState.Ok, "Responding.", Required: true)
-                    : new HealthProbe("mongo", "Database (MongoDB)", HealthState.Failed,
-                        "The database answered, but not with an acknowledgement.", Required: true);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Database health probe failed.");
-
-                return new HealthProbe("mongo", "Database (MongoDB)", HealthState.Failed,
-                    "Could not be reached.",
-                    "Check Mongo:ConnectionString.",
-                    Required: true);
-            }
+            list.Add(await ProbeMongoAsync(mongo, ct).ConfigureAwait(false));
         }
 
-        return new HealthProbe("database", "Database", HealthState.Degraded, "No database provider configured.", Required: true);
+        if (list.Count == 0)
+        {
+            list.Add(new HealthProbe("database", "Database", HealthState.Degraded, "No database provider configured.", Required: true));
+        }
+
+        return list;
+    }
+
+    private async Task<HealthProbe> ProbeSqlServerAsync(ISqlConnectionFactory factory, CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+            await using var cmd = new SqlCommand("SELECT 1", conn);
+            var res = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            return Convert.ToInt32(res) == 1
+                ? new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Ok, "Responding on localhost.", Required: true)
+                : new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed, "Did not return expected probe result.", Required: true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "SQL Server health probe failed.");
+            return new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed,
+                "Could not connect to SQL Server on localhost.",
+                "Ensure SQL Server service is running in SQL Server Configuration Manager or SSMS.",
+                Required: true);
+        }
+    }
+
+    private async Task<HealthProbe> ProbeMongoAsync(MongoDbService mongoClient, CancellationToken ct)
+    {
+        try
+        {
+            var result = await mongoClient.Database
+                .RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct)
+                .ConfigureAwait(false);
+
+            return result.GetValue("ok", 0).ToDouble() >= 1
+                ? new HealthProbe("mongo", "Database (MongoDB)", HealthState.Ok, "Responding.", Required: true)
+                : new HealthProbe("mongo", "Database (MongoDB)", HealthState.Failed,
+                    "The database answered, but not with an acknowledgement.", Required: true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Database health probe failed.");
+
+            return new HealthProbe("mongo", "Database (MongoDB)", HealthState.Failed,
+                "Could not be reached.",
+                "Check Mongo:ConnectionString.",
+                Required: true);
+        }
     }
 
     /// <summary>
