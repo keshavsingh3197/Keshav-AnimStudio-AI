@@ -516,7 +516,7 @@ public sealed class ProceduralVideoGeneratorService(
         return string.Join('\n', wrapped);
     }
 
-    private static List<string> BuildFfmpegArguments(
+    internal static List<string> BuildFfmpegArguments(
         int width,
         int height,
         int fps,
@@ -551,10 +551,10 @@ public sealed class ProceduralVideoGeneratorService(
 
         if (hasSpeech && hasBgm)
         {
-            // Loudness-normalize speech to -16 LUFS, split for sidechain key + dry voice, and duck loopable BGM cleanly.
+            // Loudness-normalize speech to -16 LUFS, resample back from loudnorm's 192kHz to 48kHz stereo, then duck loopable BGM cleanly.
             var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
             var audioFilter = string.Create(CultureInfo.InvariantCulture,
-                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=channel_layouts=stereo,volume=0.18[bg];[bg][sp1]sidechaincompress=threshold=0.014:ratio=8:attack=30:release=340[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
 
             args.AddRange([
                 "-filter_complex", videoFilter + audioFilter,
@@ -567,7 +567,7 @@ public sealed class ProceduralVideoGeneratorService(
             args.AddRange([
                 "-map", "0:v",
                 "-map", "1:a",
-                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9")
+                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo")
             ]);
             if (hasSubtitles)
                 args.AddRange(["-vf", "ass=in/subs.ass"]);
@@ -577,7 +577,7 @@ public sealed class ProceduralVideoGeneratorService(
             args.AddRange([
                 "-map", "0:v",
                 "-map", "1:a",
-                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
+                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
             ]);
             if (hasSubtitles)
                 args.AddRange(["-vf", "ass=in/subs.ass"]);
@@ -600,7 +600,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         if (hasSpeech || hasBgm)
         {
-            args.AddRange(["-c:a", "aac", "-b:a", "128k", "-t", durStr, "-shortest"]);
+            args.AddRange(["-c:a", "aac", "-profile:a", "aac_low", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-t", durStr, "-shortest"]);
         }
         else
         {

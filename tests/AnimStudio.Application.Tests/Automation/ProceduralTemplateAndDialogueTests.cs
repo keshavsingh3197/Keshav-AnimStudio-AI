@@ -648,4 +648,72 @@ public sealed class ProceduralTemplateAndDialogueTests
         Assert.Contains("Om", spoken, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("namo", spoken, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void BuildFfmpegArguments_resamples_to_48kHz_stereo_AAC_LC_after_loudnorm_with_audible_bgm()
+    {
+        var speechAndBgm = string.Join(' ', ProceduralVideoGeneratorService.BuildFfmpegArguments(
+            720, 1280, 24, 30, hasSpeech: true, hasBgm: true, hasSubtitles: true));
+        Assert.Contains("loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2]", speechAndBgm);
+        Assert.Contains(",volume=0.45[bg]", speechAndBgm);
+        Assert.Contains("sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380", speechAndBgm);
+        Assert.Contains("amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", speechAndBgm);
+        Assert.Contains("-c:a aac -profile:a aac_low -ar 48000 -ac 2 -b:a 192k", speechAndBgm);
+
+        var speechOnly = string.Join(' ', ProceduralVideoGeneratorService.BuildFfmpegArguments(
+            720, 1280, 24, 30, hasSpeech: true, hasBgm: false, hasSubtitles: true));
+        Assert.Contains("loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", speechOnly);
+        Assert.Contains("-c:a aac -profile:a aac_low -ar 48000 -ac 2 -b:a 192k", speechOnly);
+
+        var bgmOnly = string.Join(' ', ProceduralVideoGeneratorService.BuildFfmpegArguments(
+            720, 1280, 24, 30, hasSpeech: false, hasBgm: true, hasSubtitles: false));
+        Assert.Contains("aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", bgmOnly);
+        Assert.Contains("-c:a aac -profile:a aac_low -ar 48000 -ac 2 -b:a 192k", bgmOnly);
+    }
+
+    [Fact]
+    public void ProceduralBgmCacheService_IsStereo48kWav_distinguishes_48kHz_stereo_from_192kHz_and_mono()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "animstudio-wavhdr-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var wav48k = Path.Combine(dir, "ok-48k-stereo.wav");
+            var wav192k = Path.Combine(dir, "bad-192k-stereo.wav");
+            var wavMono = Path.Combine(dir, "bad-48k-mono.wav");
+
+            WriteTestPcmHeader(wav48k, sampleRate: 48_000, channels: 2, bitsPerSample: 16);
+            WriteTestPcmHeader(wav192k, sampleRate: 192_000, channels: 2, bitsPerSample: 16);
+            WriteTestPcmHeader(wavMono, sampleRate: 48_000, channels: 1, bitsPerSample: 16);
+
+            Assert.True(ProceduralBgmCacheService.IsStereo48kWav(wav48k));
+            Assert.False(ProceduralBgmCacheService.IsStereo48kWav(wav192k));
+            Assert.False(ProceduralBgmCacheService.IsStereo48kWav(wavMono));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+
+        static void WriteTestPcmHeader(string path, int sampleRate, short channels, short bitsPerSample)
+        {
+            using var fs = File.Create(path);
+            using var bw = new BinaryWriter(fs);
+            var byteRate = sampleRate * channels * (bitsPerSample / 8);
+            var blockAlign = (short)(channels * (bitsPerSample / 8));
+            bw.Write("RIFF"u8);
+            bw.Write(36);
+            bw.Write("WAVE"u8);
+            bw.Write("fmt "u8);
+            bw.Write(16);
+            bw.Write((short)1);
+            bw.Write(channels);
+            bw.Write(sampleRate);
+            bw.Write(byteRate);
+            bw.Write(blockAlign);
+            bw.Write(bitsPerSample);
+            bw.Write("data"u8);
+            bw.Write(0);
+        }
+    }
 }
