@@ -1784,9 +1784,12 @@ export class AutomationHubComponent implements OnInit {
 
   async syncToPanchangHub(post: AutomationPost): Promise<void> {
     await this.runAction(`sync:${post.id}`, async () => {
-      await firstValueFrom(this.api.syncToPanchang(post.id));
-      this.status.showNotice(`Synced "${post.title}" to Panchang Videos Hub!`);
-      await this.loadOverview(true);
+      try {
+        await firstValueFrom(this.api.syncToPanchang(post.id));
+        this.status.showNotice(`Synced "${post.title}" to Panchang Videos Hub!`);
+      } finally {
+        await this.loadOverview(true);
+      }
     });
   }
 
@@ -1961,10 +1964,13 @@ export class AutomationHubComponent implements OnInit {
     this.busy.set(true);
     this.busyAction.set(actionName);
     this.errorMessage.set(null);
+    this.status.clearError();
     try {
       await work();
     } catch (err: unknown) {
-      this.errorMessage.set(this.readErr(err, 'Action failed.'));
+      const msg = this.readErr(err, 'Action failed.');
+      this.errorMessage.set(msg);
+      this.status.showError(msg);
     } finally {
       this.busy.set(false);
       this.busyAction.set(null);
