@@ -143,6 +143,9 @@ public sealed class StoryBuildOptions
 
     public StoryVisualMode Visuals { get; set; } = StoryVisualMode.Auto;
 
+    /// <summary>Optional existing AnimStudio storage asset IDs selected to supply scene visuals before/instead of AI generation.</summary>
+    public List<string> StorageAssetIds { get; set; } = [];
+
     /// <summary>The picture style every generated image is asked for, after the scene's own subject.</summary>
     public string? ImageStyle { get; set; }
 

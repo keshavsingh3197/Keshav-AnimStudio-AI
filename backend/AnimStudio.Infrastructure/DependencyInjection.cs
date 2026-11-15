@@ -588,6 +588,15 @@ public static class DependencyInjection
                         sp.GetRequiredService<ILogger<PollinationsImageProvider>>()));
                     break;
 
+                case AiProviderFamily.GeminiImage:
+                    services.AddSingleton<IAiProvider>(sp => new GeminiImageProvider(
+                        providerId,
+                        sp.GetRequiredService<IAiHttpClientFactory>(),
+                        sp.GetRequiredService<IAiSecretResolver>(),
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<GeminiImageProvider>>()));
+                    break;
+
                 case AiProviderFamily.CloudflareWorkersAiImage:
                     services.AddSingleton<IAiProvider>(sp => new CloudflareWorkersAiImageProvider(
                         providerId,

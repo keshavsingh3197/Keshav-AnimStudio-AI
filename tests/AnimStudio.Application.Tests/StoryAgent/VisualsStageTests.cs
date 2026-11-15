@@ -5,6 +5,9 @@ using AnimStudio.Application.Ai;
 using AnimStudio.Application.StoryAgent;
 using AnimStudio.Application.StoryAgent.Stages;
 using AnimStudio.Application.Tests.Ai;
+using AnimStudio.Application.Tests.Editing;
+using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Stories;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -264,5 +267,101 @@ public sealed class VisualsStageTests
         await stop.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stage.RunAsync(Context(run), stop.Token));
+    }
+
+    [Fact]
+    public async Task Storage_asset_ids_cycle_round_robin_across_scenes_in_uploads_only_mode()
+    {
+        var ai = new FakeAi();
+        var store = new InMemoryObjectStore();
+        var repo = new FakeAssetRepository();
+        var bytesOne = StoryTestData.Png(12);
+        var bytesTwo = StoryTestData.Png(24);
+        await store.SaveAsync("projects/p1/assets/img1.png", new MemoryStream(bytesOne), "image/png");
+        await store.SaveAsync("projects/p1/assets/img2.png", new MemoryStream(bytesTwo), "image/png");
+        repo.Items.Add(new Asset { Id = "img-1", ProjectId = "p1", Kind = AssetKind.Image, Name = "Palace", StorageKey = "projects/p1/assets/img1.png", MimeType = "image/png" });
+        repo.Items.Add(new Asset { Id = "img-2", ProjectId = "p1", Kind = AssetKind.Image, Name = "Forest", StorageKey = "projects/p1/assets/img2.png", MimeType = "image/png" });
+
+        var stage = new VisualsStage(ai, store, NullLogger<VisualsStage>.Instance, registry: null, assets: repo);
+        var run = BuildingRun();
+        run.Options.Visuals = StoryVisualMode.UploadsOnly;
+        run.Options.StorageAssetIds = ["img-1", "img-2"];
+        while (run.Script!.Scenes.Count < 4)
+        {
+            var nextNum = run.Script.Scenes.Count + 1;
+            run.Script.Scenes.Add(new StoryScene { Number = nextNum, Narration = $"Scene {nextNum}", ImagePrompt = $"Scene {nextNum}" });
+        }
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.Empty(ai.ImageCalls);
+        Assert.All(run.Script.Scenes, scene =>
+        {
+            Assert.Equal("storage", scene.ImageSource);
+            Assert.False(string.IsNullOrWhiteSpace(scene.ImageKey));
+        });
+        Assert.Equal("Palace", run.Script.Scenes[0].ImageName);
+        Assert.Equal("Forest", run.Script.Scenes[1].ImageName);
+        Assert.Equal("Palace", run.Script.Scenes[2].ImageName);
+        Assert.Equal("Forest", run.Script.Scenes[3].ImageName);
+    }
+
+    [Fact]
+    public async Task Gemini_speech_key_fallback_generates_scene_images_when_image_engine_is_unavailable()
+    {
+        var ai = new FakeAi();
+        var store = new InMemoryObjectStore();
+        var gemini = new FakeGeminiFallbackProvider(StoryTestData.Png(33));
+        var registry = new FakeGeminiRegistry(gemini);
+        var stage = new VisualsStage(ai, store, NullLogger<VisualsStage>.Instance, registry: registry);
+        var run = BuildingRun();
+
+        var outcome = await stage.RunAsync(Context(run), CancellationToken.None);
+
+        Assert.Equal(StoryStageResult.Completed, outcome.Result);
+        Assert.NotEmpty(ai.ImageCalls);
+        Assert.Equal(run.Script!.Scenes.Count, gemini.ImageCalls.Count);
+        Assert.All(run.Script.Scenes, scene => Assert.Equal("gemini-image", scene.ImageSource));
+        Assert.Contains("generated", outcome.Message);
+    }
+
+    private sealed class FakeGeminiFallbackProvider(byte[] pngBytes) : ISpeechAiProvider, IGeminiImageGeneratingProvider
+    {
+        public List<AiImageRequest> ImageCalls { get; } = [];
+        public AiProviderId Id => AiProviderId.Parse("gemini-tts");
+        public AiCapability Capability => AiCapability.Speech;
+        public bool IsConfigured => true;
+        public Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct) => Task.FromResult(AiProviderHealth.Healthy);
+        public Task<IReadOnlyList<AiVoice>> ListVoicesAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<AiVoice>>([]);
+        public Task<AiSpeechResult> SynthesizeAsync(AiSpeechRequest request, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<AiImageResult> GenerateSceneImageAsync(AiImageRequest request, string? model, CancellationToken ct)
+        {
+            ImageCalls.Add(request);
+            return Task.FromResult(new AiImageResult(
+                pngBytes,
+                "image/png",
+                new AiProvenance
+                {
+                    ProviderId = "gemini-image",
+                    Capability = AiCapability.Image,
+                    Model = model ?? "gemini-2.5-flash-image",
+                    GeneratedAtUtc = DateTime.UtcNow
+                }));
+        }
+    }
+
+    private sealed class FakeGeminiRegistry(ISpeechAiProvider speech) : IAiProviderRegistry
+    {
+        public IReadOnlyList<ITextAiProvider> TextChain() => [];
+        public IReadOnlyList<ITextAiProvider> UsableTextProviders() => [];
+        public IReadOnlyList<IImageAiProvider> ImageChain() => [];
+        public IReadOnlyList<ISpeechAiProvider> SpeechChain() => [speech];
+        public IReadOnlyList<ITranscriptionProvider> TranscriptionChain() => [];
+        public AiCapabilityStatus Describe(AiCapability capability) =>
+            new(capability, null, null, false, AiUnavailableReason.NotConfigured, []);
+        public IReadOnlyList<AiCapabilityStatus> DescribeAll() => [];
+        public void ReportOutcome(AiProviderId providerId, bool success) { }
     }
 }

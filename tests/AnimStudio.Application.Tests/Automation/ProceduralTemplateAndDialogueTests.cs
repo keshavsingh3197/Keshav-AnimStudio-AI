@@ -716,4 +716,36 @@ public sealed class ProceduralTemplateAndDialogueTests
             bw.Write(0);
         }
     }
+
+    [Fact]
+    public void DialogueScriptParser_preserves_narrator_and_more_than_two_distinct_speakers_in_full_story()
+    {
+        var script =
+            "[सूत्रधार]: आइए सुनते हैं बालक ध्रुव की अमर कथा, जब पाँच वर्ष के राजकुमार ने अटल स्थान पाने का संकल्प लिया।\n" +
+            "[बालक ध्रुव]: माँ सुनीति, पिता की गोद से मुझे क्यों उतारा गया? क्या भगवान मुझे भी अपनाएंगे?\n" +
+            "[रानी सुनीति]: बेटा ध्रुव, केवल भगवान श्रीहरि नारायण की शरण में ही परम अटल स्थान मिलता है।\n" +
+            "[देवर्षि नारद मुनि]: वत्स ध्रुव, मधुवन में जाकर 'ॐ नमो भगवते वासुदेवाय' मंत्र का निरंतर जप करो।\n" +
+            "[भगवान श्रीहरि विष्णु]: तेरी निश्छल भक्ति से मैं प्रसन्न हूँ; तू आकाश में ध्रुव तारे के रूप में अटल रहेगा।\n" +
+            "[सूत्रधार]: इस कथा से सीख मिलती है कि अटूट श्रद्धा और धैर्य से असंभव भी संभव हो जाता है।";
+
+        var plan = DialogueScriptParser.ParsePlan(
+            title: "भक्त ध्रुव की अमर कथा",
+            script: script,
+            prompt: null,
+            durationSeconds: 165,
+            enableDialogue: true,
+            eventType: "DailyKatha");
+
+        Assert.True(plan.HasCharacters);
+        Assert.Contains(plan.Turns, t => t.Slot == DialogueSpeakerSlot.Narrator && t.SpeakerName == "सूत्रधार");
+        var distinctSpeakers = plan.Turns
+            .Where(t => !t.IsTitleHook)
+            .Select(t => t.SpeakerName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        Assert.True(distinctSpeakers.Count >= 4, $"Expected >= 4 speakers (Narrator + cast), got: {string.Join(", ", distinctSpeakers)}");
+        Assert.Contains("बालक ध्रुव", distinctSpeakers);
+        Assert.Contains("रानी सुनीति", distinctSpeakers);
+        Assert.Contains("देवर्षि नारद मुनि", distinctSpeakers);
+    }
 }

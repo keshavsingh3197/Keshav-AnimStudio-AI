@@ -1,10 +1,11 @@
 import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import {
+  AutomationNarrativeMode,
   AutomationOverview,
   AutomationPost,
   AutomationPostMode,
@@ -12,9 +13,11 @@ import {
   AutomationRule,
   AutomationService,
   AutomationSourceType,
+  AutomationStorageCatalog,
   AutomationVideoCandidate,
   AutomationVideoFormat,
   AutomationVideoStrategy,
+  AutomationVisualEngine,
   AutomationWorkspaceConfig,
   SubtitleMotionPreset,
 } from '../../core/services/automation.service';
@@ -75,10 +78,23 @@ const STATUS_BADGE: Record<AutomationPostStatus, { label: string; tone: string }
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+const VISUAL_ENGINE_OPTIONS: { value: AutomationVisualEngine; label: string; hint: string }[] = [
+  { value: 'Auto', label: 'Auto Engine', hint: 'Follow rule strategy' },
+  { value: 'AiRealisticStory', label: 'AI Realistic Story', hint: 'Multi-scene AI visuals + characters + TTS + BGM' },
+  { value: 'StorageImagesStory', label: 'Storage Images + Story', hint: 'Animate your Studio Storage pictures with AI voice & cast' },
+  { value: 'Procedural3D', label: 'Enhanced 3D Animated', hint: 'Fast local multi-act 3D stage + optional storage backdrops' },
+];
+
+const NARRATIVE_MODE_OPTIONS: { value: AutomationNarrativeMode; label: string; shortLabel: string }[] = [
+  { value: 'Auto', label: 'Auto (Short 9:16 / Full Story 16:9)', shortLabel: 'Auto Length' },
+  { value: 'ShortReel', label: 'Short Reel (<= 60s)', shortLabel: 'Short <= 60s' },
+  { value: 'FullStory', label: 'Full Complete Story (< 3 min / <= 180s)', shortLabel: 'Full Story < 3m' },
+];
+
 @Component({
   selector: 'app-automation-hub',
   standalone: true,
-  imports: [CommonModule, FormsModule, LoadingStateComponent],
+  imports: [CommonModule, FormsModule, RouterLink, LoadingStateComponent],
   template: `
     <div class="auto-page">
       <header class="auto-hero">
@@ -299,6 +315,17 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                         }
                       </div>
                     </div>
+                    <div class="format-strip">
+                      <span class="lbl">Length:</span>
+                      <div class="filter-pills">
+                        @for (nm of narrativeModeOptions; track nm.value) {
+                          <button type="button" [class.active]="(post.narrativeMode || 'Auto') === nm.value"
+                                  [disabled]="busy()" (click)="changePostNarrativeMode(post, nm.value)">
+                            {{ nm.shortLabel }}
+                          </button>
+                        }
+                      </div>
+                    </div>
                   }
 
                   @if (post.format === 'CommunityPost') {
@@ -345,35 +372,77 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                   } @else {
                     <!-- Video attachment box -->
                     <div class="video-box" [class.has-video]="!!(post.attachedHandoffId || post.attachedRenderJobId)">
-                      @if (post.attachedVideoSourceLabel) {
-                        <div class="video-info">
-                          <strong>Video:</strong> {{ post.attachedVideoSourceLabel }}
-                        </div>
-                      } @else {
-                        <div class="video-info muted">
-                          No video attached yet — attach a Drive clip, attach a Studio Render, or generate one with AI.
-                        </div>
-                      }
-                      @if (post.status !== 'Published' && post.status !== 'Publishing') {
-                        <div class="video-actions">
+                      <div class="video-box-main">
+                        @if (post.attachedVideoSourceLabel) {
+                          <div class="video-info">
+                            <strong>Video:</strong> {{ post.attachedVideoSourceLabel }}
+                          </div>
+                        } @else {
+                          <div class="video-info muted">
+                            No video attached yet — generate a Realistic AI Story, Storage Images Story, Enhanced 3D video, or pick Drive/Render.
+                          </div>
+                        }
+
+                        @if (post.status === 'GeneratingVideo' || ((post.storyProgressPercent ?? 0) > 0 && (post.storyProgressPercent ?? 0) < 100)) {
+                          <div class="story-progress-wrap">
+                            <div class="story-progress-head">
+                              <span>{{ post.storyStageSummary || 'Processing Story Stages…' }}</span>
+                              <strong>{{ post.storyProgressPercent ?? 5 }}%</strong>
+                            </div>
+                            <div class="story-progress-track">
+                              <div class="story-progress-fill" [style.width.%]="post.storyProgressPercent ?? 5"></div>
+                            </div>
+                          </div>
+                        }
+
+                        @if ((post.provisionedCharacterNames?.length ?? 0) > 0) {
+                          <div class="cast-chips-row">
+                            <span class="cast-lbl">Cast:</span>
+                            @for (cname of post.provisionedCharacterNames ?? []; track cname) {
+                              <span class="pill subtle">{{ cname }}</span>
+                            }
+                          </div>
+                        }
+                      </div>
+
+                      <div class="video-actions">
+                        @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                          <select class="compact-select"
+                                  aria-label="Visual rendering engine"
+                                  [ngModel]="post.visualEngine || 'Auto'"
+                                  (ngModelChange)="post.visualEngine = $event; savePostAnimationPrefs(post)">
+                            @for (ve of visualEngineOptions; track ve.value) {
+                              <option [value]="ve.value">{{ ve.label }}</option>
+                            }
+                          </select>
                           <button type="button" class="btn tiny primary" [disabled]="busy()"
-                                  title="Generates an animated 2D/3D MP4 directly on this server with zero external AI keys"
-                                  (click)="triggerAnimated3DVideo(post)">
-                            {{ busyAction() === 'anim3d:' + post.id ? 'Rendering 3D…' : '⚡ Auto 3D Video' }}
+                                  [title]="post.visualEngine === 'StorageImagesStory' ? 'Generate Story video using picked Studio Storage images' : 'Generate complete multi-scene story video with characters, TTS voice & BGM'"
+                                  (click)="triggerAiVideo(post)">
+                            {{ busyAction() === 'ai-video:' + post.id ? 'Starting…' : (post.visualEngine === 'StorageImagesStory' ? '🖼 Story from Storage' : '🎬 AI Realistic Story') }}
                           </button>
-                          <button type="button" class="btn tiny" [disabled]="busy()" (click)="openVideoPicker(post)">
+                          <button type="button" class="btn tiny" [disabled]="busy()"
+                                  title="Generates an enhanced multi-act 2D/3D MP4 directly on this server"
+                                  (click)="triggerAnimated3DVideo(post)">
+                            {{ busyAction() === 'anim3d:' + post.id ? 'Rendering 3D…' : '⚡ Enhanced 3D' }}
+                          </button>
+                          <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="openStoragePicker({ kind: 'post', post })">
+                            🖼 Storage Images ({{ post.attachedAssetIds?.length ?? 0 }})
+                          </button>
+                          <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="openVideoPicker(post)">
                             Pick Drive / Render
                           </button>
-                          <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="triggerAiVideo(post)">
-                            AI Story Agent
+                        }
+                        @if (post.attachedStoryRunId) {
+                          <a class="btn tiny ghost" [routerLink]="['/story-agent', post.attachedStoryRunId]">
+                            Open in Story Studio ↗
+                          </a>
+                        }
+                        @if (post.attachedRenderJobId) {
+                          <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">
+                            ▶ Preview MP4
                           </button>
-                          @if (post.attachedRenderJobId) {
-                            <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">
-                              ▶ Preview MP4
-                            </button>
-                          }
-                        </div>
-                      }
+                        }
+                      </div>
                     </div>
 
                     @if (post.status !== 'Published' && post.status !== 'Publishing') {
@@ -381,7 +450,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                         <label class="toggle-inline">
                           <input type="checkbox" [ngModel]="post.enableCharacterDialogue ?? true"
                                  (ngModelChange)="post.enableCharacterDialogue = $event; savePostAnimationPrefs(post)" />
-                          <span>2-Character Dialogue</span>
+                          <span>Multi-Character Dialogue</span>
                         </label>
                         <select class="compact-select" [ngModel]="post.subtitlePreset || 'event-glow'"
                                 (ngModelChange)="post.subtitlePreset = $event; savePostAnimationPrefs(post)">
@@ -401,7 +470,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                       <select class="preset-select"
                               [ngModel]="postDurationSeconds(post.id)"
                               (ngModelChange)="setPostDurationSeconds(post.id, $event)"
-                              aria-label="Target 3D video duration">
+                              aria-label="Target video duration">
                         @for (opt of durationModeOptions; track opt.value) {
                           <option [ngValue]="opt.value">{{ opt.label }}</option>
                         }
@@ -531,6 +600,8 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                   <div><span class="lbl">Target Channel:</span> {{ rule.targetChannelTitle || rule.targetChannelHandle || 'Unassigned (select channel)' }}</div>
                   <div><span class="lbl">Drive Topic:</span> {{ rule.topicName || 'Any Topic' }}</div>
                   <div><span class="lbl">Video Strategy:</span> {{ strategyLabel(rule.videoStrategy) }}</div>
+                  <div><span class="lbl">Visual Engine &amp; Length:</span> {{ visualEngineLabel(rule.visualEngine) }} • {{ narrativeModeLabel(rule.narrativeMode) }} ({{ rule.targetSeconds }}s)</div>
+                  <div><span class="lbl">Storage Images:</span> {{ rule.attachedAssetIds?.length ?? 0 }} selected</div>
                   <div><span class="lbl">Websites Linked:</span> {{ rule.funnelWebsiteKeys.length ? rule.funnelWebsiteKeys.join(', ') : 'Auto-matched' }}</div>
                 </div>
 
@@ -653,6 +724,22 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                   <select [(ngModel)]="draft.format">
                     @for (fmt of formatOptions; track fmt.value) {
                       <option [value]="fmt.value">{{ fmt.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Visual Rendering Engine</span>
+                  <select [(ngModel)]="draft.visualEngine">
+                    @for (ve of visualEngineOptions; track ve.value) {
+                      <option [value]="ve.value">{{ ve.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Story Length Mode</span>
+                  <select [(ngModel)]="draft.narrativeMode">
+                    @for (nm of narrativeModeOptions; track nm.value) {
+                      <option [value]="nm.value">{{ nm.label }}</option>
                     }
                   </select>
                 </label>
@@ -797,6 +884,73 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         </div>
       }
 
+      <!-- STORAGE IMAGES PICKER MODAL -->
+      @if (storagePickerTarget(); as spTarget) {
+        <div class="modal-backdrop" (click)="storagePickerTarget.set(null)">
+          <div class="modal-card large" (click)="$event.stopPropagation()">
+            <div class="modal-head">
+              <h2>
+                Pick Storage Images for {{ spTarget.kind === 'post' ? spTarget.post.sourceTitle : spTarget.rule.name }}
+              </h2>
+              <button type="button" class="link-btn" (click)="storagePickerTarget.set(null)">Close ×</button>
+            </div>
+
+            <div class="modal-body">
+              <p class="muted-note">
+                Selected images are animated scene-by-scene in Story Mode or crossfaded as backdrops in Enhanced 3D Mode.
+                ({{ storageSelectedIds().length }} selected)
+              </p>
+
+              @if (loadingStorageCatalog()) {
+                <app-loading-state mode="list" [count]="3" [compact]="true" title="Loading Studio Storage images &amp; character library…" />
+              } @else {
+                @if ((storageCatalog()?.characters?.length ?? 0) > 0) {
+                  <div class="library-chars-strip">
+                    <span class="lbl">Reusable Characters in Studio Library:</span>
+                    <div class="chips-row">
+                      @for (ch of storageCatalog()?.characters ?? []; track ch.id) {
+                        <span class="pill subtle" [style.border-color]="ch.subtitleColorHex || ''">
+                          {{ ch.name }} ({{ ch.projectName }})
+                        </span>
+                      }
+                    </div>
+                  </div>
+                }
+
+                @if ((storageCatalog()?.images?.length ?? 0) === 0) {
+                  <div class="empty-state">
+                    No uploaded images found in your Studio projects yet. Upload images in any Project Assets tab, or switch Visual Engine to <strong>AI Realistic Story</strong> so scenes are generated automatically.
+                  </div>
+                } @else {
+                  <div class="storage-grid">
+                    @for (img of storageCatalog()?.images ?? []; track img.id) {
+                      <button type="button"
+                              class="storage-tile"
+                              [class.selected]="isStorageAssetSelected(img.id)"
+                              (click)="toggleStorageAsset(img.id)">
+                        <img class="storage-thumb" [src]="storageAssetThumbnailUrl(img.id)" [alt]="img.name" loading="lazy" />
+                        <div class="storage-meta">
+                          <strong>{{ img.name }}</strong>
+                          <small>{{ img.projectName }} @if (img.width && img.height) { • {{ img.width }}×{{ img.height }} }</small>
+                        </div>
+                      </button>
+                    }
+                  </div>
+                }
+              }
+            </div>
+
+            <div class="modal-foot">
+              <button type="button" class="btn ghost" (click)="storageSelectedIds.set([])">Clear All</button>
+              <button type="button" class="btn ghost" (click)="storagePickerTarget.set(null)">Cancel</button>
+              <button type="button" class="btn primary" [disabled]="busy()" (click)="applyStoragePicker()">
+                Use Selected ({{ storageSelectedIds().length }})
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+
       <!-- RULE EDITOR MODAL -->
       @if (editingRule(); as rDraft) {
         <div class="modal-backdrop" (click)="editingRule.set(null)">
@@ -858,6 +1012,36 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                     }
                   </select>
                 </label>
+
+                <label class="field">
+                  <span>Visual Rendering Engine</span>
+                  <select [(ngModel)]="rDraft.visualEngine">
+                    @for (ve of visualEngineOptions; track ve.value) {
+                      <option [ngValue]="ve.value">{{ ve.label }}</option>
+                    }
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Story Length Mode</span>
+                  <select [ngModel]="rDraft.narrativeMode || 'Auto'" (ngModelChange)="onRuleNarrativeChange(rDraft, $event)">
+                    @for (nm of narrativeModeOptions; track nm.value) {
+                      <option [ngValue]="nm.value">{{ nm.label }}</option>
+                    }
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Target Duration (seconds, 25–180)</span>
+                  <input type="number" min="25" max="180" [(ngModel)]="rDraft.targetSeconds" />
+                </label>
+
+                <div class="field">
+                  <span>Default Storage Images (Story / 3D Backdrops)</span>
+                  <button type="button" class="btn ghost" (click)="openStoragePicker({ kind: 'rule', rule: rDraft })">
+                    🖼 Pick Storage Images ({{ rDraft.attachedAssetIds?.length ?? 0 }})
+                  </button>
+                </div>
 
                 <label class="field">
                   <span>Format</span>
@@ -1139,6 +1323,25 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     .poll-chip { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; background: var(--sunk-1); border: 1px solid var(--border); color: var(--text-dim); }
     .promo-preview-wrap { display: flex; justify-content: center; background: #090b12; border-radius: var(--radius-sm); padding: 8px; border: 1px solid var(--border); }
     .promo-card-thumb { width: min(220px, 100%); aspect-ratio: 1 / 1; border-radius: 6px; object-fit: cover; }
+    .video-box-main { display: flex; flex-direction: column; gap: 6px; flex: 1 1 260px; min-width: 0; }
+    .story-progress-wrap { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 6px; background: var(--sunk-1); border: 1px solid var(--border); }
+    .story-progress-head { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--brand-bright); gap: 8px; }
+    .story-progress-track { width: 100%; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+    .story-progress-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--ok)); transition: width .35s ease; }
+    .cast-chips-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+    .cast-lbl { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .library-chars-strip { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border); }
+    .library-chars-strip .lbl { font-size: 11.5px; font-weight: 700; color: var(--text-dim); }
+    .storage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .storage-tile {
+      display: flex; flex-direction: column; text-align: left; padding: 6px; gap: 6px; cursor: pointer;
+      background: var(--surface-2); border: 2px solid var(--border); border-radius: var(--radius-sm); color: var(--text);
+    }
+    .storage-tile.selected { border-color: var(--brand); background: var(--brand-subtle); box-shadow: 0 0 0 1px var(--brand); }
+    .storage-thumb { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 4px; background: #090b12; }
+    .storage-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .storage-meta strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .storage-meta small { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     @media (max-width: 680px) {
       .auto-page { padding: 14px 12px 48px; }
       .posts-grid { grid-template-columns: 1fr; }
@@ -1176,9 +1379,20 @@ export class AutomationHubComponent implements OnInit {
   readonly editingRule = signal<AutomationRule | null>(null);
   readonly editingRuleIsNew = signal(false);
 
+  readonly storageCatalog = signal<AutomationStorageCatalog | null>(null);
+  readonly loadingStorageCatalog = signal(false);
+  readonly storagePickerTarget = signal<
+    | { kind: 'post'; post: AutomationPost }
+    | { kind: 'rule'; rule: AutomationRule }
+    | null
+  >(null);
+  readonly storageSelectedIds = signal<string[]>([]);
+
   readonly dayNames = DAY_NAMES;
   readonly formatOptions = FORMAT_OPTIONS;
   readonly subtitlePresets = SUBTITLE_PRESETS;
+  readonly visualEngineOptions = VISUAL_ENGINE_OPTIONS;
+  readonly narrativeModeOptions = NARRATIVE_MODE_OPTIONS;
   readonly sourceTypes: AutomationSourceType[] = [
     'HinduPanchang',
     'HinduFestival',
@@ -1221,11 +1435,11 @@ export class AutomationHubComponent implements OnInit {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly durationModeOptions: ReadonlyArray<{ value: number; label: string }> = [
-    { value: 0, label: 'Auto Fit (Short ~60s / Wide 16:9 Full Story)' },
-    { value: 60, label: 'Short (~60s)' },
-    { value: 90, label: 'Extended Short (~90s)' },
-    { value: 150, label: 'Full Story (~2.5 min)' },
-    { value: 240, label: 'Complete Katha (~4 min)' },
+    { value: 0, label: 'Auto Fit (Short <= 60s / Story <= 165s)' },
+    { value: 55, label: 'Short Reel (~55s)' },
+    { value: 90, label: 'Medium Story (~90s)' },
+    { value: 145, label: 'Full Story (~2.5 min)' },
+    { value: 180, label: 'Complete Katha / Story (< 3 min / 180s)' },
   ];
   private readonly postDurationMap = new Map<string, number>();
 
@@ -1259,7 +1473,7 @@ export class AutomationHubComponent implements OnInit {
       if (ov?.posts.some((p) => p.status === 'GeneratingVideo' || p.status === 'Publishing')) {
         void this.loadOverview(true);
       }
-    }, 15_000);
+    }, 5_000);
     this.destroyRef.onDestroy(() => {
       if (this.pollTimer) clearInterval(this.pollTimer);
     });
@@ -1306,6 +1520,18 @@ export class AutomationHubComponent implements OnInit {
 
   strategyLabel(strategy: AutomationVideoStrategy): string {
     return STRATEGY_LABELS[strategy] ?? strategy;
+  }
+
+  visualEngineLabel(engine?: AutomationVisualEngine | null): string {
+    return VISUAL_ENGINE_OPTIONS.find((v) => v.value === (engine ?? 'Auto'))?.label ?? 'Auto Engine';
+  }
+
+  narrativeModeLabel(mode?: AutomationNarrativeMode | null): string {
+    return NARRATIVE_MODE_OPTIONS.find((m) => m.value === (mode ?? 'Auto'))?.shortLabel ?? 'Auto Length';
+  }
+
+  storageAssetThumbnailUrl(assetId: string): string {
+    return this.api.storageAssetThumbnailUrl(assetId);
   }
 
   async onDateChange(date: string): Promise<void> {
@@ -1364,7 +1590,12 @@ export class AutomationHubComponent implements OnInit {
   }
 
   openPostEditor(post: AutomationPost): void {
-    this.editingPost.set({ ...post, tags: [...post.tags], trackedFunnelUrls: [...post.trackedFunnelUrls] });
+    this.editingPost.set({
+      ...post,
+      tags: [...post.tags],
+      trackedFunnelUrls: [...post.trackedFunnelUrls],
+      attachedAssetIds: [...(post.attachedAssetIds ?? [])],
+    });
     this.editingTagsCsv = post.tags.join(', ');
   }
 
@@ -1411,9 +1642,22 @@ export class AutomationHubComponent implements OnInit {
   }
 
   async triggerAiVideo(post: AutomationPost): Promise<void> {
-    await this.runAction('ai-video', async () => {
-      await firstValueFrom(this.api.generateVideo(post.id));
-      this.status.showNotice('Started AI Story Agent render. It will attach automatically when finished.');
+    const chosenDuration = this.postDurationSeconds(post.id);
+    const engine = post.visualEngine ?? 'Auto';
+    await this.runAction(`ai-video:${post.id}`, async () => {
+      const updated = await firstValueFrom(
+        this.api.generateVideo(post.id, {
+          visualEngine: engine,
+          narrativeMode: post.narrativeMode ?? 'Auto',
+          targetSeconds: chosenDuration > 0 ? chosenDuration : (post.targetSeconds ?? null),
+          attachedAssetIds: post.attachedAssetIds ?? [],
+        })
+      );
+      if (engine === 'Procedural3D') {
+        this.status.showNotice(`Rendered Enhanced 3D video: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
+      } else {
+        this.status.showNotice('Started multi-scene Story Agent render (cast + voice + visuals + BGM). Live progress will update automatically.');
+      }
       await this.loadOverview(true);
     });
   }
@@ -1429,11 +1673,79 @@ export class AutomationHubComponent implements OnInit {
           subtitlePreset: (post.subtitlePreset as SubtitleMotionPreset | undefined) || 'event-glow',
           speakerAName: post.speakerAName ?? null,
           speakerBName: post.speakerBName ?? null,
+          narrativeMode: post.narrativeMode ?? 'Auto',
+          attachedAssetIds: post.attachedAssetIds ?? [],
         })
       );
-      this.status.showNotice(`Generated 3D animated MP4: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
+      this.status.showNotice(`Generated enhanced 3D animated MP4: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
       await this.loadOverview(true);
     });
+  }
+
+  async changePostNarrativeMode(post: AutomationPost, mode: AutomationNarrativeMode): Promise<void> {
+    if ((post.narrativeMode ?? 'Auto') === mode) return;
+    post.narrativeMode = mode;
+    if (mode === 'FullStory') {
+      post.targetSeconds = 165;
+      this.setPostDurationSeconds(post.id, 180);
+    } else if (mode === 'ShortReel') {
+      post.targetSeconds = 55;
+      this.setPostDurationSeconds(post.id, 55);
+    } else {
+      post.targetSeconds = null;
+      this.setPostDurationSeconds(post.id, 0);
+    }
+    await this.savePostAnimationPrefs(post);
+  }
+
+  async openStoragePicker(target: { kind: 'post'; post: AutomationPost } | { kind: 'rule'; rule: AutomationRule }): Promise<void> {
+    const current = target.kind === 'post' ? (target.post.attachedAssetIds ?? []) : (target.rule.attachedAssetIds ?? []);
+    this.storageSelectedIds.set([...current]);
+    this.storagePickerTarget.set(target);
+    if (this.storageCatalog()) return;
+    this.loadingStorageCatalog.set(true);
+    try {
+      const cat = await firstValueFrom(this.api.getStorageMediaCatalog());
+      this.storageCatalog.set(cat);
+    } catch (err: unknown) {
+      this.errorMessage.set(this.readErr(err, 'Could not load Studio Storage image library.'));
+    } finally {
+      this.loadingStorageCatalog.set(false);
+    }
+  }
+
+  isStorageAssetSelected(assetId: string): boolean {
+    return this.storageSelectedIds().includes(assetId);
+  }
+
+  toggleStorageAsset(assetId: string): void {
+    const cur = this.storageSelectedIds();
+    if (cur.includes(assetId)) {
+      this.storageSelectedIds.set(cur.filter((id) => id !== assetId));
+    } else {
+      this.storageSelectedIds.set([...cur, assetId]);
+    }
+  }
+
+  async applyStoragePicker(): Promise<void> {
+    const target = this.storagePickerTarget();
+    if (!target) return;
+    const picked = [...this.storageSelectedIds()];
+    this.storagePickerTarget.set(null);
+
+    if (target.kind === 'rule') {
+      target.rule.attachedAssetIds = picked;
+      if (picked.length > 0 && (!target.rule.visualEngine || target.rule.visualEngine === 'Auto')) {
+        target.rule.visualEngine = 'StorageImagesStory';
+      }
+      return;
+    }
+
+    target.post.attachedAssetIds = picked;
+    if (picked.length > 0 && (!target.post.visualEngine || target.post.visualEngine === 'Auto')) {
+      target.post.visualEngine = 'StorageImagesStory';
+    }
+    await this.savePostAnimationPrefs(target.post);
   }
 
   async changePostFormat(post: AutomationPost, format: AutomationVideoFormat): Promise<void> {
@@ -1548,6 +1860,9 @@ export class AutomationHubComponent implements OnInit {
       enableCharacterDialogue: true,
       speakerAName: null,
       speakerBName: null,
+      visualEngine: 'Auto',
+      narrativeMode: 'Auto',
+      attachedAssetIds: [],
       sortOrder: (ov?.rules.length ?? 0) + 1,
     });
   }
@@ -1558,7 +1873,19 @@ export class AutomationHubComponent implements OnInit {
       ...rule,
       daysOfWeek: [...rule.daysOfWeek],
       funnelWebsiteKeys: [...rule.funnelWebsiteKeys],
+      visualEngine: rule.visualEngine ?? 'Auto',
+      narrativeMode: rule.narrativeMode ?? 'Auto',
+      attachedAssetIds: [...(rule.attachedAssetIds ?? [])],
     });
+  }
+
+  onRuleNarrativeChange(rule: AutomationRule, mode: AutomationNarrativeMode): void {
+    rule.narrativeMode = mode;
+    if (mode === 'FullStory' && (!rule.targetSeconds || rule.targetSeconds < 95)) {
+      rule.targetSeconds = 165;
+    } else if (mode === 'ShortReel' && (!rule.targetSeconds || rule.targetSeconds > 60)) {
+      rule.targetSeconds = 55;
+    }
   }
 
   toggleRuleDay(rule: AutomationRule, dayIdx: number): void {
@@ -1576,6 +1903,7 @@ export class AutomationHubComponent implements OnInit {
   async saveRule(): Promise<void> {
     const draft = this.editingRule();
     if (!draft) return;
+    draft.targetSeconds = Math.min(180, Math.max(25, Number(draft.targetSeconds || 55)));
     await this.runAction('save-rule', async () => {
       if (this.editingRuleIsNew()) {
         await firstValueFrom(this.api.createRule(draft));

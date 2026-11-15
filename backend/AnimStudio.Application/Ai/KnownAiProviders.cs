@@ -21,7 +21,9 @@ public enum AiProviderFamily
     /// <summary>A signed-in command-line agent on this machine (Claude Code, Copilot CLI).</summary>
     LocalCliText = 12,
     /// <summary>Gemini's native <c>generateContent</c> with audio output; its OpenAI route has no speech.</summary>
-    GeminiSpeech = 13
+    GeminiSpeech = 13,
+    /// <summary>Gemini's native <c>generateContent</c> with image output (<c>gemini-2.5-flash-image</c>).</summary>
+    GeminiImage = 14
 }
 
 /// <summary>
@@ -98,6 +100,7 @@ public static class KnownAiProviders
     public const string WhisperCppLocal = "whispercpp-local";
     public const string FasterWhisper = "faster-whisper";
     public const string GroqWhisper = "groq-whisper";
+    public const string GeminiImage = "gemini-image";
     public const string OpenAiAsr = "openai-asr";
     public const string ClaudeCodeLocal = "claude-code";
     public const string CopilotCliLocal = "copilot-cli";
@@ -234,6 +237,20 @@ public static class KnownAiProviders
             "private material.",
             KeyUrl: null,
             DefaultDailyRequestLimit: 500),
+
+        new(GeminiImage, AiCapability.Image, AiProviderFamily.GeminiImage,
+            "Google Gemini Image (Nano Banana)",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.5-flash-image",
+            RunsLocally: false,
+            "Rich multi-character devotional and realistic story scene illustrations using Google Gemini image generation.",
+            "https://aistudio.google.com/apikey",
+            DefaultDailyRequestLimit: 150,
+            Models:
+            [
+                new("gemini-2.5-flash-image", "Gemini 2.5 Flash Image (recommended)",
+                    "Fast multi-scene illustration and consistent character scenes.", "best", Recommended: true)
+            ]),
 
         new(ComfyUiLocal, AiCapability.Image, AiProviderFamily.ComfyUiImage,
             "ComfyUI (local)",
@@ -394,7 +411,8 @@ public static class KnownAiProviders
         AiProviderFamily.PollinationsImage
             or AiProviderFamily.CloudflareWorkersAiImage
             or AiProviderFamily.HuggingFaceImage
-            or AiProviderFamily.ComfyUiImage => AiCapability.Image,
+            or AiProviderFamily.ComfyUiImage
+            or AiProviderFamily.GeminiImage => AiCapability.Image,
 
         AiProviderFamily.PiperSpeech
             or AiProviderFamily.OpenAiCompatibleTts

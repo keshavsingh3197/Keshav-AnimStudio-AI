@@ -19,6 +19,12 @@ public sealed record AttachAutomationVideoRequest(
     string? HandoffId = null,
     string? RenderJobId = null);
 
+public sealed record GenerateAutomationAiVideoRequest(
+    AutomationVisualEngine? VisualEngine = null,
+    AutomationNarrativeMode? NarrativeMode = null,
+    int? TargetSeconds = null,
+    List<string>? AttachedAssetIds = null);
+
 public sealed record GenerateAnimatedAutomationVideoRequest(
     ProceduralSceneTheme Theme = ProceduralSceneTheme.Auto,
     int DurationSeconds = 0,
@@ -27,7 +33,9 @@ public sealed record GenerateAnimatedAutomationVideoRequest(
     bool? EnableCharacterDialogue = null,
     string? SubtitlePreset = null,
     string? SpeakerAName = null,
-    string? SpeakerBName = null);
+    string? SpeakerBName = null,
+    AutomationNarrativeMode? NarrativeMode = null,
+    List<string>? AttachedAssetIds = null);
 
 public sealed record PublishAutomationPostRequest(
     bool PublishNow = true,
@@ -168,6 +176,14 @@ public sealed class AutomationController(
         return Ok(ApiResponse<AutomationPost>.Ok(await automation.UpdatePostAsync(currentUser.UserId, id, request, ct)));
     }
 
+    [HttpGet("storage-images")]
+    public async Task<ActionResult<ApiResponse<AutomationStorageCatalog>>> StorageImages(CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationStorageCatalog>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationStorageCatalog>.Ok(
+            await automation.GetStorageMediaCatalogAsync(currentUser.UserId, ct)));
+    }
+
     [HttpGet("queue/{id}/video-candidates")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<AutomationVideoCandidate>>>> VideoCandidates(
         string id,
@@ -192,10 +208,18 @@ public sealed class AutomationController(
     [HttpPost("queue/{id}/generate-video")]
     public async Task<ActionResult<ApiResponse<AutomationPost>>> GenerateVideo(
         string id,
+        [FromBody] GenerateAutomationAiVideoRequest? request = null,
         CancellationToken ct = default)
     {
         if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
-        return Ok(ApiResponse<AutomationPost>.Ok(await automation.GenerateAiVideoAsync(currentUser.UserId, id, ct)));
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.GenerateAiVideoAsync(
+            currentUser.UserId,
+            id,
+            ct,
+            request?.VisualEngine,
+            request?.NarrativeMode,
+            request?.TargetSeconds,
+            request?.AttachedAssetIds)));
     }
 
     [HttpPost("queue/{id}/generate-animated-video")]
@@ -216,7 +240,9 @@ public sealed class AutomationController(
             request?.EnableCharacterDialogue,
             request?.SubtitlePreset,
             request?.SpeakerAName,
-            request?.SpeakerBName)));
+            request?.SpeakerBName,
+            request?.NarrativeMode,
+            request?.AttachedAssetIds)));
     }
 
     [HttpPost("queue/{id}/community-card")]

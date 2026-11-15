@@ -73,7 +73,14 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
             + "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
             + "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding");
 
-        builder.AppendLine(StyleRow(DefaultStyleName, font, request.FontSize, AssColor.White, bold: false));
+        var vertical = request.Canvas.Height > request.Canvas.Width;
+        var defaultMarginL = vertical ? Math.Max(40, (int)Math.Round(request.Canvas.Width * 0.055)) : 72;
+        var defaultMarginR = vertical ? Math.Max(126, (int)Math.Round(request.Canvas.Width * 0.18)) : 72;
+        var defaultMarginV = vertical ? Math.Max(310, (int)Math.Round(request.Canvas.Height * 0.275)) : 64;
+        builder.AppendLine(StyleRow(
+            DefaultStyleName, font, request.FontSize,
+            AssColor.White, "&H000000FF", AssColor.NearBlack, AssColor.SemiTransparentBlack,
+            bold: true, alignment: 2, defaultMarginL, defaultMarginR, defaultMarginV));
 
         foreach (var (_, style) in request.StylesByCharacterId)
         {

@@ -76,6 +76,7 @@ public sealed class ProceduralVideoRequest
 
     public string? ProjectId { get; init; }
     public string? TopicId { get; init; }
+    public IReadOnlyList<string>? BackgroundImagePaths { get; init; }
     public bool SaveAsRenderJob { get; init; } = true;
     public bool ReturnInlineBytes { get; init; }
 }

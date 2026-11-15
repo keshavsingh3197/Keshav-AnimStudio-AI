@@ -44,7 +44,7 @@ public sealed partial class GeminiSpeechProvider(
     ILogger<GeminiSpeechProvider> logger,
     TimeProvider? clock = null)
     : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider,
-      IImageReadingProvider, IImageEditingProvider
+      IImageReadingProvider, IImageEditingProvider, IGeminiImageGeneratingProvider
 {
     private const string DefaultReadingModel = "gemini-3.8-flash";
     /// <summary>Gemini 2.5 Flash Image ("Nano Banana"): edits a picture and keeps the rest of it, a few cents a picture.</summary>
@@ -740,6 +740,17 @@ public sealed partial class GeminiSpeechProvider(
 
     private static string? StringOf(JsonElement element, string snake, string camel) =>
         Property(element, snake, camel) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
+
+    /// <summary>The first inline image part of the first candidate, in either casing.</summary>
+    internal static (string Data, string? MimeType)? ReadInlineImageData(JsonElement root) => ReadInlineData(root, "image/");
+
+    public Task<AiImageResult> GenerateSceneImageAsync(AiImageRequest request, string? model, CancellationToken ct) =>
+        GeminiImageProvider.GenerateWithGeminiAsync(
+            Id,
+            request,
+            string.IsNullOrWhiteSpace(model) ? DefaultEditingModel : model.Trim(),
+            PostJsonAsync,
+            ct);
 
     /// <summary>The first inline audio part of the first candidate, in either casing.</summary>
     private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root) => ReadInlineData(root, null);

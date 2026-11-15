@@ -443,6 +443,7 @@ public sealed class WorkbookImportService(
             character.Aliases = [.. row.List("Aliases")];
             character.Description = row.Text("Description") ?? character.Description;
             character.IsNarrator = row.Flag("IsNarrator") ?? character.IsNarrator;
+            character.SubtitleColorHex = row.Text("SubtitleColor") ?? character.SubtitleColorHex;
 
             // A bundle-defined character is deliberate, not something the pipeline guessed.
             character.IsAutoCreated = false;

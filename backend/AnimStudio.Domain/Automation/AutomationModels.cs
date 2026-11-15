@@ -46,6 +46,34 @@ public enum AutomationVideoFormat
     CommunityPost = 2
 }
 
+/// <summary>Visual rendering mode used when turning an automation post into a video.</summary>
+public enum AutomationVisualEngine
+{
+    /// <summary>Follow the rule's default video strategy.</summary>
+    Auto = 0,
+
+    /// <summary>Batched multi-scene AI Story Agent video with created Studio characters, changing backgrounds, talking faces, Google TTS & BGM.</summary>
+    AiRealisticStory = 1,
+
+    /// <summary>Multi-scene Story Agent video powered by images picked from AnimStudio Storage / Project Library.</summary>
+    StorageImagesStory = 2,
+
+    /// <summary>Fast local multi-act 3D animated character stage (with optional storage backdrops).</summary>
+    Procedural3D = 3
+}
+
+/// <summary>Story pacing/depth target for automation posts.</summary>
+public enum AutomationNarrativeMode
+{
+    Auto = 0,
+
+    /// <summary>Concise reel under 60 seconds (~4-5 scenes).</summary>
+    ShortReel = 1,
+
+    /// <summary>Complete beginning-to-end story completed in under 3 minutes (&lt;= 180s, ~11-13 scenes) with opening context hook and ending moral.</summary>
+    FullStory = 2
+}
+
 /// <summary>Lifecycle state of a prepared daily post item.</summary>
 public enum AutomationPostStatus
 {
@@ -125,6 +153,10 @@ public sealed class AutomationRule
 
     public string? SpeakerAName { get; set; }
     public string? SpeakerBName { get; set; }
+
+    public AutomationVisualEngine VisualEngine { get; set; } = AutomationVisualEngine.Auto;
+    public AutomationNarrativeMode NarrativeMode { get; set; } = AutomationNarrativeMode.Auto;
+    public List<string> AttachedAssetIds { get; set; } = [];
 
     public int SortOrder { get; set; }
     public string? LastPreparedDateKey { get; set; }
@@ -221,6 +253,14 @@ public sealed class AutomationPost
     public string? SpeakerAName { get; set; }
     public string? SpeakerBName { get; set; }
     public string SubtitlePreset { get; set; } = "event-glow";
+
+    public AutomationVisualEngine VisualEngine { get; set; } = AutomationVisualEngine.Auto;
+    public AutomationNarrativeMode NarrativeMode { get; set; } = AutomationNarrativeMode.Auto;
+    public int? TargetSeconds { get; set; }
+    public List<string> AttachedAssetIds { get; set; } = [];
+    public List<string> ProvisionedCharacterNames { get; set; } = [];
+    public string? StoryStageSummary { get; set; }
+    public int? StoryProgressPercent { get; set; }
 
     /// <summary>Timestamp when a published video was synced to sister HinduPanchang / ecosystem video hub.</summary>
     public DateTime? SyncedToEcosystemAtUtc { get; set; }

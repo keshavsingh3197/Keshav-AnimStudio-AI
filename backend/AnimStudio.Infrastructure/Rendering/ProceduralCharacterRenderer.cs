@@ -66,14 +66,27 @@ internal static class ProceduralCharacterRenderer
             }
         }
 
-        var leftScale = plan.LeftCharacter.Role == CharacterVisualRole.ChildDevotee ? scale * 0.85f : scale;
-        var rightScale = plan.RightCharacter.Role == CharacterVisualRole.ChildDevotee ? scale * 0.85f : scale;
+        var activeLeftName = leftSpeaking && activeTurn is { SpeakerName.Length: > 0 }
+            ? activeTurn.SpeakerName
+            : plan.LeftCharacter.Name;
+        var activeLeftRole = leftSpeaking && activeTurn?.SpeakerRole is { } lRole && lRole != CharacterVisualRole.Narrator
+            ? lRole
+            : plan.LeftCharacter.Role;
+        var activeRightName = rightSpeaking && activeTurn is { SpeakerName.Length: > 0 }
+            ? activeTurn.SpeakerName
+            : plan.RightCharacter.Name;
+        var activeRightRole = rightSpeaking && activeTurn?.SpeakerRole is { } rRole && rRole != CharacterVisualRole.Narrator
+            ? rRole
+            : plan.RightCharacter.Role;
+
+        var leftScale = activeLeftRole == CharacterVisualRole.ChildDevotee ? scale * 0.85f : scale;
+        var rightScale = activeRightRole == CharacterVisualRole.ChildDevotee ? scale * 0.85f : scale;
 
         DrawCharacterFigure(canvas, leftX, stageY, leftScale, facingRight: true, timeSeconds,
-            plan.LeftCharacter.Name, plan.LeftCharacter.Role, leftSpeaking, leftColor, seedOffset: 0.0);
+            activeLeftName, activeLeftRole, leftSpeaking, leftColor, seedOffset: 0.0);
 
         DrawCharacterFigure(canvas, rightX, stageY, rightScale, facingRight: false, timeSeconds,
-            plan.RightCharacter.Name, plan.RightCharacter.Role, rightSpeaking, rightColor, seedOffset: 1.7);
+            activeRightName, activeRightRole, rightSpeaking, rightColor, seedOffset: 1.7);
     }
 
     private static void DrawCharacterFigure(

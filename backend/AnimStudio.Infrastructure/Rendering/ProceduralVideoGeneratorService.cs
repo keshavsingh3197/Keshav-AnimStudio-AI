@@ -159,6 +159,13 @@ public sealed class ProceduralVideoGeneratorService(
         var ffmpegExe = ffmpegOptions.Value.FfmpegPath;
         if (string.IsNullOrWhiteSpace(ffmpegExe)) ffmpegExe = "ffmpeg";
 
+        var backdropFrames = await DecodeBackdropFramesAsync(
+            request.BackgroundImagePaths,
+            ffmpegExe,
+            width,
+            height,
+            ct).ConfigureAwait(false);
+
         var startInfo = new ProcessStartInfo
         {
             FileName = ffmpegExe,
@@ -197,7 +204,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var totalFrames = durationSeconds * fps;
         var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}");
+        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames);
 
         try
         {
@@ -659,6 +666,87 @@ public sealed class ProceduralVideoGeneratorService(
                 h = (h ^ ch) * 16777619u;
             return (int)(h & 0x7FFFFFFF);
         }
+    }
+
+    private async Task<List<byte[]>> DecodeBackdropFramesAsync(
+        IReadOnlyList<string>? paths,
+        string ffmpegExe,
+        int width,
+        int height,
+        CancellationToken ct)
+    {
+        var result = new List<byte[]>();
+        if (paths is null || paths.Count == 0) return result;
+
+        var expectedBytes = width * height * 4;
+        var vf = $"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}";
+
+        foreach (var path in paths.Take(20))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+
+            try
+            {
+                using var decodeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                decodeCts.CancelAfter(TimeSpan.FromSeconds(20));
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegExe,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                startInfo.ArgumentList.Add("-hide_banner");
+                startInfo.ArgumentList.Add("-loglevel");
+                startInfo.ArgumentList.Add("error");
+                startInfo.ArgumentList.Add("-nostdin");
+                startInfo.ArgumentList.Add("-y");
+                startInfo.ArgumentList.Add("-i");
+                startInfo.ArgumentList.Add(path);
+                startInfo.ArgumentList.Add("-vf");
+                startInfo.ArgumentList.Add(vf);
+                startInfo.ArgumentList.Add("-frames:v");
+                startInfo.ArgumentList.Add("1");
+                startInfo.ArgumentList.Add("-f");
+                startInfo.ArgumentList.Add("rawvideo");
+                startInfo.ArgumentList.Add("-pix_fmt");
+                startInfo.ArgumentList.Add("rgba");
+                startInfo.ArgumentList.Add("pipe:1");
+
+                using var proc = Process.Start(startInfo);
+                if (proc is null) continue;
+
+                var errTask = proc.StandardError.ReadToEndAsync(decodeCts.Token);
+                await using var ms = new MemoryStream(expectedBytes);
+                await proc.StandardOutput.BaseStream.CopyToAsync(ms, decodeCts.Token).ConfigureAwait(false);
+                await proc.WaitForExitAsync(decodeCts.Token).ConfigureAwait(false);
+                var err = await errTask.ConfigureAwait(false);
+
+                if (proc.ExitCode == 0 && ms.Length == expectedBytes)
+                {
+                    result.Add(ms.ToArray());
+                }
+                else
+                {
+                    logger.LogDebug(
+                        "Skipping procedural backdrop '{Path}': exit {ExitCode}, got {Bytes}/{Expected} bytes. {Err}",
+                        path, proc.ExitCode, ms.Length, expectedBytes, err);
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                logger.LogDebug("Timed out decoding procedural backdrop '{Path}'.", path);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Could not decode procedural backdrop '{Path}'.", path);
+            }
+        }
+
+        return result;
     }
 
     private static void TryKill(Process process)

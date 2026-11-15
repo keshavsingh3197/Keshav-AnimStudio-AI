@@ -13,8 +13,11 @@ using AnimStudio.Application.Planning;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Automation;
+using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Stories;
@@ -61,6 +64,28 @@ public sealed record AutomationOverview(
     int UnusedDriveClipsCount,
     int FinishedRendersCount);
 
+public sealed record AutomationStorageImageItem(
+    string Id,
+    string ProjectId,
+    string ProjectName,
+    string Name,
+    int? Width,
+    int? Height,
+    DateTime UpdatedAtUtc);
+
+public sealed record AutomationCharacterProfileItem(
+    string Id,
+    string ProjectId,
+    string ProjectName,
+    string Name,
+    string? Description,
+    bool IsNarrator,
+    string? SubtitleColorHex);
+
+public sealed record AutomationStorageCatalog(
+    IReadOnlyList<AutomationStorageImageItem> Images,
+    IReadOnlyList<AutomationCharacterProfileItem> Characters);
+
 /// <summary>
 /// Central orchestration engine connecting live Hindu Panchang, Festivals, Daily Katha,
 /// Aaj Ka Itihaas, Pratiyogita, and Central Admin ecosystem links with AnimStudio's Drive
@@ -91,10 +116,17 @@ public sealed class EcosystemAutomationService(
     IObjectStore objectStore,
     AppDataPaths dataPaths,
     TimeProvider clock,
-    ILogger<EcosystemAutomationService> logger)
+    ILogger<EcosystemAutomationService> logger,
+    IAssetRepository? assets = null,
+    ICharacterRepository? characters = null)
 {
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
+    private const string CharacterLibraryProjectName = "Automation Characters Library";
+    private static readonly string[] CharacterPalette =
+    [
+        "#93C5FD", "#FCA5A5", "#6EE7B7", "#DDD6FE", "#FDBA74", "#F9A8D4", "#A5F3FC"
+    ];
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -172,6 +204,11 @@ public sealed class EcosystemAutomationService(
 
         await Task.WhenAll(ecosystemTask, signalsTask, channelsTask, topicsTask, rulesTask, postsTask, handoffsTask, projectsTask)
             .ConfigureAwait(false);
+
+        foreach (var post in postsTask.Result.Where(p => p.Status == AutomationPostStatus.GeneratingVideo))
+        {
+            await PollStoryRunProgressAsync(post, settings, ct).ConfigureAwait(false);
+        }
 
         var unusedDriveCount = handoffsTask.Result.Count(h =>
             h.State != PhoneHandoffState.Cancelled && !h.DriveMissing && !h.Archived && h.UsedAt is null);
@@ -254,6 +291,17 @@ public sealed class EcosystemAutomationService(
         rule.DescriptionFooterOverride = string.IsNullOrWhiteSpace(draft.DescriptionFooterOverride) ? null : draft.DescriptionFooterOverride.Trim();
         rule.CustomTopicPrompt = string.IsNullOrWhiteSpace(draft.CustomTopicPrompt) ? null : draft.CustomTopicPrompt.Trim();
         rule.SubtitlePreset = NormalizeSubtitlePreset(draft.SubtitlePreset);
+        rule.VisualEngine = draft.VisualEngine;
+        rule.NarrativeMode = draft.NarrativeMode;
+        if (rule.NarrativeMode == AutomationNarrativeMode.FullStory && rule.TargetSeconds < 95)
+            rule.TargetSeconds = 165;
+        else if (rule.NarrativeMode == AutomationNarrativeMode.ShortReel && rule.TargetSeconds > 60)
+            rule.TargetSeconds = 55;
+        rule.AttachedAssetIds = [.. draft.AttachedAssetIds
+            .Where(a => !string.IsNullOrWhiteSpace(a))
+            .Select(a => a.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Take(40)];
         rule.EnableCharacterDialogue = draft.EnableCharacterDialogue;
         rule.SpeakerAName = string.IsNullOrWhiteSpace(draft.SpeakerAName) ? null : draft.SpeakerAName.Trim();
         rule.SpeakerBName = string.IsNullOrWhiteSpace(draft.SpeakerBName) ? null : draft.SpeakerBName.Trim();
@@ -450,6 +498,14 @@ public sealed class EcosystemAutomationService(
                 post.SpeakerAName = rule.SpeakerAName;
                 post.SpeakerBName = rule.SpeakerBName;
                 post.SubtitlePreset = NormalizeSubtitlePreset(rule.SubtitlePreset);
+                post.VisualEngine = rule.VisualEngine;
+                post.NarrativeMode = rule.NarrativeMode;
+                if (post.NarrativeMode == AutomationNarrativeMode.FullStory && post.TargetSeconds is null or < 95)
+                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, 180);
+                else if (post.NarrativeMode == AutomationNarrativeMode.ShortReel)
+                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds <= 60 ? rule.TargetSeconds : 55, 25, 60);
+                if (post.AttachedAssetIds.Count == 0 && rule.AttachedAssetIds.Count > 0)
+                    post.AttachedAssetIds = [.. rule.AttachedAssetIds];
                 post.UpdatedAtUtc = UtcNow;
 
                 if (post.Format == AutomationVideoFormat.CommunityPost)
@@ -566,6 +622,20 @@ public sealed class EcosystemAutomationService(
         post.SpeakerBName = string.IsNullOrWhiteSpace(update.SpeakerBName) ? null : update.SpeakerBName.Trim();
         if (!string.IsNullOrWhiteSpace(update.SubtitlePreset))
             post.SubtitlePreset = NormalizeSubtitlePreset(update.SubtitlePreset);
+        if (Enum.IsDefined(update.VisualEngine))
+            post.VisualEngine = update.VisualEngine;
+        if (Enum.IsDefined(update.NarrativeMode))
+            post.NarrativeMode = update.NarrativeMode;
+        if (update.TargetSeconds.HasValue)
+            post.TargetSeconds = Math.Clamp(update.TargetSeconds.Value, 20, 180);
+        if (update.AttachedAssetIds is { Count: > 0 })
+        {
+            post.AttachedAssetIds = [.. update.AttachedAssetIds
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Select(a => a.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .Take(40)];
+        }
         if (update.Status == AutomationPostStatus.Skipped)
             post.Status = AutomationPostStatus.Skipped;
         post.Notes = string.IsNullOrWhiteSpace(update.Notes) ? null : update.Notes.Trim();
@@ -687,20 +757,122 @@ public sealed class EcosystemAutomationService(
         return post;
     }
 
+    public async Task<AutomationStorageCatalog> GetStorageMediaCatalogAsync(string userId, CancellationToken ct)
+    {
+        var userProjects = await projects.ListAsync(userId, ct).ConfigureAwait(false);
+        if (userProjects.Count == 0)
+            return new AutomationStorageCatalog([], []);
+
+        var projectNames = userProjects.ToDictionary(p => p.Id, p => p.Name, StringComparer.Ordinal);
+        var projectIds = userProjects.Select(p => p.Id).ToList();
+
+        var imageItems = new List<AutomationStorageImageItem>();
+        if (assets is not null)
+        {
+            var allAssets = await assets.ListByProjectsAsync(projectIds, ct).ConfigureAwait(false);
+            foreach (var asset in allAssets
+                .Where(a => a.Kind == AssetKind.Image && !string.IsNullOrWhiteSpace(a.StorageKey))
+                .OrderByDescending(a => a.CreatedAt)
+                .Take(80))
+            {
+                projectNames.TryGetValue(asset.ProjectId, out var pName);
+                imageItems.Add(new AutomationStorageImageItem(
+                    asset.Id,
+                    asset.ProjectId,
+                    pName ?? "Project",
+                    string.IsNullOrWhiteSpace(asset.Name) ? (asset.DisplayFileName ?? "Image") : asset.Name,
+                    asset.Probe?.Width,
+                    asset.Probe?.Height,
+                    asset.CreatedAt));
+            }
+        }
+
+        var characterItems = new List<AutomationCharacterProfileItem>();
+        if (characters is not null)
+        {
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var orderedProjects = userProjects
+                .OrderByDescending(p => string.Equals(p.Name, CharacterLibraryProjectName, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(p => p.UpdatedAt);
+
+            foreach (var proj in orderedProjects)
+            {
+                var list = await characters.ListByProjectAsync(proj.Id, ct).ConfigureAwait(false);
+                foreach (var c in list)
+                {
+                    if (string.IsNullOrWhiteSpace(c.Name) || !seenNames.Add(c.Name.Trim()))
+                        continue;
+                    characterItems.Add(new AutomationCharacterProfileItem(
+                        c.Id,
+                        proj.Id,
+                        proj.Name,
+                        c.Name.Trim(),
+                        c.Description,
+                        c.IsNarrator,
+                        c.SubtitleColorHex));
+                    if (characterItems.Count >= 60) break;
+                }
+                if (characterItems.Count >= 60) break;
+            }
+        }
+
+        return new AutomationStorageCatalog(imageItems, characterItems);
+    }
+
     public async Task<AutomationPost> GenerateAiVideoAsync(
         string userId,
         string postId,
-        CancellationToken ct)
+        CancellationToken ct,
+        AutomationVisualEngine? visualEngine = null,
+        AutomationNarrativeMode? narrativeMode = null,
+        int? targetSeconds = null,
+        IReadOnlyList<string>? attachedAssetIds = null)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
             throw EditingException.Conflict("post-locked", "Cannot regenerate video once uploading or published.");
 
-        var run = await StartStoryRunForPostAsync(userId, post, await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false), ct)
+        if (visualEngine.HasValue)
+            post.VisualEngine = visualEngine.Value;
+        if (narrativeMode.HasValue)
+            post.NarrativeMode = narrativeMode.Value;
+        if (targetSeconds.HasValue && targetSeconds.Value > 0)
+            post.TargetSeconds = Math.Clamp(targetSeconds.Value, 25, 180);
+        if (attachedAssetIds is not null)
+        {
+            post.AttachedAssetIds = [.. attachedAssetIds
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Select(a => a.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .Take(40)];
+        }
+
+        var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
+        var effectiveEngine = post.VisualEngine != AutomationVisualEngine.Auto
+            ? post.VisualEngine
+            : rule?.VisualEngine ?? AutomationVisualEngine.Auto;
+
+        if (effectiveEngine == AutomationVisualEngine.Procedural3D)
+        {
+            var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
+                ? post.NarrativeMode
+                : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
+            var seconds = ResolvePostTargetSeconds(post, rule, effectiveMode, targetSeconds ?? 0);
+            await AttachProceduralAnimatedVideoAsync(userId, post, rule, ProceduralSceneTheme.Auto, seconds, "720p", ct)
+                .ConfigureAwait(false);
+            post.LastError = null;
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return post;
+        }
+
+        var run = await StartStoryRunForPostAsync(userId, post, rule, ct)
             .ConfigureAwait(false);
 
         post.AttachedStoryRunId = run.Id;
-        post.AttachedVideoSourceLabel = $"AI Story Agent ({run.Status})";
+        post.AttachedVideoSourceLabel = "AI Story Studio (Preparing Story & Characters...)";
+        post.StoryStageSummary = "Research & Story Script";
+        post.StoryProgressPercent = 6;
         post.Status = AutomationPostStatus.GeneratingVideo;
         post.LastError = null;
         post.UpdatedAtUtc = UtcNow;
@@ -725,7 +897,9 @@ public sealed class EcosystemAutomationService(
         bool? enableCharacterDialogue = null,
         string? subtitlePreset = null,
         string? speakerAName = null,
-        string? speakerBName = null)
+        string? speakerBName = null,
+        AutomationNarrativeMode? narrativeMode = null,
+        IReadOnlyList<string>? attachedAssetIds = null)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
@@ -748,6 +922,17 @@ public sealed class EcosystemAutomationService(
             post.SpeakerAName = string.IsNullOrWhiteSpace(speakerAName) ? null : speakerAName.Trim();
         if (speakerBName is not null)
             post.SpeakerBName = string.IsNullOrWhiteSpace(speakerBName) ? null : speakerBName.Trim();
+        if (narrativeMode.HasValue)
+            post.NarrativeMode = narrativeMode.Value;
+        if (attachedAssetIds is not null)
+        {
+            post.AttachedAssetIds = [.. attachedAssetIds
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Select(a => a.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .Take(40)];
+        }
+        post.VisualEngine = AutomationVisualEngine.Procedural3D;
 
         var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
         await AttachProceduralAnimatedVideoAsync(userId, post, rule, theme, durationSeconds, resolution, ct)
@@ -1047,10 +1232,18 @@ public sealed class EcosystemAutomationService(
             return 1;
         }
 
+        if (run.Script is { Cast.Count: > 0 } && post.ProvisionedCharacterNames.Count == 0)
+        {
+            await EnsureAutomationCastCharactersAsync(post.UserId, post, run.Script, ct).ConfigureAwait(false);
+        }
+
         if (run.Status == StoryRunStatus.Completed && !string.IsNullOrWhiteSpace(run.RenderJobId))
         {
             post.AttachedRenderJobId = run.RenderJobId;
-            post.AttachedVideoSourceLabel = "AI Story Agent (Ready)";
+            var durationNote = run.Script is { Scenes.Count: > 0 } ? $", {run.Script.Scenes.Count} scenes" : string.Empty;
+            post.AttachedVideoSourceLabel = $"AI Story Studio (Ready{durationNote})";
+            post.StoryStageSummary = "Completed & Ready for Preview";
+            post.StoryProgressPercent = 100;
             post.Status = AutomationPostStatus.VideoReadyForReview;
             post.LastError = null;
             post.UpdatedAtUtc = UtcNow;
@@ -1068,8 +1261,21 @@ public sealed class EcosystemAutomationService(
 
         if (run.Status is StoryRunStatus.Failed or StoryRunStatus.Cancelled)
         {
+            post.StoryStageSummary = run.Status == StoryRunStatus.Cancelled ? "Cancelled" : "Failed";
             post.Status = AutomationPostStatus.Failed;
             post.LastError = run.ErrorMessage ?? "AI video generation did not complete.";
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return 1;
+        }
+
+        var (summary, percent) = SummarizeStoryRunProgress(run);
+        if (!string.Equals(post.StoryStageSummary, summary, StringComparison.Ordinal)
+            || post.StoryProgressPercent != percent)
+        {
+            post.StoryStageSummary = summary;
+            post.StoryProgressPercent = percent;
+            post.AttachedVideoSourceLabel = $"AI Story Studio ({percent}% • {summary})";
             post.UpdatedAtUtc = UtcNow;
             await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
             return 1;
@@ -1382,11 +1588,10 @@ public sealed class EcosystemAutomationService(
     {
         await EnsureRichPostDialogueBeforeRenderAsync(userId, post, rule, durationSeconds, ct).ConfigureAwait(false);
 
-        var targetSeconds = durationSeconds > 0
-            ? durationSeconds
-            : (post.Format == AutomationVideoFormat.Wide
-                ? Math.Max(rule?.TargetSeconds ?? 135, 120)
-                : Math.Max(rule?.TargetSeconds ?? 58, 55));
+        var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
+            ? post.NarrativeMode
+            : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
+        var targetSeconds = ResolvePostTargetSeconds(post, rule, effectiveMode, durationSeconds);
         var duration = Math.Clamp(targetSeconds, 15, ProceduralVideoRequest.MaxSeconds);
         var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
         var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
@@ -1397,41 +1602,67 @@ public sealed class EcosystemAutomationService(
             _ => "vertical"
         };
 
-        var rendered = await proceduralVideoGenerator.GenerateAsync(userId, new ProceduralVideoRequest
+        var assetIds = post.AttachedAssetIds.Count > 0 ? post.AttachedAssetIds : (rule?.AttachedAssetIds ?? []);
+        var (tempDir, bgPaths) = await MaterializeStorageImagesAsync(assetIds, ct).ConfigureAwait(false);
+        try
         {
-            Title = post.Title,
-            Prompt = post.AiVideoPrompt,
-            Script = post.Script,
-            Theme = theme,
-            Format = formatArg,
-            Resolution = string.IsNullOrWhiteSpace(resolution) ? "720p" : resolution.Trim(),
-            DurationSeconds = duration,
-            IncludeCaptions = true,
-            IncludeAmbientAudio = true,
-            IncludeSpeech = true,
-            Language = post.Language,
-            FooterLabel = footer,
-            EventType = post.SourceType.ToString(),
-            TopCategoryLabel = post.HeaderBannerText ?? $"{palette.HeaderBadgeText} • {post.DateKey}",
-            SubtitlePreset = NormalizeSubtitlePreset(post.SubtitlePreset),
-            EnableCharacterDialogue = post.EnableCharacterDialogue,
-            SpeakerAName = post.SpeakerAName ?? rule?.SpeakerAName,
-            SpeakerBName = post.SpeakerBName ?? rule?.SpeakerBName,
-            TopicId = post.TopicId ?? rule?.TopicId,
-            SaveAsRenderJob = true,
-            ReturnInlineBytes = false
-        }, ct).ConfigureAwait(false);
+            var rendered = await proceduralVideoGenerator.GenerateAsync(userId, new ProceduralVideoRequest
+            {
+                Title = post.Title,
+                Prompt = post.AiVideoPrompt,
+                Script = post.Script,
+                Theme = theme,
+                Format = formatArg,
+                Resolution = string.IsNullOrWhiteSpace(resolution) ? "720p" : resolution.Trim(),
+                DurationSeconds = duration,
+                IncludeCaptions = true,
+                IncludeAmbientAudio = true,
+                IncludeSpeech = true,
+                Language = post.Language,
+                FooterLabel = footer,
+                EventType = post.SourceType.ToString(),
+                TopCategoryLabel = post.HeaderBannerText ?? $"{palette.HeaderBadgeText} • {post.DateKey}",
+                SubtitlePreset = NormalizeSubtitlePreset(post.SubtitlePreset),
+                EnableCharacterDialogue = post.EnableCharacterDialogue,
+                SpeakerAName = post.SpeakerAName ?? rule?.SpeakerAName,
+                SpeakerBName = post.SpeakerBName ?? rule?.SpeakerBName,
+                TopicId = post.TopicId ?? rule?.TopicId,
+                BackgroundImagePaths = bgPaths,
+                SaveAsRenderJob = true,
+                ReturnInlineBytes = false
+            }, ct).ConfigureAwait(false);
 
-        post.AttachedRenderJobId = rendered.RenderJobId;
-        post.AttachedHandoffId = null;
-        post.AttachedHandoffTitle = rendered.ThemeDisplayName;
-        post.EventColorHex ??= palette.PrimaryHex;
-        post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
-        var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
-        post.AttachedVideoSourceLabel = hasVoice
-            ? $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s • Voice)"
-            : $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
-        post.Status = AutomationPostStatus.VideoReadyForReview;
+            post.AttachedRenderJobId = rendered.RenderJobId;
+            post.AttachedHandoffId = null;
+            post.AttachedHandoffTitle = rendered.ThemeDisplayName;
+            post.EventColorHex ??= palette.PrimaryHex;
+            post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
+            var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
+            post.AttachedVideoSourceLabel = hasVoice
+                ? $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s • Voice)"
+                : $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
+            post.StoryStageSummary = "3D Animated MP4 Ready";
+            post.StoryProgressPercent = 100;
+            post.Status = AutomationPostStatus.VideoReadyForReview;
+
+            var castPlan = DialogueScriptParser.ParsePlan(
+                post.Title,
+                post.Script,
+                post.AiVideoPrompt,
+                duration,
+                post.EnableCharacterDialogue,
+                post.SpeakerAName ?? rule?.SpeakerAName,
+                post.SpeakerBName ?? rule?.SpeakerBName,
+                post.SourceType.ToString());
+            await EnsureProceduralCharactersAsync(userId, post, castPlan, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (tempDir is not null)
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort scratch cleanup */ }
+            }
+        }
     }
 
     private async Task AttachCommunityPromoCardAsync(AutomationPost post, CancellationToken ct)
@@ -1551,24 +1782,67 @@ public sealed class EcosystemAutomationService(
         AutomationRule? rule,
         CancellationToken ct)
     {
+        var effectiveVisualEngine = post.VisualEngine != AutomationVisualEngine.Auto
+            ? post.VisualEngine
+            : rule?.VisualEngine ?? AutomationVisualEngine.Auto;
+        var effectiveNarrativeMode = post.NarrativeMode != AutomationNarrativeMode.Auto
+            ? post.NarrativeMode
+            : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
+        var targetSeconds = Math.Clamp(
+            ResolvePostTargetSeconds(post, rule, effectiveNarrativeMode, 0),
+            25,
+            180);
+
+        var attachedAssetIds = post.AttachedAssetIds.Count > 0
+            ? [.. post.AttachedAssetIds]
+            : (rule?.AttachedAssetIds ?? []).ToList();
+
+        if (effectiveVisualEngine == AutomationVisualEngine.StorageImagesStory
+            && attachedAssetIds.Count == 0
+            && assets is not null)
+        {
+            var catalog = await GetStorageMediaCatalogAsync(userId, ct).ConfigureAwait(false);
+            attachedAssetIds = [.. catalog.Images.Take(16).Select(i => i.Id)];
+        }
+
+        var isFullStory = targetSeconds >= 95 || effectiveNarrativeMode == AutomationNarrativeMode.FullStory;
+        var storyStructureInstructions = isFullStory
+            ? """
+              COMPLETE ANIMATED STORY STRUCTURE (STRICTLY UNDER 3 MINUTES):
+              1. Opening Context Hook (Scene 1): Start with the Narrator ([सूत्रधार] / Narrator) concisely explaining who the characters are, the setting/conflict, and why this story begins so viewers relate immediately.
+              2. Multi-Scene Chronological Progression: Step logically across changing locations and chapters (e.g. Royal Court -> Forest Path -> Sacred Ashram & Mantra Initiation -> Tapasya -> Divine Darshan & Boon). Shift each scene's imagePrompt environment clearly!
+              3. Multi-Character Acting & Visual Consistency: Populate every speaking character in `cast` with detailed English `look` (clothes, age, ornaments, face/hair) and repeat that visual identity across scenes.
+              4. Closing Moral & Portal CTA (Final Scene): Have the Narrator clearly state the moral lesson of the story at the end followed by the call-to-action.
+              """
+            : """
+              COMPACT STORY STRUCTURE (SHORT <= 60s):
+              1. Brief Opening Context Hook by Narrator so viewers instantly understand who and why.
+              2. Chronological multi-scene dialogue with distinct environment shifts and consistent `cast` visual looks.
+              3. Clear closing moral takeaway before CTA.
+              """;
+
         var brief = new StoryBrief
         {
             Title = post.Title,
-            Notes = $"Source: {post.SourceTitle}\n\n{post.Script}\n\nVisual style guide: {post.AiVideoPrompt}",
+            Notes = $"{storyStructureInstructions}\nSource: {post.SourceTitle}\n\n{post.Script}\n\nVisual style guide: {post.AiVideoPrompt}",
             Language = string.Equals(post.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi",
-            TargetSeconds = rule?.TargetSeconds ?? 55,
+            TargetSeconds = targetSeconds,
             Format = post.Format == AutomationVideoFormat.Vertical ? StoryFormat.Vertical : StoryFormat.Wide,
             Writer = StoryWriterMode.Auto,
             Mode = post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha
                 ? StoryGenreMode.Scripture
                 : StoryGenreMode.Creative,
+            Voicing = StoryVoicing.Narrated,
             BrandChannelId = rule?.BrandChannelId
         };
 
         var build = new StoryBuildOptions
         {
             Narration = StoryNarrationMode.Stock,
-            Visuals = StoryVisualMode.Auto,
+            Visuals = effectiveVisualEngine == AutomationVisualEngine.StorageImagesStory
+                ? StoryVisualMode.UploadsOnly
+                : StoryVisualMode.Auto,
+            StorageAssetIds = attachedAssetIds,
             Music = true,
             RenderWhenReady = true,
             AutoApprove = true
@@ -1584,27 +1858,32 @@ public sealed class EcosystemAutomationService(
         CancellationToken ct)
     {
         var isEnglish = string.Equals(rule.Language, "en", StringComparison.OrdinalIgnoreCase);
-        var isWideStory = rule.VideoFormat == AutomationVideoFormat.Wide || rule.TargetSeconds >= 90;
+        var isFullStory = rule.NarrativeMode == AutomationNarrativeMode.FullStory
+            || (rule.NarrativeMode != AutomationNarrativeMode.ShortReel
+                && (rule.VideoFormat == AutomationVideoFormat.Wide || rule.TargetSeconds >= 95));
         var dialogueEnabled = rule.EnableCharacterDialogue
             || rule.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang or AutomationSourceType.AajKaItihaas;
         var speakerHint = !string.IsNullOrWhiteSpace(rule.SpeakerAName) && !string.IsNullOrWhiteSpace(rule.SpeakerBName)
-            ? $"Use exact character names [{rule.SpeakerAName.Trim()}] and [{rule.SpeakerBName.Trim()}]."
-            : "Pick two authentic characters suited to the story (e.g. [भक्त ध्रुव] & [देवर्षि नारद मुनि], [राजा हरिश्चंद्र] & [महर्षि विश्वामित्र], [आचार्य] & [जिज्ञासु], [इतिहासकार] & [विद्यार्थी]).";
+            ? $"Include primary characters [{rule.SpeakerAName.Trim()}] and [{rule.SpeakerBName.Trim()}], alongside [सूत्रधार] (or [Narrator]) and supporting characters where appropriate."
+            : "Use [सूत्रधार] (or [Narrator] in English) for the brief opening context & ending moral, plus authentic characters suited to the story (e.g. [रानी सुनीति], [बालक ध्रुव], [देवर्षि नारद मुनि], [भगवान श्रीहरि विष्णु] for Dhruva; [राजा हरिश्चंद्र] & [महर्षि विश्वामित्र]; [आचार्य] & [जिज्ञासु]; [इतिहासकार] & [विद्यार्थी]).";
         var dialogueGuidance = dialogueEnabled
             ? $"""
-               - Dialogue Mode (MANDATORY): Write "script" EXCLUSIVELY as alternating first-person character dialogue lines formatted strictly as `[Character Name]: spoken line` on each line (NO narrator labels like "Focus:", "Moral:", "[HOOK]", "[STORY]", and NO bullet lists).
+               - Structured Story Dialogue Format (MANDATORY):
+                 1) Opening line: Begin with `[सूत्रधार]: ...` (or `[Narrator]: ...`) giving a crisp 1-2 sentence CONTEXT HOOK introducing who, where, and why so new viewers immediately relate.
+                 2) Chronological Multi-Scene & Multi-Character Progression: Enact the story step-by-step using `[Character Name]: spoken line` turns across changing locations (conflict -> journey/question -> turning point/guidance -> climax/resolution), NOT a static lecture on one background.
+                 3) Closing Moral + CTA: Close with `[सूत्रधार]: ...` narrating the explicit MORAL OF THE STORY (कथा की सीख / Moral) followed cleanly by the website URL.
                - {speakerHint}
-               - Characters themselves MUST talk to each other in direct conversation, enacting the story step-by-step from opening scene -> conflict/question -> spiritual teaching/climax -> blessing & call-to-action with the website URL on the final line.
-               - Turn count: {(isWideStory ? "10 to 14 complete story-arc turns (each 18-32 words) covering the FULL complete story without rushing or skipping the ending." : "6 to 8 vivid conversational turns (each 12-22 words) forming a complete micro-story + takeaway.")}
+               - Never write raw mechanical labels like "Focus:" or "Moral:" inside spoken dialogue lines; state the moral naturally as `[सूत्रधार]`.
+               - Turn count: {(isFullStory ? "10 to 14 complete story-arc turns (each 18-30 words, fitting smoothly under 3 minutes / ~165s total) covering the FULL beginning-to-end story." : "5 to 7 crisp chronological turns (each 12-20 words, ~55s short) covering Context Hook + Core Action + Ending Moral + CTA.")}
                """
-            : "- Keep narration vivid, direct, and engaging without removing any facts or times.";
+            : "- Keep narration structured with brief opening context hook, chronological progression, clear ending moral, and website CTA without removing facts or times.";
 
         var languageGuidance = isEnglish
             ? "English (clear natural spoken English)"
             : "Pure Hindi in Devanagari script ONLY (translate ALL English story summaries, titles, headings, and labels like 'Focus:' / 'Moral:' completely into natural spoken Hindi; preserve ONLY website URLs and exact Panchang clock times/Tithi terms where needed).";
 
         var prompt = $"""
-            You refine YouTube {(isWideStory ? "full-length" : "Shorts")} animated video scripts without removing ANY facts, numbers, Tithi/Muhurat times, or website links.
+            You refine YouTube {(isFullStory ? "full-length" : "Shorts")} animated video scripts without removing ANY facts, numbers, Tithi/Muhurat times, or website links.
             Target Language: {languageGuidance}
             {dialogueGuidance}
             Return ONLY raw JSON (no markdown code fences) with exact keys: "title", "script", "aiVideoPrompt", "pinnedComment".
@@ -1890,5 +2169,262 @@ public sealed class EcosystemAutomationService(
         {
             logger.LogDebug(ex, "Staging file cleanup skipped.");
         }
+    }
+
+    private static int ResolvePostTargetSeconds(
+        AutomationPost post,
+        AutomationRule? rule,
+        AutomationNarrativeMode mode,
+        int explicitSeconds)
+    {
+        if (explicitSeconds > 0)
+            return Math.Clamp(explicitSeconds, 25, 180);
+        if (post.TargetSeconds is > 0)
+            return Math.Clamp(post.TargetSeconds.Value, 25, 180);
+
+        return mode switch
+        {
+            AutomationNarrativeMode.FullStory => Math.Clamp(rule?.TargetSeconds is >= 95 ? rule.TargetSeconds : 165, 95, 180),
+            AutomationNarrativeMode.ShortReel => Math.Clamp(rule?.TargetSeconds is > 0 and <= 60 ? rule.TargetSeconds : 55, 25, 60),
+            _ => post.Format == AutomationVideoFormat.Wide
+                ? Math.Clamp(rule?.TargetSeconds is >= 95 ? rule.TargetSeconds : 165, 95, 180)
+                : Math.Clamp(rule?.TargetSeconds is > 0 ? Math.Min(rule.TargetSeconds, 180) : 55, 25, 180)
+        };
+    }
+
+    private static (string Summary, int Percent) SummarizeStoryRunProgress(StoryRun run)
+    {
+        if (run.Stages.Count == 0)
+            return ("Queued", 4);
+
+        var active = run.Stages.FirstOrDefault(s => s.Status == StoryStageStatus.Running);
+        var doneCount = run.Stages.Count(s => s.Status is StoryStageStatus.Completed or StoryStageStatus.Skipped);
+        var stageFrac = active is not null ? active.Progress / 100.0 : 0.0;
+        var percent = Math.Clamp((int)Math.Round(((doneCount + stageFrac) / run.Stages.Count) * 100.0), 4, 98);
+
+        if (active is not null)
+        {
+            var stageLabel = active.Id switch
+            {
+                StoryStageIds.Research => "Research",
+                StoryStageIds.Script => "Writing Script & Cast",
+                StoryStageIds.Visuals => "Generating Scene Pictures",
+                StoryStageIds.Narration => "Synthesizing Character Voices",
+                StoryStageIds.Music => "Composing Background Score",
+                StoryStageIds.Assemble => "Building Studio Project",
+                StoryStageIds.Render => "Rendering Final MP4",
+                StoryStageIds.Kit => "Finalizing YouTube Kit",
+                _ => active.Id
+            };
+            var detail = string.IsNullOrWhiteSpace(active.Message) ? stageLabel : $"{stageLabel}: {active.Message}";
+            return (detail, percent);
+        }
+
+        var next = run.Stages.FirstOrDefault(s => s.Status == StoryStageStatus.Pending);
+        return next is not null ? ($"Preparing {next.Id}", percent) : ("In Progress", percent);
+    }
+
+    private async Task EnsureAutomationCastCharactersAsync(
+        string userId,
+        AutomationPost post,
+        StoryScript script,
+        CancellationToken ct)
+    {
+        var names = new List<string>();
+        foreach (var member in script.Cast)
+        {
+            if (!string.IsNullOrWhiteSpace(member.Name))
+                names.Add(member.Name.Trim());
+        }
+        post.ProvisionedCharacterNames = [.. names.Distinct(StringComparer.OrdinalIgnoreCase).Take(12)];
+
+        if (characters is null || script.Cast.Count == 0) return;
+
+        try
+        {
+            var userProjects = await projects.ListAsync(userId, ct).ConfigureAwait(false);
+            var libProject = userProjects.FirstOrDefault(p =>
+                string.Equals(p.Name, CharacterLibraryProjectName, StringComparison.OrdinalIgnoreCase));
+
+            if (libProject is null)
+            {
+                libProject = new Project
+                {
+                    Id = $"proj_autolib_{Guid.NewGuid():n}",
+                    UserId = userId,
+                    Name = CharacterLibraryProjectName,
+                    Description = "Reusable animated characters provisioned automatically for daily stories.",
+                    Status = ProjectStatus.Draft,
+                    Settings = new ProjectSettings(),
+                    CreatedAt = UtcNow,
+                    UpdatedAt = UtcNow
+                };
+                await projects.InsertAsync(libProject, ct).ConfigureAwait(false);
+            }
+
+            var existing = await characters.ListByProjectAsync(libProject.Id, ct).ConfigureAwait(false);
+            var byName = existing.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+            var colorIndex = byName.Count;
+
+            foreach (var member in script.Cast)
+            {
+                var name = member.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+
+                var isNarrator = string.Equals(name, StoryCastMember.Narrator, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "सूत्रधार", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "sutradhar", StringComparison.OrdinalIgnoreCase);
+
+                if (byName.TryGetValue(name, out var existingChar))
+                {
+                    var changed = false;
+                    if (!string.IsNullOrWhiteSpace(member.Look) && string.IsNullOrWhiteSpace(existingChar.Appearance.AdditionalDetails))
+                    {
+                        existingChar.Appearance.AdditionalDetails = member.Look;
+                        existingChar.Description ??= member.Look;
+                        changed = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(member.VoiceId) && existingChar.Voice is null)
+                    {
+                        existingChar.Voice = new CharacterVoice { Preset = member.VoiceId };
+                        changed = true;
+                    }
+                    if (changed)
+                    {
+                        existingChar.UpdatedAt = UtcNow;
+                        await characters.ReplaceAsync(existingChar, ct).ConfigureAwait(false);
+                    }
+                    continue;
+                }
+
+                var created = new Character
+                {
+                    Id = $"chr_{Guid.NewGuid():n}",
+                    ProjectId = libProject.Id,
+                    Name = name,
+                    Description = string.IsNullOrWhiteSpace(member.Look)
+                        ? $"Story character created for '{post.Title}'"
+                        : member.Look,
+                    IsNarrator = isNarrator,
+                    IsAutoCreated = false,
+                    SubtitleColorHex = isNarrator ? "#FDE68A" : CharacterPalette[colorIndex++ % CharacterPalette.Length],
+                    Appearance = new CharacterAppearance
+                    {
+                        Gender = member.Gender,
+                        AdditionalDetails = member.Look,
+                        Age = member.Age?.ToLowerInvariant() switch
+                        {
+                            "child" => 9,
+                            "young" => 22,
+                            "adult" => 35,
+                            "elder" => 65,
+                            _ => null
+                        }
+                    },
+                    Voice = string.IsNullOrWhiteSpace(member.VoiceId) ? null : new CharacterVoice { Preset = member.VoiceId },
+                    CreatedAt = UtcNow,
+                    UpdatedAt = UtcNow
+                };
+                await characters.InsertAsync(created, ct).ConfigureAwait(false);
+                byName[name] = created;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not mirror story cast characters to library for post {PostId}", post.Id);
+        }
+    }
+
+    private Task EnsureProceduralCharactersAsync(
+        string userId,
+        AutomationPost post,
+        ProceduralDialoguePlan plan,
+        CancellationToken ct)
+    {
+        var cast = new List<StoryCastMember>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddMember(string? rawName, CharacterVisualRole? role, string? description = null)
+        {
+            var name = rawName?.Trim();
+            if (string.IsNullOrWhiteSpace(name) || !seen.Add(name)) return;
+            var age = role switch
+            {
+                CharacterVisualRole.ChildDevotee => "child",
+                CharacterVisualRole.SageRishi => "elder",
+                _ => "adult"
+            };
+            cast.Add(new StoryCastMember
+            {
+                Name = name,
+                Age = age,
+                Look = description ?? role?.ToString()
+            });
+        }
+
+        foreach (var turn in plan.Turns)
+        {
+            if (turn.IsTitleHook) continue;
+            AddMember(turn.SpeakerName, turn.SpeakerRole);
+        }
+        if (plan.LeftCharacter is not null)
+            AddMember(plan.LeftCharacter.Name, plan.LeftCharacter.Role);
+        if (plan.RightCharacter is not null)
+            AddMember(plan.RightCharacter.Name, plan.RightCharacter.Role);
+
+        if (cast.Count == 0)
+            return Task.CompletedTask;
+
+        var syntheticScript = new StoryScript
+        {
+            Title = post.Title,
+            Language = string.IsNullOrWhiteSpace(post.Language) ? "hi" : post.Language,
+            Cast = cast
+        };
+        return EnsureAutomationCastCharactersAsync(userId, post, syntheticScript, ct);
+    }
+
+    private async Task<(string? TempDir, List<string> FilePaths)> MaterializeStorageImagesAsync(
+        IReadOnlyList<string> assetIds,
+        CancellationToken ct)
+    {
+        if (assets is null || assetIds.Count == 0) return (null, []);
+
+        var fetched = await assets.GetManyAsync(assetIds, ct).ConfigureAwait(false);
+        var byId = fetched
+            .Where(a => a.Kind == AssetKind.Image && !string.IsNullOrWhiteSpace(a.StorageKey))
+            .ToDictionary(a => a.Id, StringComparer.Ordinal);
+
+        if (byId.Count == 0) return (null, []);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"animstudio-auto-bg-{Guid.NewGuid():n}");
+        Directory.CreateDirectory(tempDir);
+        var paths = new List<string>(assetIds.Count);
+
+        foreach (var id in assetIds)
+        {
+            if (!byId.TryGetValue(id, out var asset)) continue;
+            await using var stream = await objectStore.OpenAsync(asset.StorageKey, ct).ConfigureAwait(false);
+            if (stream is null) continue;
+
+            var ext = asset.MimeType.ToLowerInvariant() switch
+            {
+                "image/png" => ".png",
+                "image/webp" => ".webp",
+                _ => ".jpg"
+            };
+            var filePath = Path.Combine(tempDir, $"{paths.Count:D2}_{asset.Id}{ext}");
+            await using var fs = File.Create(filePath);
+            await stream.CopyToAsync(fs, ct).ConfigureAwait(false);
+            paths.Add(filePath);
+        }
+
+        if (paths.Count == 0)
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            return (null, []);
+        }
+
+        return (tempDir, paths);
     }
 }

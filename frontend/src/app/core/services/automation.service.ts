@@ -38,7 +38,40 @@ export type ProceduralSceneTheme =
 
 export type AutomationVideoFormat = 'Vertical' | 'Wide' | 'CommunityPost';
 
+export type AutomationVisualEngine =
+  | 'Auto'
+  | 'AiRealisticStory'
+  | 'StorageImagesStory'
+  | 'Procedural3D';
+
+export type AutomationNarrativeMode = 'Auto' | 'ShortReel' | 'FullStory';
+
 export type SubtitleMotionPreset = 'event-glow' | 'karaoke-pulse' | 'classic-clean';
+
+export interface AutomationStorageImageItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  name: string;
+  width?: number | null;
+  height?: number | null;
+  updatedAtUtc: string;
+}
+
+export interface AutomationCharacterProfileItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  name: string;
+  description?: string | null;
+  isNarrator: boolean;
+  subtitleColorHex?: string | null;
+}
+
+export interface AutomationStorageCatalog {
+  images: AutomationStorageImageItem[];
+  characters: AutomationCharacterProfileItem[];
+}
 
 export interface ProceduralEventPalette {
   eventKey: string;
@@ -193,6 +226,9 @@ export interface AutomationRule {
   enableCharacterDialogue?: boolean;
   speakerAName?: string | null;
   speakerBName?: string | null;
+  visualEngine?: AutomationVisualEngine;
+  narrativeMode?: AutomationNarrativeMode;
+  attachedAssetIds?: string[];
   sortOrder: number;
   lastPreparedDateKey?: string | null;
   createdAtUtc?: string;
@@ -252,6 +288,13 @@ export interface AutomationPost {
   speakerAName?: string | null;
   speakerBName?: string | null;
   subtitlePreset?: SubtitleMotionPreset | string | null;
+  visualEngine?: AutomationVisualEngine;
+  narrativeMode?: AutomationNarrativeMode;
+  targetSeconds?: number | null;
+  attachedAssetIds?: string[];
+  provisionedCharacterNames?: string[];
+  storyStageSummary?: string | null;
+  storyProgressPercent?: number | null;
   syncedToEcosystemAtUtc?: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
@@ -392,6 +435,16 @@ export class AutomationService {
     ).pipe(map(() => undefined));
   }
 
+  getStorageMediaCatalog(): Observable<AutomationStorageCatalog> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AutomationStorageCatalog>>(`${this.base}/storage-images`)
+    );
+  }
+
+  storageAssetThumbnailUrl(assetId: string): string {
+    return this.media.sign(`${environment.apiUrl}/api/assets/${encodeURIComponent(assetId)}/thumbnail`);
+  }
+
   getVideoCandidates(postId: string): Observable<AutomationVideoCandidate[]> {
     return this.unwrap(
       this.http.get<ApiResponse<AutomationVideoCandidate[]>>(`${this.base}/queue/${encodeURIComponent(postId)}/video-candidates`)
@@ -404,9 +457,20 @@ export class AutomationService {
     );
   }
 
-  generateVideo(postId: string): Observable<AutomationPost> {
+  generateVideo(
+    postId: string,
+    body?: {
+      visualEngine?: AutomationVisualEngine;
+      narrativeMode?: AutomationNarrativeMode;
+      targetSeconds?: number | null;
+      attachedAssetIds?: string[];
+    }
+  ): Observable<AutomationPost> {
     return this.unwrap(
-      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/generate-video`, {})
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/generate-video`,
+        body ?? {}
+      )
     );
   }
 
@@ -421,6 +485,8 @@ export class AutomationService {
       subtitlePreset?: SubtitleMotionPreset | string;
       speakerAName?: string | null;
       speakerBName?: string | null;
+      narrativeMode?: AutomationNarrativeMode;
+      attachedAssetIds?: string[];
     }
   ): Observable<AutomationPost> {
     return this.unwrap(

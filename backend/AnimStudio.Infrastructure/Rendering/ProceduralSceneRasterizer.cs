@@ -23,6 +23,7 @@ public sealed class ProceduralSceneRasterizer
     private readonly float[]? _speechEnvelope;
     private readonly double _fps;
     private readonly string _storyHint;
+    private readonly IReadOnlyList<byte[]>? _backdropFrames;
 
     internal float? ActiveSpeechLevel { get; private set; }
 
@@ -31,7 +32,7 @@ public sealed class ProceduralSceneRasterizer
     private readonly record struct ScreenPt(float X, float Y, float Z, bool Visible);
 
     public ProceduralSceneRasterizer(int width, int height, ProceduralSceneTheme theme, int seed = 108)
-        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0, storyHint: null)
+        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0, storyHint: null, backdropFrames: null)
     {
     }
 
@@ -44,7 +45,8 @@ public sealed class ProceduralSceneRasterizer
         ProceduralDialoguePlan? dialoguePlan,
         float[]? speechEnvelope = null,
         double fps = 24.0,
-        string? storyHint = null)
+        string? storyHint = null,
+        IReadOnlyList<byte[]>? backdropFrames = null)
     {
         Width = Math.Clamp(width, 160, 2160);
         Height = Math.Clamp(height, 160, 2160);
@@ -54,7 +56,12 @@ public sealed class ProceduralSceneRasterizer
         _speechEnvelope = speechEnvelope is { Length: > 0 } ? speechEnvelope : null;
         _fps = fps > 0 ? fps : 24.0;
         _storyHint = (storyHint ?? string.Empty).ToLowerInvariant();
-        _frame = new byte[Width * Height * 4];
+        var expectedBytes = Width * Height * 4;
+        _backdropFrames = backdropFrames is { Count: > 0 }
+            ? [.. backdropFrames.Where(b => b is not null && b.Length == expectedBytes)]
+            : null;
+        if (_backdropFrames is { Count: 0 }) _backdropFrames = null;
+        _frame = new byte[expectedBytes];
 
         var rng = new Random(seed ^ ((int)Theme * 7919));
         _particles = new Particle[96];
@@ -84,10 +91,11 @@ public sealed class ProceduralSceneRasterizer
         var dur = Math.Max(1.0, durationSeconds);
         var u = Math.Clamp(timeSeconds / dur, 0.0, 1.0);
         var pulse = (float)(0.5 + 0.5 * Math.Sin(timeSeconds * 1.8));
+        var activeTheme = ResolveActTheme(u);
 
-        PaintBackdrop(timeSeconds, u, pulse);
+        PaintBackdrop(timeSeconds, u, pulse, activeTheme);
 
-        switch (Theme)
+        switch (activeTheme)
         {
             case ProceduralSceneTheme.VedicTempleSunrise3D:
                 RenderVedicSunrise3D(timeSeconds, u, pulse);
@@ -125,9 +133,29 @@ public sealed class ProceduralSceneRasterizer
         return _frame;
     }
 
-    private void PaintBackdrop(double t, double u, float pulse)
+    private ProceduralSceneTheme ResolveActTheme(double u)
     {
-        var (topR, topG, topB, midR, midG, midB, botR, botG, botB) = Theme switch
+        if (_dialoguePlan is not { HasCharacters: true } || _dialoguePlan.Turns.Count < 5)
+            return Theme;
+
+        // Long or multi-act animated stories evolve across chronological environments instead of staying on 1 backdrop.
+        return Theme switch
+        {
+            ProceduralSceneTheme.VedicTempleSunrise3D => u < 0.34
+                ? ProceduralSceneTheme.VedicTempleSunrise3D
+                : u < 0.68
+                    ? ProceduralSceneTheme.SereneNatureGlow
+                    : ProceduralSceneTheme.CosmosSacred3D,
+            ProceduralSceneTheme.HistoryChronicle3D => u < 0.50
+                ? ProceduralSceneTheme.HistoryChronicle3D
+                : ProceduralSceneTheme.VedicTempleSunrise3D,
+            _ => Theme
+        };
+    }
+
+    private void PaintBackdrop(double t, double u, float pulse, ProceduralSceneTheme activeTheme)
+    {
+        var (topR, topG, topB, midR, midG, midB, botR, botG, botB) = activeTheme switch
         {
             ProceduralSceneTheme.VedicTempleSunrise3D => (22f, 11f, 36f, 148f, 48f, 22f, 22f, 10f, 12f),
             ProceduralSceneTheme.CosmosSacred3D => (8f, 10f, 34f, 34f, 20f, 82f, 10f, 14f, 38f),
@@ -147,6 +175,37 @@ public sealed class ProceduralSceneRasterizer
         botR = botR * 0.45f + Palette.BotBackdropRgb.R * 0.55f;
         botG = botG * 0.45f + Palette.BotBackdropRgb.G * 0.55f;
         botB = botB * 0.45f + Palette.BotBackdropRgb.B * 0.55f;
+
+        if (_backdropFrames is { Count: > 0 } photos)
+        {
+            var scaled = u * photos.Count;
+            var idxA = Math.Clamp((int)Math.Floor(scaled), 0, photos.Count - 1);
+            var frac = scaled - idxA;
+            var blend = frac > 0.85 && idxA + 1 < photos.Count ? (float)((frac - 0.85) / 0.15) : 0f;
+            var frameA = photos[idxA];
+            var frameB = blend > 0f ? photos[idxA + 1] : frameA;
+
+            for (var y = 0; y < Height; y++)
+            {
+                var ny = (float)y / (Height - 1);
+                var tr = ny < 0.52f ? topR + (midR - topR) * (ny / 0.52f) : midR + (botR - midR) * ((ny - 0.52f) / 0.48f);
+                var tg = ny < 0.52f ? topG + (midG - topG) * (ny / 0.52f) : midG + (botG - midG) * ((ny - 0.52f) / 0.48f);
+                var tb = ny < 0.52f ? topB + (midB - topB) * (ny / 0.52f) : midB + (botB - midB) * ((ny - 0.52f) / 0.48f);
+                var rowStart = y * Width * 4;
+                for (var x = 0; x < Width; x++)
+                {
+                    var p = rowStart + x * 4;
+                    var pr = frameA[p] * (1f - blend) + frameB[p] * blend;
+                    var pg = frameA[p + 1] * (1f - blend) + frameB[p + 1] * blend;
+                    var pb = frameA[p + 2] * (1f - blend) + frameB[p + 2] * blend;
+                    _frame[p] = ClampByte(pr * 0.72f + tr * 0.28f);
+                    _frame[p + 1] = ClampByte(pg * 0.72f + tg * 0.28f);
+                    _frame[p + 2] = ClampByte(pb * 0.72f + tb * 0.28f);
+                    _frame[p + 3] = 255;
+                }
+            }
+            return;
+        }
 
         var shimmer = 0.92f + 0.08f * pulse;
         var shift = (float)Math.Sin(t * 0.45) * 0.06f;

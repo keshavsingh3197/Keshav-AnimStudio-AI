@@ -88,6 +88,11 @@ public static class AutomationContentComposer
         return [.. items.Select(item => EnrichCommunityAndTemplateMetadata(item, rule, palette, dateKey, isHindi))];
     }
 
+    private static bool IsFullStoryMode(AutomationRule rule) =>
+        rule.NarrativeMode == AutomationNarrativeMode.FullStory
+        || (rule.NarrativeMode != AutomationNarrativeMode.ShortReel
+            && (rule.TargetSeconds >= 95 || rule.VideoFormat == AutomationVideoFormat.Wide));
+
     private static ComposedAutomationContent ComposePanchang(
         AutomationRule rule,
         EcosystemPanchangSignal p,
@@ -107,6 +112,7 @@ public static class AutomationContentComposer
             : string.Empty;
 
         var (speakerA, speakerB) = ResolveSpeakerPair(rule, title, null, isHindi);
+        var fullStory = IsFullStoryMode(rule);
         string script;
         if (isHindi && rule.EnableCharacterDialogue)
         {
@@ -114,15 +120,27 @@ public static class AutomationContentComposer
                 ? $"\n[{speakerA}]: आज का पावन संस्कृत सूत्र भी याद रखें — {p.DailySanskritSutra}। अर्थात् {p.DailySutraMeaning}"
                 : string.Empty;
 
-            script = $"""
-                [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को {p.Location} के अनुसार पंचांग में कौन सा शुभ योग बन रहा है?
-                [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"} है। तिथि {p.Tithi}{(string.IsNullOrWhiteSpace(p.TithiEndTime) ? "" : $" ({p.TithiEndTime} तक)")} और पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} रहेगा।
-                [{speakerB}]: और आज का नक्षत्र, योग और सूर्योदय-सूर्यास्त का समय क्या है आचार्य?
-                [{speakerA}]: आज नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है, योग {p.Yoga} तथा करण {p.Karana} है। सूर्योदय {p.Sunrise} और सूर्यास्त {p.Sunset} पर होगा।
-                [{speakerB}]: नया शुभ कार्य शुरू करने के लिए आज सबसे श्रेष्ठ मुहूर्त कौन सा रहेगा और किस समय सावधान रहें?
-                [{speakerA}]: सर्वोत्तम अभिजीत मुहूर्त {p.AbhijitMuhurat} तथा ब्रह्म मुहूर्त {p.BrahmaMuhurat} है। वहीं राहुकाल {p.RahuKaal} रहेगा — इस दौरान बड़े शुभ कार्य टालें।{sutraDialogue}
-                [{speakerB}]: बहुत सुंदर मार्गदर्शन! चौघड़िया, होरा और पूरे दिन का पंचांग देखने के लिए हमारे पंचांग पोर्टल के लिंक पर जाएं: {primaryLink}
-                """;
+            var extendedContext = fullStory
+                ? $"""
+                  [सूत्रधार]: आज {p.DateKey} को {p.Location} में नक्षत्र-ग्रहों की स्थिति और शुभ मुहूर्त क्यों विशेष हैं, आइए गुरु और शिष्य के संवाद से पूरा पंचांग समझते हैं।
+                  [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को {p.Location} के अनुसार पंचांग में कौन सा शुभ योग बन रहा है?
+                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"} है। तिथि {p.Tithi}{(string.IsNullOrWhiteSpace(p.TithiEndTime) ? "" : $" ({p.TithiEndTime} तक)")} और पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} रहेगा।
+                  [{speakerB}]: आचार्य, दैनिक पूजा व कार्य सिद्धि के लिए आज का नक्षत्र, योग और सूर्योदय-सूर्यास्त का समय भी स्पष्ट बताइए।
+                  [{speakerA}]: आज नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है, योग {p.Yoga} तथा करण {p.Karana} है। सूर्योदय {p.Sunrise} और सूर्यास्त {p.Sunset} पर होगा।
+                  [{speakerB}]: नया शुभ कार्य शुरू करने के लिए आज सबसे श्रेष्ठ मुहूर्त कौन सा रहेगा और किस समय सावधान रहें?
+                  [{speakerA}]: सर्वोत्तम अभिजीत मुहूर्त {p.AbhijitMuhurat}, ब्रह्म मुहूर्त {p.BrahmaMuhurat} तथा अमृत काल {p.AmritKaal} है। वहीं राहुकाल {p.RahuKaal} रहेगा — इस दौरान बड़े शुभ कार्य टालें।{sutraDialogue}
+                  [सूत्रधार]: आज की जीवन सीख — समय और तिथि के अनुरूप अनुशासित कर्म करने से हर प्रयास सफल व मंगलमय बनता है।
+                  [{speakerB}]: चौघड़िया, होरा और पूरे दिन का पंचांग देखने के लिए हमारे पंचांग पोर्टल के लिंक पर जाएं: {primaryLink}
+                  """
+                : $"""
+                  [सूत्रधार]: आइए जानते हैं {p.DateKey} ({p.Location}) का संपूर्ण दैनिक पंचांग व शुभ मुहूर्त।
+                  [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को कौन सा शुभ योग और तिथि है?
+                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"}, तिथि {p.Tithi}{(string.IsNullOrWhiteSpace(p.TithiEndTime) ? "" : $" ({p.TithiEndTime} तक)")}, पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} व नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है। योग {p.Yoga}, करण {p.Karana}, सूर्योदय {p.Sunrise} व सूर्यास्त {p.Sunset} है।
+                  [{speakerB}]: आज नया कार्य करने का शुभ समय और राहुकाल क्या है?
+                  [{speakerA}]: अभिजीत मुहूर्त {p.AbhijitMuhurat} और ब्रह्म मुहूर्त {p.BrahmaMuhurat} श्रेष्ठ हैं; राहुकाल {p.RahuKaal} में शुभ आरंभ टालें।{sutraDialogue}
+                  [सूत्रधार]: जीवन सीख — शुभ समय का सम्मान और सद्कर्म दिन को सफल बनाते हैं। पूरा पंचांग व चौघड़िया देखें: {primaryLink}
+                  """;
+            script = extendedContext;
         }
         else if (isHindi)
         {
@@ -134,21 +152,32 @@ public static class AutomationContentComposer
                 • सूर्योदय: {p.Sunrise} | सूर्यास्त: {p.Sunset}
                 • आज का शुभ अभिजीत मुहूर्त: {p.AbhijitMuhurat} | ब्रह्म मुहूर्त: {p.BrahmaMuhurat}
                 • सावधान समय (राहुकाल): {p.RahuKaal} — इस दौरान शुभ कार्य व निवेश टालें।{sutraLine}
+                [MORAL] सीख — अनुशासन और शुभ मुहूर्त के अनुसार किया गया कर्म सदैव कल्याणकारी होता है।
                 [WEBSITE CTA 35-50s] पूरे दिन का चौघड़िया, होरा, लाइव राशि-तारा फल और अपने शहर का सटीक पंचांग देखने के लिए डिस्क्रिप्शन या पिन कमेंट में दिए लिंक पर जाएं: {primaryLink}
                 """;
         }
         else
         {
-            script = $"""
-                [HOOK 0-4s] Namaste! Here is today's authentic Vedic Panchang for {p.DateKey} ({p.Location}).
-                [CORE PANCHANG 4-35s]
-                • Tithi: {p.Tithi} | Nakshatra: {p.Nakshatra} | Yoga: {p.Yoga} | Karana: {p.Karana}
-                • Sunrise: {p.Sunrise} | Sunset: {p.Sunset}
-                • Best Auspicious Window (Abhijit Muhurat): {p.AbhijitMuhurat}
-                • Brahma Muhurat: {p.BrahmaMuhurat} | Amrit Kaal: {p.AmritKaal}
-                • Avoid Important Starts (Rahu Kaal): {p.RahuKaal}
-                [WEBSITE CTA 35-50s] Check live city-wise Choghadiya, Hora, Festivals, and Aaj Ka Itihaas directly on our portal (link in pinned comment): {primaryLink}
-                """;
+            script = fullStory
+                ? $"""
+                  [Narrator]: Welcome to today's complete Vedic Panchang guide for {p.DateKey} in {p.Location} — let us understand both the sacred timings and the dharma wisdom behind the day.
+                  [{speakerB}]: Teacher, what is today's Tithi, Paksha, and planetary alignment for {p.DateKey}?
+                  [{speakerA}]: Today is {p.Vaara ?? "a sacred day"} under Tithi {p.Tithi}, Nakshatra {p.Nakshatra}, Yoga {p.Yoga}, and Karana {p.Karana}. Sunrise is at {p.Sunrise} and Sunset is at {p.Sunset}.
+                  [{speakerB}]: Which windows are most auspicious for prayers, study, and new beginnings, and when should we pause?
+                  [{speakerA}]: Abhijit Muhurat ({p.AbhijitMuhurat}), Brahma Muhurat ({p.BrahmaMuhurat}), and Amrit Kaal ({p.AmritKaal}) carry uplifting harmony. Pause important starts during Rahu Kaal ({p.RahuKaal}).
+                  [Narrator]: Moral of the day — aligning action with clarity, gratitude, and mindful timing turns ordinary hours into sacred progress.
+                  [{speakerB}]: Explore city-wise Choghadiya, Hora, Festivals, and Aaj Ka Itihaas directly on our portal: {primaryLink}
+                  """
+                : $"""
+                  [HOOK 0-4s] Namaste! Here is today's authentic Vedic Panchang for {p.DateKey} ({p.Location}).
+                  [CORE PANCHANG 4-35s]
+                  • Tithi: {p.Tithi} | Nakshatra: {p.Nakshatra} | Yoga: {p.Yoga} | Karana: {p.Karana}
+                  • Sunrise: {p.Sunrise} | Sunset: {p.Sunset}
+                  • Best Auspicious Window (Abhijit Muhurat): {p.AbhijitMuhurat}
+                  • Brahma Muhurat: {p.BrahmaMuhurat} | Amrit Kaal: {p.AmritKaal}
+                  • Avoid Important Starts (Rahu Kaal): {p.RahuKaal}
+                  [WEBSITE CTA 35-50s] Check live city-wise Choghadiya, Hora, Festivals, and Aaj Ka Itihaas directly on our portal (link in pinned comment): {primaryLink}
+                  """;
         }
 
         var prompt = ApplyPromptOverride(rule,
@@ -215,14 +244,29 @@ public static class AutomationContentComposer
                 : Truncate($"{whenLabel}: {f.NameEnglish} | Puja Vidhi, Significance & Auspicious Time", MaxTitleLength);
 
             var (festA, festB) = ResolveSpeakerPair(rule, title, null, isHindi);
+            var festFull = IsFullStoryMode(rule);
+            var festDescHi = LocalizeBriefSummaryHindi(f.Description, $"{f.NameHindi} हमें भक्ति, संयम और सकारात्मक ऊर्जा से जोड़ता है।");
+            var festVidhiHi = LocalizeBriefSummaryHindi(f.RitualsAndPujaVidhi ?? f.FastingRules, "प्रातः स्नान करके दीप प्रज्वलन करें, श्रद्धा से अर्घ्य और आरती करें तथा सात्विक आचरण रखें।");
             var script = isHindi && rule.EnableCharacterDialogue
-                ? $"""
-                   [{festB}]: जय श्री हरि पंडित जी! {whenLabel} ({f.DateKey}) को {displayName} का पावन पर्व है, इसका विशेष महत्व क्या है?
-                   [{festA}]: शुभ कल्याण हो! यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {LocalizeBriefSummaryHindi(f.Description, $"{f.NameHindi} हमें भक्ति, संयम और सकारात्मक ऊर्जा से जोड़ता है।")}
-                   [{festB}]: आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
-                   [{festA}]: {LocalizeBriefSummaryHindi(f.RitualsAndPujaVidhi ?? f.FastingRules, "प्रातः स्नान करके दीप प्रज्वलन करें, श्रद्धा से अर्घ्य और आरती करें तथा सात्विक आचरण रखें।")}
-                   [{festB}]: संपूर्ण व्रत कथा, आरती और पारण का सटीक समय देखने के लिए नीचे पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
-                   """
+                ? (festFull
+                    ? $"""
+                       [सूत्रधार]: {whenLabel} ({f.DateKey}) को भारत भर में {displayName} का पावन पर्व मनाया जा रहा है। आइए जानते हैं इसकी पौराणिक पृष्ठभूमि, संपूर्ण पूजा विधि और आध्यात्मिक संदेश।
+                       [{festB}]: जय श्री हरि पंडित जी! {displayName} किस वैदिक तिथि को आता है और इसके पीछे की कथा व महत्व क्या है?
+                       [{festA}]: शुभ कल्याण हो! यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
+                       [{festB}]: घर में भक्ति व श्रद्धा के साथ पूजा और व्रत किस विधि से करना चाहिए?
+                       [{festA}]: {festVidhiHi}
+                       [{festB}]: पंडित जी, इस पर्व का मुख्य जीवन संदेश क्या है जो हर परिवार को अपनाना चाहिए?
+                       [{festA}]: हर व्रत-त्योहार हमें संयम, कृतज्ञता, परोपकार और सत्य के मार्ग पर स्थिर रहने की प्रेरणा देता है।
+                       [सूत्रधार]: आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। संपूर्ण व्रत कथा व आरती समय देखें: {primaryLink}
+                       """
+                    : $"""
+                       [सूत्रधार]: {whenLabel} ({f.DateKey}) को {displayName} का पावन पर्व है — आइए जानें इसका महत्व व पूजा विधि।
+                       [{festB}]: जय श्री हरि पंडित जी! {displayName} का विशेष पौराणिक महत्व क्या है?
+                       [{festA}]: यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
+                       [{festB}]: आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
+                       [{festA}]: {festVidhiHi}
+                       [सूत्रधार]: जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। संपूर्ण व्रत कथा व पारण समय देखें: {primaryLink}
+                       """)
                 : isHindi
                     ? $"""
                        [HOOK 0-4s] जय श्री हरि! {whenLabel} ({f.DateKey}) को पावन पर्व {displayName} है। आइए जानते हैं इसकी सरल पूजा विधि और विशेष लाभ।
@@ -230,14 +274,16 @@ public static class AutomationContentComposer
                        • पावन तिथि: {f.Tithi ?? "पवित्र तिथि"} ({f.MonthVedic ?? "वैदिक मास"})
                        • महत्व: {f.Description}
                        • पूजा व व्रत नियम: {f.RitualsAndPujaVidhi ?? f.FastingRules ?? "प्रातः स्नान के बाद दीप प्रज्वलन और भगवान का स्मरण करें।"}
+                       [MORAL] सीख — भक्ति, संयम और करुणा हर पर्व को सार्थक बनाते हैं।
                        [WEBSITE CTA 40-52s] पूरी व्रत कथा, आरती, और सटीक पारण/पूजा समय देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
                        """
                     : $"""
-                       [HOOK 0-4s] {whenLabel} marks the sacred occasion of {displayName}!
+                       [HOOK 0-4s] {whenLabel} marks the sacred occasion of {displayName}! Let us explore its story, rituals, and lasting wisdom.
                        [BODY 4-40s]
                        • Sacred Tithi: {f.Tithi ?? "Auspicious Vedic Date"} ({f.MonthVedic ?? "Hindu Calendar"})
                        • Why it matters: {f.Description}
                        • Puja Vidhi & Observance: {f.RitualsAndPujaVidhi ?? f.FastingRules ?? "Morning prayers, diya lighting, and mindful charity."}
+                       [MORAL] Takeaway — Sacred festivals remind us to cultivate gratitude, discipline, and kindness toward all beings.
                        [WEBSITE CTA 40-52s] Read the full Puja Vidhi & Muhurat table on our Panchang website: {primaryLink}
                        """;
 
@@ -289,14 +335,26 @@ public static class AutomationContentComposer
         else
         {
             title = Truncate($"{k.Title} | Sacred Story of {k.DeityOrSage} & Daily Wisdom", MaxTitleLength);
-            script = $"""
-                [{speakerA}]: Today we bring you a living sacred dialogue from Puranic wisdom — {k.Title}.
-                [{speakerB}]: {k.StorySummary}
-                [{speakerA}]: When adversity tests us deeply, patience and surrender transform weakness into unshakable strength.
-                [{speakerB}]: Remember the sacred lesson: {k.MoralTeaching ?? "Faith anchored in dharma brings clarity under pressure."}
-                [{speakerA}]: Chant together with devotion — {k.SanskritMantra ?? "Om Namo Bhagavate Vasudevaya"}.
-                [{speakerB}]: Explore complete Pauranik Katha dialogues & daily Vedic Panchang on our portal: {primaryLink}
-                """;
+            var mantraEn = k.SanskritMantra ?? "Om Namo Bhagavate Vasudevaya";
+            var moralEn = k.MoralTeaching ?? "Faith anchored in dharma and perseverance brings clarity and divine grace.";
+            script = IsFullStoryMode(rule)
+                ? $"""
+                   [Narrator]: Before the legend begins, let us step into the world of {k.Title} ({k.DeityOrSage}) — why it began and how one moment of resolve changed destiny forever.
+                   [{speakerA}]: {k.StorySummary}
+                   [{speakerB}]: Yet when hardship appears and no earthly comfort remains, what truly guides a seeker forward?
+                   [{speakerA}]: Surrender without bitterness, courage without pride, and unwavering remembrance of the Divine.
+                   [{speakerB}]: Meditate deeply upon the sacred chant — {mantraEn}.
+                   [{speakerA}]: Steadfast devotion opens doors no obstacle in all the worlds can shut.
+                   [Narrator]: Moral of the story — {moralEn} Reflect gently on how this timeless lesson speaks to your own challenges today.
+                   [{speakerB}]: Explore complete Pauranik Katha stories & daily Vedic Panchang on our portal: {primaryLink}
+                   """
+                : $"""
+                   [Narrator]: Today we bring you a living sacred story — {k.Title}.
+                   [{speakerA}]: {k.StorySummary}
+                   [{speakerB}]: Remember the timeless lesson: {moralEn}
+                   [{speakerA}]: Chant together with devotion — {mantraEn}.
+                   [Narrator]: Moral — {moralEn} Explore full Pauranik Katha dialogues & daily Panchang: {primaryLink}
+                   """;
         }
 
         var visualSubject = string.IsNullOrWhiteSpace(k.DeityOrSage) ? speakerA : k.DeityOrSage;
@@ -346,15 +404,25 @@ public static class AutomationContentComposer
             : Truncate($"On This Day ({dateKey}) | {leadIncident.Year}: {leadIncident.Title}", MaxTitleLength);
 
         var (histA, histB) = ResolveSpeakerPair(rule, title, null, isHindi);
+        var histFull = IsFullStoryMode(rule);
         var script = isHindi && rule.EnableCharacterDialogue
-            ? $"""
-               [{histB}]: {dateKey} की तारीख विश्व और भारत के इतिहास में क्यों इतनी महत्वपूर्ण मानी जाती है?
-               [{histA}]: आइए समय की यात्रा में पीछे चलते हैं! आज ही के दिन सन् {leadIncident.Year} में '{leadIncident.Title}' की ऐतिहासिक घटना घटी थी।
-               [{histB}]: उस समय परिस्थिति क्या थी और इसका समाज व भविष्य पर क्या प्रभाव पड़ा?
-               [{histA}]: {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का एक निर्णायक मोड़ बनी।")} {LocalizeBriefSummaryHindi(leadIncident.CulturalSignificance, string.Empty)}
-               {(secondary.Count > 0 ? $"[{histB}]: इसके अलावा आज के दिन इतिहास में {string.Join(" और ", secondary.Select(s => $"सन् {s.Year} की प्रमुख घटना '{s.Title}'"))} भी दर्ज है।" : $"[{histB}]: इतिहास से मिलने वाली हर सीख हमें वर्तमान को बेहतर समझने की दृष्टि देती है।")}
-               [{histA}]: पूरी ऐतिहासिक टाइमलाइन, महत्वपूर्ण तिथियां और परीक्षा उपयोगी GK नोट्स पढ़ने के लिए डिस्क्रिप्शन में दिए लिंक पर जाएं: {primaryLink}
-               """
+            ? (histFull
+                ? $"""
+                   [सूत्रधार]: आज की तारीख {dateKey} विश्व व भारत के इतिहास का एक निर्णायक मोड़ है। आइए समय के पन्नों से जानते हैं कि सन् {leadIncident.Year} में असल में क्या हुआ था और उसने हमारा आज कैसे बदला।
+                   [{histB}]: इतिहासकार महोदय, {dateKey} की तारीख विश्व और भारत के इतिहास में क्यों इतनी महत्वपूर्ण मानी जाती है?
+                   [{histA}]: आइए समय की यात्रा में पीछे चलते हैं! आज ही के दिन सन् {leadIncident.Year} में '{leadIncident.Title}' की ऐतिहासिक घटना घटी थी।
+                   [{histB}]: उस समय देश व समाज की परिस्थिति क्या थी और इसका भविष्य पर क्या प्रभाव पड़ा?
+                   [{histA}]: {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का एक निर्णायक मोड़ बनी।")} {LocalizeBriefSummaryHindi(leadIncident.CulturalSignificance, string.Empty)}
+                   {(secondary.Count > 0 ? $"[{histB}]: इसके अलावा आज के दिन इतिहास में {string.Join(" और ", secondary.Select(s => $"सन् {s.Year} की प्रमुख घटना '{s.Title}'"))} भी दर्ज है।" : $"[{histB}]: इतिहास की ये घटनाएं केवल तारीखें नहीं, बल्कि मानव साहस और दूरदृष्टि के प्रमाण हैं।")}
+                   [सूत्रधार]: आज की ऐतिहासिक सीख — अतीत के संघर्ष और नवाचार हमें वर्तमान में सही निर्णय लेने की स्पष्ट दृष्टि देते हैं। पूरी ऐतिहासिक टाइमलाइन व GK नोट्स देखें: {primaryLink}
+                   """
+                : $"""
+                   [सूत्रधार]: जानिए {dateKey} की वो ऐतिहासिक घटना जिसने सन् {leadIncident.Year} में दिशा बदल दी!
+                   [{histB}]: {dateKey} इतिहास में क्यों खास है?
+                   [{histA}]: सन् {leadIncident.Year} में आज ही के दिन '{leadIncident.Title}' घटी थी। {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का प्रमुख मोड़ रही।")}
+                   {(secondary.Count > 0 ? $"[{histB}]: साथ ही आज के दिन {string.Join(" व ", secondary.Select(s => $"सन् {s.Year} की घटना '{s.Title}'"))} भी महत्वपूर्ण रही।" : $"[{histB}]: इसका दूरगामी प्रभाव आज भी महसूस किया जाता है।")}
+                   [सूत्रधार]: सीख — इतिहास हमें वर्तमान को संवारने की प्रेरणा देता है। पूरी टाइमलाइन व GK नोट्स देखें: {primaryLink}
+                   """)
             : isHindi
                 ? $"""
                    [HOOK 0-4s] {dateKey} — इतिहास के पन्नों में आज का दिन क्यों बेहद खास है? आइए जानते हैं {leadIncident.Year} की ऐतिहासिक घटना!
@@ -363,6 +431,7 @@ public static class AutomationContentComposer
                    {leadIncident.Description}
                    {(string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? "" : $"प्रभाव: {leadIncident.CulturalSignificance}")}
                    {(secondary.Count > 0 ? "\nआज की अन्य प्रमुख घटनाएं:\n" + string.Join("\n", secondary.Select(s => $"• {s.Year}: {s.Title}")) : "")}
+                   [MORAL] सीख — अतीत की घटनाएं हमें धैर्य, दूरदृष्टि और जागरूकता का पाठ पढ़ाती हैं।
                    [WEBSITE CTA 42-55s] इतिहास की पूरी टाइमलाइन, एग्जाम नोट्स और क्विज़ प्रैक्टिस के लिए हमारी वेबसाइट देखें: {primaryLink}
                    """
                 : $"""
@@ -372,6 +441,7 @@ public static class AutomationContentComposer
                    {leadIncident.Description}
                    {(string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? "" : $"Why it shaped today: {leadIncident.CulturalSignificance}")}
                    {(secondary.Count > 0 ? "\nAlso on this date:\n" + string.Join("\n", secondary.Select(s => $"• {s.Year}: {s.Title}")) : "")}
+                   [MORAL] Lesson — Remembering pivotal turning points empowers wiser choices in the present.
                    [WEBSITE CTA 42-55s] Explore the full interactive Aaj Ka Itihaas archive & exam GK notes on our portal: {primaryLink}
                    """;
 
@@ -417,21 +487,41 @@ public static class AutomationContentComposer
             ? Truncate($"प्रज्ञा / प्रतियोगिता अलर्ट: {top.Title} | अभी हिस्सा लें! ({dateKey})", MaxTitleLength)
             : Truncate($"Competition & Quiz Spotlight: {top.Title} | Register & Win", MaxTitleLength);
 
+        var (mentorName, participantName) = ResolveSpeakerPair(rule, title, null, isHindi);
+        var fullStory = IsFullStoryMode(rule);
         var script = isHindi
-            ? $"""
-               [HOOK 0-4s] क्या आप अपनी तैयारी और नॉलेज को आज़माना चाहते हैं? सुनहरा मौका आ गया है!
-               [DETAILS 4-40s]
-               • प्रतियोगिता: {top.Title} ({top.Category})
-               • स्टेटस: {top.Status}{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" | अंतिम तिथि: {top.DeadlineLabel}")}
-               {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : $"• खास बात: {top.PrizeOrHighlight}")}
-               [CTA 40-55s] अभी फ्री रजिस्टर करने, लीडरबोर्ड और प्रैक्टिस सेट देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
-               """
+            ? (rule.EnableCharacterDialogue
+                ? (fullStory
+                    ? $"""
+                       [सूत्रधार]: आज की युवा पीढ़ी व विद्यार्थियों के लिए बड़ी खबर — '{top.Title}' प्रतियोगिता अभी {top.Status} है! आइए जानते हैं इसकी पूरी तैयारी व नियम।
+                       [{participantName}]: नमस्ते {mentorName}! क्या '{top.Title}' ({top.Category}) में हिस्सा लेने से मेरी तैयारी व रैंक मजबूत हो सकती है?
+                       [{mentorName}]: बिल्कुल! इसकी खास बात है — {LocalizeBriefSummaryHindi(top.PrizeOrHighlight, "सटीक अभ्यास, लाइव लीडरबोर्ड और राष्ट्रीय स्तर का अनुभव।")}{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" ध्यान रहे अंतिम तिथि {top.DeadlineLabel} है।")}
+                       [{participantName}]: इसमें सफलता पाने का सबसे सही तरीका क्या रहेगा?
+                       [{mentorName}]: रोज़ नियमित अभ्यास करें, पिछले प्रश्नों का विश्लेषण करें और समय-प्रबंधन पर ध्यान दें।
+                       [सूत्रधार]: आज की सीख — निरंतर प्रयास और स्वयं को परखने का साहस हर विद्यार्थी को विजेता बनाता है। अभी फ्री रजिस्टर करने के लिए पिन कमेंट के लिंक पर जाएं: {primaryLink}
+                       """
+                    : $"""
+                       [सूत्रधार]: विद्यार्थियों के लिए बड़ा अवसर — '{top.Title}' ({top.Category}) में हिस्सा लें!
+                       [{participantName}]: {mentorName}, इसकी अंतिम तिथि और खास लाभ क्या हैं?
+                       [{mentorName}]: स्टेटस अभी {top.Status} है{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" (अंतिम तिथि: {top.DeadlineLabel})")}। {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : LocalizeBriefSummaryHindi(top.PrizeOrHighlight, "लाइव प्रैक्टिस व सम्मान प्राप्त करें।"))}
+                       [सूत्रधार]: सीख — जो अभ्यास की चुनौती स्वीकारते हैं, वही आगे बढ़ते हैं। फ्री रजिस्टर करें: {primaryLink}
+                       """)
+                : $"""
+                   [HOOK 0-4s] क्या आप अपनी तैयारी और नॉलेज को आज़माना चाहते हैं? सुनहरा मौका आ गया है!
+                   [DETAILS 4-40s]
+                   • प्रतियोगिता: {top.Title} ({top.Category})
+                   • स्टेटस: {top.Status}{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" | अंतिम तिथि: {top.DeadlineLabel}")}
+                   {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : $"• खास बात: {top.PrizeOrHighlight}")}
+                   [MORAL] सीख — नियमित स्व-मूल्यांकन और अभ्यास हर लक्ष्य को आसान बनाता है।
+                   [CTA 40-55s] अभी फ्री रजिस्टर करने, लीडरबोर्ड और प्रैक्टिस सेट देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
+                   """)
             : $"""
-               [HOOK 0-4s] Ready to test your skills and compete nationwide?
+               [HOOK 0-4s] Ready to test your skills and compete nationwide? Here is what '{top.Title}' offers.
                [DETAILS 4-40s]
                • Event: {top.Title} ({top.Category}) — Status: {top.Status}
                {(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $"• Deadline: {top.DeadlineLabel}")}
                {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : $"• Highlight: {top.PrizeOrHighlight}")}
+               [MORAL] Takeaway — Consistent practice under real challenge builds lasting mastery.
                [CTA 40-55s] Join now & explore live competitions via the link in the pinned comment: {primaryLink}
                """;
 
@@ -474,22 +564,51 @@ public static class AutomationContentComposer
             ? Truncate($"AI से ऑटो-वीडियो और YouTube ग्रोथ टूल्स | {ecosystem.StudioTitle} ({dateKey})", MaxTitleLength)
             : Truncate($"Automate AI Videos, Daily Panchang & Creator Growth Tools ({dateKey})", MaxTitleLength);
 
+        var (guideA, guideB) = ResolveSpeakerPair(rule, title, null, isHindi);
+        var ecoFull = IsFullStoryMode(rule);
         var script = isHindi
-            ? $"""
-               [HOOK 0-4s] क्या आप हर दिन बिना घंटों एडिटिंग किए प्रोफेशनल AI वीडियो, शॉर्ट्स और चैनल ग्रोथ एनालिटिक्स चाहते हैं?
-               [BODY 4-42s]
-               हमारे ऑल-इन-वन क्रिएटर इकोसिस्टम पर आज ही एक्सप्लोर करें:
-               • AI स्टोरी व शॉर्ट्स जनरेटर ({ecosystem.StudioTitle})
-               • लाइव YouTube ग्रोथ और RPM कैलकुलेटर
-               • आज का सटीक वैदिक पंचांग ({panchangNote}) और डेली इतिहास
-               [CTA 42-55s] सभी फ्री टूल्स और वेबसाइट लिंक्स पिन कमेंट और डिस्क्रिप्शन में हैं: {primaryLink}
-               """
-            : $"""
-               [HOOK 0-4s] Want AI storytelling, daily Vedic knowledge, and creator analytics in one unified workspace?
-               [BODY 4-42s]
-               Explore our creator platform: automated AI stories & Shorts ({ecosystem.StudioTitle}), YouTube RPM & Growth Advisor, daily Panchang ({panchangNote}), and interactive quizzes.
-               [CTA 42-55s] Try all tools directly via our ecosystem links below: {primaryLink}
-               """;
+            ? (rule.EnableCharacterDialogue
+                ? (ecoFull
+                    ? $"""
+                       [सूत्रधार]: आज के डिजिटल युग में हर रचनात्मक व्यक्ति चाहता है कि उसके विचार, सनातन कथाएँ और ज्ञान बिना किसी जटिल सॉफ्टवेयर के करोड़ों दर्शकों तक पहुँचें।
+                       [{guideB}]: {guideA}, एक साधारण व्यक्ति या छोटा क्रिएटर रोज़ समय पर उच्च-गुणवत्ता वाले एनिमेटेड कहानी वीडियो कैसे बना सकता है?
+                       [{guideA}]: जब लेखन, आवाज़, पात्र निर्माण और दृश्य रचना एक ही बुद्धिमान प्रणाली से जुड़ जाते हैं, तब घंटों का काम मिनटों में पूरा हो जाता है!
+                       [{guideB}]: क्या इसमें आज का सटीक वैदिक पंचांग ({panchangNote}), इतिहास और पौराणिक कथाएँ भी स्वतः जुड़ती हैं?
+                       [{guideA}]: बिल्कुल! {ecosystem.StudioTitle} में स्वचालित स्क्रिप्ट, हिंदी आवाज़, जीवंत पात्र और सीधा YouTube प्रकाशन एक साथ काम करते हैं।
+                       [सूत्रधार]: आज की सीख — सही प्रणाली और निरंतरता किसी भी अच्छे विचार को व्यापक प्रभाव में बदल सकती है। सभी फ्री टूल्स देखें: {primaryLink}
+                       """
+                    : $"""
+                       [सूत्रधार]: आज डिजिटल युग में हर क्रिएटर चाहता है कि उसका ज्ञान और सनातन कहानियाँ बिना भारी तकनीकी झंझट के दुनिया तक पहुँचें।
+                       [{guideB}]: {guideA}, क्या बिना घंटों एडिटिंग किए रोज़ प्रोफेशनल AI स्टोरी वीडियो और शॉर्ट्स बनाए जा सकते हैं?
+                       [{guideA}]: बिल्कुल! {ecosystem.StudioTitle} में AI स्क्रिप्ट, हिंदी आवाज़, 3D एनिमेशन और लाइव वैदिक पंचांग ({panchangNote}) एक साथ काम करते हैं।
+                       [सूत्रधार]: सीख — सही तकनीक का उपयोग सृजनशीलता को पंख देता है और आपका समय बचाता है। सभी फ्री टूल्स देखें: {primaryLink}
+                       """)
+                : $"""
+                   [HOOK 0-4s] क्या आप हर दिन बिना घंटों एडिटिंग किए प्रोफेशनल AI वीडियो, शॉर्ट्स और चैनल ग्रोथ एनालिटिक्स चाहते हैं?
+                   [BODY 4-42s]
+                   हमारे ऑल-इन-वन क्रिएटर इकोसिस्टम पर आज ही एक्सप्लोर करें:
+                   • AI स्टोरी व शॉर्ट्स जनरेटर ({ecosystem.StudioTitle})
+                   • लाइव YouTube ग्रोथ और RPM कैलकुलेटर
+                   • आज का सटीक वैदिक पंचांग ({panchangNote}) और डेली इतिहास
+                   [MORAL] सीख — स्मार्ट टूल्स सार्थक विचारों को तेज़ी से लोगों तक पहुँचाते हैं।
+                   [CTA 42-55s] सभी फ्री टूल्स और वेबसाइट लिंक्स पिन कमेंट और डिस्क्रिप्शन में हैं: {primaryLink}
+                   """)
+            : (ecoFull && rule.EnableCharacterDialogue
+                ? $"""
+                   [Narrator]: Before exploring the platform, consider how modern creators turn daily cultural knowledge and stories into consistent animated videos.
+                   [{guideB}]: How can one creator publish daily Panchang updates, historical stories, and multi-character animations without a studio team?
+                   [{guideA}]: By connecting research, scriptwriting, character design, voiceover, and publishing in one workflow inside {ecosystem.StudioTitle} ({panchangNote}).
+                   [{guideB}]: So the creator stays focused on the message while scenes and voices build automatically?
+                   [{guideA}]: Exactly — consistency becomes effortless while every story keeps clear visuals, clean music, and authentic citations.
+                   [Narrator]: Takeaway — A well-designed creative workflow turns scattered ideas into lasting daily impact. Explore all tools: {primaryLink}
+                   """
+                : $"""
+                   [HOOK 0-4s] Want AI storytelling, daily Vedic knowledge, and creator analytics in one unified workspace?
+                   [BODY 4-42s]
+                   Explore our creator platform: automated AI stories & Shorts ({ecosystem.StudioTitle}), YouTube RPM & Growth Advisor, daily Panchang ({panchangNote}), and interactive quizzes.
+                   [MORAL] Takeaway — The right creative system turns ideas into finished stories consistently.
+                   [CTA 42-55s] Try all tools directly via our ecosystem links below: {primaryLink}
+                   """);
 
         var prompt = ApplyPromptOverride(rule,
             $"Futuristic creator workstation montage in {ratioLabel}: sleek dark glowing dashboard screens rendering animated stories, analytics charts rising upward, warm holographic accents.");
@@ -525,9 +644,38 @@ public static class AutomationContentComposer
         var topicSeed = !string.IsNullOrWhiteSpace(rule.CustomTopicPrompt) ? rule.CustomTopicPrompt!.Trim() : rule.Name;
         var title = Truncate($"{topicSeed} ({dateKey})", MaxTitleLength);
 
+        var (custA, custB) = ResolveSpeakerPair(rule, topicSeed, null, isHindi);
+        var custDetail = string.IsNullOrWhiteSpace(rule.Description) ? topicSeed : rule.Description.Trim();
+        var custFull = IsFullStoryMode(rule);
         var script = isHindi
-            ? $"[HOOK 0-4s] {topicSeed} पर आज की विशेष प्रस्तुति।\n[BODY 4-42s] मुख्य विषय: {rule.Description ?? topicSeed}।\n[CTA 42-55s] अधिक जानकारी के लिए वेबसाइट पर जाएं: {primaryLink}"
-            : $"[HOOK 0-4s] Today's feature spotlight: {topicSeed}.\n[BODY 4-42s] {rule.Description ?? topicSeed}\n[CTA 42-55s] Explore more on our website: {primaryLink}";
+            ? (rule.EnableCharacterDialogue
+                ? (custFull
+                    ? $"""
+                       [सूत्रधार]: आइए जानते हैं '{topicSeed}' की पूरी पृष्ठभूमि और वह प्रेरणादायक यात्रा जो हर व्यक्ति को नई दिशा देती है।
+                       [{custB}]: {custA}, '{topicSeed}' के पीछे मुख्य संदर्भ और वास्तविक घटना क्या है?
+                       [{custA}]: {LocalizeBriefSummaryHindi(custDetail, $"{topicSeed} हमें धैर्य, सत्य और संकल्प का जीवंत उदाहरण दिखाता है।")}
+                       [{custB}]: जब परिस्थिति सबसे कठिन हुई, तब आगे बढ़ने की शक्ति कहाँ से मिली?
+                       [{custA}]: अटूट विश्वास, सही मार्गदर्शन और अपने कर्तव्य पर अडिग रहने से ही हर असंभव दिखने वाला मार्ग खुलता है।
+                       [सूत्रधार]: इस कथा की मुख्य सीख — कठिन समय हमें तोड़ने नहीं, बल्कि भीतर की शक्ति जगाने आता है। अधिक जानकारी के लिए वेबसाइट पर जाएं: {primaryLink}
+                       """
+                    : $"""
+                       [सूत्रधार]: आज की विशेष कथा — '{topicSeed}' का संक्षिप्त संदर्भ व प्रेरणादायक सीख!
+                       [{custB}]: {custA}, '{topicSeed}' से हमें क्या विशेष जानने को मिलता है?
+                       [{custA}]: {LocalizeBriefSummaryHindi(custDetail, $"{topicSeed} हमें कर्मनिष्ठा और आत्मविश्वास की राह दिखाता है।")}
+                       [सूत्रधार]: मुख्य सीख — सच्चा संकल्प हमेशा विजय दिलाता है। अधिक देखें: {primaryLink}
+                       """)
+                : $"""
+                   [HOOK 0-4s] {topicSeed} पर आज की विशेष प्रस्तुति।
+                   [BODY 4-42s] मुख्य विषय: {custDetail}।
+                   [MORAL] सीख — स्पष्ट उद्देश्य और धैर्य जीवन में बड़ा परिवर्तन लाते हैं।
+                   [CTA 42-55s] अधिक जानकारी के लिए वेबसाइट पर जाएं: {primaryLink}
+                   """)
+            : $"""
+               [Narrator]: Before we begin, here is the context behind {topicSeed}.
+               [{custB}]: What happens at the heart of {topicSeed}, and why does it resonate so deeply?
+               [{custA}]: {custDetail}. Through challenge and persistence, every scene moves toward clarity and transformation.
+               [Narrator]: Moral of the story — Steadfast purpose and kindness turn obstacles into wisdom. Explore more on our website: {primaryLink}
+               """;
 
         var prompt = ApplyPromptOverride(rule,
             $"Cinematic {ratioLabel} illustrating '{topicSeed}': cohesive visual storytelling, crisp lighting, atmospheric music vibe.");
@@ -739,7 +887,7 @@ public static class AutomationContentComposer
         if (!string.IsNullOrWhiteSpace(inferredA) && !string.IsNullOrWhiteSpace(inferredB))
             return (inferredA, inferredB);
 
-        var focus = !string.IsNullOrWhiteSpace(deityOrSage) ? deityOrSage.Trim() : (isHindi ? "सूत्रधार" : "Sutradhar");
+        var focus = !string.IsNullOrWhiteSpace(deityOrSage) ? deityOrSage.Trim() : (isHindi ? "जिज्ञासु" : "Curious Mind");
         return (isHindi ? "आचार्य" : "Acharya", focus);
     }
 
@@ -756,19 +904,35 @@ public static class AutomationContentComposer
             ? k.SanskritMantra.Trim()
             : "ॐ नमो भगवते वासुदेवाय";
 
+        var fullStory = IsFullStoryMode(rule);
+        var summaryBody = LocalizeBriefSummaryHindi(k.StorySummary, $"{k.Title} का यह अद्भुत प्रसंग हमें भक्ति, संयम और धर्म के मार्ग पर आगे बढ़ने की प्रेरणा देता है।");
+        var moralBody = LocalizeBriefSummaryHindi(k.MoralTeaching, "सच्ची श्रद्धा, धैर्य और सद्कर्म से जीवन के हर संकट पर विजय मिलती है।");
+
         if (combined.Contains("dhruv", StringComparison.Ordinal) || combined.Contains("ध्रुव", StringComparison.Ordinal))
         {
             var title = Truncate($"भक्त ध्रुव और देवर्षि नारद मुनि की संपूर्ण कथा | ध्रुव तारा की अमिट तपस्या", MaxTitleLength);
-            var script = $"""
-                [{speakerA}]: माता ने कहा — राजसिंहासन नहीं, जो स्थान ब्रह्मा और इंद्र से भी ऊपर हो, वही केवल श्री हरि से माँगो। इसलिए मैं मधुवन की ओर जा रहा हूँ।
-                [{speakerB}]: ठहरो बालक ध्रुव! अभी तुम्हारी उम्र खेलने की है। यह घोर वन और कठोर तपस्या तुम्हारे बस की नहीं, लौट जाओ राजकुमार।
-                [{speakerA}]: हे देवर्षि नारद मुनि! अपमान का तीर मेरे हृदय में चुभ गया है। मुझे ऐसा अटल पद चाहिए जो कभी न डगमगाए। कृपया मुझे भक्ति का मार्ग बताइए।
-                [{speakerB}]: बालक ध्रुव, तुम्हारा संकल्प हिमालय जैसा अटल है! तो सुनो — एकाग्र मन से पावन द्वादशाक्षर मंत्र जपो: {mantra}।
-                [{speakerA}]: {mantra} — हे प्रभो नारायण! जब तक आपके दर्शन नहीं होंगे, मैं अपनी साधना से एक पग भी पीछे नहीं हटूँगा।
-                [{speakerB}]: धन्य हो ध्रुव! तुम्हारी अखंड तपस्या से तीनों लोक काँप उठे। स्वयं भगवान श्रीहरि विष्णु प्रकट होकर तुम्हें दर्शन देने पधारे हैं!
-                [{speakerA}]: प्रभो! आज मेरा जीवन सफल हुआ। जब भक्त सच्चे मन और अटूट निष्ठा से पुकारे, तो परमात्मा स्वयं चलकर आते हैं।
-                [{speakerB}]: और इसी अटूट भक्ति ने बालक ध्रुव को आकाश के सबसे उज्ज्वल अटल 'ध्रुव तारा' का अमर स्थान दिलाया। पूरी कथा व दैनिक पंचांग पढ़ने के लिए नीचे लिंक पर जाएं: {primaryLink}
-                """;
+            var script = fullStory
+                ? $"""
+                   [सूत्रधार]: यह पावन कथा महाराज उत्तानपाद के पाँच वर्षीय नन्हे राजकुमार ध्रुव की है। एक दिन राजसभा में पिता की गोद में बैठने पर सौतेली माता रानी सुरुचि के कठोर वचनों से आहत होकर बालक ध्रुव रोते हुए अपनी माता सुनीति के पास पहुँचा।
+                   [रानी सुनीति]: रोओ मत पुत्र ध्रुव! किसी के प्रति क्रोध मत रखो। जो स्थान ब्रह्मा और इंद्र से भी ऊपर तथा अटल है, वह राजसिंहासन से नहीं बल्कि केवल भगवान श्रीहरि विष्णु की भक्ति से मिलता है।
+                   [{speakerA}]: माता, अब मैं उसी परमपिता श्रीहरि को पाने के लिए अभी उत्तर दिशा के वन की ओर जा रहा हूँ!
+                   [सूत्रधार]: नन्हा बालक ध्रुव राजमहल का वैभव त्यागकर घने उत्तर वन पथ पर निकल पड़ा। मार्ग में आकाश मार्ग से विचरते देवर्षि नारद मुनि उसके सामने प्रकट हुए।
+                   [{speakerB}]: ठहरो बालक ध्रुव! अभी तुम्हारी उम्र खेलने की है। यह घोर मधुवन और कठोर तपस्या तुम्हारे बस की नहीं, लौट जाओ राजकुमार।
+                   [{speakerA}]: हे देवर्षि नारद मुनि! स्वाभिमान और सत्य की अग्नि मेरे हृदय में प्रज्वलित है। मुझे ऐसा अटल पद चाहिए जो कभी न डगमगाए। कृपया मुझे भक्ति का सही मार्ग व मंत्र दीजिए।
+                   [{speakerB}]: बालक ध्रुव, तुम्हारा संकल्प हिमालय जैसा अटल है! तो सुनो — यमुना तट स्थित पावन मधुवन में जाकर एकाग्र मन से द्वादशाक्षर महामंत्र जपो: {mantra}।
+                   [सूत्रधार]: नारद मुनि से मंत्र दीक्षा पाकर बालक ध्रुव ने मधुवन में निरंतर छह मास तक एक पैर पर खड़े होकर, शीत-गर्मी व भूख की परवाह किए बिना अखंड तपस्या की। उसके तेज से तीनों लोक आलोकित हो उठे!
+                   [भगवान श्रीहरि विष्णु]: उठो प्यारे वत्स ध्रुव! मैं तुम्हारे निश्छल समर्पण से अत्यंत प्रसन्न हूँ। आज मैं तुम्हें आकाश मंडल में सप्तर्षियों से भी ऊपर अटल 'ध्रुव तारा' का अमर स्थान वरदान में देता हूँ, जो युगों-युगों तक दिशा दिखाएगा!
+                   [{speakerA}]: हे प्रभो नारायण! आज मेरा जीवन सफल हुआ। जब भक्त निष्ठा से पुकारता है, तो आप स्वयं दर्शन देते हैं।
+                   [सूत्रधार]: आज की पावन कथा की सीख — उम्र चाहे छोटी हो या परिस्थिति कितनी भी कठिन, सच्ची श्रद्धा, गुरु का मार्गदर्शन और अडिग संकल्प असंभव को भी संभव बना देता है। पूरी कथा व दैनिक पंचांग पढ़े: {primaryLink}
+                   """
+                : $"""
+                   [सूत्रधार]: महाराज उत्तानपाद के पाँच वर्षीय पुत्र ध्रुव जब माता सुरुचि के कठोर वचनों से आहत हुए, तो माता सुनीति ने उन्हें राजमहल के बजाय भगवान श्रीहरि से अटल पद मांगने की प्रेरणा दी।
+                   [{speakerB}]: ठहरो बालक ध्रुव! इतनी छोटी उम्र में तुम इस घोर वन की ओर क्यों जा रहे हो?
+                   [{speakerA}]: हे देवर्षि नारद मुनि! मुझे तीनों लोकों में सबसे अटल स्थान पाना है। कृपया मुझे श्रीहरि की भक्ति का सही मंत्र व मार्ग बताइए।
+                   [{speakerB}]: तुम्हारा संकल्प हिमालय जैसा अडिग है ध्रुव! यमुना तट पर मधुवन में जाकर एकाग्र मन से पावन मंत्र जपो: {mantra}।
+                   [सूत्रधार]: छह मास की अखंड तपस्या के बाद स्वयं भगवान विष्णु ने दर्शन देकर ध्रुव को आकाश में अमर 'ध्रुव तारा' बनने का वरदान दिया!
+                   [सूत्रधार]: कथा की सीख — उम्र या बाधा चाहे जैसी हो, निश्छल भक्ति, गुरु कृपा और अटूट संकल्प हर असंभव लक्ष्य दिलाते हैं। पूरी कथा पढ़ें: {primaryLink}
+                   """;
             return (title, script);
         }
 
@@ -776,11 +940,12 @@ public static class AutomationContentComposer
         {
             var title = Truncate($"राजा हरिश्चंद्र और महर्षि विश्वामित्र की सत्य परीक्षा | संपूर्ण पौराणिक संवाद", MaxTitleLength);
             var script = $"""
+                [सूत्रधार]: सूर्यवंश के प्रतापी सम्राट राजा हरिश्चंद्र अपनी सत्यवादिता और दानशीलता के लिए तीनों लोकों में विख्यात थे। उनके अडिग सत्य की परीक्षा लेने स्वयं महर्षि विश्वामित्र पधारे।
                 [{speakerA}]: हे महर्षि विश्वामित्र, वचन देकर मुकर जाना रघुकुल की मर्यादा नहीं। चाहे राज्य चला जाए, मैं अपने सत्य पर अडिग रहूँगा।
-                [{speakerB}]: राजन्! आपकी परीक्षा अभी समाप्त नहीं हुई। जब सर्वस्व छिन जाएगा, तब क्या यह सत्य का संकल्प टिक पाएगा?
+                [{speakerB}]: राजन्! आपकी परीक्षा अभी समाप्त नहीं हुई। जब राजपाट, परिवार और सर्वस्व छिन जाएगा, तब क्या यह सत्य का संकल्प टिक पाएगा?
                 [{speakerA}]: धन, सिंहासन और वैभव तो अस्थायी हैं गुरुदेव, किंतु सत्य और धर्म अनंत हैं। मैं हर कठिन परीक्षा स्वीकार करता हूँ।
                 [{speakerB}]: धन्य हो हरिश्चंद्र! आपके अटल सत्य ने आज स्वर्ग को भी नतमस्तक कर दिया। यही धर्म की वास्तविक विजय है: {mantra}।
-                [{speakerA}]: जो मनुष्य संकट में भी सत्य का साथ नहीं छोड़ता, ईश्वर स्वयं उसकी रक्षा करते हैं। ऐसी पावन कथाएं व आज का पंचांग देखें: {primaryLink}
+                [सूत्रधार]: कथा की सीख — जो मनुष्य घोर संकट में भी सत्य और धर्म का साथ नहीं छोड़ता, अंततः ईश्वर स्वयं उसकी रक्षा व यश की पुनः स्थापना करते हैं। पूरी कथा व पंचांग देखें: {primaryLink}
                 """;
             return (title, script);
         }
@@ -789,25 +954,25 @@ public static class AutomationContentComposer
         {
             var title = Truncate($"भक्त प्रह्लाद की अटूट भक्ति और श्रीहरि की रक्षा | संपूर्ण पौराणिक कथा", MaxTitleLength);
             var script = $"""
-                [{speakerA}]: देवर्षि, चारों ओर भय का साम्राज्य है, फिर भी मेरे हृदय में केवल भगवान श्रीहरि का नाम गूँजता है: {mantra}।
-                [{speakerB}]: प्यारे प्रह्लाद, जहाँ निश्छल प्रेम और विश्वास होता है, वहाँ अग्नि, विष और खंभे में भी परमात्मा प्रकट हो जाते हैं!
-                [{speakerA}]: बिल्कुल सत्य! सच्चे भक्त की रक्षा करने के लिए स्वयं भगवान नरसिंह अवतार लेकर उपस्थित होते हैं।
-                [{speakerB}]: यही इस पावन कथा का संदेश है — धर्म और भक्ति की शक्ति हर अंधकार पर विजयी होती है। पूरी कथा व पंचांग देखें: {primaryLink}
+                [सूत्रधार]: असुरराज हिरण्यकशिपु के महल में जन्म लेकर भी बालक प्रह्लाद बचपन से ही भगवान श्रीहरि के अनन्य भक्त थे। पिता के घोर विरोध और प्राणदंड के बीच भी उन्होंने हरिनाम नहीं छोड़ा।
+                [{speakerA}]: देवर्षि, चारों ओर भय और अत्याचार का साम्राज्य है, फिर भी मेरे हृदय में केवल भगवान श्रीहरि का नाम गूँजता है: {mantra}।
+                [{speakerB}]: प्यारे प्रह्लाद, जहाँ निश्छल प्रेम और विश्वास होता है, वहाँ अग्नि, विष और पाषाण के खंभे में भी परमात्मा प्रकट हो जाते हैं!
+                [सूत्रधार]: जब क्रोधित हिरण्यकशिपु ने खंभे पर प्रहार किया, तो स्वयं भगवान श्रीहरि ने अद्भुत नरसिंह अवतार लेकर अपने भक्त की रक्षा की!
+                [सूत्रधार]: कथा की सीख — निश्छल भक्ति और धर्म का विश्वास संसार के हर भय और अहंकार पर विजयी होता है। पूरी कथा व पंचांग देखें: {primaryLink}
                 """;
             return (title, script);
         }
 
         var hindiFocus = !IsMostlyLatin(k.Title) ? k.Title : $"{speakerA} और {speakerB} की पावन कथा";
         var genericTitle = Truncate($"आज की पौराणिक कथा • {hindiFocus} | {dateKey}", MaxTitleLength);
-        var summaryBody = LocalizeBriefSummaryHindi(k.StorySummary, $"{hindiFocus} का यह अद्भुत प्रसंग हमें भक्ति, संयम और धर्म के मार्ग पर आगे बढ़ने की प्रेरणा देता है।");
-        var moralBody = LocalizeBriefSummaryHindi(k.MoralTeaching, "सच्ची श्रद्धा, धैर्य और सद्कर्म से जीवन के हर संकट पर विजय मिलती है।");
 
         var genericScript = $"""
+            [सूत्रधार]: आइए समझते हैं '{hindiFocus}' की पावन पृष्ठभूमि — यह कथा कब, क्यों घटी और आज के जीवन के लिए क्यों महत्वपूर्ण है।
             [{speakerA}]: हे {speakerB}, आज की यह पावन कथा जीवन के सबसे गहरे सत्य को उजागर करती है — {hindiFocus}!
             [{speakerB}]: आप बिल्कुल सत्य कह रहे हैं {speakerA}। {summaryBody}
-            [{speakerA}]: कठिन परिस्थिति में भी जब मनुष्य अपने कर्तव्य और भक्ति से नहीं डिगता, तब ईश्वरीय कृपा स्वयं मार्ग बनाती है।
-            [{speakerB}]: और यही आज की कथा का अमर संदेश है — {moralBody} आइए स्मरण करें पावन मंत्र: {mantra}।
-            [{speakerA}]: इसी प्रकार की प्रेरणादायक कथाएं, संस्कृत सुभाषित और दैनिक पंचांग पढ़ने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
+            [{speakerA}]: कठिन परिस्थिति और बदले हुए समय में भी जब मनुष्य अपने कर्तव्य और भक्ति से नहीं डिगता, तब ईश्वरीय कृपा स्वयं मार्ग बनाती है।
+            [{speakerB}]: आइए स्मरण करें यह पावन मंत्र: {mantra}।
+            [सूत्रधार]: कथा की अमूल्य सीख — {moralBody} इसी प्रकार की प्रेरणादायक कथाएं और दैनिक पंचांग पढ़ने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
             """;
 
         return (genericTitle, genericScript);

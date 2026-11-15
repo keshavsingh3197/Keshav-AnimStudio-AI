@@ -177,7 +177,10 @@ public static class WorkbookSchema
                 Example: "-0.20", Minimum: -1, Maximum: 1),
             new("FlipHorizontal", WorkbookCellType.Boolean,
                 Help: "TRUE to mirror the sprite, so two characters can face each other.",
-                Example: "FALSE")
+                Example: "FALSE"),
+            new("SubtitleColor", WorkbookCellType.Text,
+                Help: "Hex color for this character's subtitles (e.g. #FDE68A).",
+                Example: "#FDE68A", MaxLength: 16)
         ],
         "One row per character. The Name column is the identity: change it and you get a new "
         + "character, so rename by editing every sheet that refers to it.");

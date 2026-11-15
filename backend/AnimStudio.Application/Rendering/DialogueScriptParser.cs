@@ -31,7 +31,9 @@ public sealed record ProceduralDialogueTurn(
     DialogueSpeakerSlot Slot,
     string SpeakerName,
     string Text,
-    bool IsTitleHook);
+    bool IsTitleHook,
+    CharacterVisualRole? SpeakerRole = null,
+    string? SceneBackdropCue = null);
 
 public sealed record ProceduralDialoguePlan(
     bool HasCharacters,
@@ -153,20 +155,40 @@ public static partial class DialogueScriptParser
 
             DialogueSpeakerSlot slot;
             string speakerLabel;
-            if (string.Equals(rawSpeaker, leftProfile.Name, StringComparison.OrdinalIgnoreCase))
+            CharacterVisualRole? speakerRole = null;
+            if (!string.IsNullOrWhiteSpace(rawSpeaker) && IsNarratorName(rawSpeaker))
+            {
+                slot = DialogueSpeakerSlot.Narrator;
+                speakerLabel = rawSpeaker.Trim();
+                speakerRole = CharacterVisualRole.Narrator;
+            }
+            else if (string.Equals(rawSpeaker, leftProfile.Name, StringComparison.OrdinalIgnoreCase))
             {
                 slot = DialogueSpeakerSlot.Left;
                 speakerLabel = leftProfile.Name;
+                speakerRole = leftProfile.Role;
             }
             else if (string.Equals(rawSpeaker, rightProfile.Name, StringComparison.OrdinalIgnoreCase))
             {
                 slot = DialogueSpeakerSlot.Right;
                 speakerLabel = rightProfile.Name;
+                speakerRole = rightProfile.Role;
+            }
+            else if (!string.IsNullOrWhiteSpace(rawSpeaker))
+            {
+                speakerLabel = rawSpeaker.Trim();
+                speakerRole = InferRole(speakerLabel);
+                slot = speakerRole is CharacterVisualRole.Divine or CharacterVisualRole.SageRishi
+                    ? DialogueSpeakerSlot.Right
+                    : speakerRole is CharacterVisualRole.ChildDevotee or CharacterVisualRole.KingCrown
+                        ? DialogueSpeakerSlot.Left
+                        : ((i % 2 == 0) ? DialogueSpeakerSlot.Left : DialogueSpeakerSlot.Right);
             }
             else
             {
                 slot = (i % 2 == 0) ? DialogueSpeakerSlot.Left : DialogueSpeakerSlot.Right;
                 speakerLabel = slot == DialogueSpeakerSlot.Left ? leftProfile.Name : rightProfile.Name;
+                speakerRole = slot == DialogueSpeakerSlot.Left ? leftProfile.Role : rightProfile.Role;
             }
 
             resultTurns.Add(new ProceduralDialogueTurn(
@@ -176,7 +198,8 @@ public static partial class DialogueScriptParser
                 slot,
                 speakerLabel,
                 Truncate(lineText, 240),
-                IsTitleHook: false));
+                IsTitleHook: false,
+                SpeakerRole: speakerRole));
 
             start += step;
         }
@@ -273,9 +296,9 @@ public static partial class DialogueScriptParser
             "HinduPanchang" => ("आचार्य", "जिज्ञासु"),
             "HinduFestival" => ("पंडित जी", "भक्त"),
             "DailyKatha" => ("देवर्षि नारद", "भक्त"),
-            "AajKaItihaas" => ("इतिहासकार", "सूत्रधार"),
+            "AajKaItihaas" => ("इतिहासकार", "विद्यार्थी"),
             "Pratiyogita" => ("मेंटर", "प्रतिभागी"),
-            _ => ("सूत्रधार", "विद्वान")
+            _ => ("आचार्य", "जिज्ञासु")
         };
     }
 
@@ -354,7 +377,11 @@ public static partial class DialogueScriptParser
     private static bool IsNarratorName(string name) =>
         name.Equals("Title", StringComparison.OrdinalIgnoreCase)
         || name.Equals("Narrator", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Sutradhar", StringComparison.OrdinalIgnoreCase);
+        || name.Equals("Sutradhar", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("सूत्रधार", StringComparison.Ordinal)
+        || name.Equals("कथावाचक", StringComparison.Ordinal)
+        || name.Equals("Storyteller", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Moral", StringComparison.OrdinalIgnoreCase);
 
     private static string Clean(string? value) =>
         MultiSpaceRegex().Replace(value ?? string.Empty, " ").Trim();

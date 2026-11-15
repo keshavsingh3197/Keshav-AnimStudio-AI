@@ -390,6 +390,12 @@ public sealed class ProjectRenderOrchestrator(
         if (scene.Dialogue.Count == 0) return null;
         if (!capabilities.Supports(RenderFeature.BurnedSubtitles)) return null;
 
+        var vertical = canvas.Height > canvas.Width;
+        var marginL = vertical ? Math.Max(40, (int)Math.Round(canvas.Width * 0.055)) : 72;
+        var marginR = vertical ? Math.Max(126, (int)Math.Round(canvas.Width * 0.18)) : 72;
+        var marginV = vertical ? Math.Max(310, (int)Math.Round(canvas.Height * 0.275)) : 64;
+        var motionPreset = vertical ? SubtitleMotionPreset.EventGlow : SubtitleMotionPreset.None;
+
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal);
         foreach (var line in scene.Dialogue)
         {
@@ -397,7 +403,19 @@ public sealed class ProjectRenderOrchestrator(
             if (styles.ContainsKey(id)) continue;
             if (!characterMap.TryGetValue(id, out var character)) continue;
 
-            styles[id] = new SubtitleStyle(character.Name, character.SubtitleColorHex);
+            styles[id] = new SubtitleStyle(
+                character.Name,
+                character.SubtitleColorHex,
+                Bold: true,
+                Alignment: 2,
+                MarginV: marginV,
+                FontScalePercent: 100,
+                OutlineColorHex: null,
+                BackColorHex: null,
+                SecondaryColorHex: null,
+                MotionPreset: motionPreset,
+                MarginL: marginL,
+                MarginR: marginR);
         }
 
         var content = subtitles.Write(new SubtitleRequest(
