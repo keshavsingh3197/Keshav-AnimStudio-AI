@@ -462,4 +462,65 @@ public class AutoShortPlannerTests
         Assert.Equal(AutoShortLayout.FitLength, new AutoShortBatch { Sources = Mixed }.Layout);
         Assert.All(AutoShortPlanner.Plan(Batch(seconds: 30)), p => Assert.Equal(30, V1Length(p), 1));
     }
+
+    [Fact]
+    public void Auto_image_duration_works_across_FitLength_Spread_and_AllInEach()
+    {
+        AutoShortSource[] imagesOnly =
+        [
+            new("img_1", AssetKind.Image, null),
+            new("img_2", AssetKind.Image, null),
+            new("img_3", AssetKind.Image, null),
+            new("img_4", AssetKind.Image, null),
+        ];
+
+        foreach (var layout in new[] { AutoShortLayout.FitLength, AutoShortLayout.Spread, AutoShortLayout.AllInEach })
+        {
+            var plan = AutoShortPlanner.Plan(Batch(sources: imagesOnly, count: 1, seconds: 24) with
+            {
+                Layout = layout,
+                AutoImageDuration = true,
+                Style = AutoShortStyle.Energetic,
+                ExactLength = true
+            });
+            var shots = Shots(plan.Single());
+            Assert.NotEmpty(shots);
+            Assert.All(shots, s => Assert.InRange(s.Duration, AutoShortPlanner.MinImageSeconds, AutoShortPlanner.MaxImageSeconds));
+        }
+
+        // Explicit AutoImageDuration = false honors user ImageSeconds even in FitLength
+        var fixedHold = AutoShortPlanner.Plan(Batch(sources: imagesOnly, count: 1, seconds: 20) with
+        {
+            Layout = AutoShortLayout.FitLength,
+            AutoImageDuration = false,
+            ImageSeconds = 5
+        });
+        var fixedShots = Shots(fixedHold.Single());
+        Assert.Equal(4, fixedShots.Count);
+        Assert.All(fixedShots, s => Assert.Equal(5, s.Duration, 1));
+    }
+
+    [Fact]
+    public void TransitionOverride_and_ClipFit_propagate_to_every_short()
+    {
+        foreach (var fit in new[] { ClipFit.BlurredBackdrop, ClipFit.Cover, ClipFit.Contain })
+        {
+            var shorts = AutoShortPlanner.Plan(Batch(count: 2, seconds: 20) with
+            {
+                Fit = fit,
+                TransitionOverride = SceneTransition.Dissolve,
+                TransitionSeconds = 0.6
+            });
+
+            Assert.All(shorts, s =>
+            {
+                Assert.Equal(fit, s.Fit);
+                Assert.All(s.Junctions!, j =>
+                {
+                    Assert.Equal(SceneTransition.Dissolve, j.Transition);
+                    Assert.InRange(j.TransitionSeconds, 0.2, 0.61);
+                });
+            });
+        }
+    }
 }

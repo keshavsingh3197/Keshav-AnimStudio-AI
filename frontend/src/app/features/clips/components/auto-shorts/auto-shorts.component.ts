@@ -11,7 +11,9 @@ import {
 import { EffectClip } from '../../../../core/models/effects.models';
 import { EffectsService } from '../../../../core/services/effects.service';
 import { GoogleDriveStatus, isValidDriveFolderName } from '../../../../core/models/youtube.models';
+import { StudioBgmPreset } from '../../../../core/models/music.models';
 import { ActivityService } from '../../../../core/services/activity.service';
+import { MusicLibraryService } from '../../../../core/services/music-library.service';
 import { ShortsService } from '../../../../core/services/shorts.service';
 import { YouTubePublishService } from '../../../../core/services/youtube-publish.service';
 import { TopicPickerComponent } from '../../../../shared/topic-picker.component';
@@ -162,6 +164,26 @@ const LANGUAGES: readonly { id: AutoShortLanguage; label: string; hint: string }
   { id: 'Both', label: 'Both (2 versions)', hint: 'Every short is made twice from the same cut: one English, one Hindi - upload each where it fits.' },
 ];
 
+const FRAMING_MODES: readonly { id: ClipFit; icon: string; label: string; hint: string }[] = [
+  { id: 'BlurredBackdrop', icon: '✨', label: 'Blurred Backdrop (Smart)', hint: 'Same video/photo soft blurred in background (Zero crop)' },
+  { id: 'Cover', icon: '🔍', label: 'Cover (Zoom & Fill)', hint: 'Crops gently to fill edge-to-edge' },
+  { id: 'Contain', icon: '⬛', label: 'Contain (Letterbox/Pillarbox)', hint: 'Full uncropped frame with dark clean bars' },
+];
+
+const TRANSITION_OVERRIDES: readonly { id: string | null; label: string }[] = [
+  { id: null, label: 'Auto (Match chosen style)' },
+  { id: 'Dissolve', label: 'Dissolve / Crossfade' },
+  { id: 'Fade', label: 'Fade to Black' },
+  { id: 'SlideLeft', label: 'Slide Left' },
+  { id: 'SlideRight', label: 'Slide Right' },
+  { id: 'SlideUp', label: 'Slide Up' },
+  { id: 'SlideDown', label: 'Slide Down' },
+  { id: 'WipeLeft', label: 'Wipe Left' },
+  { id: 'WipeRight', label: 'Wipe Right' },
+  { id: 'ZoomIn', label: 'Zoom In' },
+  { id: 'CircleOpen', label: 'Circle Open' },
+];
+
 const PART_LABELS: readonly { id: AutoShortPartLabel; label: string }[] = [
   { id: 'Number', label: '#1' },
   { id: 'Level', label: 'LEVEL 1' },
@@ -202,9 +224,12 @@ export class AutoShortsComponent {
   private readonly youtube = inject(YouTubePublishService);
   private readonly shorts = inject(ShortsService);
   private readonly effects = inject(EffectsService);
+  private readonly musicLib = inject(MusicLibraryService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly formats = FORMATS;
+  readonly framingModes = FRAMING_MODES;
+  readonly transitionOverrides = TRANSITION_OVERRIDES;
   readonly styles = AUTO_SHORT_STYLES;
   readonly styleHints = STYLE_HINTS;
   readonly stylePreviews = STYLE_PREVIEWS;
@@ -219,7 +244,7 @@ export class AutoShortsComponent {
   readonly sorts = SOURCE_SORTS;
   readonly durations = [15, 30, 45, 60, 90, 180] as const;
   readonly counts = [3, 5, 10] as const;
-  readonly imageChoices = [3, 5, 7, 10] as const;
+  readonly imageChoices = [2, 3, 5, 7, 10] as const;
   readonly clipChoices = [5, 10, 15, 30] as const;
   readonly maxCount = computed(() => this.state.studio()?.maxAutoShortsCount ?? 20);
   readonly minSeconds = AUTO_SHORT_MIN_SECONDS;
@@ -280,6 +305,7 @@ export class AutoShortsComponent {
   /** Fixed until reshuffled, so the plan shown is the plan that renders. */
   readonly seed = signal(newSeed());
   readonly showPlan = signal(false);
+  readonly autoImageDuration = signal(true);
   readonly imageSeconds = signal(5);
   /** null plays every video in full. */
   readonly maxClipSeconds = signal<number | null>(null);
@@ -354,6 +380,8 @@ export class AutoShortsComponent {
     return { design: d, topText, badge, bottom, meme: this.memeIds().size > 0 && this.memesPerShort() > 0 };
   });
   readonly transitions = signal(true);
+  readonly transitionOverride = signal<string | null>(null);
+  readonly transitionSeconds = signal<number | null>(null);
   readonly motion = signal(true);
   readonly keepClipAudio = signal(true);
   readonly watermark = signal(true);
@@ -363,6 +391,9 @@ export class AutoShortsComponent {
   readonly name = signal(this.defaultName());
 
   readonly musicOptions = computed(() => this.state.musicCandidates());
+  readonly bgmPresets = signal<StudioBgmPreset[]>([]);
+  readonly importingBgmId = signal<string | null>(null);
+  readonly bgmError = signal<string | null>(null);
 
   // --- Google Drive: copy each short there as it finishes (done on the server) ---
   /** The personal Drive, then what each connected channel uses; null while loading. */
@@ -398,6 +429,7 @@ export class AutoShortsComponent {
       targetSeconds: this.seconds(),
       layout: this.layout(),
       imageSeconds: this.imageSeconds(),
+      autoImageDuration: this.autoImageDuration(),
       maxClipSeconds: this.maxClipSeconds(),
       exactLength: this.layout() === 'FitLength' || this.exact(),
       keepClipsWhole: this.keepWhole(),
@@ -409,6 +441,8 @@ export class AutoShortsComponent {
       style: this.style(),
       textMode: this.lines().length > 0 ? this.textMode() : 'None',
       transitions: this.transitions(),
+      transitionOverride: this.transitions() ? this.transitionOverride() : null,
+      transitionSeconds: this.transitions() ? this.transitionSeconds() : null,
       motion: this.motion(),
       keepClipAudio: this.keepClipAudio(),
       exportName: this.name().trim() || null,
@@ -491,6 +525,7 @@ export class AutoShortsComponent {
     this.loadUsage();
     this.loadMemes();
     this.loadStyleExamples();
+    this.loadBgmPresets();
 
     effect(() => {
       if (this.count() > this.maxCount()) this.setCount(this.maxCount());
@@ -640,7 +675,12 @@ export class AutoShortsComponent {
     this.seconds.set(Math.min(AUTO_SHORT_MAX_SECONDS, Math.max(AUTO_SHORT_MIN_SECONDS, Math.round(Number(v) || 30))));
   }
 
+  setAutoImageDuration(on: boolean): void {
+    this.autoImageDuration.set(on);
+  }
+
   setImageSeconds(v: number): void {
+    this.autoImageDuration.set(false);
     this.imageSeconds.set(Math.min(AUTO_SHORT_MAX_IMAGE_SECONDS, Math.max(AUTO_SHORT_MIN_IMAGE_SECONDS, Math.round(Number(v) || 5))));
   }
 
@@ -691,6 +731,7 @@ export class AutoShortsComponent {
     // way, and dropping to Shuffle here used to stick once videos were added.
     this.order.set(p.order);
     if (p.imageSeconds) this.setImageSeconds(p.imageSeconds);
+    else this.autoImageDuration.set(true);
     this.motion.set(true);
     this.transitions.set(true);
     if (this.lines().length > 0 && this.textMode() === 'None') this.textMode.set('Hook');
@@ -701,14 +742,41 @@ export class AutoShortsComponent {
    * picks can fill - 60s when they run that long, else 30s (90s for a 16:9 video).
    */
   autoSetup(): void {
-    this.setImageSeconds(5);
+    this.autoImageDuration.set(true);
     this.setMaxClipSeconds(null);
     const natural = this.pickedClips().reduce((sum, c) => sum + (this.kindOf(c) === 'video'
       ? c.durationSeconds ?? 0
-      : this.imageSeconds()), 0);
+      : 4), 0);
     const seconds = this.formatId() === '16:9' && natural >= 90 ? 90 : natural >= 60 ? 60 : 30;
     this.applyPreset({ ...PRESETS[2], seconds });
     this.reshuffle();
+  }
+
+  addStudioBgmPreset(preset: StudioBgmPreset): void {
+    const projectId = this.state.store.project()?.id;
+    if (!projectId || this.importingBgmId()) return;
+    this.importingBgmId.set(preset.id);
+    this.bgmError.set(null);
+    this.musicLib.importBgmPreset(projectId, preset.id, false).subscribe({
+      next: (res) => {
+        const studio = this.state.studio();
+        if (studio && !(studio.musicCandidates || []).some((m) => m.id === res.asset.id)) {
+          this.state.studio.set({ ...studio, musicCandidates: [...(studio.musicCandidates || []), res.asset] });
+        }
+        this.musicIds.update((prev) => new Set([...prev, res.asset.id]));
+        this.importingBgmId.set(null);
+        this.loadBgmPresets();
+      },
+      error: () => {
+        this.bgmError.set(`Could not prepare "${preset.name}". Try again.`);
+        this.importingBgmId.set(null);
+      },
+    });
+  }
+
+  private loadBgmPresets(): void {
+    this.musicLib.bgmPresets().pipe(catchError(() => of([] as StudioBgmPreset[])))
+      .subscribe((list) => this.bgmPresets.set(list));
   }
 
   create(): void {

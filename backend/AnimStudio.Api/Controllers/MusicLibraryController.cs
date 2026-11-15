@@ -11,6 +11,7 @@ using AnimStudio.Application.Uploads;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Infrastructure.Music;
+using AnimStudio.Infrastructure.Rendering;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -35,6 +36,7 @@ public sealed class MusicLibraryController(
     ICurrentUser currentUser,
     TimeProvider clock,
     IOptionsMonitor<MusicLibraryOptions> options,
+    ProceduralBgmCacheService bgmCache,
     ILogger<MusicLibraryController> logger) : ControllerBase
 {
     /// <summary>Each import downloads a whole track; a few at once is plenty.</summary>
@@ -50,6 +52,85 @@ public sealed class MusicLibraryController(
             MusicFilters.Tempos,
             MusicFilters.LengthOptions,
             [.. Enum.GetNames<MusicSort>()])));
+
+    /// <summary>One-time generated, clean reusable studio BGM beds (cached globally by visual/mood theme).</summary>
+    [HttpGet("api/music/bgm-presets")]
+    public ActionResult<ApiResponse<IReadOnlyList<StudioBgmPresetResponse>>> StudioBgmPresets()
+    {
+        var items = bgmCache.ListPresets()
+            .Select(p => new StudioBgmPresetResponse(p.Id, p.Theme.ToString(), p.Name, p.BestFor, p.IsCached, p.Source))
+            .ToList();
+        return Ok(ApiResponse<IReadOnlyList<StudioBgmPresetResponse>>.Ok(items));
+    }
+
+    /// <summary>Generates (once if not cached) and imports a clean studio BGM preset into the project's library.</summary>
+    [HttpPost("api/projects/{projectId}/music/bgm-presets/{presetId}")]
+    public async Task<ActionResult<ApiResponse<MusicImportResponse>>> ImportStudioBgmPreset(
+        string projectId, string presetId, [FromBody] StudioBgmImportRequest? request, CancellationToken ct)
+    {
+        var project = await LoadOwnedAsync(projectId, ct);
+        var preset = bgmCache.ListPresets()
+            .FirstOrDefault(p => string.Equals(p.Id, presetId, StringComparison.OrdinalIgnoreCase));
+        if (preset is null)
+            return Fail<MusicImportResponse>(StatusCodes.Status400BadRequest, "bgm-preset-invalid",
+                "Unknown studio BGM preset.", "presetId");
+
+        var useAsBg = request?.UseAsBackground ?? false;
+        var existing = (await assets.ListByProjectAsync(projectId, ct)).FirstOrDefault(a =>
+            a.Provenance?.SourceProvider == "studio-bgm" &&
+            string.Equals(a.Provenance.ExternalId, preset.Id, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            var reused = useAsBg && await UseAsBackgroundAsync(project, existing.Id, ct);
+            return Ok(ApiResponse<MusicImportResponse>.Ok(new MusicImportResponse(existing.ToResponse(), true, reused)));
+        }
+
+        var (wavPath, source) = await bgmCache.EnsurePresetWavAsync(preset.Theme, ct: ct);
+        var fi = new FileInfo(wavPath);
+        if (!fi.Exists || fi.Length <= 44)
+            return Fail<MusicImportResponse>(StatusCodes.Status502BadGateway, "bgm-synthesis-failed",
+                "Could not prepare the studio background track.");
+
+        var storageKey = $"projects/{projectId}/assets/{Guid.NewGuid():n}.wav";
+        await using (var fs = new FileStream(wavPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await store.SaveAsync(storageKey, fs, "audio/wav", ct);
+        }
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var displayName = UploadValidator.SanitizeDisplayName($"{preset.Name}.wav");
+        var asset = new Asset
+        {
+            ProjectId = projectId,
+            Name = displayName,
+            DisplayFileName = displayName,
+            StorageKey = storageKey,
+            Kind = AssetKind.Audio,
+            MimeType = "audio/wav",
+            FileSizeBytes = fi.Length,
+            ReviewStatus = AssetReviewStatus.Approved,
+            UsageScope = AssetUsageScope.SceneUse,
+            Provenance = new AssetProvenance
+            {
+                SourceProvider = "studio-bgm",
+                ExternalId = preset.Id,
+                LicenseCode = "StudioGenerated",
+                LicenseClass = LicenseClass.PublicDomain,
+                CreatorName = "AnimStudio Clean BGM",
+                AttributionText = $"Reusable Studio BGM Preset ({source})",
+                FetchedAtUtc = now,
+                FetchedByUserId = currentUser.UserId
+            },
+            CreatedAt = now
+        };
+        asset.Probe = await probe.ProbeAsync(storageKey, ct);
+        await assets.InsertAsync(asset, ct);
+        var asBackground = useAsBg && await UseAsBackgroundAsync(project, asset.Id, ct);
+
+        logger.LogInformation("User {UserId} added studio BGM preset {PresetId} ({Source}) to project {ProjectId} as asset {AssetId}",
+            currentUser.UserId, preset.Id, source, projectId, asset.Id);
+        return Ok(ApiResponse<MusicImportResponse>.Ok(new MusicImportResponse(asset.ToResponse(), false, asBackground)));
+    }
 
     [HttpGet("api/projects/{projectId}/music/search")]
     public async Task<ActionResult<ApiResponse<MusicSearchResponse>>> Search(
@@ -281,3 +362,8 @@ public sealed record MusicSearchResponse(IReadOnlyList<MusicTrackResponse> Track
 public sealed record MusicImportRequest(string? TrackId, bool UseAsBackground);
 
 public sealed record MusicImportResponse(AssetResponse Asset, bool AlreadyAdded, bool UsedAsBackground);
+
+public sealed record StudioBgmPresetResponse(
+    string Id, string Theme, string Name, string BestFor, bool IsCached, string Source);
+
+public sealed record StudioBgmImportRequest(bool UseAsBackground = false);

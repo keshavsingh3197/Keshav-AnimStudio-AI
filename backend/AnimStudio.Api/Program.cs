@@ -27,7 +27,9 @@ var webSettings = new WebSettingsConfigurationSource();
 ((IConfigurationBuilder)builder.Configuration).Add(webSettings);
 builder.Services.AddSingleton(webSettings);
 
-builder.Services.AddAnimStudioInfrastructure(builder.Configuration);
+builder.Services.AddAnimStudioInfrastructure(
+    builder.Configuration,
+    isDevelopment: builder.Environment.IsDevelopment());
 
 // Who may administer this server, and who the caller is. Registered after the
 // infrastructure so this ICurrentUser replaces the local-only one: in JWT mode the owner

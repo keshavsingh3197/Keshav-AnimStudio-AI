@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Ai;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Errors;
 using AnimStudio.Domain.Jobs;
@@ -19,8 +21,9 @@ namespace AnimStudio.Infrastructure.Rendering;
 
 /// <summary>
 /// Renders free, deterministic 2D/3D procedural animated MP4 videos directly on CPU by streaming
-/// synthesized RGBA frames into FFmpeg alongside pure-C# ambient stereo audio and UTF-8 ASS subtitles,
-/// then persists the finished video into <see cref="IObjectStore"/> and <see cref="IRenderJobRepository"/>.
+/// synthesized RGBA frames into FFmpeg alongside spoken multi-character/narrator TTS voices,
+/// one-time cached clean BGM audio with sidechain ducking, and UTF-8 ASS subtitles, then
+/// persists the finished video into <see cref="IObjectStore"/> and <see cref="IRenderJobRepository"/>.
 /// </summary>
 public sealed class ProceduralVideoGeneratorService(
     IOptions<FfmpegOptions> ffmpegOptions,
@@ -31,7 +34,10 @@ public sealed class ProceduralVideoGeneratorService(
     IRenderJobRepository renderJobs,
     IProjectRepository projects,
     TimeProvider clock,
-    ILogger<ProceduralVideoGeneratorService> logger) : IProceduralVideoGenerator
+    ILogger<ProceduralVideoGeneratorService> logger,
+    IAiExecutor? ai = null,
+    IAiProviderRegistry? aiRegistry = null,
+    ProceduralBgmCacheService? bgmCache = null) : IProceduralVideoGenerator
 {
     private const string DefaultProjectName = "Procedural 3D Studio Renders";
     private const string TopCategoryStyleCharId = "top-category";
@@ -82,16 +88,64 @@ public sealed class ProceduralVideoGeneratorService(
         await using var workspace = await workspaces.CreateAsync($"proc3d-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
         var outPath = workspace.Resolve("out/video.mp4");
 
-        // 1. Optional stereo ambient WAV music bed
-        var hasAudio = false;
-        if (request.IncludeAmbientAudio)
+        // 1. Optional spoken voiceover / 2-character dialogue via configured TTS provider
+        float[]? speechEnvelope = null;
+        var hasSpeech = false;
+        string? voiceSummary = null;
+        var speechResult = await ProceduralSpeechSynthesizer.TrySynthesizeAsync(
+            request,
+            dialoguePlan,
+            workspace.Resolve("in"),
+            userId,
+            durationSeconds,
+            ai,
+            aiRegistry,
+            ffmpegOptions.Value,
+            logger,
+            ct).ConfigureAwait(false);
+
+        if (speechResult is not null && File.Exists(speechResult.SpeechWavPath))
         {
-            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(
-                workspace.Resolve("in/ambient.wav"), resolvedTheme, durationSeconds, ct).ConfigureAwait(false);
-            hasAudio = true;
+            hasSpeech = true;
+            dialoguePlan = speechResult.UpdatedPlan;
+            durationSeconds = speechResult.RecommendedDurationSeconds;
+            speechEnvelope = ProceduralAudioSynthesizer.ComputeFrameEnvelope(
+                speechResult.SpeechWavPath,
+                durationSeconds * fps,
+                fps);
+            voiceSummary = $"{speechResult.ProviderId}:{string.Join('/', speechResult.VoicesUsed)}";
+            logger.LogInformation(
+                "Procedural 3D video speech synthesized via {Voices} ({Duration}s) for title '{Title}'.",
+                voiceSummary, durationSeconds, title);
         }
 
-        // 2. Optional beat-synchronized ASS subtitle + top-header overlay (reuses ScriptFonts Devanagari resolution)
+        // 2. Clean stereo BGM bed (one-time cached reusable studio BGM preset when DI cache is wired, else warm pad)
+        var hasBgm = false;
+        string? bgmSource = null;
+        if (request.IncludeAmbientAudio)
+        {
+            var bgmDst = workspace.Resolve("in/ambient.wav");
+            if (bgmCache is not null)
+            {
+                var (cachedPath, src) = await bgmCache.EnsurePresetWavAsync(resolvedTheme, ct: ct).ConfigureAwait(false);
+                if (File.Exists(cachedPath))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(bgmDst)!);
+                    File.Copy(cachedPath, bgmDst, overwrite: true);
+                    hasBgm = true;
+                    bgmSource = src;
+                }
+            }
+
+            if (!hasBgm)
+            {
+                await ProceduralAudioSynthesizer.WriteAmbientWavAsync(bgmDst, resolvedTheme, durationSeconds, ct).ConfigureAwait(false);
+                hasBgm = true;
+                bgmSource = "studio-pad-v2";
+            }
+        }
+
+        // 3. Optional beat-synchronized ASS subtitle + top-header overlay (reuses ScriptFonts Devanagari resolution)
         var hasSubtitles = false;
         if (request.IncludeCaptions && capabilities.Supports(RenderFeature.BurnedSubtitles))
         {
@@ -101,7 +155,7 @@ public sealed class ProceduralVideoGeneratorService(
             hasSubtitles = true;
         }
 
-        // 3. Stream pure C# 3D procedural frames directly into FFmpeg stdin -> H.264 MP4
+        // 4. Stream pure C# 3D procedural frames directly into FFmpeg stdin -> H.264 MP4
         var ffmpegExe = ffmpegOptions.Value.FfmpegPath;
         if (string.IsNullOrWhiteSpace(ffmpegExe)) ffmpegExe = "ffmpeg";
 
@@ -116,7 +170,7 @@ public sealed class ProceduralVideoGeneratorService(
             CreateNoWindow = true
         };
 
-        foreach (var arg in BuildFfmpegArguments(width, height, fps, hasAudio, hasSubtitles))
+        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles))
             startInfo.ArgumentList.Add(arg);
 
         using var process = new Process { StartInfo = startInfo };
@@ -143,7 +197,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var totalFrames = durationSeconds * fps;
         var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan);
+        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps);
 
         try
         {
@@ -348,6 +402,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var topCategoryMargin = Math.Max(12, height / 64);
         var topTitleMargin = Math.Max(42, height / 20);
+        var titleHookMargin = Math.Max(108, height / 8);
         var dialogueMargin = dialoguePlan.HasCharacters ? Math.Max(52, height / 15) : Math.Max(58, height / 16);
         var footerMargin = Math.Max(14, height / 68);
 
@@ -355,7 +410,7 @@ public sealed class ProceduralVideoGeneratorService(
         {
             [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
             [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: 78, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
-            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 106, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow),
+            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: 102, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow),
             [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
             [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset),
             [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
@@ -371,7 +426,14 @@ public sealed class ProceduralVideoGeneratorService(
             fontSize));
     }
 
-    private static List<string> BuildFfmpegArguments(int width, int height, int fps, bool hasAudio, bool hasSubtitles)
+    private static List<string> BuildFfmpegArguments(
+        int width,
+        int height,
+        int fps,
+        int durationSeconds,
+        bool hasSpeech,
+        bool hasBgm,
+        bool hasSubtitles)
     {
         var args = new List<string>
         {
@@ -383,16 +445,58 @@ public sealed class ProceduralVideoGeneratorService(
             "-i", "pipe:0"
         };
 
-        if (hasAudio)
+        var fadeOutStart = Math.Max(0.2, durationSeconds - 0.65).ToString("0.00", CultureInfo.InvariantCulture);
+        var durStr = durationSeconds.ToString(CultureInfo.InvariantCulture);
+
+        if (hasSpeech)
         {
             args.Add("-i");
-            args.Add("in/ambient.wav");
+            args.Add("in/speech.wav");
         }
 
-        if (hasSubtitles)
+        if (hasBgm)
         {
-            args.Add("-vf");
-            args.Add("ass=in/subs.ass");
+            args.AddRange(["-stream_loop", "-1", "-t", durStr, "-i", "in/ambient.wav"]);
+        }
+
+        if (hasSpeech && hasBgm)
+        {
+            // Loudness-normalize speech to -16 LUFS, split for sidechain key + dry voice, and duck loopable BGM cleanly.
+            var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
+            var audioFilter = string.Create(CultureInfo.InvariantCulture,
+                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=channel_layouts=stereo,volume=0.28[bg];[bg][sp1]sidechaincompress=threshold=0.018:ratio=6:attack=35:release=320[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+
+            args.AddRange([
+                "-filter_complex", videoFilter + audioFilter,
+                "-map", hasSubtitles ? "[vout]" : "0:v",
+                "-map", "[aout]"
+            ]);
+        }
+        else if (hasSpeech)
+        {
+            args.AddRange([
+                "-map", "0:v",
+                "-map", "1:a",
+                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9")
+            ]);
+            if (hasSubtitles)
+                args.AddRange(["-vf", "ass=in/subs.ass"]);
+        }
+        else if (hasBgm)
+        {
+            args.AddRange([
+                "-map", "0:v",
+                "-map", "1:a",
+                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
+            ]);
+            if (hasSubtitles)
+                args.AddRange(["-vf", "ass=in/subs.ass"]);
+        }
+        else
+        {
+            args.AddRange(["-map", "0:v"]);
+            if (hasSubtitles)
+                args.AddRange(["-vf", "ass=in/subs.ass"]);
         }
 
         args.AddRange(
@@ -404,9 +508,9 @@ public sealed class ProceduralVideoGeneratorService(
             "-movflags", "+faststart"
         ]);
 
-        if (hasAudio)
+        if (hasSpeech || hasBgm)
         {
-            args.AddRange(["-c:a", "aac", "-b:a", "128k", "-shortest"]);
+            args.AddRange(["-c:a", "aac", "-b:a", "128k", "-t", durStr, "-shortest"]);
         }
         else
         {

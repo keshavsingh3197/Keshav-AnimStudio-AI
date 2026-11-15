@@ -1078,8 +1078,10 @@ export interface AutoShortsBody {
   /** Exact length with FitLength; the most a short may run otherwise. */
   targetSeconds: number;
   layout: AutoShortLayout;
-  /** How long each picture holds (Spread and AllInEach). */
+  /** How long each picture holds when autoImageDuration is off. */
   imageSeconds: number;
+  /** When true, picks picture hold automatically from target length, asset mix and style pace. */
+  autoImageDuration?: boolean;
   /** Longest stretch of one video (Spread and AllInEach); null plays each in full. */
   maxClipSeconds: number | null;
   /** Every short runs exactly targetSeconds with Spread and AllInEach too; FitLength always does. */
@@ -1094,6 +1096,10 @@ export interface AutoShortsBody {
   style: AutoShortStyle;
   textMode: AutoShortTextMode;
   transitions: boolean;
+  /** Optional transition style override across all junctions (null keeps style mix). */
+  transitionOverride?: string | null;
+  /** Optional transition length override in seconds (0.2-2.0). */
+  transitionSeconds?: number | null;
   motion: boolean;
   keepClipAudio: boolean;
   exportName?: string | null;

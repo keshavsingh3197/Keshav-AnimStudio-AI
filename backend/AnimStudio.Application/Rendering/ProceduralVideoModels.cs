@@ -31,7 +31,7 @@ public sealed record ProceduralCaptionBeat(
 public sealed class ProceduralVideoRequest
 {
     public const int MinSeconds = 5;
-    public const int MaxSeconds = 90;
+    public const int MaxSeconds = 120;
     public const int DefaultSeconds = 18;
 
     public string Title { get; init; } = string.Empty;
@@ -49,6 +49,13 @@ public sealed class ProceduralVideoRequest
     public int Fps { get; init; } = 24;
     public bool IncludeCaptions { get; init; } = true;
     public bool IncludeAmbientAudio { get; init; } = true;
+
+    /// <summary>When true and a speech AI provider is configured, synthesizes spoken voiceover / 2-character dialogue and syncs mouth/caption timings.</summary>
+    public bool IncludeSpeech { get; init; } = true;
+
+    public string? SpeechProviderId { get; init; }
+    public string? SpeakerAVoiceId { get; init; }
+    public string? SpeakerBVoiceId { get; init; }
     public string Language { get; init; } = "hi";
     public string? FooterLabel { get; init; }
 
@@ -190,20 +197,21 @@ public static partial class ProceduralVideoPlanner
             chunks.Add(cleanTitle);
 
         var remaining = Math.Max(1.5, total - (titleHold + 0.3));
-        var maxSlots = Math.Max(1, Math.Min(chunks.Count, (int)Math.Floor(remaining / 2.2)));
-        var step = remaining / maxSlots;
+        var slotCapacity = Math.Max(1, (int)Math.Floor(remaining / 1.15));
+        var combinedChunks = CoalesceChunks(chunks, slotCapacity);
+        var step = remaining / combinedChunks.Count;
         var start = titleHold + 0.15;
 
-        for (var i = 0; i < maxSlots; i++)
+        for (var i = 0; i < combinedChunks.Count; i++)
         {
-            var end = i == maxSlots - 1 ? total - 0.15 : start + step - 0.08;
-            if (end <= start + 0.4) break;
+            var end = i == combinedChunks.Count - 1 ? total - 0.15 : start + step - 0.08;
+            if (end <= start + 0.35) break;
 
             beats.Add(new ProceduralCaptionBeat(
                 i + 1,
                 Math.Round(start, 2),
                 Math.Round(end, 2),
-                TruncateLine(chunks[i], 105),
+                TruncateLine(combinedChunks[i], 132),
                 IsTitleHook: false));
             start += step;
         }
@@ -211,9 +219,25 @@ public static partial class ProceduralVideoPlanner
         return beats;
     }
 
+    private static List<string> CoalesceChunks(List<string> chunks, int maxSlots)
+    {
+        if (chunks.Count <= maxSlots) return chunks;
+        var merged = new List<string>(maxSlots);
+        var perSlot = (double)chunks.Count / maxSlots;
+        for (var i = 0; i < maxSlots; i++)
+        {
+            var from = (int)Math.Floor(i * perSlot);
+            var to = i == maxSlots - 1 ? chunks.Count : (int)Math.Floor((i + 1) * perSlot);
+            if (to <= from) continue;
+            merged.Add(string.Join(" • ", chunks.Skip(from).Take(to - from)));
+        }
+        return merged.Count > 0 ? merged : chunks;
+    }
+
     private static List<string> ExtractReadableSegments(string raw)
     {
         var cleaned = ScriptMarkerRegex().Replace(raw ?? string.Empty, " ");
+        cleaned = InlineUrlRegex().Replace(cleaned, " ");
         var lines = cleaned
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Split(['\n', '।', '|', '•', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -221,11 +245,9 @@ public static partial class ProceduralVideoPlanner
         var result = new List<string>();
         foreach (var line in lines)
         {
-            var c = CleanLine(line);
+            var c = CleanLine(line).TrimEnd(':').Trim();
             if (string.IsNullOrWhiteSpace(c)) continue;
-            if (c.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                || c.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                continue;
+            if (c.Length < 4) continue;
 
             if (c.Length <= 96)
             {
@@ -264,6 +286,9 @@ public static partial class ProceduralVideoPlanner
 
     [GeneratedRegex(@"\[[^\]]+\]")]
     private static partial Regex ScriptMarkerRegex();
+
+    [GeneratedRegex(@"https?://\S+", RegexOptions.IgnoreCase)]
+    private static partial Regex InlineUrlRegex();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultiSpaceRegex();

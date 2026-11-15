@@ -132,6 +132,7 @@ public sealed record AutoShortsCommand
     public double TargetSeconds { get; init; } = 30;
     public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+    public bool? AutoImageDuration { get; init; }
     public double? MaxClipSeconds { get; init; }
     public bool ExactLength { get; init; }
 
@@ -147,6 +148,8 @@ public sealed record AutoShortsCommand
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
     public bool Transitions { get; init; } = true;
+    public SceneTransition? TransitionOverride { get; init; }
+    public double? TransitionSeconds { get; init; }
     public bool Motion { get; init; } = true;
     public bool KeepClipAudio { get; init; } = true;
     public string? ExportName { get; init; }
@@ -888,6 +891,7 @@ public sealed class ClipMergeService(
                 TargetSeconds = command.TargetSeconds,
                 Layout = command.Layout,
                 ImageSeconds = command.ImageSeconds,
+                AutoImageDuration = command.AutoImageDuration,
                 MaxClipSeconds = command.MaxClipSeconds,
                 ExactLength = command.ExactLength,
                 KeepClipsWhole = command.KeepClipsWhole,
@@ -897,6 +901,8 @@ public sealed class ClipMergeService(
                 TextMode = command.TextMode,
                 // A renderer without xfade cuts hard rather than refusing the batch.
                 Transitions = command.Transitions && capabilities.Supports(RenderFeature.CrossFadeTransitions),
+                TransitionOverride = command.TransitionOverride,
+                TransitionSeconds = command.TransitionSeconds,
                 Motion = command.Motion,
                 KeepClipAudio = command.KeepClipAudio,
                 ExportName = command.ExportName ?? "Auto short",

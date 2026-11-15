@@ -1300,7 +1300,7 @@ public sealed class EcosystemAutomationService(
     {
         var duration = durationSeconds > 0
             ? durationSeconds
-            : Math.Clamp(rule?.TargetSeconds ?? 24, 15, 60);
+            : Math.Clamp(rule?.TargetSeconds ?? 36, 15, ProceduralVideoRequest.MaxSeconds);
         var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
         var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
         var formatArg = post.Format switch
@@ -1321,6 +1321,7 @@ public sealed class EcosystemAutomationService(
             DurationSeconds = duration,
             IncludeCaptions = true,
             IncludeAmbientAudio = true,
+            IncludeSpeech = true,
             Language = post.Language,
             FooterLabel = footer,
             EventType = post.SourceType.ToString(),
@@ -1507,7 +1508,7 @@ public sealed class EcosystemAutomationService(
             """;
 
         var outcome = await ai.TextAsync(
-            new AiTextRequest { Prompt = prompt, MaxOutputTokens = 700, Temperature = 0.4 },
+            new AiTextRequest { Prompt = prompt, MaxOutputTokens = 2400, Temperature = 0.4 },
             new AiCallContext(UserId: userId),
             ct).ConfigureAwait(false);
 
@@ -1527,12 +1528,28 @@ public sealed class EcosystemAutomationService(
             var refinedTitle = Read("title", draft.Title);
             if (refinedTitle.Length > 95) refinedTitle = refinedTitle[..94].TrimEnd() + "…";
 
+            var refinedScript = Read("script", draft.Script);
+            if (!string.IsNullOrWhiteSpace(draft.PrimaryDestinationUrl)
+                && !refinedScript.Contains(draft.PrimaryDestinationUrl, StringComparison.OrdinalIgnoreCase)
+                && draft.Script.Contains(draft.PrimaryDestinationUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                refinedScript = $"{refinedScript}\n{draft.PrimaryDestinationUrl}";
+            }
+
+            var refinedComment = draft.PinnedComment is null ? null : Read("pinnedComment", draft.PinnedComment);
+            if (refinedComment is not null
+                && !string.IsNullOrWhiteSpace(draft.PrimaryDestinationUrl)
+                && !refinedComment.Contains(draft.PrimaryDestinationUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                refinedComment = $"{refinedComment}\n{draft.PrimaryDestinationUrl}";
+            }
+
             return (draft with
             {
                 Title = refinedTitle,
-                Script = Read("script", draft.Script),
+                Script = refinedScript,
                 AiVideoPrompt = Read("aiVideoPrompt", draft.AiVideoPrompt),
-                PinnedComment = draft.PinnedComment is null ? null : Read("pinnedComment", draft.PinnedComment)
+                PinnedComment = refinedComment
             }, true);
         }
         catch (JsonException)

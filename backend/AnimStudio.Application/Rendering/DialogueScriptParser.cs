@@ -136,14 +136,15 @@ public static partial class DialogueScriptParser
             IsTitleHook: true));
 
         var remaining = Math.Max(2.0, total - (titleHold + 0.25));
-        var maxSlots = Math.Max(1, Math.Min(parsedLines.Count, (int)Math.Floor(remaining / 2.0)));
-        var step = remaining / maxSlots;
+        var maxSlots = Math.Max(1, (int)Math.Floor(remaining / 1.15));
+        var consolidated = ConsolidateDialogueTurns(parsedLines, maxSlots);
+        var step = remaining / consolidated.Count;
         var start = titleHold + 0.12;
 
-        for (var i = 0; i < maxSlots; i++)
+        for (var i = 0; i < consolidated.Count; i++)
         {
-            var (rawSpeaker, lineText) = parsedLines[i];
-            var end = i == maxSlots - 1 ? total - 0.12 : start + step - 0.08;
+            var (rawSpeaker, lineText) = consolidated[i];
+            var end = i == consolidated.Count - 1 ? total - 0.12 : start + step - 0.08;
             if (end <= start + 0.35) break;
 
             DialogueSpeakerSlot slot;
@@ -170,7 +171,7 @@ public static partial class DialogueScriptParser
                 Math.Round(end, 2),
                 slot,
                 speakerLabel,
-                Truncate(lineText, 108),
+                Truncate(lineText, 180),
                 IsTitleHook: false));
 
             start += step;
@@ -178,6 +179,57 @@ public static partial class DialogueScriptParser
 
         return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns);
     }
+
+    private static List<(string? Speaker, string Text)> ConsolidateDialogueTurns(
+        List<(string? Speaker, string Text)> parsedLines,
+        int maxSlots)
+    {
+        if (parsedLines.Count <= maxSlots)
+            return parsedLines;
+
+        var grouped = new List<(string? Speaker, string Text)>(maxSlots);
+        var perSlot = (double)parsedLines.Count / maxSlots;
+        for (var i = 0; i < maxSlots; i++)
+        {
+            var from = (int)Math.Floor(i * perSlot);
+            var to = i == maxSlots - 1 ? parsedLines.Count : (int)Math.Floor((i + 1) * perSlot);
+            if (to <= from) continue;
+
+            var slice = parsedLines.Skip(from).Take(to - from).ToList();
+            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text))));
+        }
+
+        return grouped.Count > 0 ? grouped : parsedLines;
+    }
+
+    /// <summary>
+    /// Prepares a line of caption/script text for natural speech synthesis: strips structural markers,
+    /// cleans bullet punctuation, expands shorthand like <c>(+1d)</c>, and turns raw UTM URLs into a
+    /// natural call-to-action reference so every fact is spoken clearly without reading URL query strings.
+    /// </summary>
+    public static string ToSpokenText(string? rawText, string? language)
+    {
+        if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
+        var isHindi = !string.Equals(language?.Trim(), "en", StringComparison.OrdinalIgnoreCase);
+
+        var text = SectionMarkerRegex().Replace(rawText, " ");
+        text = UrlRegex().Replace(text, isHindi ? " नीचे डिस्क्रिप्शन और पिन कमेंट के लिंक पर " : " via the link in the description and pinned comment ");
+        text = text.Replace("(+1d)", isHindi ? " अगले दिन " : " next day ", StringComparison.OrdinalIgnoreCase)
+                   .Replace("•", ", ")
+                   .Replace("|", ", ")
+                   .Replace("—", ", ")
+                   .Replace("👇", string.Empty)
+                   .Replace("🔗", string.Empty);
+
+        text = MultiSpaceRegex().Replace(text, " ").Trim(' ', ',', ';');
+        return text;
+    }
+
+    /// <summary>Rebuilds the dialogue plan turns using measured real-audio timings while preserving characters.</summary>
+    public static ProceduralDialoguePlan WithMeasuredTurns(
+        ProceduralDialoguePlan plan,
+        IReadOnlyList<ProceduralDialogueTurn> updatedTurns) =>
+        plan with { Turns = updatedTurns };
 
     public static CharacterVisualRole InferRole(string speakerName)
     {
@@ -251,9 +303,9 @@ public static partial class DialogueScriptParser
             var parts = trimmed.Split(['।', '|', '•', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             foreach (var part in parts)
             {
-                var cleanedPart = Clean(part);
+                var cleanedPart = Clean(UrlRegex().Replace(part, " ")).TrimEnd(':').Trim();
                 if (cleanedPart.Length < 4) continue;
-                if (cleanedPart.Length <= 104)
+                if (cleanedPart.Length <= 140)
                 {
                     list.Add((currentSpeaker, cleanedPart));
                     if (!speakerMatch.Success)
@@ -313,6 +365,9 @@ public static partial class DialogueScriptParser
 
     [GeneratedRegex(@"([A-Za-z][A-Za-z\s]{2,28})\s*(?:&|and|vs\.?|Aur|और)\s*([A-Za-z][A-Za-z\s]{2,28})", RegexOptions.IgnoreCase)]
     private static partial Regex PairSplitRegex();
+
+    [GeneratedRegex(@"https?://\S+", RegexOptions.IgnoreCase)]
+    private static partial Regex UrlRegex();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultiSpaceRegex();

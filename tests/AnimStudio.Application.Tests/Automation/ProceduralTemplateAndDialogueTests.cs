@@ -1,14 +1,25 @@
+using AnimStudio.Application.Abstractions.Ai;
+using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Automation;
 using AnimStudio.Application.Ecosystem;
 using AnimStudio.Application.Rendering;
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Automation;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Infrastructure;
+using AnimStudio.Infrastructure.Ffmpeg;
+using AnimStudio.Infrastructure.Persistence;
+using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Rendering;
+using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace AnimStudio.Application.Tests.Automation;
 
@@ -226,11 +237,346 @@ public sealed class ProceduralTemplateAndDialogueTests
     [InlineData("", false, true)]
     [InlineData("Mongo", false, false)]
     [InlineData("SqlServer", true, true)]
-    public void DependencyInjection_ResolveUseSqlServer_honors_Auto_and_explicit_providers(
+    public void DependencyInjection_ResolveUseSqlServer_honors_prod_Auto_and_explicit_providers(
         string configuredProvider,
         bool hasMongoSecret,
         bool expectedUseSqlServer)
     {
         Assert.Equal(expectedUseSqlServer, DependencyInjection.ResolveUseSqlServer(configuredProvider, hasMongoSecret));
+    }
+
+    [Theory]
+    // Local Development: always keep SQL Server for Studio data unless explicitly forced to "Mongo",
+    // and enable Mongo alongside it for Auto-Post / Drive when Mongo is configured (unless opted out).
+    [InlineData("SqlServer", true, true, null, true, true)]
+    [InlineData("Auto", true, true, null, true, true)]
+    [InlineData("LocalHybrid", true, true, null, true, true)]
+    [InlineData("", true, true, null, true, true)]
+    [InlineData("SqlServer", false, true, null, true, false)]
+    [InlineData("SqlServer", true, true, false, true, false)]
+    [InlineData("Mongo", true, true, true, false, false)]
+    // Production / non-Development: NEVER enable local hybrid split rules, even if EnableLocalMongoHybrid=true.
+    [InlineData("Mongo", true, false, true, false, false)]
+    [InlineData("Auto", true, false, true, false, false)]
+    [InlineData("SqlServer", true, false, true, true, false)]
+    public void DependencyInjection_ResolveDatabaseRouting_restricts_hybrid_rule_to_local_development_only(
+        string configuredProvider,
+        bool hasMongoSecret,
+        bool isDevelopment,
+        bool? enableLocalMongoHybrid,
+        bool expectedSqlServer,
+        bool expectedMongoForAutoPostAndDrive)
+    {
+        var plan = DependencyInjection.ResolveDatabaseRouting(
+            configuredProvider,
+            hasMongoSecret,
+            isDevelopment,
+            enableLocalMongoHybrid);
+
+        Assert.Equal(expectedSqlServer, plan.UseSqlServer);
+        Assert.Equal(expectedMongoForAutoPostAndDrive, plan.UseMongoForAutoPostAndDrive);
+    }
+
+    [Fact]
+    public void AddAnimStudioInfrastructure_in_local_development_uses_SqlServer_for_studio_and_Mongo_for_autopost_and_drive()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Database:Provider"] = "SqlServer",
+                ["Database:EnableLocalMongoHybrid"] = "true",
+                ["SqlServer:ConnectionString"] = "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;",
+                ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
+                ["Mongo:Database"] = "AnimStudioDb"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddAnimStudioInfrastructure(config, isDevelopment: true);
+
+        // Main Studio data lives in local SQL Server
+        Assert.Equal(typeof(SqlProjectRepository), Impl<IProjectRepository>(services));
+        Assert.Equal(typeof(SqlAssetRepository), Impl<IAssetRepository>(services));
+        Assert.Equal(typeof(SqlRenderJobRepository), Impl<IRenderJobRepository>(services));
+        Assert.Equal(typeof(SqlSceneRepository), Impl<ISceneRepository>(services));
+        Assert.Equal(typeof(SqlStoryRunRepository), Impl<IStoryRunRepository>(services));
+        Assert.Equal(typeof(SqlWebSettingRepository), Impl<IWebSettingRepository>(services));
+
+        // Auto-Post, Drive, Content Topics/Plan, and YouTube Publishing live in MongoDB locally
+        Assert.Equal(typeof(MongoAutomationRepository), Impl<IAutomationRepository>(services));
+        Assert.Equal(typeof(MongoGoogleDriveConnectionRepository), Impl<IGoogleDriveConnectionRepository>(services));
+        Assert.Equal(typeof(MongoPhoneHandoffRepository), Impl<IPhoneHandoffRepository>(services));
+        Assert.Equal(typeof(MongoContentTopicRepository), Impl<IContentTopicRepository>(services));
+        Assert.Equal(typeof(MongoContentPlanItemRepository), Impl<IContentPlanItemRepository>(services));
+        Assert.Equal(typeof(MongoContentSourceLinkRepository), Impl<IContentSourceLinkRepository>(services));
+        Assert.Equal(typeof(MongoYouTubeConnectionRepository), Impl<IYouTubeConnectionRepository>(services));
+        Assert.Equal(typeof(MongoYouTubePublicationRepository), Impl<IYouTubePublicationRepository>(services));
+        Assert.Equal(typeof(MongoPublishQueueRepository), Impl<IPublishQueueRepository>(services));
+
+        // Both initializers + local sync helpers are registered in Development hybrid mode
+        Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(SqlDatabaseInitializer));
+        Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(MongoIndexInitializer));
+        Assert.Contains(services, d => d.ServiceType == typeof(DriveDataSyncService));
+    }
+
+    [Fact]
+    public void AddAnimStudioInfrastructure_in_production_never_enables_local_hybrid_split()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Database:Provider"] = "Mongo",
+                ["Database:EnableLocalMongoHybrid"] = "true",
+                ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
+                ["Mongo:Database"] = "AnimStudioDb"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddAnimStudioInfrastructure(config, isDevelopment: false);
+
+        Assert.Equal(typeof(MongoProjectRepository), Impl<IProjectRepository>(services));
+        Assert.Equal(typeof(MongoAutomationRepository), Impl<IAutomationRepository>(services));
+        Assert.Equal(typeof(MongoPhoneHandoffRepository), Impl<IPhoneHandoffRepository>(services));
+        Assert.DoesNotContain(services, d => d.ImplementationType == typeof(SqlDatabaseInitializer));
+        Assert.DoesNotContain(services, d => d.ServiceType == typeof(ISqlConnectionFactory));
+    }
+
+    [Fact]
+    public void AddAnimStudioInfrastructure_in_local_development_without_mongo_uses_SqlServer_for_all_repositories()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Database:Provider"] = "SqlServer",
+                ["SqlServer:ConnectionString"] = "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddAnimStudioInfrastructure(config, isDevelopment: true);
+
+        Assert.Equal(typeof(SqlProjectRepository), Impl<IProjectRepository>(services));
+        Assert.Equal(typeof(SqlAutomationRepository), Impl<IAutomationRepository>(services));
+        Assert.Equal(typeof(SqlGoogleDriveConnectionRepository), Impl<IGoogleDriveConnectionRepository>(services));
+        Assert.Equal(typeof(SqlPhoneHandoffRepository), Impl<IPhoneHandoffRepository>(services));
+        Assert.DoesNotContain(services, d => d.ImplementationType == typeof(MongoIndexInitializer));
+    }
+
+    private static Type? Impl<TService>(IServiceCollection services) =>
+        services.LastOrDefault(d => d.ServiceType == typeof(TService))?.ImplementationType;
+
+    [Fact]
+    public void DialogueScriptParser_ToSpokenText_keeps_panchang_facts_and_removes_stage_tags_and_raw_urls()
+    {
+        var raw = """
+            [HOOK 0-4s] हर हर महादेव! आइए जानते हैं आज का संपूर्ण पंचांग।
+            [CORE PANCHANG 4-35s]
+            • तिथि: Shukla Shashthi (Until 02:02 AM) | पक्ष: Shukla Paksha
+            • नक्षत्र: Uttara Ashadha | योग: Ganda | करण: Kaulava
+            • अभिजित मुहूर्त: 11:42 AM - 12:30 PM | राहुकाल: 04:08 PM - 05:28 PM
+            [CTA] पूरा पंचांग देखें: https://panchang.keshavsingh.in/today?utm_source=youtube&utm_medium=auto
+            """;
+
+        var spoken = DialogueScriptParser.ToSpokenText(raw, "hi");
+
+        Assert.DoesNotContain("[HOOK", spoken);
+        Assert.DoesNotContain("[CORE", spoken);
+        Assert.DoesNotContain("[CTA]", spoken);
+        Assert.DoesNotContain("https://", spoken);
+        Assert.Contains("Shukla Shashthi", spoken);
+        Assert.Contains("Uttara Ashadha", spoken);
+        Assert.Contains("11:42 AM", spoken);
+        Assert.Contains("04:08 PM", spoken);
+        Assert.Contains("नीचे डिस्क्रिप्शन और पिन कमेंट के लिंक पर", spoken);
+        Assert.DoesNotContain("utm_source", spoken);
+    }
+
+    [Fact]
+    public void ProceduralVideoPlanner_BuildCaptionBeats_coalesces_long_scripts_without_dropping_details()
+    {
+        var longScript = """
+            [HOOK] आज का संपूर्ण हिंदू पंचांग और शुभ मुहूर्त।
+            तिथि: शुक्ल षष्ठी रात्रि 02:02 तक।
+            पक्ष: शुक्ल पक्ष।
+            नक्षत्र: उत्तराषाढ़ा।
+            योग: गण्ड और करण: कौलव।
+            सूर्योदय: 06:44 AM एवं सूर्यास्त: 05:28 PM।
+            ब्रह्म मुहूर्त: 04:58 AM - 05:49 AM।
+            अभिजित मुहूर्त: 11:42 AM - 12:30 PM।
+            राहुकाल: 04:08 PM - 05:28 PM (अशुभ समय)।
+            शुभ मंत्र: ॐ नमः शिवाय।
+            विशेष उपाय: आज भगवान सूर्य को अर्घ्य दें।
+            अंत में: https://panchang.keshavsingh.in?utm_source=yt पर संपूर्ण विवरण देखें।
+            """;
+
+        var beats = ProceduralVideoPlanner.BuildCaptionBeats("आज का पंचांग", longScript, prompt: null, 30);
+
+        Assert.NotEmpty(beats);
+        var joined = string.Join(" | ", beats.Select(b => b.Text));
+        Assert.Contains("उत्तराषाढ़ा", joined);
+        Assert.Contains("अभिजित मुहूर्त", joined);
+        Assert.Contains("राहुकाल", joined);
+        Assert.Contains("ॐ नमः शिवाय", joined);
+        Assert.Contains("सूर्य को अर्घ्य", joined);
+        Assert.DoesNotContain("utm_source", joined);
+    }
+
+    [Fact]
+    public async Task ProceduralAudioSynthesizer_ComputeFrameEnvelope_extracts_envelope_from_warm_wav()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-audio-test-");
+        try
+        {
+            var wavPath = Path.Combine(tempDir.FullName, "warm.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(wavPath, ProceduralSceneTheme.VedicTempleSunrise3D, 3, CancellationToken.None);
+
+            var duration = ProceduralAudioSynthesizer.TryGetWavDurationSeconds(wavPath);
+            Assert.NotNull(duration);
+            Assert.InRange(duration!.Value, 2.9, 3.1);
+
+            var envelope = ProceduralAudioSynthesizer.ComputeFrameEnvelope(wavPath, 72, 24);
+            Assert.Equal(72, envelope.Length);
+            Assert.Contains(envelope, v => v > 0.05f);
+            Assert.All(envelope, v => Assert.InRange(v, 0f, 1f));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProceduralBgmCacheService_generates_once_and_reuses_persistent_preset_wav()
+    {
+        var tempRoot = Directory.CreateTempSubdirectory("animstudio-bgm-cache-");
+        try
+        {
+            var paths = AppDataPaths.Resolve(new ConfigurationBuilder().Build(), tempRoot.FullName);
+            var cache = new ProceduralBgmCacheService(Microsoft.Extensions.Options.Options.Create(new FfmpegOptions()), paths);
+
+            var initial = cache.ListPresets();
+            Assert.Equal(5, initial.Count);
+            Assert.All(initial, p => Assert.False(p.IsCached));
+
+            var (firstPath, firstSource) = await cache.EnsurePresetWavAsync(ProceduralSceneTheme.VedicTempleSunrise3D);
+            Assert.Equal("studio-pad-v2", firstSource);
+            Assert.True(File.Exists(firstPath));
+            var firstWriteUtc = File.GetLastWriteTimeUtc(firstPath);
+
+            var after = cache.ListPresets();
+            Assert.True(after.Single(p => p.Id == "vedic-sunrise").IsCached);
+
+            var (secondPath, secondSource) = await cache.EnsurePresetWavAsync(ProceduralSceneTheme.VedicTempleSunrise3D);
+            Assert.Equal(firstPath, secondPath);
+            Assert.Equal("studio-pad-v2", secondSource);
+            Assert.Equal(firstWriteUtc, File.GetLastWriteTimeUtc(secondPath));
+        }
+        finally
+        {
+            tempRoot.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProceduralSpeechSynthesizer_TrySynthesizeAsync_synthesizes_multi_speaker_voices_and_extends_duration()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-speech-test-");
+        try
+        {
+            var wavBytesPath = Path.Combine(tempDir.FullName, "sample-2s.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(wavBytesPath, ProceduralSceneTheme.HistoryChronicle3D, 2, CancellationToken.None);
+            var sampleWavBytes = await File.ReadAllBytesAsync(wavBytesPath);
+
+            var fakeExecutor = new FakeSpeechAiExecutor(sampleWavBytes);
+            var fakeRegistry = new FakeSpeechRegistry(new FakeSpeechProvider());
+
+            var script = """
+                Raja Harishchandra: सत्य के मार्ग पर चलने से क्या फल मिलता है?
+                Maharishi Vishwamitra: हे राजन! सत्य ही परम धर्म और अटल तेज का आधार है।
+                Raja Harishchandra: आज का शुभ पंचांग और शुक्ल षष्ठी हमें यही संदेश देती है।
+                """;
+            var plan = DialogueScriptParser.ParsePlan("Harishchandra & Vishwamitra", script, prompt: null, 8, true, "Raja Harishchandra", "Maharishi Vishwamitra", "DailyKatha");
+            var request = new ProceduralVideoRequest
+            {
+                Title = "Harishchandra & Vishwamitra",
+                Script = script,
+                EventType = "DailyKatha",
+                Language = "hi",
+                DurationSeconds = 5,
+                IncludeSpeech = true
+            };
+
+            var inputDir = Path.Combine(tempDir.FullName, "in");
+            var result = await ProceduralSpeechSynthesizer.TrySynthesizeAsync(
+                request,
+                plan,
+                inputDir,
+                "user-1",
+                baseDurationSeconds: 5,
+                fakeExecutor,
+                fakeRegistry,
+                new FfmpegOptions(),
+                logger: null,
+                CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.True(File.Exists(result!.SpeechWavPath));
+            Assert.True(result.RecommendedDurationSeconds >= 6);
+            Assert.Equal(2, result.VoicesUsed.Count);
+            Assert.Equal(3, fakeExecutor.Calls.Count);
+            Assert.All(fakeExecutor.Calls, req => Assert.False(string.IsNullOrWhiteSpace(req.VoiceId)));
+
+            var spokenTurns = result.UpdatedPlan.Turns.Where(t => !t.IsTitleHook).ToList();
+            Assert.Equal(3, spokenTurns.Count);
+            Assert.True(spokenTurns[1].StartSeconds > spokenTurns[0].StartSeconds);
+            Assert.True(spokenTurns[2].StartSeconds > spokenTurns[1].StartSeconds);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    private sealed class FakeSpeechProvider : ISpeechAiProvider
+    {
+        public AiProviderId Id => AiProviderId.Parse("gemini-tts");
+        public AiCapability Capability => AiCapability.Speech;
+        public bool IsConfigured => true;
+        public Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct) => Task.FromResult(AiProviderHealth.Healthy);
+        public Task<IReadOnlyList<AiVoice>> ListVoicesAsync(CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<AiVoice>>([new("Orus", "Orus", "hi", "Male"), new("Sadaltager", "Sadaltager", "hi", "Male")]);
+        public Task<AiSpeechResult> SynthesizeAsync(AiSpeechRequest request, CancellationToken ct) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class FakeSpeechRegistry(ISpeechAiProvider provider) : IAiProviderRegistry
+    {
+        public IReadOnlyList<ITextAiProvider> TextChain() => [];
+        public IReadOnlyList<ITextAiProvider> UsableTextProviders() => [];
+        public IReadOnlyList<IImageAiProvider> ImageChain() => [];
+        public IReadOnlyList<ISpeechAiProvider> SpeechChain() => [provider];
+        public IReadOnlyList<ITranscriptionProvider> TranscriptionChain() => [];
+        public AiCapabilityStatus Describe(AiCapability capability) =>
+            new(capability, provider.Id.Value, null, true, AiUnavailableReason.None, [provider.Id.Value]);
+        public IReadOnlyList<AiCapabilityStatus> DescribeAll() => [Describe(AiCapability.Speech)];
+        public void ReportOutcome(AiProviderId providerId, bool success) { }
+    }
+
+    private sealed class FakeSpeechAiExecutor(byte[] wavBytes) : IAiExecutor
+    {
+        public List<AiSpeechRequest> Calls { get; } = [];
+        public Task<AiOutcome<AiTextResult>> TextAsync(AiTextRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiTextResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiImageResult>> ImageAsync(AiImageRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiImageResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiTranscriptionResult>> TranscribeAsync(AiTranscriptionRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiTranscriptionResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiSpeechResult>> SpeechAsync(AiSpeechRequest request, AiCallContext context, CancellationToken ct)
+        {
+            Calls.Add(request);
+            return Task.FromResult(AiOutcome<AiSpeechResult>.Success(
+                new AiSpeechResult(wavBytes, "audio/wav", 2.0, new AiProvenance { ProviderId = "gemini-tts", Capability = AiCapability.Speech })));
+        }
     }
 }

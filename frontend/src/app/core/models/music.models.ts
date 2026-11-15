@@ -70,3 +70,12 @@ export interface MusicImportResult {
   alreadyAdded: boolean;
   usedAsBackground: boolean;
 }
+
+export interface StudioBgmPreset {
+  id: string;
+  theme: string;
+  name: string;
+  bestFor: string;
+  isCached: boolean;
+  source: string;
+}
