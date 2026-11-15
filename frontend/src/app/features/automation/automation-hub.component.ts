@@ -1136,8 +1136,10 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 @if (wizardRender()) {
                   <button type="button" class="btn ghost" (click)="closeWizard()">Hide (keeps rendering)</button>
                 } @else {
-                @if (wz.step !== 'engine' && !(wz.step === 'template' && wz.engine !== 'Procedural3D')) {
-                  <button type="button" class="btn ghost" (click)="wizardBack()">Back</button>
+                @if (wz.step !== 'engine') {
+                  <!-- Back from the paste step is allowed for every engine: a run waiting for its script is idle,
+                       and "Get Template" on the Script step starts a fresh run that replaces it on the post. -->
+                  <button type="button" class="btn ghost" [disabled]="busy()" (click)="wizardBack()">Back</button>
                 }
                 <button type="button" class="btn ghost" (click)="closeWizard()">{{ wz.step === 'template' ? 'Finish later' : 'Cancel' }}</button>
                 @if (wz.step === 'engine' || wz.step === 'background' || (wz.step === 'source' && wz.engine === 'Procedural3D')) {
