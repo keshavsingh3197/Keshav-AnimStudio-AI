@@ -333,6 +333,7 @@ public static class DependencyInjection
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IImageAnimationRenderer, ImageAnimationRenderer>();
+        services.AddSingleton<AnimStudio.Infrastructure.Rendering.ProceduralBgmCacheService>();
         services.AddScoped<IProceduralVideoGenerator, AnimStudio.Infrastructure.Rendering.ProceduralVideoGeneratorService>();
         services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralCommunityCardGenerator>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();

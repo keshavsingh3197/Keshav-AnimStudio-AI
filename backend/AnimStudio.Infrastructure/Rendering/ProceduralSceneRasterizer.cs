@@ -20,13 +20,17 @@ public sealed class ProceduralSceneRasterizer
     private readonly Particle[] _particles;
     private readonly (double Azimuth, double Elevation, double Speed)[] _rays;
     private readonly ProceduralDialoguePlan? _dialoguePlan;
+    private readonly float[]? _speechEnvelope;
+    private readonly double _fps;
+
+    internal float? ActiveSpeechLevel { get; private set; }
 
     private readonly record struct Particle(float BaseX, float BaseY, float BaseZ, float Speed, float Size, float Phase, byte AccentKind);
     private readonly record struct Vec3(float X, float Y, float Z);
     private readonly record struct ScreenPt(float X, float Y, float Z, bool Visible);
 
     public ProceduralSceneRasterizer(int width, int height, ProceduralSceneTheme theme, int seed = 108)
-        : this(width, height, theme, seed, palette: null, dialoguePlan: null)
+        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0)
     {
     }
 
@@ -36,13 +40,17 @@ public sealed class ProceduralSceneRasterizer
         ProceduralSceneTheme theme,
         int seed,
         ProceduralEventPalette? palette,
-        ProceduralDialoguePlan? dialoguePlan)
+        ProceduralDialoguePlan? dialoguePlan,
+        float[]? speechEnvelope = null,
+        double fps = 24.0)
     {
         Width = Math.Clamp(width, 160, 2160);
         Height = Math.Clamp(height, 160, 2160);
         Theme = theme == ProceduralSceneTheme.Auto ? ProceduralSceneTheme.VedicTempleSunrise3D : theme;
         Palette = palette ?? ProceduralEventPalette.Resolve(null, Theme);
         _dialoguePlan = dialoguePlan;
+        _speechEnvelope = speechEnvelope is { Length: > 0 } ? speechEnvelope : null;
+        _fps = fps > 0 ? fps : 24.0;
         _frame = new byte[Width * Height * 4];
 
         var rng = new Random(seed ^ ((int)Theme * 7919));
@@ -98,9 +106,14 @@ public sealed class ProceduralSceneRasterizer
                 break;
         }
 
+        ActiveSpeechLevel = SampleSpeechLevel(timeSeconds);
         if (_dialoguePlan is { HasCharacters: true })
         {
             ProceduralCharacterRenderer.RenderDialogueStage(this, timeSeconds, _dialoguePlan, Palette);
+        }
+        else if (ActiveSpeechLevel is { } level)
+        {
+            RenderVoiceWaveIndicator(timeSeconds, level);
         }
 
         ApplyTopTemplateBand(u);
@@ -795,6 +808,36 @@ public sealed class ProceduralSceneRasterizer
                 _frame[idx + 1] = ClampByte(_frame[idx + 1] * inv + g * edge);
                 _frame[idx + 2] = ClampByte(_frame[idx + 2] * inv + b * edge);
             }
+        }
+    }
+
+    private float? SampleSpeechLevel(double timeSeconds)
+    {
+        if (_speechEnvelope is null) return null;
+        var idx = Math.Clamp((int)Math.Floor(timeSeconds * _fps), 0, _speechEnvelope.Length - 1);
+        return _speechEnvelope[idx];
+    }
+
+    private void RenderVoiceWaveIndicator(double t, float speechLevel)
+    {
+        var centerX = Width * 0.5f;
+        var baseY = Height * 0.72f;
+        var unit = MathF.Min(Width, Height) * 0.008f;
+        const int bars = 9;
+        var spacing = unit * 2.4f;
+        var accent = Palette.PrimaryRgb;
+
+        for (var i = 0; i < bars; i++)
+        {
+            var offset = (i - (bars - 1) * 0.5f) * spacing;
+            var distFactor = 1.0f - MathF.Abs(i - (bars - 1) * 0.5f) / ((bars - 1) * 0.65f);
+            var shimmer = 0.65f + 0.35f * MathF.Sin((float)(t * 14.0 + i * 1.1));
+            var barH = MathF.Max(unit * 0.9f, unit * (1.2f + speechLevel * 8.5f * distFactor * shimmer));
+            FillCapsule(
+                centerX + offset, baseY - barH * 0.5f,
+                centerX + offset, baseY + barH * 0.5f,
+                unit * 0.68f,
+                accent.R, accent.G, accent.B, 0.25f + speechLevel * 0.68f);
         }
     }
 

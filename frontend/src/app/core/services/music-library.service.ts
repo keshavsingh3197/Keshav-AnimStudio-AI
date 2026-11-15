@@ -4,7 +4,7 @@ import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
-import { MusicImportResult, MusicOptions, MusicSearchParams, MusicSearchResult } from '../models/music.models';
+import { MusicImportResult, MusicOptions, MusicSearchParams, MusicSearchResult, StudioBgmPreset } from '../models/music.models';
 
 @Injectable({ providedIn: 'root' })
 export class MusicLibraryService {
@@ -14,6 +14,18 @@ export class MusicLibraryService {
   /** Filters to offer, and whether search is set up on this server. */
   options(): Observable<MusicOptions> {
     return this.unwrap(this.http.get<ApiResponse<MusicOptions>>(`${this.base}/api/music/options`));
+  }
+
+  /** One-time generated clean reusable studio BGM presets by theme. */
+  bgmPresets(): Observable<StudioBgmPreset[]> {
+    return this.unwrap(this.http.get<ApiResponse<StudioBgmPreset[]>>(`${this.base}/api/music/bgm-presets`));
+  }
+
+  /** Imports a cached clean studio BGM preset into the project library (generating once on first use). */
+  importBgmPreset(projectId: string, presetId: string, useAsBackground = false): Observable<MusicImportResult> {
+    return this.unwrap(this.http.post<ApiResponse<MusicImportResult>>(
+      `${this.base}/api/projects/${encodeURIComponent(projectId)}/music/bgm-presets/${encodeURIComponent(presetId)}`,
+      { useAsBackground }));
   }
 
   /** Results are checked against this project's licence settings on the server. */

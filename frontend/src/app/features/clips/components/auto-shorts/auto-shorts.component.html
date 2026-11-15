@@ -211,16 +211,22 @@
           </div>
         </div>
 
-        @if (layout() !== 'FitLength') {
-          <div class="as-field">
-            <label class="as-label" for="as-img-secs">Each picture</label>
+        <div class="as-field as-field-top">
+          <label class="as-label" for="as-img-secs">Each picture</label>
+          <div class="as-stack">
             <div class="as-chips">
+              <button type="button" class="as-chip" [class.on]="autoImageDuration()" (click)="setAutoImageDuration(true)"
+                      title="Automatically choose hold duration from target length, clip mix and style pace">✨ Auto</button>
               @for (n of imageChoices; track n) {
-                <button type="button" class="as-chip" [class.on]="imageSeconds() === n" (click)="setImageSeconds(n)">{{ n }}s</button>
+                <button type="button" class="as-chip" [class.on]="!autoImageDuration() && imageSeconds() === n" (click)="setImageSeconds(n)">{{ n }}s</button>
               }
               <input id="as-img-secs" class="as-num" type="number" [min]="minImageSeconds" [max]="maxImageSeconds" [ngModel]="imageSeconds()" (ngModelChange)="setImageSeconds($event)" aria-label="Seconds per picture" />
             </div>
+            <p class="as-hint">{{ autoImageDuration() ? 'Auto picks picture timing from your length, footage mix & chosen style.' : 'Every picture holds for ' + imageSeconds() + 's.' }}</p>
           </div>
+        </div>
+
+        @if (layout() !== 'FitLength') {
           <div class="as-field">
             <label class="as-label" for="as-clip-secs">Each video</label>
             <div class="as-chips">
@@ -252,6 +258,30 @@
             @for (f of formats; track f.id) {
               <button type="button" class="as-chip" [class.on]="formatId() === f.id" (click)="formatId.set(f.id)">{{ f.label }}</button>
             }
+          </div>
+        </div>
+
+        <div class="as-field as-field-top">
+          <span class="as-label">Background</span>
+          <div class="as-stack">
+            <div class="as-cards as-layouts" role="radiogroup" aria-label="Framing and background">
+              @for (fm of framingModes; track fm.id) {
+                <button type="button" class="as-card" role="radio" [attr.aria-checked]="fit() === fm.id" [class.on]="fit() === fm.id" (click)="fit.set(fm.id)" [title]="fm.hint">
+                  <span class="as-card-icon" aria-hidden="true">{{ fm.icon }}</span>
+                  <span class="as-card-name">{{ fm.label }}</span>
+                  <span class="as-card-hint">{{ fm.hint }}</span>
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+
+        <div class="as-field">
+          <span class="as-label">Quality</span>
+          <div class="as-chips">
+            <button type="button" class="as-chip" [class.on]="quality() === 'Fast'" (click)="quality.set('Fast')">⚡ Fast</button>
+            <button type="button" class="as-chip" [class.on]="quality() === 'High'" (click)="quality.set('High')">✨ High</button>
+            <button type="button" class="as-chip" [class.on]="quality() === 'Best'" (click)="quality.set('Best')">💎 Best</button>
           </div>
         </div>
 
@@ -347,6 +377,24 @@
         <div class="as-toggles">
           <label><input type="checkbox" [ngModel]="motion()" (ngModelChange)="motion.set($event)" /> Camera moves &amp; looks on pictures</label>
           <label><input type="checkbox" [ngModel]="transitions()" (ngModelChange)="transitions.set($event)" /> Transitions between shots</label>
+          @if (transitions()) {
+            <div class="as-field">
+              <label class="as-label" for="as-trans-kind">Transition</label>
+              <div class="as-chips">
+                <select id="as-trans-kind" class="as-sel" [ngModel]="transitionOverride()" (ngModelChange)="transitionOverride.set($event)">
+                  @for (t of transitionOverrides; track t.label) {
+                    <option [ngValue]="t.id">{{ t.label }}</option>
+                  }
+                </select>
+                <button type="button" class="as-chip" [class.on]="transitionSeconds() === null" (click)="transitionSeconds.set(null)">Auto timing</button>
+                @for (ts of [0.3, 0.5, 0.8]; track ts) {
+                  <button type="button" class="as-chip" [class.on]="transitionSeconds() === ts" (click)="transitionSeconds.set(ts)">{{ ts }}s</button>
+                }
+              </div>
+            </div>
+          }
+          <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
+          <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card <span class="as-muted">(plays after the {{ seconds() }}s)</span></label>
         </div>
 
         <h4>4 · Top &amp; bottom <span class="as-count">automatic</span></h4>
@@ -496,7 +544,7 @@
 
         <h4>6 · Sound</h4>
         @if (musicOptions().length === 0) {
-          <p class="as-hint">No music in this project yet - the shorts keep their clips' own sound.</p>
+          <p class="as-hint">No music in this project yet - add a clean reusable Studio BGM below, or keep clips' own sound.</p>
         } @else {
           <p class="as-hint">Pick one or more beds; the shorts rotate through them.</p>
           <div class="as-music">
@@ -506,6 +554,21 @@
                 <span>{{ m.name }}</span>
               </label>
             }
+          </div>
+        }
+        @if (bgmPresets().length > 0) {
+          <div class="as-bgm-presets">
+            <span class="as-hint">One-time clean Studio BGM (reusable across all shorts &amp; clips):</span>
+            <div class="as-chips">
+              @for (preset of bgmPresets(); track preset.id) {
+                <button type="button" class="as-chip" [disabled]="importingBgmId() !== null"
+                        [title]="preset.bestFor + (preset.isCached ? ' · Cached ready' : ' · Generates once and saves')"
+                        (click)="addStudioBgmPreset(preset)">
+                  @if (importingBgmId() === preset.id) { Adding… } @else { + {{ preset.name }} }
+                </button>
+              }
+            </div>
+            @if (bgmError(); as err) { <p class="as-warn">{{ err }}</p> }
           </div>
         }
         <div class="as-toggles">
@@ -552,30 +615,10 @@
         }
 
         <details class="as-more">
-          <summary>More options</summary>
+          <summary>More options (batch name)</summary>
           <div class="as-field">
             <label class="as-label" for="as-name">Name</label>
             <input id="as-name" class="as-text" type="text" maxlength="160" [ngModel]="name()" (ngModelChange)="name.set($event)" />
-          </div>
-          <div class="as-field">
-            <span class="as-label">Framing</span>
-            <div class="as-chips">
-              <button type="button" class="as-chip" [class.on]="fit() === 'BlurredBackdrop'" (click)="fit.set('BlurredBackdrop')">Blurred fill</button>
-              <button type="button" class="as-chip" [class.on]="fit() === 'Cover'" (click)="fit.set('Cover')">Crop to fill</button>
-              <button type="button" class="as-chip" [class.on]="fit() === 'Contain'" (click)="fit.set('Contain')">Fit with bars</button>
-            </div>
-          </div>
-          <div class="as-field">
-            <span class="as-label">Quality</span>
-            <div class="as-chips">
-              <button type="button" class="as-chip" [class.on]="quality() === 'Fast'" (click)="quality.set('Fast')">Fast</button>
-              <button type="button" class="as-chip" [class.on]="quality() === 'High'" (click)="quality.set('High')">High</button>
-              <button type="button" class="as-chip" [class.on]="quality() === 'Best'" (click)="quality.set('Best')">Best</button>
-            </div>
-          </div>
-          <div class="as-toggles">
-            <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
-            <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card <span class="as-muted">(plays after the {{ seconds() }}s)</span></label>
           </div>
         </details>
       </section>

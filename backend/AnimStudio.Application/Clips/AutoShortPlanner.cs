@@ -112,8 +112,14 @@ public sealed record AutoShortBatch
 
     public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
 
-    /// <summary>How long a picture stays on screen, outside <see cref="AutoShortLayout.FitLength"/>.</summary>
+    /// <summary>How long a picture stays on screen when <see cref="AutoImageDuration"/> is off.</summary>
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+
+    /// <summary>
+    /// When true, picks each picture's hold automatically from target length, asset mix, and style pace.
+    /// When false, honors <see cref="ImageSeconds"/> explicitly across layouts; null preserves legacy defaults.
+    /// </summary>
+    public bool? AutoImageDuration { get; init; }
 
     /// <summary>Longest stretch of one video, outside <see cref="AutoShortLayout.FitLength"/>. Null plays every video in full.</summary>
     public double? MaxClipSeconds { get; init; }
@@ -143,6 +149,12 @@ public sealed record AutoShortBatch
 
     /// <summary>Crossfades, slides and wipes between shots. Off cuts hard (and is what a renderer without xfade gets).</summary>
     public bool Transitions { get; init; } = true;
+
+    /// <summary>Optional transition style override across all junctions (null keeps the style pace mix).</summary>
+    public SceneTransition? TransitionOverride { get; init; }
+
+    /// <summary>Optional transition duration override in seconds (null uses the style pace timing).</summary>
+    public double? TransitionSeconds { get; init; }
 
     /// <summary>Camera moves and grades on pictures.</summary>
     public bool Motion { get; init; } = true;
@@ -321,7 +333,7 @@ public static class AutoShortPlanner
     {
         var footage = usable.Count(s => s.Kind == AssetKind.Video) / (double)usable.Count >= 0.5;
         if (target <= 20) return [Hype, Energetic];
-        if (batch.Layout != AutoShortLayout.FitLength && batch.ImageSeconds >= 7 && !footage) return [Calm, Dreamy, Cinematic];
+        if (batch.Layout != AutoShortLayout.FitLength && batch.AutoImageDuration != true && batch.ImageSeconds >= 7 && !footage) return [Calm, Dreamy, Cinematic];
         if (target <= 45) return footage ? [Viral, Energetic, Dramatic, Cinematic] : [Energetic, Viral, Cinematic, Retro];
         return footage ? [Cinematic, Dramatic, Energetic] : [Cinematic, Dreamy, Retro, Calm];
     }
@@ -366,37 +378,42 @@ public static class AutoShortPlanner
             return paces[k];
         }
 
+        // Compute effective batch with automatic image duration resolved from target, mix, and primary pace when requested.
+        var effectiveBatch = batch.AutoImageDuration == true
+            ? batch with { ImageSeconds = ResolveAutoImageSeconds(batch, usable, target, PaceAt(0)) }
+            : batch;
+
         List<List<Shot>> cuts;
         var leftOvers = new List<AutoShortSource>();
-        switch (batch.Layout)
+        switch (effectiveBatch.Layout)
         {
             case AutoShortLayout.Spread:
-                cuts = SpreadShots(batch, usable, target, random, leftOvers);
+                cuts = SpreadShots(effectiveBatch, usable, target, random, leftOvers);
                 break;
             case AutoShortLayout.AllInEach:
-                cuts = AllInEachShots(batch, usable, target, random);
+                cuts = AllInEachShots(effectiveBatch, usable, target, random);
                 break;
             default:
-                cuts = FitLengthShots(batch, usable, target, random, PaceAt);
+                cuts = FitLengthShots(effectiveBatch, usable, target, random, PaceAt);
                 break;
         }
 
-        if (batch.ExactLength && batch.Layout != AutoShortLayout.FitLength)
+        if (effectiveBatch.ExactLength && effectiveBatch.Layout != AutoShortLayout.FitLength)
         {
             var spare = new Queue<AutoShortSource>(leftOvers);
-            var reuse = ReusePool(usable, random, batch.KeepClipsWhole);
+            var reuse = ReusePool(usable, random, effectiveBatch.KeepClipsWhole);
             foreach (var cut in cuts)
             {
                 // Spread tops up from what no short took; AllInEach from what this short skipped.
                 var inCut = cut.Select(s => s.Source.AssetId).ToHashSet(StringComparer.Ordinal);
-                var skipped = new Queue<AutoShortSource>(batch.Layout == AutoShortLayout.AllInEach
+                var skipped = new Queue<AutoShortSource>(effectiveBatch.Layout == AutoShortLayout.AllInEach
                     ? Shuffled(usable.Where(s => !inCut.Contains(s.AssetId)), random)
                     : []);
                 AutoShortSource? Fresh() =>
                     skipped.Count > 0 ? skipped.Dequeue() : spare.Count > 0 ? spare.Dequeue() : null;
 
-                FillToLength(cut, target, batch, Fresh, reuse, random);
-                if (batch.Order == AutoShortOrder.Shuffle && cut.Count > 1)
+                FillToLength(cut, target, effectiveBatch, Fresh, reuse, random);
+                if (effectiveBatch.Order == AutoShortOrder.Shuffle && cut.Count > 1)
                 {
                     var mixed = Shuffled(cut, random);
                     cut.Clear();
@@ -405,7 +422,7 @@ public static class AutoShortPlanner
             }
         }
 
-        foreach (var cut in cuts) Arrange(cut, batch.Order);
+        foreach (var cut in cuts) Arrange(cut, effectiveBatch.Order);
 
         var packaging = batch.Packaging ?? new AutoShortPackaging();
         var languages = packaging.Language == AutoShortLanguage.Both
@@ -420,7 +437,7 @@ public static class AutoShortPlanner
         for (var k = 0; k < cuts.Count; k++)
         {
             var label = cuts.Count == 1 ? name : $"{name} #{k + 1}";
-            var built = BuildShort(batch, PaceAt(k), cuts[k], random, lineDeck, musicDeck, label);
+            var built = BuildShort(effectiveBatch, PaceAt(k), cuts[k], random, lineDeck, musicDeck, label);
             if (packaging.IsEmpty && languages.Length == 1)
             {
                 shorts.Add(built);
@@ -567,6 +584,45 @@ public static class AutoShortPlanner
 
     private static double PictureHold(AutoShortBatch batch) =>
         Math.Clamp(double.IsFinite(batch.ImageSeconds) ? batch.ImageSeconds : DefaultImageSeconds, MinImageSeconds, MaxImageSeconds);
+
+    private static double ResolveAutoImageSeconds(
+        AutoShortBatch batch, IReadOnlyList<AutoShortSource> usable, double target, Pace pace)
+    {
+        var imageCount = usable.Count(s => s.Kind == AssetKind.Image);
+        if (imageCount == 0) return PictureHold(batch);
+
+        var videoSum = usable
+            .Where(s => s.Kind == AssetKind.Video && s.DurationSeconds is > 0)
+            .Sum(s =>
+            {
+                var dur = s.DurationSeconds!.Value;
+                if (!batch.KeepClipsWhole && batch.MaxClipSeconds is { } max && double.IsFinite(max) && max >= MinShotSeconds)
+                    dur = Math.Min(dur, max);
+                return Math.Min(dur, target);
+            });
+
+        if (batch.Layout == AutoShortLayout.AllInEach)
+        {
+            var remaining = Math.Max(MinImageSeconds, target - videoSum);
+            return Round(Math.Clamp(remaining / imageCount, Math.Max(MinImageSeconds, 1.5), MaxImageSeconds));
+        }
+
+        if (batch.Layout == AutoShortLayout.Spread)
+        {
+            var shortsCount = batch.Count > 0
+                ? Math.Clamp(batch.Count, 1, Math.Min(batch.MaxShortCount, Math.Max(1, usable.Count)))
+                : Math.Max(1, (int)Math.Ceiling(usable.Count / Math.Max(1.0, Math.Floor(target / 4.0))));
+            var imagesPerShort = Math.Max(1.0, (double)imageCount / shortsCount);
+            var videoPerShort = videoSum / shortsCount;
+            var imageBudget = Math.Max(MinImageSeconds, target - videoPerShort);
+            return Round(Math.Clamp(imageBudget / imagesPerShort, Math.Max(MinImageSeconds, 1.8), Math.Min(12.0, MaxImageSeconds)));
+        }
+
+        // FitLength: align image duration smoothly with style pace and overall target length.
+        var paceMid = (pace.ShotMin + pace.ShotMax) / 2.0;
+        var scaled = target <= 20 ? Math.Min(paceMid, 2.5) : target >= 45 ? Math.Max(paceMid, 3.2) : paceMid;
+        return Round(Math.Clamp(scaled, Math.Max(MinImageSeconds, pace.ShotMin), MaxImageSeconds));
+    }
 
     /// <summary>Latest a window of <paramref name="length"/> may start in a clip.</summary>
     private static double SpareFrom(AutoShortSource source, double length) =>
@@ -786,6 +842,12 @@ public static class AutoShortPlanner
         for (var k = 0; k < count; k++)
         {
             var pace = paceAt(k);
+            if (batch.AutoImageDuration == false)
+            {
+                cuts.Add(FitLengthExplicitImageHoldShots(batch, target, pace, deck, openers, random));
+                continue;
+            }
+
             var lengths = new Queue<double>(ShotLengths(target, pace.ShotMin, pace.ShotMax, random));
             var shots = new List<Shot>();
 
@@ -813,6 +875,48 @@ public static class AutoShortPlanner
             cuts.Add(shots);
         }
         return cuts;
+    }
+
+    private static List<Shot> FitLengthExplicitImageHoldShots(
+        AutoShortBatch batch, double target, Pace pace,
+        Deck<AutoShortSource> deck, Deck<AutoShortSource>? openers, Random random)
+    {
+        var hold = PictureHold(batch);
+        var shots = new List<Shot>();
+        var rem = target;
+        var guard = 0;
+        while (rem >= MinShotSeconds - 0.001 && guard++ < 400 && shots.Count < ClipMergeSpec.MaxClips)
+        {
+            var source = shots.Count == 0 && openers is not null ? openers.Next() : deck.Next();
+            if (source.Kind == AssetKind.Image)
+            {
+                var len = Math.Min(hold, rem);
+                if (rem - len > 0.01 && rem - len < MinShotSeconds) len = rem;
+                len = Round(len);
+                shots.Add(new Shot(source, len, 0));
+                rem = Round(rem - len);
+            }
+            else
+            {
+                var desired = Round(Between(random, pace.ShotMin, pace.ShotMax));
+                var maxLen = source.DurationSeconds!.Value;
+                var window = Math.Min(desired, Math.Min(maxLen, rem));
+                if (rem - window > 0.01 && rem - window < MinShotSeconds)
+                {
+                    if (maxLen >= rem) window = rem;
+                    else if (rem - MinShotSeconds >= MinShotSeconds) window = Math.Min(maxLen, rem - MinShotSeconds);
+                }
+                window = Round(window);
+                shots.Add(new Shot(source, window, RandomStart(source, window, random)));
+                rem = Round(rem - window);
+            }
+        }
+        if (rem > 0.01)
+        {
+            rem = StretchPictures(shots, rem, MaxImageSeconds);
+            if (rem > 0.01) ExtendFootage(shots, rem);
+        }
+        return shots;
     }
 
     /// <summary>
@@ -912,7 +1016,7 @@ public static class AutoShortPlanner
 
         for (var k = 0; k + 1 < items.Count; k++)
         {
-            if (!batch.Transitions)
+            if (!batch.Transitions || batch.TransitionOverride == SceneTransition.None)
             {
                 junctions.Add(new ClipJunctionOverride(SceneTransition.None, 0));
                 continue;
@@ -920,8 +1024,12 @@ public static class AutoShortPlanner
 
             // Never longer than half the shorter neighbour, or the dissolve eats the shot.
             var room = Math.Min(items[k].Duration, items[k + 1].Duration) / 2;
-            var secs = Round(Math.Min(room, Between(random, pace.TransitionMin, pace.TransitionMax)));
-            var kind = secs >= 0.2 ? Pick(random, pace.Transitions) : SceneTransition.None;
+            var requestedSecs = batch.TransitionSeconds is { } ts && double.IsFinite(ts) && ts > 0
+                ? Math.Clamp(ts, 0.2, 2.0)
+                : Between(random, pace.TransitionMin, pace.TransitionMax);
+            var secs = Round(Math.Min(room, requestedSecs));
+            var pickedKind = batch.TransitionOverride ?? Pick(random, pace.Transitions);
+            var kind = secs >= 0.2 ? pickedKind : SceneTransition.None;
             secs = kind == SceneTransition.None ? 0 : secs;
 
             // Split the overlap evenly. Footage borrows real frames past its trim when it

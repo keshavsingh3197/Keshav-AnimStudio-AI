@@ -512,6 +512,17 @@ h4 {
 .as-music-item.on { border-color: var(--brand); }
 .as-music-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.as-bgm-presets { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.as-sel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  min-height: 30px;
+}
+
 .as-more { margin-top: 14px; font-size: 0.85rem; }
 .as-more summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
 

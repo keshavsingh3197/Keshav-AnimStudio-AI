@@ -208,13 +208,19 @@ internal static class ProceduralCharacterRenderer
             canvas.DrawGlowLine(eyeX - scale * 0.022f, eyeY, eyeX + scale * 0.022f, eyeY, 1.5f, 40, 28, 30, 0.9f);
         }
 
-        // Animated mouth: oscillates cleanly while speaker holds the floor
+        // Animated mouth: synced to real synthesized speech amplitude when available, falling back to smooth cadence
         var mouthX = headCenterX + dir * scale * 0.088f;
         var mouthY = headCenterY + scale * 0.072f;
-        var mouthOpen = isSpeaking
-            ? 0.016f + (float)(0.5 + 0.5 * Math.Sin(timeSeconds * 16.5)) * 0.032f
+        var speechEnergy = isSpeaking
+            ? (canvas.ActiveSpeechLevel is { } realSpeech
+                ? realSpeech
+                : (float)(0.5 + 0.5 * Math.Sin(timeSeconds * 16.5)))
+            : 0f;
+        var mouthActive = isSpeaking && speechEnergy > 0.04f;
+        var mouthOpen = mouthActive
+            ? 0.011f + speechEnergy * 0.036f
             : 0.009f;
-        if (isSpeaking)
+        if (mouthActive)
         {
             canvas.FillEllipse(mouthX, mouthY, scale * 0.036f, scale * mouthOpen, 120, 24, 34, 0.95f);
         }

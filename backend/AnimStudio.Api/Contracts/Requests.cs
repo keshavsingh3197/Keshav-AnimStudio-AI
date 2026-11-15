@@ -698,9 +698,12 @@ public sealed record AutoShortsRequest
     /// <summary>How the picks are shared out between the shorts.</summary>
     [EnumDataType(typeof(AutoShortLayout))] public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
 
-    /// <summary>How long each picture stays on screen (Spread and AllInEach).</summary>
+    /// <summary>How long each picture stays on screen when AutoImageDuration is off.</summary>
     [Range(AutoShortPlanner.MinImageSeconds, AutoShortPlanner.MaxImageSeconds)]
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+
+    /// <summary>When true, picks picture hold automatically from target length, asset mix, and style pace.</summary>
+    public bool? AutoImageDuration { get; init; }
 
     /// <summary>Longest stretch of one video (Spread and AllInEach); null plays each in full.</summary>
     [Range(AutoShortPlanner.MinShotSeconds, AutoShortPlanner.MaxTargetSeconds)]
@@ -726,6 +729,8 @@ public sealed record AutoShortsRequest
     [EnumDataType(typeof(AutoShortTextMode))] public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
 
     public bool Transitions { get; init; } = true;
+    [EnumDataType(typeof(SceneTransition))] public SceneTransition? TransitionOverride { get; init; }
+    [Range(0.2, 2.0)] public double? TransitionSeconds { get; init; }
     public bool Motion { get; init; } = true;
     public bool KeepClipAudio { get; init; } = true;
 
