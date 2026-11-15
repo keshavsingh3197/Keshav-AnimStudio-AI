@@ -23,7 +23,14 @@ public sealed record GenerateAutomationAiVideoRequest(
     AutomationVisualEngine? VisualEngine = null,
     AutomationNarrativeMode? NarrativeMode = null,
     int? TargetSeconds = null,
-    List<string>? AttachedAssetIds = null);
+    List<string>? AttachedAssetIds = null,
+    bool UseTemplateScript = false);
+
+public sealed record SubmitAutomationScriptTemplateRequest(
+    AutomationVisualEngine Engine = AutomationVisualEngine.AiRealisticStory,
+    string? Reply = null,
+    [System.ComponentModel.DataAnnotations.Range(0, 600)] int? TargetSeconds = null,
+    [System.ComponentModel.DataAnnotations.StringLength(32)] string? SubtitlePreset = null);
 
 public sealed record GenerateAnimatedAutomationVideoRequest(
     ProceduralSceneTheme Theme = ProceduralSceneTheme.Auto,
@@ -37,6 +44,14 @@ public sealed record GenerateAnimatedAutomationVideoRequest(
     AutomationNarrativeMode? NarrativeMode = null,
     List<string>? AttachedAssetIds = null);
 
+/// <summary>Body for removing a card's video from YouTube; <c>TargetChannelId</c> retargets the card (optional).</summary>
+public sealed record RemoveAutomationPostFromYouTubeRequest(
+    bool DeleteOnYouTube,
+    string? TargetChannelId,
+    bool RepublishNow);
+
+public sealed record AutomationTemplateProject(string ProjectId);
+
 public sealed record PublishAutomationPostRequest(
     bool PublishNow = true,
     DateTime? ScheduledAtUtc = null);
@@ -48,6 +63,7 @@ public sealed record PublishAutomationPostRequest(
 /// </summary>
 [ApiController]
 [Authorize]
+[StoryRunErrors] // template paste goes through the Story Agent, whose refusals carry a person-facing message
 [Route("api/automation")]
 public sealed class AutomationController(
     EcosystemAutomationService automation,
@@ -219,7 +235,35 @@ public sealed class AutomationController(
             request?.VisualEngine,
             request?.NarrativeMode,
             request?.TargetSeconds,
-            request?.AttachedAssetIds)));
+            request?.AttachedAssetIds,
+            request?.UseTemplateScript ?? false)));
+    }
+
+    /// <summary>The copy-and-paste script template for an outside AI tool (story JSON or 3D dialogue).</summary>
+    [HttpGet("queue/{id}/script-template")]
+    public async Task<ActionResult<ApiResponse<AutomationScriptTemplate>>> ScriptTemplate(
+        string id,
+        [FromQuery] AutomationVisualEngine engine = AutomationVisualEngine.AiRealisticStory,
+        [FromQuery, System.ComponentModel.DataAnnotations.Range(0, 600)] int? targetSeconds = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationScriptTemplate>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationScriptTemplate>.Ok(
+            await automation.GetScriptTemplateAsync(currentUser.UserId, id, engine, targetSeconds, ct)));
+    }
+
+    /// <summary>Takes the outside AI's reply to the template and continues the video from it.</summary>
+    [HttpPost("queue/{id}/script-template")]
+    [RequestSizeLimit(128 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> SubmitScriptTemplate(
+        string id,
+        [FromBody] SubmitAutomationScriptTemplateRequest request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(
+            await automation.SubmitScriptTemplateAsync(currentUser.UserId, id, request.Engine, request.Reply, ct,
+                request.TargetSeconds, request.SubtitlePreset)));
     }
 
     [HttpPost("queue/{id}/generate-animated-video")]
@@ -243,6 +287,31 @@ public sealed class AutomationController(
             request?.SpeakerBName,
             request?.NarrativeMode,
             request?.AttachedAssetIds)));
+    }
+
+    /// <summary>Saves the Enhanced 3D stage choices (background template, character spots, location, music, pacing).</summary>
+    [HttpPut("queue/{id}/stage")]
+    [RequestSizeLimit(16 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> SaveStage(
+        string id,
+        [FromBody] AutomationStageSettings? request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(
+            await automation.SaveStageSettingsAsync(currentUser.UserId, id, request, ct)));
+    }
+
+    /// <summary>
+    /// The project that uploaded background templates go into (created on first use). The picture itself is uploaded
+    /// through the regular, validated asset upload of that project.
+    /// </summary>
+    [HttpPost("background-templates/project")]
+    public async Task<ActionResult<ApiResponse<AutomationTemplateProject>>> BackgroundTemplateProject(CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationTemplateProject>() is { } denied) return denied;
+        var projectId = await automation.EnsureBackgroundTemplateProjectAsync(currentUser.UserId, ct);
+        return Ok(ApiResponse<AutomationTemplateProject>.Ok(new AutomationTemplateProject(projectId)));
     }
 
     [HttpPost("queue/{id}/community-card")]
@@ -282,13 +351,28 @@ public sealed class AutomationController(
         CancellationToken ct = default)
     {
         if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.SyncPostToEcosystemAsync(currentUser.UserId, id, ResolveCallerBearer(), ct)));
+    }
+
+    /// <summary>Takes the post's video off the Panchang Video Hub; it stays on YouTube.</summary>
+    [HttpDelete("queue/{id}/sync-panchang")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> RemoveFromPanchang(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.RemovePostFromEcosystemAsync(currentUser.UserId, id, ResolveCallerBearer(), ct)));
+    }
+
+    /// <summary>The caller's own SSO token, forwarded so HinduPanchang can authorize the Admin role.</summary>
+    private string? ResolveCallerBearer()
+    {
         var rawAuth = Request.Headers.Authorization.FirstOrDefault();
-        var bearer = rawAuth is not null && rawAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-            ? rawAuth["Bearer ".Length..].Trim()
-            : (Request.Cookies.TryGetValue("ks_sso", out var cookieToken) && !string.IsNullOrWhiteSpace(cookieToken)
-                ? cookieToken.Trim()
-                : null);
-        return Ok(ApiResponse<AutomationPost>.Ok(await automation.SyncPostToEcosystemAsync(currentUser.UserId, id, bearer, ct)));
+        if (rawAuth is not null && rawAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return rawAuth["Bearer ".Length..].Trim();
+        return Request.Cookies.TryGetValue("ks_sso", out var cookieToken) && !string.IsNullOrWhiteSpace(cookieToken)
+            ? cookieToken.Trim()
+            : null;
     }
 
     [HttpPost("queue/{id}/publish")]
@@ -303,6 +387,29 @@ public sealed class AutomationController(
             id,
             request?.PublishNow ?? true,
             request?.ScheduledAtUtc,
+            ct);
+        return Ok(ApiResponse<AutomationPost>.Ok(post));
+    }
+
+    /// <summary>
+    /// Deletes the card's video from YouTube (or records that it is already gone), keeps the rendered video, and
+    /// optionally moves the card to another connected channel and uploads it there right away.
+    /// </summary>
+    [HttpPost("queue/{id}/youtube-removal")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> RemoveFromYouTube(
+        string id,
+        [FromBody] RemoveAutomationPostFromYouTubeRequest? request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        var target = request?.TargetChannelId?.Trim();
+        if (target is { Length: > 64 })
+            return BadRequest(ApiResponse<AutomationPost>.Fail("That channel id is not valid.",
+                new ApiError("channel-invalid", "That channel id is not valid.", Field: "targetChannelId")));
+        var post = await automation.RemoveFromYouTubeAsync(
+            currentUser.UserId,
+            id,
+            new AutomationYouTubeRemovalRequest(request?.DeleteOnYouTube ?? false, string.IsNullOrEmpty(target) ? null : target, request?.RepublishNow ?? false),
             ct);
         return Ok(ApiResponse<AutomationPost>.Ok(post));
     }

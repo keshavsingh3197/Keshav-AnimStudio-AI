@@ -16,13 +16,16 @@ public enum CharacterVisualRole
     SageRishi = 2,
     Divine = 3,
     Scholar = 4,
-    ChildDevotee = 5
+    ChildDevotee = 5,
+    NobleWoman = 6,
+    Warrior = 7
 }
 
 public sealed record ProceduralCharacterProfile(
     DialogueSpeakerSlot Slot,
     string Name,
-    CharacterVisualRole Role);
+    CharacterVisualRole Role,
+    string? RobeHex = null);
 
 public sealed record ProceduralDialogueTurn(
     int Index,
@@ -35,11 +38,22 @@ public sealed record ProceduralDialogueTurn(
     CharacterVisualRole? SpeakerRole = null,
     string? SceneBackdropCue = null);
 
+/// <param name="SupportingCast">Up to three extra characters shown in the back row; they step forward when they speak.</param>
+/// <param name="Scenes">The <c>[SCENE]</c> directions in script order (setting, time, image prompt).</param>
 public sealed record ProceduralDialoguePlan(
     bool HasCharacters,
     ProceduralCharacterProfile? LeftCharacter,
     ProceduralCharacterProfile? RightCharacter,
-    IReadOnlyList<ProceduralDialogueTurn> Turns);
+    IReadOnlyList<ProceduralDialogueTurn> Turns,
+    IReadOnlyList<ProceduralCharacterProfile>? SupportingCast = null,
+    IReadOnlyList<SceneDirective>? Scenes = null)
+{
+    public IReadOnlyList<ProceduralCharacterProfile> Supporting => SupportingCast ?? [];
+
+    /// <summary>The distinct scene cues in order of first appearance (drives per-scene backdrop photos).</summary>
+    public IReadOnlyList<string> SceneCueOrder =>
+        [.. Turns.Select(t => t.SceneBackdropCue).Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!).Distinct(StringComparer.Ordinal)];
+}
 
 /// <summary>
 /// Parses bilingual scripts for interactive character conversation turns (e.g.
@@ -56,6 +70,14 @@ public static partial class DialogueScriptParser
 
     private static readonly string[] DivineTokens =
         ["shri", "lord", "bhagwan", "devi", "mata", "krishna", "ram", "shiv", "shiva", "vishnu", "surya", "hanuman", "durga", "parvati", "ganesh", "भगवान", "श्री", "माता", "विष्णु", "कृष्ण", "शिव"];
+
+    private static readonly string[] NobleWomanTokens =
+        ["rani", "queen", "sita", "radha", "parvati", "durga", "lakshmi", "laxmi", "saraswati", "devi", "mata", "mother", "suniti", "suruchi", "kunti", "draupadi", "yashoda", "savitri", "anasuya", "princess",
+         "रानी", "सीता", "राधा", "पार्वती", "दुर्गा", "लक्ष्मी", "सरस्वती", "देवी", "माता", "सुनीति", "सुरुचि", "कुंती", "द्रौपदी", "यशोदा", "सावित्री"];
+
+    private static readonly string[] WarriorTokens =
+        ["warrior", "soldier", "general", "sainik", "yoddha", "senapati", "arjun", "bhima", "karna", "abhimanyu", "birsa", "bhagat singh", "revolutionary",
+         "योद्धा", "सैनिक", "सेनापति", "अर्जुन", "भीम", "कर्ण", "अभिमन्यु", "बिरसा", "क्रांतिकारी"];
 
     private static readonly string[] ChildDevoteeTokens =
         ["dhruva", "dhruv", "prahlad", "bhakta", "bhakt", "bal", "shishya", "jigyasu", "nachiketa", "eklavya", "lav", "kush", "child", "ध्रुव", "प्रह्लाद", "भक्त", "बाल", "शिष्य", "जिज्ञासु"];
@@ -87,10 +109,16 @@ public static partial class DialogueScriptParser
         }
 
         var rawBody = !string.IsNullOrWhiteSpace(script) ? script : prompt ?? string.Empty;
-        var parsedLines = ExtractDialogueSegments(rawBody, preferredSpeakerA, preferredSpeakerB, cleanTitle, eventType);
+        var (parsedLines, castDirectives, sceneDirectives) = ExtractDialogueSegments(rawBody, preferredSpeakerA, preferredSpeakerB, cleanTitle, eventType);
 
         if (parsedLines.Count == 0)
-            parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle));
+            parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null));
+
+        var castByName = castDirectives
+            .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        CharacterVisualRole RoleOf(string name) => castByName.TryGetValue(name, out var c) ? c.Role : InferRole(name);
+        string? RobeOf(string name) => castByName.TryGetValue(name, out var c) ? c.RobeHex : null;
 
         var distinctSpeakers = parsedLines
             .Select(x => x.Speaker)
@@ -129,8 +157,21 @@ public static partial class DialogueScriptParser
             return new ProceduralDialoguePlan(false, null, null, turns);
         }
 
-        var leftProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, leftName!, InferRole(leftName!));
-        var rightProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, rightName!, InferRole(rightName!));
+        var leftProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, leftName!, RoleOf(leftName!), RobeOf(leftName!));
+        var rightProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, rightName!, RoleOf(rightName!), RobeOf(rightName!));
+
+        // Everyone else who speaks, then silent [CAST] extras, fills the back row (max three).
+        var supporting = parsedLines
+            .Select(x => x.Speaker)
+            .Concat(castDirectives.Select(c => c.Name))
+            .Where(n => !string.IsNullOrWhiteSpace(n) && !IsNarratorName(n!)
+                && !string.Equals(n, leftProfile.Name, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(n, rightProfile.Name, StringComparison.OrdinalIgnoreCase))
+            .Select(n => n!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaxSupportingCast)
+            .Select(n => new ProceduralCharacterProfile(DialogueSpeakerSlot.Narrator, n, RoleOf(n), RobeOf(n)))
+            .ToList();
 
         var resultTurns = new List<ProceduralDialogueTurn>();
         var titleHold = Math.Min(2.8, total * 0.22);
@@ -149,7 +190,7 @@ public static partial class DialogueScriptParser
 
         for (var i = 0; i < consolidated.Count; i++)
         {
-            var (rawSpeaker, lineText) = consolidated[i];
+            var (rawSpeaker, lineText, sceneCue) = consolidated[i];
             var end = i == consolidated.Count - 1 ? total - 0.12 : start + step - 0.08;
             if (end <= start + 0.35) break;
 
@@ -177,7 +218,7 @@ public static partial class DialogueScriptParser
             else if (!string.IsNullOrWhiteSpace(rawSpeaker))
             {
                 speakerLabel = rawSpeaker.Trim();
-                speakerRole = InferRole(speakerLabel);
+                speakerRole = RoleOf(speakerLabel);
                 slot = speakerRole is CharacterVisualRole.Divine or CharacterVisualRole.SageRishi
                     ? DialogueSpeakerSlot.Right
                     : speakerRole is CharacterVisualRole.ChildDevotee or CharacterVisualRole.KingCrown
@@ -197,24 +238,34 @@ public static partial class DialogueScriptParser
                 Math.Round(end, 2),
                 slot,
                 speakerLabel,
-                Truncate(lineText, 240),
+                Truncate(lineText, MaxSpokenLineChars),
                 IsTitleHook: false,
-                SpeakerRole: speakerRole));
+                SpeakerRole: speakerRole,
+                SceneBackdropCue: sceneCue));
 
             start += step;
         }
 
-        return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns);
+        // The title card opens in the first scene so the backdrop doesn't jump right after it.
+        if (resultTurns.Count > 1 && resultTurns[1].SceneBackdropCue is { } firstCue)
+            resultTurns[0] = resultTurns[0] with { SceneBackdropCue = firstCue };
+
+        return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns, supporting, sceneDirectives);
     }
 
-    private static List<(string? Speaker, string Text)> ConsolidateDialogueTurns(
-        List<(string? Speaker, string Text)> parsedLines,
+    public const int MaxSupportingCast = 3;
+
+    /// <summary>A spoken line is kept whole up to this length (about 120 words); captions split it into readable chunks.</summary>
+    public const int MaxSpokenLineChars = 800;
+
+    private static List<(string? Speaker, string Text, string? Cue)> ConsolidateDialogueTurns(
+        List<(string? Speaker, string Text, string? Cue)> parsedLines,
         int maxSlots)
     {
         if (parsedLines.Count <= maxSlots)
             return parsedLines;
 
-        var grouped = new List<(string? Speaker, string Text)>(maxSlots);
+        var grouped = new List<(string? Speaker, string Text, string? Cue)>(maxSlots);
         var perSlot = (double)parsedLines.Count / maxSlots;
         for (var i = 0; i < maxSlots; i++)
         {
@@ -223,7 +274,7 @@ public static partial class DialogueScriptParser
             if (to <= from) continue;
 
             var slice = parsedLines.Skip(from).Take(to - from).ToList();
-            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text))));
+            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text)), slice[0].Cue));
         }
 
         return grouped.Count > 0 ? grouped : parsedLines;
@@ -262,6 +313,8 @@ public static partial class DialogueScriptParser
     {
         var lower = speakerName.Trim().ToLowerInvariant();
         if (ChildDevoteeTokens.Any(lower.Contains)) return CharacterVisualRole.ChildDevotee;
+        if (NobleWomanTokens.Any(lower.Contains)) return CharacterVisualRole.NobleWoman;
+        if (WarriorTokens.Any(lower.Contains)) return CharacterVisualRole.Warrior;
         if (KingTokens.Any(lower.Contains)) return CharacterVisualRole.KingCrown;
         if (SageTokens.Any(lower.Contains)) return CharacterVisualRole.SageRishi;
         if (DivineTokens.Any(lower.Contains)) return CharacterVisualRole.Divine;
@@ -302,15 +355,21 @@ public static partial class DialogueScriptParser
         };
     }
 
-    private static List<(string? Speaker, string Text)> ExtractDialogueSegments(
+    private static (List<(string? Speaker, string Text, string? Cue)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes) ExtractDialogueSegments(
         string raw,
         string? preferredA,
         string? preferredB,
         string title,
         string? eventType)
     {
-        var list = new List<(string? Speaker, string Text)>();
+        var list = new List<(string? Speaker, string Text, string? Cue)>();
+        var cast = new List<CastDirective>();
+        var scenes = new List<SceneDirective>();
         var rawLines = raw.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+
+        // Explicit [SCENE] directions win; without any, a spoken line that names a place moves the stage there.
+        var hasExplicitScenes = rawLines.Any(l => SpeakerPrefixRegex().Match(l.Trim()) is { Success: true } m && SceneDirectives.IsSceneTag(m.Groups[1].Value));
+        string? currentCue = null;
         var (defaultA, defaultB) = !string.IsNullOrWhiteSpace(preferredA) && !string.IsNullOrWhiteSpace(preferredB)
             ? (preferredA.Trim(), preferredB.Trim())
             : InferCharacterPairFromTitle(title, eventType);
@@ -325,6 +384,20 @@ public static partial class DialogueScriptParser
                 continue;
 
             var speakerMatch = SpeakerPrefixRegex().Match(trimmed);
+            if (speakerMatch.Success && SceneDirectives.IsSceneTag(speakerMatch.Groups[1].Value))
+            {
+                var scene = SceneDirectives.ParseScene(speakerMatch.Groups[2].Value);
+                if (scenes.Count < MaxScenes) scenes.Add(scene);
+                currentCue = SceneDirectives.ToCue(scene.Setting, scene.TimeOfDay);
+                continue;
+            }
+            if (speakerMatch.Success && SceneDirectives.IsCastTag(speakerMatch.Groups[1].Value))
+            {
+                if (SceneDirectives.ParseCast(speakerMatch.Groups[2].Value) is { } member && cast.Count < 8)
+                    cast.Add(member);
+                continue;
+            }
+
             if (speakerMatch.Success)
             {
                 currentSpeaker = Clean(speakerMatch.Groups[1].Value);
@@ -340,6 +413,9 @@ public static partial class DialogueScriptParser
                 || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            if (!hasExplicitScenes && SceneDirectives.InferSetting(trimmed) is var named and not SceneSetting.Auto)
+                currentCue = SceneDirectives.ToCue(named, SceneDirectives.InferTime(trimmed));
+
             var parts = trimmed.Split(['।', '|', '•', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             foreach (var part in parts)
             {
@@ -347,7 +423,7 @@ public static partial class DialogueScriptParser
                 if (cleanedPart.Length < 4) continue;
                 if (cleanedPart.Length <= 140)
                 {
-                    list.Add((currentSpeaker, cleanedPart));
+                    list.Add((currentSpeaker, cleanedPart, currentCue));
                     if (!speakerMatch.Success)
                         currentSpeaker = string.Equals(currentSpeaker, defaultA, StringComparison.OrdinalIgnoreCase) ? defaultB : defaultA;
                 }
@@ -358,7 +434,7 @@ public static partial class DialogueScriptParser
                     {
                         var sc = Clean(s);
                         if (sc.Length < 4) continue;
-                        list.Add((currentSpeaker, sc));
+                        list.Add((currentSpeaker, sc, currentCue));
                         if (!speakerMatch.Success)
                             currentSpeaker = string.Equals(currentSpeaker, defaultA, StringComparison.OrdinalIgnoreCase) ? defaultB : defaultA;
                     }
@@ -366,8 +442,10 @@ public static partial class DialogueScriptParser
             }
         }
 
-        return list;
+        return (list, cast, scenes);
     }
+
+    public const int MaxScenes = 12;
 
     private static string? PreferredDefaultA(string? preferredA, string? eventType) =>
         !string.IsNullOrWhiteSpace(preferredA)

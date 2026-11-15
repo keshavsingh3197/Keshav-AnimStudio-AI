@@ -481,7 +481,7 @@ public sealed record SendToPhoneRequest(
     string? FolderName = null,
     /// <summary>Take the video's own sound out, for a Shorts sound to replace it.</summary>
     bool MuteAudio = false,
-    [property: System.ComponentModel.DataAnnotations.RegularExpression("^[A-Za-z0-9_-]{1,64}$")] string? TopicId = null);
+    [System.ComponentModel.DataAnnotations.RegularExpression("^[A-Za-z0-9_-]{1,64}$")] string? TopicId = null);
 
 public sealed record ApplyHandoffRequest(string? VideoId);
 

@@ -31,7 +31,8 @@ public sealed record ProceduralCaptionBeat(
 public sealed class ProceduralVideoRequest
 {
     public const int MinSeconds = 5;
-    public const int MaxSeconds = 300;
+    /// <summary>Ten minutes: a full 16:9 story video. Shorts are capped lower (3 min) by the automation layer.</summary>
+    public const int MaxSeconds = 600;
     public const int DefaultSeconds = 18;
 
     public string Title { get; init; } = string.Empty;
@@ -46,6 +47,14 @@ public sealed class ProceduralVideoRequest
     public string Resolution { get; init; } = "720p";
 
     public int DurationSeconds { get; init; } = DefaultSeconds;
+
+    /// <summary>
+    /// Hard ceiling on the finished video. When set, a narration longer than this is sped up a little and,
+    /// if still too long, middle lines are dropped (the opening and the ending moral are kept). YouTube
+    /// treats a vertical upload longer than 180s as a normal video instead of a Short.
+    /// </summary>
+    public int? MaxDurationSeconds { get; init; }
+
     public int Fps { get; init; } = 24;
     public bool IncludeCaptions { get; init; } = true;
     public bool IncludeAmbientAudio { get; init; } = true;
@@ -77,8 +86,49 @@ public sealed class ProceduralVideoRequest
     public string? ProjectId { get; init; }
     public string? TopicId { get; init; }
     public IReadOnlyList<string>? BackgroundImagePaths { get; init; }
+
+    /// <summary>Optional character placements and template-backdrop mode; null keeps the built-in stage.</summary>
+    public ProceduralStageLayout? StageLayout { get; init; }
+
+    /// <summary>
+    /// When true every script line is spoken as written: no speed-up, no dropped or merged lines, and the video
+    /// lasts exactly as long as the narration (no silent padding to a target length). <see cref="MaxDurationSeconds"/>
+    /// is ignored; the only limit left is <see cref="MaxSeconds"/>.
+    /// </summary>
+    public bool FollowScriptExactly { get; init; }
+
     public bool SaveAsRenderJob { get; init; } = true;
     public bool ReturnInlineBytes { get; init; }
+
+    /// <summary>Optional live progress sink (stage text + 0-99 percent) while the render runs. Called inline from the render thread.</summary>
+    public IProgress<ProceduralRenderProgress>? Progress { get; init; }
+}
+
+/// <summary>One live progress update from the procedural renderer: a short user-facing stage label and an overall percent.</summary>
+public sealed record ProceduralRenderProgress(int Percent, string Stage);
+
+/// <summary>
+/// Overall-percent bands for a procedural render, shared by the renderer and its callers so the bar only moves forward.
+/// 0-10 is left to the caller (writing dialogue); voices take the largest wall-clock share, then frames.
+/// </summary>
+public static class ProceduralRenderStages
+{
+    public const int Dialogue = 4;
+    public const int VoicesStart = 12;
+    public const int VoicesEnd = 40;
+    public const int Music = 42;
+    public const int Captions = 45;
+    public const int Backdrops = 47;
+    public const int FramesStart = 50;
+    public const int FramesEnd = 90;
+    public const int Encode = 92;
+    public const int Save = 96;
+
+    public static int VoicePercent(int turnIndex, int turnCount) =>
+        turnCount <= 0 ? VoicesStart : VoicesStart + (VoicesEnd - VoicesStart) * Math.Clamp(turnIndex, 0, turnCount) / turnCount;
+
+    public static int FramePercent(int frameIndex, int totalFrames) =>
+        totalFrames <= 0 ? FramesStart : FramesStart + (FramesEnd - FramesStart) * Math.Clamp(frameIndex, 0, totalFrames) / totalFrames;
 }
 
 public sealed record ProceduralVideoResult(

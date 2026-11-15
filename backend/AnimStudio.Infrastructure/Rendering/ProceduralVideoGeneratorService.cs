@@ -47,7 +47,14 @@ public sealed class ProceduralVideoGeneratorService(
     private const string SpeakerBStyleCharId = "speaker-b";
     private const string BodyStyleCharId = "beat-body";
     private const string FooterStyleCharId = "footer-link";
-    private static readonly TimeSpan EncodeTimeout = TimeSpan.FromMinutes(6);
+    /// <summary>
+    /// How long a render may go without any progress (no frame accepted by FFmpeg, no output from FFmpeg) before it is
+    /// treated as hung. There is deliberately no limit on total time: a slow machine or a long video just takes longer.
+    /// </summary>
+    internal static readonly TimeSpan RenderStallLimit = TimeSpan.FromMinutes(3);
+
+    /// <summary>Keep only this much FFmpeg output; the error message uses the last 1,200 characters.</summary>
+    private const int MaxFfmpegLogChars = 32 * 1024;
 
     public async Task<ProceduralVideoResult> GenerateAsync(
         string userId,
@@ -67,23 +74,32 @@ public sealed class ProceduralVideoGeneratorService(
 
         var title = string.IsNullOrWhiteSpace(request.Title) ? "AnimStudio 3D Motion" : request.Title.Trim();
         var durationSeconds = ProceduralVideoPlanner.ClampDuration(request.DurationSeconds);
+        // Following the script exactly means no length cap: the narration decides how long the video is.
+        var lengthCap = request.FollowScriptExactly ? null : request.MaxDurationSeconds;
+        if (lengthCap is > 0 and var cap)
+            durationSeconds = Math.Min(durationSeconds, ProceduralVideoPlanner.ClampDuration(cap));
         var fps = Math.Clamp(request.Fps <= 0 ? 24 : request.Fps, 12, 30);
         var (width, height, normalizedFormat) = ProceduralVideoPlanner.ResolveDimensions(request.Format, request.Resolution);
         var resolvedTheme = ProceduralVideoPlanner.InferTheme(request.Theme, title, request.Prompt, request.Script, request.EventType);
         var preset = ProceduralVideoPlanner.DescribeTheme(resolvedTheme);
         var palette = ProceduralEventPalette.Resolve(request.EventType, resolvedTheme);
-        var dialoguePlan = DialogueScriptParser.ParsePlan(
+        // Plan over the longest allowed video when following the script, so no line is merged into another (a merged
+        // line would be spoken in the first speaker's voice). Real timings come from the measured voices below.
+        ProceduralDialoguePlan PlanFor(int seconds) => DialogueScriptParser.ParsePlan(
             title,
             request.Script,
             request.Prompt,
-            durationSeconds,
+            seconds,
             request.EnableCharacterDialogue,
             request.SpeakerAName,
             request.SpeakerBName,
             request.EventType);
+        var dialoguePlan = PlanFor(request.FollowScriptExactly ? ProceduralVideoRequest.MaxSeconds : durationSeconds);
 
         var seed = StableSeed($"{title}|{resolvedTheme}|{palette.EventKey}|{normalizedFormat}");
         var swTotal = Stopwatch.StartNew();
+        var progress = request.Progress;
+        progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.VoicesStart, "Synthesizing character voices"));
 
         await using var workspace = await workspaces.CreateAsync($"proc3d-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
         var outPath = workspace.Resolve("out/video.mp4");
@@ -108,7 +124,9 @@ public sealed class ProceduralVideoGeneratorService(
         {
             hasSpeech = true;
             dialoguePlan = speechResult.UpdatedPlan;
-            durationSeconds = speechResult.RecommendedDurationSeconds;
+            durationSeconds = lengthCap is > 0 and var speechCap
+                ? Math.Min(speechResult.RecommendedDurationSeconds, ProceduralVideoPlanner.ClampDuration(speechCap))
+                : speechResult.RecommendedDurationSeconds;
             speechEnvelope = ProceduralAudioSynthesizer.ComputeFrameEnvelope(
                 speechResult.SpeechWavPath,
                 durationSeconds * fps,
@@ -118,12 +136,18 @@ public sealed class ProceduralVideoGeneratorService(
                 "Procedural 3D video speech synthesized via {Voices} ({Duration}s) for title '{Title}'.",
                 voiceSummary, durationSeconds, title);
         }
+        else if (request.FollowScriptExactly)
+        {
+            // No voices: lay the captions out over the actual video length instead of the planning maximum.
+            dialoguePlan = PlanFor(durationSeconds);
+        }
 
         // 2. Clean stereo BGM bed (one-time cached reusable studio BGM preset when DI cache is wired, else warm pad)
         var hasBgm = false;
         string? bgmSource = null;
         if (request.IncludeAmbientAudio)
         {
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Music, "Preparing background music"));
             var bgmDst = workspace.Resolve("in/ambient.wav");
             if (bgmCache is not null)
             {
@@ -149,6 +173,7 @@ public sealed class ProceduralVideoGeneratorService(
         var hasSubtitles = false;
         if (request.IncludeCaptions && capabilities.Supports(RenderFeature.BurnedSubtitles))
         {
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Captions, "Building subtitles"));
             var assContent = BuildAssSubtitles(title, request, palette, dialoguePlan, width, height, fps, durationSeconds);
             await File.WriteAllTextAsync(workspace.Resolve("in/subs.ass"), assContent, new UTF8Encoding(false), ct)
                 .ConfigureAwait(false);
@@ -159,6 +184,8 @@ public sealed class ProceduralVideoGeneratorService(
         var ffmpegExe = ffmpegOptions.Value.FfmpegPath;
         if (string.IsNullOrWhiteSpace(ffmpegExe)) ffmpegExe = "ffmpeg";
 
+        if (request.BackgroundImagePaths is { Count: > 0 })
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Backdrops, "Loading backdrop images"));
         var backdropFrames = await DecodeBackdropFramesAsync(
             request.BackgroundImagePaths,
             ffmpegExe,
@@ -195,43 +222,81 @@ public sealed class ProceduralVideoGeneratorService(
                 ex);
         }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(EncodeTimeout);
-        var linkedCt = timeoutCts.Token;
+        // No total time limit: the render runs as long as it keeps moving. Only a render that makes no progress at all
+        // for RenderStallLimit (hung FFmpeg, stuck frame) is stopped.
+        using var watchdog = new RenderStallWatchdog(RenderStallLimit, ct, clock);
+        var renderCt = watchdog.Token;
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCt);
-        var stderrTask = process.StandardError.ReadToEndAsync(linkedCt);
+        var stdoutTask = DrainAsync(process.StandardOutput, watchdog, renderCt);
+        var stderrTask = DrainAsync(process.StandardError, watchdog, renderCt);
 
         var totalFrames = durationSeconds * fps;
         var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames);
+        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames,
+            request.StageLayout);
 
         try
         {
             await using (var stdin = process.StandardInput.BaseStream)
             {
+                // Two hand-off buffers: FFmpeg reads frame N from one while frame N+1 is drawn and copied into the
+                // other, so drawing and encoding overlap instead of taking turns.
+                var frameBytes = rasterizer.Buffer.Length;
+                byte[][] handOff = [new byte[frameBytes], new byte[frameBytes]];
+                var pendingWrite = Task.CompletedTask;
+                var lastReportedPercent = -1;
                 for (var frameIndex = 0; frameIndex < totalFrames; frameIndex++)
                 {
-                    linkedCt.ThrowIfCancellationRequested();
+                    renderCt.ThrowIfCancellationRequested();
+                    if (progress is not null)
+                    {
+                        var pct = ProceduralRenderStages.FramePercent(frameIndex, totalFrames);
+                        if (pct != lastReportedPercent)
+                        {
+                            lastReportedPercent = pct;
+                            progress.Report(new ProceduralRenderProgress(pct,
+                                $"Animating 3D frames ({frameIndex / fps}s of {durationSeconds}s)"));
+                        }
+                    }
+
                     var timeSeconds = (double)frameIndex / fps;
-                    var rgba = rasterizer.RenderFrame(timeSeconds, durationSeconds);
-                    await stdin.WriteAsync(rasterizer.Buffer, 0, rgba.Length, linkedCt).ConfigureAwait(false);
+                    var buffer = handOff[frameIndex & 1];
+                    rasterizer.RenderFrame(timeSeconds, durationSeconds).CopyTo(buffer);
+
+                    await pendingWrite.ConfigureAwait(false);
+                    watchdog.Touch();
+                    pendingWrite = stdin.WriteAsync(buffer, renderCt).AsTask();
                 }
 
-                await stdin.FlushAsync(linkedCt).ConfigureAwait(false);
+                await pendingWrite.ConfigureAwait(false);
+                await stdin.FlushAsync(renderCt).ConfigureAwait(false);
+                watchdog.Touch();
             }
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Encode, "Finishing MP4 encode"));
+            await process.WaitForExitAsync(renderCt).ConfigureAwait(false);
         }
         catch (IOException) when (process.HasExited)
         {
             // FFmpeg closed pipe early; stderr below reports why.
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (watchdog.Stalled && !ct.IsCancellationRequested)
         {
             TryKill(process);
-            throw new RenderException(RenderErrorCode.Timeout, "3D procedural rendering timed out on this machine.");
+            workspace.MarkFailed("stalled");
+            logger.LogWarning(
+                "Procedural render stalled: no progress for {Minutes} min (renderer or FFmpeg stopped responding).",
+                RenderStallLimit.TotalMinutes);
+            throw new RenderException(
+                RenderErrorCode.Timeout,
+                $"3D render stopped responding (no progress for {RenderStallLimit.TotalMinutes:0} minutes). Please try again.");
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            throw;
         }
 
-        await process.WaitForExitAsync(linkedCt).ConfigureAwait(false);
+        if (!process.HasExited) await process.WaitForExitAsync(ct).ConfigureAwait(false);
         _ = await stdoutTask.ConfigureAwait(false);
         var stderr = await stderrTask.ConfigureAwait(false);
         swPrep.Stop();
@@ -256,6 +321,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         if (request.SaveAsRenderJob)
         {
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Save, "Saving video to Studio"));
             projectId = await EnsureTargetProjectAsync(userId, request.ProjectId, width, height, fps, ct).ConfigureAwait(false);
             jobId = Guid.NewGuid().ToString("N");
             storageKey = $"renders/{jobId}.mp4";
@@ -417,21 +483,26 @@ public sealed class ProceduralVideoGeneratorService(
                 _ => BodyStyleCharId
             };
 
-            var displayText = dialoguePlan.HasCharacters
+            var prefix = dialoguePlan.HasCharacters
                 && !string.IsNullOrWhiteSpace(turn.SpeakerName)
                 && !turn.Text.StartsWith(turn.SpeakerName + ":", StringComparison.OrdinalIgnoreCase)
-                ? $"{turn.SpeakerName}: {turn.Text}"
-                : turn.Text;
+                ? $"{turn.SpeakerName}: "
+                : string.Empty;
 
-            lines.Add(new DialogueLine
+            // A long line is shown as consecutive on-screen chunks while it is spoken, never cut off with "…".
+            var chunkChars = Math.Max(24, bodyWrapWidth * 3 - prefix.Length - 4);
+            foreach (var chunk in CaptionChunker.Split(turn.Text, turn.StartSeconds, turn.EndSeconds, chunkChars))
             {
-                Index = index++,
-                SpeakerLabel = turn.SpeakerName,
-                SpeakerCharacterId = styleCharId,
-                Text = WrapLinesForAss(displayText, bodyWrapWidth, maxLines: 3),
-                RelativeStartFrame = Math.Max(0, (int)Math.Round(turn.StartSeconds * fps)),
-                RelativeEndFrame = Math.Max(1, (int)Math.Round(turn.EndSeconds * fps))
-            });
+                lines.Add(new DialogueLine
+                {
+                    Index = index++,
+                    SpeakerLabel = turn.SpeakerName,
+                    SpeakerCharacterId = styleCharId,
+                    Text = WrapLinesForAss(prefix + chunk.Text, bodyWrapWidth, maxLines: 3),
+                    RelativeStartFrame = Math.Max(0, (int)Math.Round(chunk.StartSeconds * fps)),
+                    RelativeEndFrame = Math.Max(1, (int)Math.Round(chunk.EndSeconds * fps))
+                });
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(request.FooterLabel))
@@ -747,6 +818,31 @@ public sealed class ProceduralVideoGeneratorService(
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads an FFmpeg output stream to the end, counting every chunk as progress for the watchdog, and keeps only the
+    /// tail so a chatty encode cannot grow memory without bound.
+    /// </summary>
+    private static async Task<string> DrainAsync(StreamReader reader, RenderStallWatchdog watchdog, CancellationToken ct)
+    {
+        var log = new StringBuilder();
+        var chunk = new char[4096];
+        try
+        {
+            int read;
+            while ((read = await reader.ReadAsync(chunk.AsMemory(), ct).ConfigureAwait(false)) > 0)
+            {
+                watchdog.Touch();
+                log.Append(chunk, 0, read);
+                if (log.Length > MaxFfmpegLogChars * 2) log.Remove(0, log.Length - MaxFfmpegLogChars);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The render was cancelled or stalled; the caller reports that, and whatever was read is still useful.
+        }
+        return log.ToString();
     }
 
     private static void TryKill(Process process)

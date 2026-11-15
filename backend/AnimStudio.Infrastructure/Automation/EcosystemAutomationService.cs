@@ -8,6 +8,7 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.StoryAgent;
+using AnimStudio.Application.Ai;
 using AnimStudio.Application.Automation;
 using AnimStudio.Application.Common;
 using AnimStudio.Application.Ecosystem;
@@ -93,7 +94,13 @@ public sealed record AutomationStorageCatalog(
 /// Aaj Ka Itihaas, Pratiyogita, and Central Admin ecosystem links with AnimStudio's Drive
 /// Library, AI Story Agent renderer, Publishing Board, and YouTube uploaders.
 /// </summary>
-public sealed class EcosystemAutomationService(
+/// <summary>
+/// A copy-and-paste script template for a post. <c>Kind</c> is <c>story</c> (Story Agent JSON) or <c>dialogue</c>
+/// (Enhanced 3D lines); <c>Ready</c> is false while the story run is still researching, with <c>Message</c> saying why.
+/// </summary>
+public sealed record AutomationScriptTemplate(string Kind, bool Ready, string? Prompt, string? Message);
+
+public sealed partial class EcosystemAutomationService(
     IAutomationRepository repository,
     IWebSettingRepository webSettings,
     IEcosystemSignalsClient signalsClient,
@@ -115,6 +122,7 @@ public sealed class EcosystemAutomationService(
     IHttpClientFactory httpClientFactory,
     IOptionsMonitor<EcosystemServiceOptions> ecosystemServiceOptions,
     IAiExecutor ai,
+    YouTubeVideoStatusClient videoClient,
     IObjectStore objectStore,
     AppDataPaths dataPaths,
     TimeProvider clock,
@@ -125,6 +133,7 @@ public sealed class EcosystemAutomationService(
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
     private const string CharacterLibraryProjectName = "Automation Characters Library";
+    private const string BackgroundTemplatesProjectName = "Automation Background Templates";
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PrepareLocks = new(StringComparer.OrdinalIgnoreCase);
     private static readonly string[] CharacterPalette =
     [
@@ -208,10 +217,13 @@ public sealed class EcosystemAutomationService(
         await Task.WhenAll(ecosystemTask, signalsTask, channelsTask, topicsTask, rulesTask, postsTask, handoffsTask, projectsTask)
             .ConfigureAwait(false);
 
-        foreach (var post in postsTask.Result.Where(p => p.Status == AutomationPostStatus.GeneratingVideo))
+        var posts = postsTask.Result.ToList();
+        foreach (var post in posts.Where(p => p.Status == AutomationPostStatus.GeneratingVideo))
         {
             await PollStoryRunProgressAsync(post, settings, ct).ConfigureAwait(false);
         }
+        // Cards prepared twice for one pipeline + day (older unstable keys, or two API instances racing) collapse here.
+        await RemoveDuplicateDraftsAsync(posts, ct).ConfigureAwait(false);
 
         var unusedDriveCount = handoffsTask.Result.Count(h =>
             h.State != PhoneHandoffState.Cancelled && !h.DriveMissing && !h.Archived && h.UsedAt is null);
@@ -233,7 +245,7 @@ public sealed class EcosystemAutomationService(
             channelsTask.Result,
             topicsTask.Result,
             rulesTask.Result,
-            postsTask.Result,
+            posts,
             unusedDriveCount,
             finishedRenders);
     }
@@ -278,7 +290,7 @@ public sealed class EcosystemAutomationService(
         rule.TopicId = string.IsNullOrWhiteSpace(draft.TopicId) ? null : draft.TopicId.Trim();
         rule.TopicName = string.IsNullOrWhiteSpace(draft.TopicName) ? null : draft.TopicName.Trim();
         rule.Language = string.IsNullOrWhiteSpace(draft.Language) ? "hi" : draft.Language.Trim().ToLowerInvariant();
-        rule.TargetSeconds = Math.Clamp(draft.TargetSeconds, 20, 900);
+        rule.TargetSeconds = Math.Clamp(draft.TargetSeconds, MinVideoSeconds, MaxSecondsFor(rule.VideoFormat));
         rule.Location = string.IsNullOrWhiteSpace(draft.Location) ? "New Delhi, India" : draft.Location.Trim();
         rule.PreferredPublishTime = NormalizeTimeHhMm(draft.PreferredPublishTime);
         rule.TimeZoneId = string.IsNullOrWhiteSpace(draft.TimeZoneId) ? "Asia/Kolkata" : draft.TimeZoneId.Trim();
@@ -441,6 +453,7 @@ public sealed class EcosystemAutomationService(
             .Select(p => p.AttachedHandoffId!)
             .ToHashSet(StringComparer.Ordinal);
         var postsOnDate = (await repository.ListPostsAsync(userId, effectiveDate, effectiveDate, null, 400, ct).ConfigureAwait(false)).ToList();
+        var duplicatesRemoved = await RemoveDuplicateDraftsAsync(postsOnDate, ct).ConfigureAwait(false);
 
         var userRenders = await LoadFinishedRendersAsync(userId, ct).ConfigureAwait(false);
         var created = 0;
@@ -465,6 +478,14 @@ public sealed class EcosystemAutomationService(
                 var existing = AutomationPost.SelectPreferred(
                     postsOnDate.Where(p => string.Equals(p.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase)));
                 existing ??= await repository.FindPostByFingerprintAsync(userId, fingerprint, ct).ConfigureAwait(false);
+                // One card per rule per day (festivals excepted): a slot prepared earlier under an older or
+                // upstream-dependent key (e.g. Panchang API down, a different lead history event) is the same card.
+                if (existing is null && IsSingleSlotSource(rule.SourceType))
+                {
+                    existing = AutomationPost.SelectPreferred(postsOnDate.Where(p =>
+                        string.Equals(p.RuleId, rule.Id, StringComparison.Ordinal)
+                        && string.Equals(p.DateKey, effectiveDate, StringComparison.Ordinal)));
+                }
 
                 if (existing is not null && !forceRegenerate)
                 {
@@ -529,12 +550,29 @@ public sealed class EcosystemAutomationService(
                 post.VisualEngine = rule.VisualEngine;
                 post.NarrativeMode = rule.NarrativeMode;
                 if (post.NarrativeMode == AutomationNarrativeMode.FullStory && post.TargetSeconds is null or < 95)
-                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, 180);
+                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, MaxSecondsFor(rule.VideoFormat));
                 else if (post.NarrativeMode == AutomationNarrativeMode.ShortReel)
                     post.TargetSeconds = Math.Clamp(rule.TargetSeconds <= 60 ? rule.TargetSeconds : 55, 25, 60);
                 if (post.AttachedAssetIds.Count == 0 && rule.AttachedAssetIds.Count > 0)
                     post.AttachedAssetIds = [.. rule.AttachedAssetIds];
                 post.UpdatedAtUtc = UtcNow;
+
+                if (existing is null)
+                {
+                    // Another API instance (local dev + hosted server share one database) may prepare the same
+                    // slot at the same moment; the in-process lock cannot see it. Save, re-read, and let one card
+                    // win the same way on every instance so both converge on a single card.
+                    await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                    var winner = await ResolveSlotWinnerAsync(userId, post, ct).ConfigureAwait(false);
+                    if (!string.Equals(winner.Id, post.Id, StringComparison.Ordinal))
+                    {
+                        await repository.DeletePostAsync(post.Id, ct).ConfigureAwait(false);
+                        if (!postsOnDate.Any(p => string.Equals(p.Id, winner.Id, StringComparison.Ordinal)))
+                            postsOnDate.Add(winner);
+                        touchedPosts.Add(winner);
+                        continue;
+                    }
+                }
 
                 if (post.Format == AutomationVideoFormat.CommunityPost)
                 {
@@ -593,6 +631,9 @@ public sealed class EcosystemAutomationService(
             await repository.UpsertRuleAsync(rule, ct).ConfigureAwait(false);
         }
 
+        IReadOnlyList<string> warnings = duplicatesRemoved > 0
+            ? [.. signals.Warnings, $"Removed {duplicatesRemoved} duplicate draft card(s) for the same pipeline and day."]
+            : signals.Warnings;
         return new AutomationPrepareResult(
             effectiveDate,
             selectedRules.Count,
@@ -600,8 +641,90 @@ public sealed class EcosystemAutomationService(
             updated,
             autoVideosStarted,
             autoQueued,
-            signals.Warnings,
-            touchedPosts);
+            warnings,
+            touchedPosts
+                .GroupBy(p => p.Id, StringComparer.Ordinal)
+                .Select(g => g.Last())
+                .ToList());
+    }
+
+    /// <summary>Every source except festivals yields exactly one card per rule per day.</summary>
+    internal static bool IsSingleSlotSource(AutomationSourceType sourceType) =>
+        sourceType != AutomationSourceType.HinduFestival;
+
+    /// <summary>The identity of a card's daily slot: rule + day, or the full fingerprint for multi-item festival rules.</summary>
+    internal static string SlotKeyOf(AutomationPost post) =>
+        IsSingleSlotSource(post.SourceType)
+            ? $"{post.DateKey}:{post.RuleId}"
+            : post.Fingerprint.ToLowerInvariant();
+
+    /// <summary>A duplicate that can be dropped without losing anything on YouTube or an in-flight job.</summary>
+    private static bool IsDisposableDuplicate(AutomationPost post) =>
+        string.IsNullOrWhiteSpace(post.PublishedVideoId)
+        // A card whose upload was removed from YouTube is kept on purpose (e.g. to publish to another channel).
+        && post.RemovedVideos.Count == 0
+        && post.Status is AutomationPostStatus.PreparedPreview
+            or AutomationPostStatus.VideoReadyForReview
+            or AutomationPostStatus.Failed
+            or AutomationPostStatus.Skipped;
+
+    private static bool HasVideo(AutomationPost post) =>
+        !string.IsNullOrWhiteSpace(post.AttachedRenderJobId) || !string.IsNullOrWhiteSpace(post.AttachedHandoffId);
+
+    /// <summary>
+    /// Collapses cards that share a daily slot: keeps the most advanced one (published / uploading / with a video) and
+    /// deletes the redundant drafts. Published, uploading or rendering duplicates are never touched, nor is a draft
+    /// holding the only finished video. Returns how many were removed and drops them from <paramref name="posts"/>.
+    /// </summary>
+    internal async Task<int> RemoveDuplicateDraftsAsync(List<AutomationPost> posts, CancellationToken ct)
+    {
+        var removed = 0;
+        var groups = posts
+            .Where(p => !string.IsNullOrWhiteSpace(p.RuleId) && !string.IsNullOrWhiteSpace(p.DateKey))
+            .GroupBy(SlotKeyOf, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        foreach (var group in groups)
+        {
+            var keep = AutomationPost.SelectPreferred(group)!;
+            foreach (var dup in group.Where(p => !ReferenceEquals(p, keep) && IsDisposableDuplicate(p)).ToList())
+            {
+                // A draft that holds a finished video the kept card lacks is not redundant.
+                if (HasVideo(dup) && !HasVideo(keep)) continue;
+
+                if (await repository.DeletePostAsync(dup.Id, ct).ConfigureAwait(false))
+                {
+                    logger.LogInformation("Removed duplicate automation draft {PostId} (kept {KeptId}) for slot {Slot}", dup.Id, keep.Id, group.Key);
+                    removed++;
+                }
+                posts.Remove(dup);
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>
+    /// The card that owns this new post's slot, as the database stands now: an advanced rival (published, uploading,
+    /// with a video) first, else the earliest created (ties broken by id) so every instance picks the same one.
+    /// </summary>
+    private async Task<AutomationPost> ResolveSlotWinnerAsync(string userId, AutomationPost post, CancellationToken ct)
+    {
+        var slot = SlotKeyOf(post);
+        var rivals = (await repository.ListPostsAsync(userId, post.DateKey, post.DateKey, null, 400, ct).ConfigureAwait(false))
+            .Where(p => string.Equals(SlotKeyOf(p), slot, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (rivals.Count <= 1) return post;
+
+        var advanced = rivals
+            .Where(p => !string.Equals(p.Id, post.Id, StringComparison.Ordinal) && (!IsDisposableDuplicate(p) || HasVideo(p)))
+            .ToList();
+        if (advanced.Count > 0) return AutomationPost.SelectPreferred(advanced)!;
+
+        return rivals
+            .OrderBy(p => p.CreatedAtUtc)
+            .ThenBy(p => p.Id, StringComparer.Ordinal)
+            .First();
     }
 
     public Task<IReadOnlyList<AutomationPost>> ListPostsAsync(
@@ -660,7 +783,7 @@ public sealed class EcosystemAutomationService(
         if (Enum.IsDefined(update.NarrativeMode))
             post.NarrativeMode = update.NarrativeMode;
         if (update.TargetSeconds.HasValue)
-            post.TargetSeconds = Math.Clamp(update.TargetSeconds.Value, 20, 180);
+            post.TargetSeconds = ClampStoredSeconds(update.TargetSeconds.Value);
         if (update.AttachedAssetIds is { Count: > 0 })
         {
             post.AttachedAssetIds = [.. update.AttachedAssetIds
@@ -859,7 +982,8 @@ public sealed class EcosystemAutomationService(
         AutomationVisualEngine? visualEngine = null,
         AutomationNarrativeMode? narrativeMode = null,
         int? targetSeconds = null,
-        IReadOnlyList<string>? attachedAssetIds = null)
+        IReadOnlyList<string>? attachedAssetIds = null,
+        bool useTemplateScript = false)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
@@ -870,7 +994,7 @@ public sealed class EcosystemAutomationService(
         if (narrativeMode.HasValue)
             post.NarrativeMode = narrativeMode.Value;
         if (targetSeconds.HasValue && targetSeconds.Value > 0)
-            post.TargetSeconds = Math.Clamp(targetSeconds.Value, 25, 180);
+            post.TargetSeconds = ClampStoredSeconds(targetSeconds.Value);
         if (attachedAssetIds is not null)
         {
             post.AttachedAssetIds = [.. attachedAssetIds
@@ -891,20 +1015,22 @@ public sealed class EcosystemAutomationService(
                 ? post.NarrativeMode
                 : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
             var seconds = ResolvePostTargetSeconds(post, rule, effectiveMode, targetSeconds ?? 0);
-            await AttachProceduralAnimatedVideoAsync(userId, post, rule, ProceduralSceneTheme.Auto, seconds, "720p", ct)
-                .ConfigureAwait(false);
+            await AttachProceduralAnimatedVideoAsync(userId, post, rule, ProceduralSceneTheme.Auto, seconds, "720p", ct,
+                trackProgress: true).ConfigureAwait(false);
             post.LastError = null;
             post.UpdatedAtUtc = UtcNow;
             await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
             return post;
         }
 
-        var run = await StartStoryRunForPostAsync(userId, post, rule, ct)
+        var run = await StartStoryRunForPostAsync(userId, post, rule, ct, manualScript: useTemplateScript)
             .ConfigureAwait(false);
 
         post.AttachedStoryRunId = run.Id;
-        post.AttachedVideoSourceLabel = "AI Story Studio (Preparing Story & Characters...)";
-        post.StoryStageSummary = "Research & Story Script";
+        post.AttachedVideoSourceLabel = useTemplateScript
+            ? "AI Story Studio (Waiting for your template script...)"
+            : "AI Story Studio (Preparing Story & Characters...)";
+        post.StoryStageSummary = useTemplateScript ? "Preparing script template" : "Research & Story Script";
         post.StoryProgressPercent = 6;
         post.Status = AutomationPostStatus.GeneratingVideo;
         post.LastError = null;
@@ -968,14 +1094,325 @@ public sealed class EcosystemAutomationService(
         post.VisualEngine = AutomationVisualEngine.Procedural3D;
 
         var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
-        await AttachProceduralAnimatedVideoAsync(userId, post, rule, theme, durationSeconds, resolution, ct)
-            .ConfigureAwait(false);
+        await AttachProceduralAnimatedVideoAsync(userId, post, rule, theme, durationSeconds, resolution, ct,
+            trackProgress: true).ConfigureAwait(false);
 
         post.LastError = null;
         post.UpdatedAtUtc = UtcNow;
         await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
         return post;
     }
+
+    /// <summary>
+    /// Saves the Enhanced 3D stage choices for a post (background template, character spots, location, music, voice
+    /// pacing). A background template must be an image in one of the user's own projects.
+    /// </summary>
+    public async Task<AutomationPost> SaveStageSettingsAsync(
+        string userId,
+        string postId,
+        AutomationStageSettings? input,
+        CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (post.Status is AutomationPostStatus.Publishing)
+            throw EditingException.Conflict("post-locked", "This post is uploading right now. Try again when it finishes.");
+
+        AutomationStageSettings stage;
+        try
+        {
+            stage = AutomationStageScript.Normalize(input);
+        }
+        catch (ArgumentException)
+        {
+            throw EditingException.Invalid("stage-invalid", "That background image is not valid. Pick or upload it again.");
+        }
+
+        if (stage.BackgroundTemplateAssetId is { } templateId && !await IsOwnedImageAsync(userId, templateId, ct).ConfigureAwait(false))
+            throw EditingException.Invalid("template-not-found", "That background image was not found in your Studio Storage.");
+
+        post.Stage = stage;
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
+    /// <summary>The user's project that holds uploaded background templates, created on first use.</summary>
+    public async Task<string> EnsureBackgroundTemplateProjectAsync(string userId, CancellationToken ct)
+    {
+        var userProjects = await projects.ListAsync(userId, ct).ConfigureAwait(false);
+        var existing = userProjects.FirstOrDefault(p =>
+            string.Equals(p.Name, BackgroundTemplatesProjectName, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null) return existing.Id;
+
+        var created = new Project
+        {
+            Id = $"proj_autobg_{Guid.NewGuid():n}",
+            UserId = userId,
+            Name = BackgroundTemplatesProjectName,
+            Description = "Background pictures uploaded for Enhanced 3D auto-post videos. Reusable from Studio Storage.",
+            Status = ProjectStatus.Draft,
+            Settings = new ProjectSettings(),
+            CreatedAt = UtcNow,
+            UpdatedAt = UtcNow
+        };
+        await projects.InsertAsync(created, ct).ConfigureAwait(false);
+        return created.Id;
+    }
+
+    private async Task<bool> IsOwnedImageAsync(string userId, string assetId, CancellationToken ct)
+    {
+        if (assets is null) return false;
+        var found = await assets.GetManyAsync([assetId], ct).ConfigureAwait(false);
+        var asset = found.FirstOrDefault(a => string.Equals(a.Id, assetId, StringComparison.Ordinal));
+        if (asset is null || asset.Kind != AssetKind.Image || string.IsNullOrWhiteSpace(asset.StorageKey)) return false;
+        var userProjects = await projects.ListAsync(userId, ct).ConfigureAwait(false);
+        return userProjects.Any(p => string.Equals(p.Id, asset.ProjectId, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The script template for a post, to copy into any outside AI (ChatGPT, Gemini, Claude...) and paste the reply back.
+    /// For the story engines it is the Story Agent's own manual prompt for the post's linked run (full JSON shape: scenes,
+    /// seconds, cast looks, camera, image prompts), available once that run's research is in. For Enhanced 3D it is a
+    /// dialogue template in the <c>[Speaker]: line</c> form the procedural stage parses.
+    /// </summary>
+    public async Task<AutomationScriptTemplate> GetScriptTemplateAsync(
+        string userId,
+        string postId,
+        AutomationVisualEngine engine,
+        int? targetSeconds,
+        CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (engine == AutomationVisualEngine.Procedural3D)
+        {
+            var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
+            return new AutomationScriptTemplate("dialogue", true,
+                BuildDialogueTemplatePrompt(post, rule, targetSeconds ?? 0), null);
+        }
+
+        if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId))
+            return new AutomationScriptTemplate("story", false, null, "Start a template story for this post first.");
+
+        var run = await storyRuns.GetAsync(userId, post.AttachedStoryRunId, ct).ConfigureAwait(false);
+        if (run.Status is not (StoryRunStatus.AwaitingScript or StoryRunStatus.ScriptReady))
+        {
+            var why = run.Status switch
+            {
+                StoryRunStatus.Failed or StoryRunStatus.Cancelled => "This story run stopped. Start a new template story.",
+                StoryRunStatus.Completed => "This story is already finished.",
+                _ when run.Research is null => "Researching the topic. The template is ready in a few seconds.",
+                _ => "This story already has its script and is being made."
+            };
+            return new AutomationScriptTemplate("story", false, null, why);
+        }
+        if (run.Research is null)
+            return new AutomationScriptTemplate("story", false, null, "Researching the topic. The template is ready in a few seconds.");
+
+        var prompt = await storyRuns.ManualPromptAsync(userId, run.Id, ct).ConfigureAwait(false);
+        return new AutomationScriptTemplate("story", true, prompt, null);
+    }
+
+    /// <summary>
+    /// Takes the reply an outside AI wrote from the template. A story reply goes to the linked run, where the Story
+    /// Agent's parser checks it like a model's own; the run then builds and renders on its own. A 3D reply is cleaned to
+    /// its dialogue lines, kept as the post's script, and rendered straight away.
+    /// </summary>
+    public async Task<AutomationPost> SubmitScriptTemplateAsync(
+        string userId,
+        string postId,
+        AutomationVisualEngine engine,
+        string? reply,
+        CancellationToken ct,
+        int? targetSeconds = null,
+        string? subtitlePreset = null)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
+            throw EditingException.Conflict("post-locked", "Cannot regenerate video once uploading or published.");
+        if (string.IsNullOrWhiteSpace(reply))
+            throw EditingException.Invalid("reply-empty", "Paste the AI's reply first.");
+        if (reply.Length > MaxTemplateReplyChars)
+            throw EditingException.Invalid("reply-too-long", "That reply is far longer than any script. Paste only the answer.");
+
+        if (engine == AutomationVisualEngine.Procedural3D)
+        {
+            var script = CleanPastedDialogue(reply)
+                ?? throw EditingException.Invalid("reply-no-dialogue",
+                    "No dialogue lines found. Every line must look like [Character Name]: what they say.");
+
+            var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
+            post.Script = script;
+            post.EnableCharacterDialogue = true;
+            post.VisualEngine = AutomationVisualEngine.Procedural3D;
+            // The length picked in the wizard is the one the template was written for; keep it so re-renders match.
+            if (targetSeconds is > 0)
+                post.TargetSeconds = ClampStoredSeconds(targetSeconds.Value);
+            if (!string.IsNullOrWhiteSpace(subtitlePreset))
+                post.SubtitlePreset = NormalizeSubtitlePreset(subtitlePreset);
+            var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
+                ? post.NarrativeMode
+                : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
+            var seconds = ResolvePostTargetSeconds(post, rule, effectiveMode, targetSeconds ?? 0);
+            await AttachProceduralAnimatedVideoAsync(userId, post, rule, ProceduralSceneTheme.Auto, seconds, "720p", ct,
+                keepScriptAsWritten: true, trackProgress: true).ConfigureAwait(false);
+            post.LastError = null;
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return post;
+        }
+
+        if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId))
+            throw EditingException.Conflict("no-story-run", "Start a template story for this post first.");
+
+        // Ownership of the run is checked again inside the Story Agent; its parser treats the reply as untrusted.
+        var run = await storyRuns.SubmitScriptAsync(userId, post.AttachedStoryRunId, reply, ct).ConfigureAwait(false);
+        post.Status = AutomationPostStatus.GeneratingVideo;
+        post.StoryStageSummary = "Script received - building scenes";
+        post.AttachedVideoSourceLabel = run.Script is { Scenes.Count: > 0 } s
+            ? $"AI Story Studio (Template script, {s.Scenes.Count} scenes)"
+            : "AI Story Studio (Template script)";
+        post.LastError = null;
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        return post;
+    }
+
+    private const int MaxTemplateReplyChars = 60_000;
+    /// <summary>Enough for a 10-minute full video (about 72 lines) with room to spare.</summary>
+    internal const int MaxPastedDialogueTurns = 90;
+
+    /// <summary>Spoken words per second the voice engine averages (Hindi and English are close enough to share it).</summary>
+    private const double SpokenWordsPerSecond = 2.4;
+    private const int WordsPerDialogueLine = 20;
+
+    /// <summary>
+    /// The scene count, dialogue-line range and spoken-word budget that fill <paramref name="seconds"/> of video, so the
+    /// template asks for a 3-minute story when 3 minutes was picked, not a fixed short-or-long bucket.
+    /// </summary>
+    internal static (int MinScenes, int MaxScenes, int MinLines, int MaxLines, int Words) DialogueBudget(int seconds)
+    {
+        var s = Math.Clamp(seconds, MinVideoSeconds, FullVideoMaxSeconds);
+        var words = (int)(Math.Round(s * SpokenWordsPerSecond / 10.0) * 10);
+        var lines = Math.Max(5, (int)Math.Round(words / (double)WordsPerDialogueLine));
+        var minLines = Math.Max(5, lines - 1);
+        var maxLines = Math.Min(MaxPastedDialogueTurns, lines + 2);
+        // About one setting change every 36 seconds, up to what the 3D stage keeps.
+        var minScenes = Math.Clamp((int)Math.Round(s / 36.0), 2, DialogueScriptParser.MaxScenes - 1);
+        var maxScenes = Math.Min(DialogueScriptParser.MaxScenes, minScenes + 1);
+        return (minScenes, maxScenes, minLines, maxLines, words);
+    }
+
+    internal static string BuildDialogueTemplatePrompt(AutomationPost post, AutomationRule? rule, int explicitSeconds = 0)
+    {
+        var isEnglish = string.Equals(post.Language, "en", StringComparison.OrdinalIgnoreCase);
+        var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
+            ? post.NarrativeMode
+            : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
+        var seconds = ResolvePostTargetSeconds(post, rule, effectiveMode, explicitSeconds);
+        var budget = DialogueBudget(seconds);
+        var isLong = seconds >= 95;
+        var runtime = $"{seconds / 60}:{seconds % 60:00}";
+        var turns = $"{budget.MinLines} to {budget.MaxLines}";
+        var scenes = $"{budget.MinScenes} to {budget.MaxScenes}";
+        var kind = isLong ? "complete story" : "short story";
+        var narrator = isEnglish ? "Narrator" : "सूत्रधार";
+        var speakers = !string.IsNullOrWhiteSpace(post.SpeakerAName) && !string.IsNullOrWhiteSpace(post.SpeakerBName)
+            ? $"Main characters: [{post.SpeakerAName!.Trim()}] and [{post.SpeakerBName!.Trim()}]. Add 1 to 3 supporting characters (sub-characters) if the story has them - a mother, a king, a guard, a villager, a god appearing."
+            : "Choose 2 main characters who carry the story, plus 1 to 3 supporting characters (sub-characters) who really belong in it - family, king, sage, guard, villager, a deity appearing.";
+        var language = isEnglish
+            ? "Natural spoken English."
+            : "Pure spoken Hindi in Devanagari script. Keep only website URLs and exact times in their original form. Scene and cast lines may be in English.";
+        var settings = "temple, forest ashram, river ghat, himalaya, palace court, cosmos, village, battlefield, archive/library, modern city";
+        var roles = "king, queen/mother, sage, divine/god, child, warrior, scholar, villager";
+        var stage = post.Stage;
+        var location = AutomationStageScript.CleanLocation(stage?.LocationPrompt);
+        var hasTemplate = !string.IsNullOrWhiteSpace(stage?.BackgroundTemplateAssetId);
+        var placeRule = (hasTemplate, location) switch
+        {
+            (true, { } loc) => $"{Environment.NewLine}- PLACE: the whole story happens at: {loc}. A fixed background picture of this place is already used, so keep every scene there; use [SCENE] lines only to change time of day and mood.",
+            (true, null) => $"{Environment.NewLine}- PLACE: a fixed background picture is already used for the whole video, so keep every scene in one place; use [SCENE] lines only to change time of day and mood.",
+            (false, { } loc) => $"{Environment.NewLine}- PLACE: the story happens at: {loc}. The first [SCENE] line must describe this place.",
+            _ => string.Empty
+        };
+
+        return $"""
+            Write the complete script for a {seconds}-second ({runtime} min) {kind} as an animated 3D YouTube {(post.Format == AutomationVideoFormat.Wide ? "video (16:9)" : "Short (9:16)")}: a cast list, scene directions with realistic background images, and spoken dialogue.
+            TARGET LENGTH: {seconds} seconds of speech, about {budget.Words} spoken words in total. Do not write a shorter version.
+
+            TOPIC: {post.Title}
+            SOURCE: {post.SourceTitle}
+            {(string.IsNullOrWhiteSpace(post.SourceSummary) ? string.Empty : $"FACTS: {post.SourceSummary}")}
+
+            CURRENT DRAFT (keep every fact, date, number and time from it):
+            {post.Script}
+
+            RULES
+            - Language of the dialogue: {language}
+            - {speakers}{placeRule}
+            - CAST block first: one [CAST] line per character (main and supporting). Role is one of: {roles}. Look = outfit colours and ornaments, e.g. "saffron dhoti, gold crown, rudraksha mala".
+            - Split the story into {scenes} scenes. Start each scene with one [SCENE] line BEFORE its dialogue: setting | time of day | mood | IMAGE: one-sentence photorealistic background with no people in it.
+              Setting is one of: {settings}. Time is one of: dawn, day, sunset, night.
+            - Write {turns} dialogue lines in total, each 15-28 words (about {budget.Words} words altogether), so everything is spoken in about {seconds} seconds.
+            - Line 1 of scene 1: [{narrator}] gives a gripping hook: who, where, and why it matters.{(budget.MinScenes >= 3 ? $"{Environment.NewLine}- [{narrator}] may bridge two scenes with one short line; most lines still belong to the characters." : string.Empty)}
+            - The characters act the story out (conflict -> turning point -> resolution), speaking to each other, not lecturing. Supporting characters speak at least once each.
+            - Last line: [{narrator}] states the moral or takeaway in one sentence.
+            - Character names stay identical on every line and match the CAST block exactly.
+
+            OUTPUT FORMAT - return ONLY lines like these, nothing else (no headings, no markdown, no notes):
+            [CAST]: Character Name | role | look
+            [CAST]: Character Name | role | look
+            [CAST]: Supporting Name | role | look
+            [SCENE]: forest ashram | dawn | serene | IMAGE: misty forest hermitage with a thatched hut under banyan trees, golden rays through the leaves
+            [{narrator}]: ...
+            [Character Name]: ...
+            [Character Name]: ...
+            [SCENE]: palace court | day | tense | IMAGE: grand carved marble royal court with silk drapes and a golden throne
+            [Supporting Name]: ...
+            [Character Name]: ...
+            [{narrator}]: ...
+            """;
+    }
+
+    /// <summary>
+    /// Keeps only the <c>[Speaker]: line</c> lines of a pasted reply (code fences, headings and notes dropped), each made a
+    /// safe single line. Null when fewer than three dialogue lines are found.
+    /// </summary>
+    internal static string? CleanPastedDialogue(string reply)
+    {
+        var kept = new List<string>();
+        var spoken = 0;
+        var directives = 0;
+        foreach (var raw in reply.Replace("\r", string.Empty).Split('\n'))
+        {
+            var line = raw.Trim().TrimStart('-', '*', '•', ' ').Replace("**", string.Empty).Trim();
+            var match = PastedDialogueLine().Match(line);
+            if (!match.Success) continue;
+
+            var speaker = AiOutputSanitizer.ToSafeLine(match.Groups[1].Value, 34);
+            var text = AiOutputSanitizer.ToSafeLine(match.Groups[2].Value, 400);
+            if (string.IsNullOrWhiteSpace(speaker) || string.IsNullOrWhiteSpace(text)) continue;
+
+            // [CAST] and [SCENE] stage directions are kept (never spoken); they don't count as dialogue.
+            if (SceneDirectives.IsDirectiveTag(speaker))
+            {
+                if (directives >= MaxPastedDirectives) continue;
+                directives++;
+                kept.Add($"[{(SceneDirectives.IsSceneTag(speaker) ? "SCENE" : "CAST")}]: {text}");
+                continue;
+            }
+
+            if (spoken >= MaxPastedDialogueTurns) continue;
+            spoken++;
+            kept.Add($"[{speaker}]: {text}");
+        }
+        return spoken >= 3 ? string.Join('\n', kept) : null;
+    }
+
+    /// <summary>Cast lines (up to 8) plus one [SCENE] line per scene (up to 12).</summary>
+    private const int MaxPastedDirectives = 8 + DialogueScriptParser.MaxScenes;
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\[([^\[\]]{2,34})\]\s*:\s*(.+)$")]
+    private static partial System.Text.RegularExpressions.Regex PastedDialogueLine();
 
     public async Task<AutomationPost> GenerateCommunityCardAsync(
         string userId,
@@ -1026,11 +1463,71 @@ public sealed class EcosystemAutomationService(
         if (string.IsNullOrWhiteSpace(post.PublishedVideoId) && string.IsNullOrWhiteSpace(post.PublishedVideoUrl))
             throw EditingException.Invalid("video-not-published", "Publish the YouTube video first before syncing it to Panchang Video Hub.");
 
-        var ok = await TrySyncPublishedPostToEcosystemAsync(post, bearerToken, ct).ConfigureAwait(false);
+        // The user asked for it: publish to Panchang whatever the source type or YouTube channel.
+        var ok = await TrySyncPublishedPostToEcosystemAsync(post, bearerToken, ct, explicitRequest: true).ConfigureAwait(false);
         if (!ok)
             throw EditingException.Invalid("panchang-sync-failed", post.LastError ?? "Could not sync to HinduPanchang Video Hub (check Admin login or Ecosystem:SyncKey).");
 
         return post;
+    }
+
+    /// <summary>Takes this post's video off the Panchang Video Hub (it stays on YouTube).</summary>
+    public async Task<AutomationPost> RemovePostFromEcosystemAsync(
+        string userId,
+        string postId,
+        string? bearerToken,
+        CancellationToken ct)
+    {
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        if (!await TryRemovePostFromEcosystemAsync(post, bearerToken, ct).ConfigureAwait(false))
+            throw EditingException.Invalid("panchang-remove-failed", post.LastError ?? "Could not remove the video from HinduPanchang Video Hub.");
+        return post;
+    }
+
+    private async Task<bool> TryRemovePostFromEcosystemAsync(AutomationPost post, string? bearerToken, CancellationToken ct)
+    {
+        var target = await ResolvePanchangTargetAsync(post, bearerToken, ct).ConfigureAwait(false);
+        if (target is null)
+            return false;
+        var (normalizedBase, syncKey) = target.Value;
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            using var req = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"{normalizedBase}/api/videohub/automation-sync/{Uri.EscapeDataString(post.Id)}");
+            ApplyPanchangAuth(req, syncKey, bearerToken);
+
+            using var res = await client.SendAsync(req, ct).ConfigureAwait(false);
+            // 404: already gone from the hub, which is what was asked for.
+            if (!res.IsSuccessStatusCode && res.StatusCode != HttpStatusCode.NotFound)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var upstreamError = TryExtractEcosystemError(body);
+                logger.LogWarning("Panchang Video Hub removal returned HTTP {Status} for post {PostId}", (int)res.StatusCode, post.Id);
+                post.LastError = res.StatusCode == HttpStatusCode.Unauthorized
+                    ? BuildPanchangUnauthorizedMessage(upstreamError, hasSyncKey: !string.IsNullOrWhiteSpace(syncKey))
+                    : $"Panchang removal HTTP {(int)res.StatusCode}{(string.IsNullOrWhiteSpace(upstreamError) ? string.Empty : ": " + upstreamError)}";
+                post.UpdatedAtUtc = UtcNow;
+                await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                return false;
+            }
+
+            post.SyncedToEcosystemAtUtc = null;
+            post.LastError = null;
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Panchang Video Hub removal failed for post {PostId}", post.Id);
+            post.LastError = "Could not reach HinduPanchang to remove the video.";
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            return false;
+        }
     }
 
     public async Task<AutomationPost> ApproveAndPublishAsync(
@@ -1098,7 +1595,10 @@ public sealed class EcosystemAutomationService(
             foreach (var group in enabledRules.GroupBy(r => r.UserId, StringComparer.Ordinal))
             {
                 var dateKey = ResolveDateKey(null, settings.DefaultTimeZone);
-                if (group.All(r => string.Equals(r.LastPreparedDateKey, dateKey, StringComparison.Ordinal)))
+                var today = (int)DateOnly.Parse(dateKey).DayOfWeek;
+                if (group
+                    .Where(r => r.DaysOfWeek.Count == 0 || r.DaysOfWeek.Contains(today))
+                    .All(r => string.Equals(r.LastPreparedDateKey, dateKey, StringComparison.Ordinal)))
                     continue;
 
                 try
@@ -1111,6 +1611,16 @@ public sealed class EcosystemAutomationService(
                     logger.LogWarning(ex, "Auto-prepare daily sweep failed for user {UserId}", group.Key);
                 }
             }
+        }
+
+        // 3. Published videos deleted in YouTube Studio (or removed by YouTube) go back to "video ready".
+        try
+        {
+            changed += await DetectRemovedYouTubeVideosAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Removed-video sweep failed");
         }
 
         PruneOldStagingFiles();
@@ -1126,6 +1636,9 @@ public sealed class EcosystemAutomationService(
     {
         if (string.IsNullOrWhiteSpace(post.TargetChannelId))
             throw EditingException.Invalid("channel-missing", "Select a target YouTube channel before publishing.");
+        if (!string.IsNullOrWhiteSpace(post.PublishedVideoId))
+            throw EditingException.Conflict("already-published",
+                "This card is already on YouTube. Use 'Remove / Move' first to delete it there or publish it to another channel.");
 
         var connection = await connections.GetAsync(userId, post.TargetChannelId, ct).ConfigureAwait(false)
             ?? throw EditingException.Invalid("channel-not-connected", "Connect that YouTube channel first in YouTube settings.");
@@ -1171,6 +1684,8 @@ public sealed class EcosystemAutomationService(
 
             var pushed = await publishQueue.PublishNowAsync(userId, queued.Id, ct).ConfigureAwait(false);
             post.QueueItemId = pushed.Id;
+            post.PublishedChannelId = connection.ChannelId;
+            post.PublishedChannelTitle = connection.ChannelTitle;
             post.Status = AutomationPostStatus.Publishing;
             post.LastError = null;
             post.UpdatedAtUtc = UtcNow;
@@ -1235,6 +1750,8 @@ public sealed class EcosystemAutomationService(
             await MarkDriveClipUsedAsync(handoff, driveToken, driveTarget, ct).ConfigureAwait(false);
 
             post.UploadId = uploadStatus.UploadId;
+            post.PublishedChannelId = connection.ChannelId;
+            post.PublishedChannelTitle = connection.ChannelTitle;
             post.Status = AutomationPostStatus.Publishing;
             post.LastError = null;
             post.UpdatedAtUtc = UtcNow;
@@ -1251,6 +1768,9 @@ public sealed class EcosystemAutomationService(
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId)) return 0;
+        // An Enhanced 3D post renders in its own request and saves its own progress; a story run left linked from an
+        // earlier attempt must not overwrite that (it would mark the post Failed mid-render).
+        if (post.VisualEngine == AutomationVisualEngine.Procedural3D) return 0;
         StoryRun run;
         try
         {
@@ -1303,6 +1823,12 @@ public sealed class EcosystemAutomationService(
         }
 
         var (summary, percent) = SummarizeStoryRunProgress(run);
+        if (run.Status == StoryRunStatus.AwaitingScript)
+        {
+            // A template run, or an AI run whose text model was unreachable: the Story Agent has the full script prompt
+            // ready and is waiting for a pasted reply. Say so rather than showing a stalled percentage.
+            summary = run.Research is null ? "Preparing script template" : "Waiting for your pasted script";
+        }
         if (!string.Equals(post.StoryStageSummary, summary, StringComparison.Ordinal)
             || post.StoryProgressPercent != percent)
         {
@@ -1610,6 +2136,12 @@ public sealed class EcosystemAutomationService(
         }
     }
 
+    /// <summary>
+    /// Renders and attaches an Enhanced 3D video. With <paramref name="trackProgress"/> (user-triggered renders on a post
+    /// that already exists), the post is saved as <see cref="AutomationPostStatus.GeneratingVideo"/> with a live stage and
+    /// percent while the render runs, so the hub can show progress. On failure those fields are put back and the post
+    /// gets a readable <see cref="AutomationPost.LastError"/> before the error is rethrown.
+    /// </summary>
     private async Task AttachProceduralAnimatedVideoAsync(
         string userId,
         AutomationPost post,
@@ -1617,9 +2149,77 @@ public sealed class EcosystemAutomationService(
         ProceduralSceneTheme theme,
         int durationSeconds,
         string? resolution,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool keepScriptAsWritten = false,
+        bool trackProgress = false)
     {
-        await EnsureRichPostDialogueBeforeRenderAsync(userId, post, rule, durationSeconds, ct).ConfigureAwait(false);
+        if (!trackProgress)
+        {
+            await AttachProceduralAnimatedVideoCoreAsync(userId, post, rule, theme, durationSeconds, resolution, ct,
+                keepScriptAsWritten, tracker: null).ConfigureAwait(false);
+            return;
+        }
+
+        var previousStatus = post.Status;
+        var previousStage = post.StoryStageSummary;
+        var previousPercent = post.StoryProgressPercent;
+        var previousStoryRunId = post.AttachedStoryRunId;
+        var tracker = new PostRenderProgressWriter(post, repository.UpsertPostAsync, clock, logger, ct);
+        post.Status = AutomationPostStatus.GeneratingVideo;
+        post.LastError = null;
+        // This render replaces any earlier AI story run. While the old run stays linked, the overview poll and the
+        // background worker read its (failed / finished) state and overwrite this post mid-render, so the hub never
+        // sees the render's progress. Unlink it now; it is put back only if this render fails.
+        post.AttachedStoryRunId = null;
+        await tracker.SaveNowAsync(ProceduralRenderStages.Dialogue,
+            keepScriptAsWritten ? "Reading your pasted script" : "Writing character dialogue").ConfigureAwait(false);
+
+        try
+        {
+            await AttachProceduralAnimatedVideoCoreAsync(userId, post, rule, theme, durationSeconds, resolution, ct,
+                keepScriptAsWritten, tracker).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await tracker.StopAsync().ConfigureAwait(false);
+            post.Status = previousStatus;
+            post.StoryStageSummary = previousStage;
+            post.StoryProgressPercent = previousPercent;
+            post.AttachedStoryRunId = previousStoryRunId;
+            if (ex is not OperationCanceledException)
+            {
+                // RenderException messages are written for users; anything else stays generic (details are in the log).
+                post.LastError = ex is AnimStudio.Domain.Errors.RenderException rex
+                    ? $"Enhanced 3D render failed: {rex.Message}"
+                    : "Enhanced 3D render failed. Please try again.";
+            }
+            post.UpdatedAtUtc = UtcNow;
+            try
+            {
+                // The request may already be cancelled; the post must still leave the GeneratingVideo state.
+                await repository.UpsertPostAsync(post, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception saveEx)
+            {
+                logger.LogWarning(saveEx, "Could not reset automation post {PostId} after a failed 3D render.", post.Id);
+            }
+            throw;
+        }
+    }
+
+    private async Task AttachProceduralAnimatedVideoCoreAsync(
+        string userId,
+        AutomationPost post,
+        AutomationRule? rule,
+        ProceduralSceneTheme theme,
+        int durationSeconds,
+        string? resolution,
+        CancellationToken ct,
+        bool keepScriptAsWritten,
+        PostRenderProgressWriter? tracker)
+    {
+        if (!keepScriptAsWritten)
+            await EnsureRichPostDialogueBeforeRenderAsync(userId, post, rule, durationSeconds, ct).ConfigureAwait(false);
 
         var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
             ? post.NarrativeMode
@@ -1635,21 +2235,53 @@ public sealed class EcosystemAutomationService(
             _ => "vertical"
         };
 
-        var assetIds = post.AttachedAssetIds.Count > 0 ? post.AttachedAssetIds : (rule?.AttachedAssetIds ?? []);
-        var (tempDir, bgPaths) = await MaterializeStorageImagesAsync(assetIds, ct).ConfigureAwait(false);
+        var stage = post.Stage ?? new AutomationStageSettings();
+        string? tempDir = null;
+        List<string> bgPaths = [];
+        var usingTemplate = false;
+        if (!string.IsNullOrWhiteSpace(stage.BackgroundTemplateAssetId))
+        {
+            tracker?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Dialogue + 4, "Fetching your background template"));
+            (tempDir, bgPaths) = await MaterializeStorageImagesAsync(userId, [stage.BackgroundTemplateAssetId], ct).ConfigureAwait(false);
+            usingTemplate = bgPaths.Count > 0;
+            if (!usingTemplate)
+                logger.LogWarning("Background template for automation post {PostId} is no longer available; using the default stage.", post.Id);
+        }
+
+        if (!usingTemplate)
+        {
+            var assetIds = post.AttachedAssetIds.Count > 0 ? post.AttachedAssetIds : (rule?.AttachedAssetIds ?? []);
+            if (assetIds.Count > 0)
+                tracker?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Dialogue + 4, "Fetching your storage images"));
+            (tempDir, bgPaths) = await MaterializeStorageImagesAsync(userId, assetIds, ct).ConfigureAwait(false);
+        }
+
+        // The location the user typed directs the stage: it becomes the opening [SCENE] line (never spoken) when the
+        // script does not direct its own scenes, so it picks the 3D setting, light and, without a template, the
+        // realistic backdrop that the image engine paints.
+        var renderScript = AutomationStageScript.WithLocation(post.Script, stage.LocationPrompt);
+        if (bgPaths.Count == 0 && post.EnableCharacterDialogue)
+        {
+            // No storage images: paint each [SCENE] of the script as a realistic backdrop with the image engine.
+            (tempDir, bgPaths) = await GenerateSceneBackdropsAsync(userId, post, rule, formatArg, tracker, ct, renderScript).ConfigureAwait(false);
+        }
         try
         {
             var rendered = await proceduralVideoGenerator.GenerateAsync(userId, new ProceduralVideoRequest
             {
+                Progress = tracker,
                 Title = post.Title,
                 Prompt = post.AiVideoPrompt,
-                Script = post.Script,
+                Script = renderScript,
                 Theme = theme,
                 Format = formatArg,
                 Resolution = string.IsNullOrWhiteSpace(resolution) ? "720p" : resolution.Trim(),
                 DurationSeconds = duration,
+                MaxDurationSeconds = stage.FollowScriptExactly ? null : MaxSecondsFor(post.Format),
+                FollowScriptExactly = stage.FollowScriptExactly,
+                StageLayout = AutomationStageScript.ToLayout(stage, usingTemplate),
                 IncludeCaptions = true,
-                IncludeAmbientAudio = true,
+                IncludeAmbientAudio = stage.IncludeBackgroundMusic,
                 IncludeSpeech = true,
                 Language = post.Language,
                 FooterLabel = footer,
@@ -1665,15 +2297,20 @@ public sealed class EcosystemAutomationService(
                 ReturnInlineBytes = false
             }, ct).ConfigureAwait(false);
 
+            // The progress pump must be idle before this method changes the post again.
+            if (tracker is not null)
+                await tracker.StopAsync().ConfigureAwait(false);
+
             post.AttachedRenderJobId = rendered.RenderJobId;
             post.AttachedHandoffId = null;
             post.AttachedHandoffTitle = rendered.ThemeDisplayName;
             post.EventColorHex ??= palette.PrimaryHex;
             post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
             var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
-            post.AttachedVideoSourceLabel = hasVoice
-                ? $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s • Voice)"
-                : $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s)";
+            var extras = (hasVoice ? " • Voice" : string.Empty)
+                + (usingTemplate ? " • Your background" : string.Empty)
+                + (stage.IncludeBackgroundMusic ? string.Empty : " • No music");
+            post.AttachedVideoSourceLabel = $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s{extras})";
             post.StoryStageSummary = "3D Animated MP4 Ready";
             post.StoryProgressPercent = 100;
             post.Status = AutomationPostStatus.VideoReadyForReview;
@@ -1718,29 +2355,32 @@ public sealed class EcosystemAutomationService(
         post.AttachedVideoSourceLabel = $"1:1 Promo Card PNG ({sizeBytes / 1024} KB)";
     }
 
-    private async Task<bool> TrySyncPublishedPostToEcosystemAsync(
+    /// <summary>
+    /// Source types that go to the Panchang Video Hub on their own after publishing. Any other post
+    /// (e.g. an AI-trends video on Keshav Singh World) goes there only when the user asks for it.
+    /// </summary>
+    internal static bool IsAutoPanchangSource(AutomationSourceType sourceType) =>
+        sourceType is AutomationSourceType.HinduPanchang
+            or AutomationSourceType.HinduFestival
+            or AutomationSourceType.DailyKatha
+            or AutomationSourceType.AajKaItihaas;
+
+    /// <summary>The Panchang API base and the auth it accepts; null (with <c>LastError</c> set) when unusable.</summary>
+    private async Task<(string BaseUrl, string? SyncKey)?> ResolvePanchangTargetAsync(
         AutomationPost post,
         string? bearerToken,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(post.PublishedVideoId) && string.IsNullOrWhiteSpace(post.PublishedVideoUrl))
-            return false;
-
-        if (post.SourceType is not (AutomationSourceType.HinduPanchang
-            or AutomationSourceType.HinduFestival
-            or AutomationSourceType.DailyKatha
-            or AutomationSourceType.AajKaItihaas))
-        {
-            return false;
-        }
-
         var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var rawBase = !string.IsNullOrWhiteSpace(settings.PanchangApiBaseUrl)
             ? settings.PanchangApiBaseUrl
             : ecosystemServiceOptions.CurrentValue.PanchangApiBaseUrl;
 
         if (!EcosystemSignalsClient.IsSafeEndpoint(rawBase, out var normalizedBase) || normalizedBase is null)
-            return false;
+        {
+            post.LastError = "Panchang API base URL is not configured (Global Autopilot & API Settings → Panchang API).";
+            return null;
+        }
 
         var syncKey = !string.IsNullOrWhiteSpace(ecosystemServiceOptions.CurrentValue.SyncKey)
             ? ecosystemServiceOptions.CurrentValue.SyncKey!.Trim()
@@ -1749,17 +2389,54 @@ public sealed class EcosystemAutomationService(
         if (string.IsNullOrWhiteSpace(syncKey) && string.IsNullOrWhiteSpace(bearerToken))
         {
             post.LastError = "No SSO Bearer/ks_sso token or Ecosystem:SyncKey configured for Panchang Video Hub sync.";
-            return false;
+            return null;
         }
+
+        return (normalizedBase, syncKey);
+    }
+
+    private static void ApplyPanchangAuth(HttpRequestMessage req, string? syncKey, string? bearerToken)
+    {
+        if (!string.IsNullOrWhiteSpace(syncKey))
+            req.Headers.TryAddWithoutValidation("X-Ecosystem-Key", syncKey);
+        if (!string.IsNullOrWhiteSpace(bearerToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken.Trim());
+    }
+
+    /// <summary>The public YouTube channel link for the channel this post went out on.</summary>
+    private static string? BuildChannelUrl(AutomationPost post)
+    {
+        var handle = post.TargetChannelHandle?.Trim();
+        if (!string.IsNullOrWhiteSpace(handle))
+            return $"https://www.youtube.com/{(handle.StartsWith('@') ? handle : "@" + handle)}";
+        var channelId = (post.PublishedChannelId ?? post.TargetChannelId)?.Trim();
+        return !string.IsNullOrWhiteSpace(channelId) && channelId.StartsWith("UC", StringComparison.Ordinal)
+            ? $"https://www.youtube.com/channel/{channelId}"
+            : null;
+    }
+
+    private async Task<bool> TrySyncPublishedPostToEcosystemAsync(
+        AutomationPost post,
+        string? bearerToken,
+        CancellationToken ct,
+        bool explicitRequest = false)
+    {
+        if (string.IsNullOrWhiteSpace(post.PublishedVideoId) && string.IsNullOrWhiteSpace(post.PublishedVideoUrl))
+            return false;
+
+        if (!explicitRequest && !IsAutoPanchangSource(post.SourceType))
+            return false;
+
+        var target = await ResolvePanchangTargetAsync(post, bearerToken, ct).ConfigureAwait(false);
+        if (target is null)
+            return false;
+        var (normalizedBase, syncKey) = target.Value;
 
         try
         {
             var client = httpClientFactory.CreateClient();
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{normalizedBase}/api/videohub/automation-sync");
-            if (!string.IsNullOrWhiteSpace(syncKey))
-                req.Headers.TryAddWithoutValidation("X-Ecosystem-Key", syncKey);
-            if (!string.IsNullOrWhiteSpace(bearerToken))
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken.Trim());
+            ApplyPanchangAuth(req, syncKey, bearerToken);
 
             req.Content = JsonContent.Create(new
             {
@@ -1771,7 +2448,10 @@ public sealed class EcosystemAutomationService(
                 SourceType = post.SourceType.ToString(),
                 DateKey = post.DateKey,
                 PublishedDate = post.PublishedAtUtc ?? post.UpdatedAtUtc,
-                ChannelName = post.TargetChannelTitle,
+                ChannelName = !string.IsNullOrWhiteSpace(post.PublishedChannelTitle)
+                    ? post.PublishedChannelTitle
+                    : post.TargetChannelTitle,
+                ChannelUrl = BuildChannelUrl(post),
                 SourceChannelHandle = post.TargetChannelHandle,
                 Format = post.Format == AutomationVideoFormat.Vertical ? "Short" : "Video",
                 IsFeaturedDailyVideo = post.SourceType == AutomationSourceType.HinduPanchang
@@ -1855,7 +2535,8 @@ public sealed class EcosystemAutomationService(
         string userId,
         AutomationPost post,
         AutomationRule? rule,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool manualScript = false)
     {
         var effectiveVisualEngine = post.VisualEngine != AutomationVisualEngine.Auto
             ? post.VisualEngine
@@ -1863,10 +2544,7 @@ public sealed class EcosystemAutomationService(
         var effectiveNarrativeMode = post.NarrativeMode != AutomationNarrativeMode.Auto
             ? post.NarrativeMode
             : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
-        var targetSeconds = Math.Clamp(
-            ResolvePostTargetSeconds(post, rule, effectiveNarrativeMode, 0),
-            25,
-            180);
+        var targetSeconds = ResolvePostTargetSeconds(post, rule, effectiveNarrativeMode, 0);
 
         var attachedAssetIds = post.AttachedAssetIds.Count > 0
             ? [.. post.AttachedAssetIds]
@@ -1881,29 +2559,33 @@ public sealed class EcosystemAutomationService(
         }
 
         var isFullStory = targetSeconds >= 95 || effectiveNarrativeMode == AutomationNarrativeMode.FullStory;
-        var storyStructureInstructions = isFullStory
-            ? """
-              COMPLETE ANIMATED STORY STRUCTURE (STRICTLY UNDER 3 MINUTES):
-              1. Opening Context Hook (Scene 1): Start with the Narrator ([सूत्रधार] / Narrator) concisely explaining who the characters are, the setting/conflict, and why this story begins so viewers relate immediately.
-              2. Multi-Scene Chronological Progression: Step logically across changing locations and chapters (e.g. Royal Court -> Forest Path -> Sacred Ashram & Mantra Initiation -> Tapasya -> Divine Darshan & Boon). Shift each scene's imagePrompt environment clearly!
-              3. Multi-Character Acting & Visual Consistency: Populate every speaking character in `cast` with detailed English `look` (clothes, age, ornaments, face/hair) and repeat that visual identity across scenes.
-              4. Closing Moral & Portal CTA (Final Scene): Have the Narrator clearly state the moral lesson of the story at the end followed by the call-to-action.
-              """
-            : """
-              COMPACT STORY STRUCTURE (SHORT <= 60s):
-              1. Brief Opening Context Hook by Narrator so viewers instantly understand who and why.
-              2. Chronological multi-scene dialogue with distinct environment shifts and consistent `cast` visual looks.
-              3. Clear closing moral takeaway before CTA.
-              """;
+        // The brief's notes are capped at StoryRunService.MaxNotesChars, so the rules stay short and the rest of the budget
+        // goes to the source facts and draft script (trimmed from their end, never the rules).
+        var structureRules = isFullStory
+            ? "STORY (<3 min): 1) [सूत्रधार]/Narrator context hook: who, where, why. 2) Chronological scenes across changing locations (court -> forest -> ashram -> climax). 3) Every speaking character in `cast` with a detailed English `look`. 4) Narrator states the moral, then the CTA."
+            : "STORY (<=60s): 1) Narrator hook: who and why. 2) Chronological dialogue scenes with changing locations and consistent `cast` looks. 3) Moral, then CTA.";
+        // Retention on YouTube is decided by the pictures as much as the words: a scene that sits on one image too long,
+        // or a character whose face changes between scenes, is where viewers leave.
+        var visualRules =
+            $"VISUALS: new picture every {(isFullStory ? "8-12" : "5-8")}s, each scene its own location, time of day and framing (wide -> medium -> close-up). " +
+            "imagePrompt in English as a film still: subject, action, setting, era-accurate costume/props, lighting, lens. No text in pictures. " +
+            "Same face/age/clothes for a character in every scene. Striking hook frame in the first 3s.";
+        var rulesBlock = $"{structureRules}\n{visualRules}\n";
+        var sourceBlock = $"Source: {post.SourceTitle}\n\n{post.Script}\n\nVisual style guide: {post.AiVideoPrompt}";
+        var sourceBudget = Math.Max(0, StoryRunService.MaxNotesChars - rulesBlock.Length);
+        if (sourceBlock.Length > sourceBudget) sourceBlock = sourceBlock[..sourceBudget];
 
         var brief = new StoryBrief
         {
             Title = post.Title,
-            Notes = $"{storyStructureInstructions}\nSource: {post.SourceTitle}\n\n{post.Script}\n\nVisual style guide: {post.AiVideoPrompt}",
+            Notes = rulesBlock + sourceBlock,
             Language = string.Equals(post.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi",
             TargetSeconds = targetSeconds,
             Format = post.Format == AutomationVideoFormat.Vertical ? StoryFormat.Vertical : StoryFormat.Wide,
-            Writer = StoryWriterMode.Auto,
+            // Manual: the run stops after research with the Story Agent's full script prompt (scenes, cast looks,
+            // seconds, camera, image prompts) ready to copy into any outside AI; the pasted reply is parsed and checked
+            // by the same StoryScriptParser as a model's own reply, then AutoApprove carries it straight to the render.
+            Writer = manualScript ? StoryWriterMode.Manual : StoryWriterMode.Auto,
             Mode = post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha
                 ? StoryGenreMode.Scripture
                 : StoryGenreMode.Creative,
@@ -1920,7 +2602,15 @@ public sealed class EcosystemAutomationService(
             StorageAssetIds = attachedAssetIds,
             Music = true,
             RenderWhenReady = true,
-            AutoApprove = true
+            AutoApprove = true,
+            // Quality defaults for the realistic engine: film-like pictures, cinematic cuts and camera moves, one voice
+            // per character, mouths that move on stills, and a voice brought to a comfortable pace. The storage-images
+            // engine keeps the genre's own look, since its pictures are the person's own.
+            ArtStyle = effectiveVisualEngine == AutomationVisualEngine.AiRealisticStory ? StoryArtStyle.Realistic : StoryArtStyle.Auto,
+            LookStyle = StoryLookStyle.Cinematic,
+            CastVoices = true,
+            TalkingFaces = true,
+            AutoPace = true
         };
 
         return await storyRuns.CreateAsync(userId, brief, build, ct).ConfigureAwait(false);
@@ -1936,6 +2626,9 @@ public sealed class EcosystemAutomationService(
         var isFullStory = rule.NarrativeMode == AutomationNarrativeMode.FullStory
             || (rule.NarrativeMode != AutomationNarrativeMode.ShortReel
                 && (rule.VideoFormat == AutomationVideoFormat.Wide || rule.TargetSeconds >= 95));
+        // A full story fills the rule's length: up to 3 minutes for a Short, up to 10 for a full 16:9 video.
+        var storySeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, MaxSecondsFor(rule.VideoFormat));
+        var storyBudget = DialogueBudget(storySeconds);
         var dialogueEnabled = rule.EnableCharacterDialogue
             || rule.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang or AutomationSourceType.AajKaItihaas;
         var speakerHint = !string.IsNullOrWhiteSpace(rule.SpeakerAName) && !string.IsNullOrWhiteSpace(rule.SpeakerBName)
@@ -1949,7 +2642,7 @@ public sealed class EcosystemAutomationService(
                  3) Closing Moral + CTA: Close with `[सूत्रधार]: ...` narrating the explicit MORAL OF THE STORY (कथा की सीख / Moral) followed cleanly by the website URL.
                - {speakerHint}
                - Never write raw mechanical labels like "Focus:" or "Moral:" inside spoken dialogue lines; state the moral naturally as `[सूत्रधार]`.
-               - Turn count: {(isFullStory ? "10 to 14 complete story-arc turns (each 18-30 words, fitting smoothly under 3 minutes / ~165s total) covering the FULL beginning-to-end story." : "5 to 7 crisp chronological turns (each 12-20 words, ~55s short) covering Context Hook + Core Action + Ending Moral + CTA.")}
+               - Turn count: {(isFullStory ? $"{storyBudget.MinLines} to {storyBudget.MaxLines} complete story-arc turns (each 18-30 words, about {storyBudget.Words} words in total for ~{storySeconds}s) covering the FULL beginning-to-end story." : "5 to 7 crisp chronological turns (each 12-20 words, ~55s short) covering Context Hook + Core Action + Ending Moral + CTA.")}
                """
             : "- Keep narration structured with brief opening context hook, chronological progression, clear ending moral, and website CTA without removing facts or times.";
 
@@ -2246,24 +2939,40 @@ public sealed class EcosystemAutomationService(
         }
     }
 
-    private static int ResolvePostTargetSeconds(
+    /// <summary>YouTube's own limit for a Short; vertical and community videos stay within it.</summary>
+    internal const int ShortVideoMaxSeconds = 180;
+
+    /// <summary>A full 16:9 video may tell the whole story: up to 10 minutes (the Story Agent's own ceiling).</summary>
+    internal const int FullVideoMaxSeconds = 600;
+
+    internal const int MinVideoSeconds = 25;
+
+    /// <summary>The longest video a format may be: Shorts are capped by YouTube, full videos are not.</summary>
+    internal static int MaxSecondsFor(AutomationVideoFormat format) =>
+        format == AutomationVideoFormat.Wide ? FullVideoMaxSeconds : ShortVideoMaxSeconds;
+
+    /// <summary>A stored length: the widest any format allows. The format's own cap applies when it is resolved.</summary>
+    private static int ClampStoredSeconds(int seconds) => Math.Clamp(seconds, MinVideoSeconds, FullVideoMaxSeconds);
+
+    internal static int ResolvePostTargetSeconds(
         AutomationPost post,
         AutomationRule? rule,
         AutomationNarrativeMode mode,
         int explicitSeconds)
     {
+        var max = MaxSecondsFor(post.Format);
         if (explicitSeconds > 0)
-            return Math.Clamp(explicitSeconds, 25, 180);
+            return Math.Clamp(explicitSeconds, MinVideoSeconds, max);
         if (post.TargetSeconds is > 0)
-            return Math.Clamp(post.TargetSeconds.Value, 25, 180);
+            return Math.Clamp(post.TargetSeconds.Value, MinVideoSeconds, max);
 
         return mode switch
         {
-            AutomationNarrativeMode.FullStory => Math.Clamp(rule?.TargetSeconds is >= 95 ? rule.TargetSeconds : 165, 95, 180),
-            AutomationNarrativeMode.ShortReel => Math.Clamp(rule?.TargetSeconds is > 0 and <= 60 ? rule.TargetSeconds : 55, 25, 60),
+            AutomationNarrativeMode.FullStory => Math.Clamp(rule?.TargetSeconds is >= 95 ? rule.TargetSeconds : 165, 95, max),
+            AutomationNarrativeMode.ShortReel => Math.Clamp(rule?.TargetSeconds is > 0 and <= 60 ? rule.TargetSeconds : 55, MinVideoSeconds, 60),
             _ => post.Format == AutomationVideoFormat.Wide
-                ? Math.Clamp(rule?.TargetSeconds is >= 95 ? rule.TargetSeconds : 165, 95, 180)
-                : Math.Clamp(rule?.TargetSeconds is > 0 ? Math.Min(rule.TargetSeconds, 180) : 55, 25, 180)
+                ? Math.Clamp(rule?.TargetSeconds is >= 95 ? rule.TargetSeconds : 165, 95, max)
+                : Math.Clamp(rule?.TargetSeconds is > 0 ? rule.TargetSeconds : 55, MinVideoSeconds, max)
         };
     }
 
@@ -2446,6 +3155,8 @@ public sealed class EcosystemAutomationService(
             AddMember(plan.LeftCharacter.Name, plan.LeftCharacter.Role);
         if (plan.RightCharacter is not null)
             AddMember(plan.RightCharacter.Name, plan.RightCharacter.Role);
+        foreach (var extra in plan.Supporting)
+            AddMember(extra.Name, extra.Role);
 
         if (cast.Count == 0)
             return Task.CompletedTask;
@@ -2459,16 +3170,164 @@ public sealed class EcosystemAutomationService(
         return EnsureAutomationCastCharactersAsync(userId, post, syntheticScript, ct);
     }
 
+    private const int MaxSceneBackdrops = 6;
+    private static readonly TimeSpan SceneBackdropBudget = TimeSpan.FromSeconds(150);
+
+    /// <summary>
+    /// One photoreal backdrop per distinct scene of the script (in first-appearance order, matching the renderer's
+    /// scene index), from the configured image engine. Uses the scene's own IMAGE prompt, or one written from its
+    /// setting and time. Best-effort and time-boxed: with no image engine, or on any failure, the renderer paints
+    /// the scenes procedurally instead.
+    /// </summary>
+    private async Task<(string? TempDir, List<string> FilePaths)> GenerateSceneBackdropsAsync(
+        string userId,
+        AutomationPost post,
+        AutomationRule? rule,
+        string format,
+        PostRenderProgressWriter? tracker,
+        CancellationToken ct,
+        string? script = null)
+    {
+        var plan = DialogueScriptParser.ParsePlan(
+            post.Title, script ?? post.Script, post.AiVideoPrompt, 60, enableDialogue: true,
+            post.SpeakerAName ?? rule?.SpeakerAName, post.SpeakerBName ?? rule?.SpeakerBName, post.SourceType.ToString());
+        var cues = plan.SceneCueOrder.Take(MaxSceneBackdrops).ToList();
+        // Only scripts that direct their scenes ask for pictures; auto-detected places stay procedural.
+        if (cues.Count == 0 || plan.Scenes is not { Count: > 0 } directed) return (null, []);
+
+        var (width, height) = format switch
+        {
+            "landscape" => (1344, 768),
+            "square" => (1024, 1024),
+            _ => (768, 1344)
+        };
+
+        string? tempDir = null;
+        var paths = new List<string>();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(SceneBackdropBudget);
+        try
+        {
+            for (var i = 0; i < cues.Count; i++)
+            {
+                tracker?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Dialogue + 4,
+                    $"Painting realistic scene {i + 1} of {cues.Count}"));
+                var (setting, time) = SceneDirectives.FromCue(cues[i]);
+                var directive = directed.FirstOrDefault(d => SceneDirectives.ToCue(d.Setting, d.TimeOfDay) == cues[i]);
+                var request = new AiImageRequest
+                {
+                    Prompt = BuildSceneImagePrompt(directive, setting, time),
+                    NegativePrompt = "text, letters, watermark, logo, people, faces, characters, cartoon, blurry, distorted",
+                    Width = width,
+                    Height = height,
+                    Seed = StableSeed($"{post.Id}:{cues[i]}")
+                };
+
+                var outcome = await ai.ImageAsync(request, new AiCallContext(null, userId), budget.Token).ConfigureAwait(false);
+                if (outcome.Kind == AiOutcomeKind.Unavailable) break;
+                if (!outcome.IsSuccess || outcome.Value is not { Content.Length: > 0 } image)
+                {
+                    // Keep scene indexes aligned: a missing picture would shift every later scene onto the wrong photo.
+                    break;
+                }
+
+                tempDir ??= Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"animstudio-scene-bg-{Guid.NewGuid():n}")).FullName;
+                var ext = image.MimeType.ToLowerInvariant() switch
+                {
+                    "image/png" => ".png",
+                    "image/webp" => ".webp",
+                    _ => ".jpg"
+                };
+                var file = Path.Combine(tempDir, $"{i:D2}_scene{ext}");
+                await File.WriteAllBytesAsync(file, image.Content, budget.Token).ConfigureAwait(false);
+                paths.Add(file);
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            logger.LogInformation("Scene backdrops for post {PostId} hit the time budget after {Count} image(s).", post.Id, paths.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Scene backdrop generation failed for post {PostId}; rendering painted scenes.", post.Id);
+        }
+
+        // Partial sets would put later scenes on the wrong picture; use them only when every scene has one.
+        if (paths.Count < cues.Count)
+        {
+            if (tempDir is not null)
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort scratch cleanup */ }
+            }
+            return (null, []);
+        }
+        return (tempDir, paths);
+    }
+
+    private static readonly Dictionary<SceneSetting, string> SceneImageSubjects = new()
+    {
+        [SceneSetting.Temple] = "ancient carved stone Hindu temple sanctum with brass oil lamps, marigold garlands and incense haze",
+        [SceneSetting.ForestAshram] = "sacred forest ashram clearing with a thatched hermitage hut, banyan trees and soft god rays",
+        [SceneSetting.RiverGhat] = "holy river ghat with stone steps, floating diyas and distant temple spires reflected in calm water",
+        [SceneSetting.Himalaya] = "majestic snow-capped Himalayan peaks above drifting clouds and a quiet meditation ledge",
+        [SceneSetting.PalaceCourt] = "grand ancient Indian royal court with carved marble pillars, silk drapes and a golden throne",
+        [SceneSetting.Cosmos] = "vast cosmic sky with nebula clouds, glowing stars and celestial light",
+        [SceneSetting.Village] = "traditional Indian village with mud huts, fields, a neem tree and cooking-fire smoke",
+        [SceneSetting.Battlefield] = "ancient battlefield plain with banners, chariots in the far distance and dust in golden light",
+        [SceneSetting.Archive] = "old library archive with wooden shelves of manuscripts, scrolls and a warm lamp",
+        [SceneSetting.ModernCity] = "modern Indian city skyline with glass towers and soft evening lights",
+        [SceneSetting.Auto] = "cinematic Indian landscape"
+    };
+
+    internal static string BuildSceneImagePrompt(SceneDirective? directive, SceneSetting setting, SceneTimeOfDay time)
+    {
+        var subject = !string.IsNullOrWhiteSpace(directive?.ImagePrompt)
+            ? directive!.ImagePrompt!
+            : SceneImageSubjects.GetValueOrDefault(setting, SceneImageSubjects[SceneSetting.Auto]);
+        var light = time switch
+        {
+            SceneTimeOfDay.Dawn => "golden sunrise light",
+            SceneTimeOfDay.Sunset => "warm sunset glow",
+            SceneTimeOfDay.Night => "moonlit night, lamp light",
+            SceneTimeOfDay.Day => "bright natural daylight",
+            _ => "cinematic soft light"
+        };
+        var mood = string.IsNullOrWhiteSpace(directive?.Mood) ? string.Empty : $", {directive!.Mood} mood";
+        return $"{subject.TrimEnd('.', ' ')}, {light}{mood}, photorealistic cinematic background plate, empty scene with no people, " +
+               "depth of field, volumetric atmosphere, highly detailed, 8k matte painting, no text";
+    }
+
+    private static long StableSeed(string input)
+    {
+        unchecked
+        {
+            long hash = 1469598103934665603;
+            foreach (var c in input)
+            {
+                hash ^= c;
+                hash *= 1099511628211;
+            }
+            return hash & 0x7FFFFFFF;
+        }
+    }
+
     private async Task<(string? TempDir, List<string> FilePaths)> MaterializeStorageImagesAsync(
+        string userId,
         IReadOnlyList<string> assetIds,
         CancellationToken ct)
     {
         if (assets is null || assetIds.Count == 0) return (null, []);
 
+        // Only images from the user's own projects: an asset id from another account is ignored, never rendered.
+        var ownedProjectIds = (await projects.ListAsync(userId, ct).ConfigureAwait(false))
+            .Select(p => p.Id)
+            .ToHashSet(StringComparer.Ordinal);
         var fetched = await assets.GetManyAsync(assetIds, ct).ConfigureAwait(false);
         var byId = fetched
-            .Where(a => a.Kind == AssetKind.Image && !string.IsNullOrWhiteSpace(a.StorageKey))
-            .ToDictionary(a => a.Id, StringComparer.Ordinal);
+            .Where(a => a.Kind == AssetKind.Image && !string.IsNullOrWhiteSpace(a.StorageKey)
+                && ownedProjectIds.Contains(a.ProjectId))
+            .GroupBy(a => a.Id, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
         if (byId.Count == 0) return (null, []);
 

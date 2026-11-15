@@ -61,7 +61,7 @@ public static class AutomationContentComposer
         IReadOnlyList<ComposedAutomationContent> items = rule.SourceType switch
         {
             AutomationSourceType.HinduPanchang when signals.Panchang is { } p =>
-                [ComposePanchang(rule, p, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
+                [ComposePanchang(rule, p, dateKey, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
 
             AutomationSourceType.HinduFestival =>
                 ComposeFestivals(rule, signals, dateKey, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi),
@@ -96,6 +96,7 @@ public static class AutomationContentComposer
     private static ComposedAutomationContent ComposePanchang(
         AutomationRule rule,
         EcosystemPanchangSignal p,
+        string dateKey,
         IReadOnlyList<AutomationWebsiteLink> links,
         string? primaryLink,
         IReadOnlyList<string> baseTags,
@@ -202,7 +203,7 @@ public static class AutomationContentComposer
             : null;
 
         return new ComposedAutomationContent(
-            $"panchang:{p.DateKey}",
+            $"panchang:{dateKey}",
             $"Panchang {p.DateKey} - {p.Tithi}",
             $"{p.Vaara} • {p.Tithi} • {p.Nakshatra}",
             title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
@@ -378,7 +379,7 @@ public static class AutomationContentComposer
             : null;
 
         return new ComposedAutomationContent(
-            $"katha:{dateKey}:{k.Id ?? k.Title}",
+            $"katha:{dateKey}",
             k.Title,
             $"{k.DeityOrSage} — {hindiMoral}",
             title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
@@ -464,7 +465,7 @@ public static class AutomationContentComposer
         return
         [
             new ComposedAutomationContent(
-                $"history:{dateKey}:{leadIncident.Year}:{leadIncident.Title}",
+                $"history:{dateKey}",
                 $"{leadIncident.Year} — {leadIncident.Title}",
                 leadIncident.Description,
                 title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links)

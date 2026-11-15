@@ -29,6 +29,10 @@ internal static class ProceduralSpeechSynthesizer
     private const double LeadInSeconds = 0.35;
     private const double PauseBetweenTurnsSeconds = 0.25;
     private const double MinTitleHoldSeconds = 2.0;
+    private const double TailSeconds = 0.85;
+
+    /// <summary>The fastest the narration may be sped up to fit a cap; past this Hindi speech starts to blur.</summary>
+    private const double MaxSpeechTempo = 1.25;
 
     public static async Task<ProceduralSpeechSynthesisResult?> TrySynthesizeAsync(
         ProceduralVideoRequest request,
@@ -59,6 +63,11 @@ internal static class ProceduralSpeechSynthesizer
         Directory.CreateDirectory(workspaceInputDir);
         var langCode = string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi";
 
+        // Following the script exactly: every line at natural speed (no cap to fit into) and the video ends with the
+        // narration instead of being padded with silence up to the target length.
+        var fitCap = request.FollowScriptExactly ? null : request.MaxDurationSeconds;
+        var minVideoSeconds = request.FollowScriptExactly ? ProceduralVideoRequest.MinSeconds : baseDurationSeconds;
+
         if (ai is not null && aiRegistry is not null)
         {
             var providers = ResolveProviders(aiRegistry, request.SpeechProviderId);
@@ -72,7 +81,7 @@ internal static class ProceduralSpeechSynthesizer
                     return await AssembleFinalSpeechTrackAsync(
                         synthesized.Value.ClipBytes, synthesized.Value.Durations,
                         initialPlan, speechTurns, spokenTitleOnly,
-                        workspaceInputDir, baseDurationSeconds,
+                        workspaceInputDir, minVideoSeconds, fitCap, ffmpegOptions,
                         provider.Id.Value, synthesized.Value.VoicesUsed, logger, ct).ConfigureAwait(false);
                 }
             }
@@ -84,6 +93,8 @@ internal static class ProceduralSpeechSynthesizer
 
         if (OperatingSystem.IsWindows())
         {
+            request.Progress?.Report(new ProceduralRenderProgress(
+                ProceduralRenderStages.VoicesStart, "Synthesizing voices with the local Windows voice"));
             var local = await TrySynthesizeWithWindowsSapiAsync(
                 speechTurns, langCode, workspaceInputDir, ffmpegOptions, logger, ct).ConfigureAwait(false);
             if (local is not null)
@@ -91,7 +102,7 @@ internal static class ProceduralSpeechSynthesizer
                 return await AssembleFinalSpeechTrackAsync(
                     local.Value.ClipBytes, local.Value.Durations,
                     initialPlan, speechTurns, spokenTitleOnly,
-                    workspaceInputDir, baseDurationSeconds,
+                    workspaceInputDir, minVideoSeconds, fitCap, ffmpegOptions,
                     local.Value.ProviderLabel, local.Value.VoicesUsed, logger, ct).ConfigureAwait(false);
             }
         }
@@ -126,9 +137,13 @@ internal static class ProceduralSpeechSynthesizer
             if (string.IsNullOrWhiteSpace(spokenText))
             {
                 clipBytesList.Add([]);
-                clipDurations.Add(Math.Max(1.0, turn.EndSeconds - turn.StartSeconds));
+                clipDurations.Add(FallbackSeconds(turn));
                 continue;
             }
+
+            request.Progress?.Report(new ProceduralRenderProgress(
+                ProceduralRenderStages.VoicePercent(i, speechTurns.Count),
+                $"Voice line {i + 1} of {speechTurns.Count} ({provider.Id.Value})"));
 
             var isRight = turn.Slot == DialogueSpeakerSlot.Right;
             var voiceId = isRight ? voiceB : voiceA;
@@ -345,7 +360,7 @@ internal static class ProceduralSpeechSynthesizer
             if (!File.Exists(wavPath))
             {
                 clipBytesList.Add([]);
-                clipDurations.Add(Math.Max(1.0, speechTurns[i].EndSeconds - speechTurns[i].StartSeconds));
+                clipDurations.Add(FallbackSeconds(speechTurns[i]));
                 continue;
             }
 
@@ -357,7 +372,7 @@ internal static class ProceduralSpeechSynthesizer
             if (normalized is null)
             {
                 clipBytesList.Add([]);
-                clipDurations.Add(Math.Max(1.0, speechTurns[i].EndSeconds - speechTurns[i].StartSeconds));
+                clipDurations.Add(FallbackSeconds(speechTurns[i]));
                 continue;
             }
 
@@ -374,6 +389,13 @@ internal static class ProceduralSpeechSynthesizer
         return (clipBytesList, clipDurations, providerLabel, [.. voicesUsed]);
     }
 
+    /// <summary>
+    /// Caption time for a line whose voice clip failed: its planned slot, but never longer than it takes to read the
+    /// line (~13 characters a second), so a single failed clip cannot leave a long silent gap in the video.
+    /// </summary>
+    private static double FallbackSeconds(ProceduralDialogueTurn turn) =>
+        Math.Max(1.0, Math.Min(turn.EndSeconds - turn.StartSeconds, 0.6 + (turn.Text?.Length ?? 0) / 13.0));
+
     private static string ShortVoiceName(string full) =>
         full.Replace("Microsoft ", string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace(" Desktop", string.Empty, StringComparison.OrdinalIgnoreCase)
@@ -387,73 +409,67 @@ internal static class ProceduralSpeechSynthesizer
         bool spokenTitleOnly,
         string workspaceInputDir,
         int baseDurationSeconds,
+        int? maxDurationSeconds,
+        FfmpegOptions ffmpegOptions,
         string providerId,
         IReadOnlyList<string> voicesUsed,
         ILogger? logger,
         CancellationToken ct)
     {
-        var nonEmptyClips = new List<byte[]>(clipBytesList.Count + 1);
         var referenceClip = clipBytesList.FirstOrDefault(b => b.Length > 44);
         if (referenceClip is null)
             return null;
 
-        var leadGap = BuildSilenceWavLike(referenceClip, LeadInSeconds);
-        if (leadGap is not null) nonEmptyClips.Add(leadGap);
+        // Keep the finished video inside its cap (a Short must stay <= 180s): speed the voices up a little
+        // and, when that is not enough, drop middle lines so the opening and the ending moral still play.
+        var fit = SpeechFitPlanner.Plan(
+            clipDurations, maxDurationSeconds, LeadInSeconds, PauseBetweenTurnsSeconds, TailSeconds, MaxSpeechTempo);
+        var speechWavPath = Path.Combine(workspaceInputDir, "speech.wav");
 
-        var updatedTurns = new List<ProceduralDialogueTurn>(initialPlan.Turns.Count);
-        var cursor = LeadInSeconds;
+        var built = await WriteSpeechTrackAsync(fit.KeptIndices).ConfigureAwait(false);
+        if (built is null)
+            return null;
+        var (updatedTurns, cursor) = built.Value;
 
-        var titleTurn = !spokenTitleOnly ? initialPlan.Turns.FirstOrDefault(t => t.IsTitleHook) : null;
-        if (titleTurn is not null)
+        var tempo = fit.Tempo;
+        if (tempo > 1.001)
         {
-            updatedTurns.Add(titleTurn with
+            if (await TryApplyTempoAsync(speechWavPath, tempo, ffmpegOptions, logger, ct).ConfigureAwait(false))
             {
-                StartSeconds = 0.12,
-                EndSeconds = Math.Round(Math.Max(MinTitleHoldSeconds, Math.Min(3.4, cursor + (clipDurations.Count > 0 ? clipDurations[0] : 2.2))), 2)
-            });
-        }
-
-        for (var i = 0; i < speechTurns.Count; i++)
-        {
-            var turn = speechTurns[i];
-            var start = Math.Round(cursor, 2);
-            var end = Math.Round(cursor + clipDurations[i], 2);
-
-            if (clipBytesList[i].Length > 44)
-                nonEmptyClips.Add(clipBytesList[i]);
-
-            updatedTurns.Add(turn with
+                updatedTurns = [.. updatedTurns.Select(t => t.IsTitleHook ? t : t with
+                {
+                    StartSeconds = Math.Round(t.StartSeconds / tempo, 2),
+                    EndSeconds = Math.Round(t.EndSeconds / tempo, 2)
+                })];
+                cursor /= tempo;
+            }
+            else
             {
-                StartSeconds = start,
-                EndSeconds = end
-            });
-
-            cursor += clipDurations[i];
-            if (i < speechTurns.Count - 1)
-            {
-                var pause = BuildSilenceWavLike(referenceClip, PauseBetweenTurnsSeconds);
-                if (pause is not null) nonEmptyClips.Add(pause);
-                cursor += PauseBetweenTurnsSeconds;
+                // No speed-up available: fit by dropping lines alone.
+                var plain = SpeechFitPlanner.Plan(
+                    clipDurations, maxDurationSeconds, LeadInSeconds, PauseBetweenTurnsSeconds, TailSeconds, maxTempo: 1.0);
+                built = await WriteSpeechTrackAsync(plain.KeptIndices).ConfigureAwait(false);
+                if (built is null)
+                    return null;
+                (updatedTurns, cursor) = built.Value;
+                fit = plain;
+                tempo = 1.0;
             }
         }
 
-        if (nonEmptyClips.Count == 0)
-            return null;
-
-        var joinedWav = StoryWav.Join(nonEmptyClips, gapSeconds: 0);
-        if (joinedWav is null)
+        if (fit.KeptIndices.Count < speechTurns.Count || tempo > 1.001)
         {
-            logger?.LogWarning("Procedural speech clips had mismatched formats and could not join cleanly.");
-            return null;
+            logger?.LogInformation(
+                "Narration fitted into the {Max}s cap: kept {Kept}/{Total} lines at {Tempo:0.00}x speed ({Seconds:0.0}s).",
+                maxDurationSeconds, fit.KeptIndices.Count, speechTurns.Count, tempo, cursor);
         }
 
-        var speechWavPath = Path.Combine(workspaceInputDir, "speech.wav");
-        await File.WriteAllBytesAsync(speechWavPath, joinedWav, ct).ConfigureAwait(false);
-
         var totalSeconds = Math.Clamp(
-            (int)Math.Ceiling(Math.Max(baseDurationSeconds, cursor + 0.85)),
+            (int)Math.Ceiling(Math.Max(baseDurationSeconds, cursor + TailSeconds)),
             ProceduralVideoRequest.MinSeconds,
             ProceduralVideoRequest.MaxSeconds);
+        if (maxDurationSeconds is > 0 and var cap)
+            totalSeconds = Math.Min(totalSeconds, Math.Max(ProceduralVideoRequest.MinSeconds, cap));
 
         var updatedPlan = DialogueScriptParser.WithMeasuredTurns(initialPlan, updatedTurns);
         return new ProceduralSpeechSynthesisResult(
@@ -462,6 +478,119 @@ internal static class ProceduralSpeechSynthesizer
             totalSeconds,
             providerId,
             voicesUsed);
+
+        async Task<(List<ProceduralDialogueTurn> Turns, double Cursor)?> WriteSpeechTrackAsync(IReadOnlyList<int> kept)
+        {
+            var nonEmptyClips = new List<byte[]>(kept.Count * 2 + 1);
+            var leadGap = BuildSilenceWavLike(referenceClip, LeadInSeconds);
+            if (leadGap is not null) nonEmptyClips.Add(leadGap);
+
+            var turns = new List<ProceduralDialogueTurn>(kept.Count + 1);
+            var at = LeadInSeconds;
+
+            var titleTurn = !spokenTitleOnly ? initialPlan.Turns.FirstOrDefault(t => t.IsTitleHook) : null;
+            if (titleTurn is not null)
+            {
+                turns.Add(titleTurn with
+                {
+                    StartSeconds = 0.12,
+                    EndSeconds = Math.Round(Math.Max(MinTitleHoldSeconds, Math.Min(3.4, at + (clipDurations.Count > 0 ? clipDurations[0] : 2.2))), 2)
+                });
+            }
+
+            for (var k = 0; k < kept.Count; k++)
+            {
+                var i = kept[k];
+                if (clipBytesList[i].Length > 44)
+                    nonEmptyClips.Add(clipBytesList[i]);
+
+                turns.Add(speechTurns[i] with
+                {
+                    StartSeconds = Math.Round(at, 2),
+                    EndSeconds = Math.Round(at + clipDurations[i], 2)
+                });
+
+                at += clipDurations[i];
+                if (k < kept.Count - 1)
+                {
+                    var pause = BuildSilenceWavLike(referenceClip, PauseBetweenTurnsSeconds);
+                    if (pause is not null) nonEmptyClips.Add(pause);
+                    at += PauseBetweenTurnsSeconds;
+                }
+            }
+
+            if (nonEmptyClips.Count == 0)
+                return null;
+
+            var joinedWav = StoryWav.Join(nonEmptyClips, gapSeconds: 0);
+            if (joinedWav is null)
+            {
+                logger?.LogWarning("Procedural speech clips had mismatched formats and could not join cleanly.");
+                return null;
+            }
+
+            await File.WriteAllBytesAsync(speechWavPath, joinedWav, ct).ConfigureAwait(false);
+            return (turns, at);
+        }
+    }
+
+    /// <summary>Speeds a WAV up in place with FFmpeg's pitch-preserving <c>atempo</c>; false when FFmpeg is unavailable or fails.</summary>
+    private static async Task<bool> TryApplyTempoAsync(
+        string wavPath,
+        double tempo,
+        FfmpegOptions ffmpegOptions,
+        ILogger? logger,
+        CancellationToken ct)
+    {
+        var outPath = Path.ChangeExtension(wavPath, ".tempo.wav");
+        var ffmpegPath = string.IsNullOrWhiteSpace(ffmpegOptions.FfmpegPath) ? "ffmpeg" : ffmpegOptions.FfmpegPath;
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var arg in new[]
+        {
+            "-y",
+            "-i", wavPath,
+            "-af", $"atempo={tempo.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)},aresample=48000,aformat=channel_layouts=stereo",
+            "-c:a", "pcm_s16le",
+            outPath
+        })
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc is null) return false;
+
+            proc.StandardInput.Close();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(90));
+            _ = proc.StandardError.ReadToEndAsync(timeout.Token);
+            await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+
+            if (proc.ExitCode != 0 || !File.Exists(outPath))
+                return false;
+
+            File.Move(outPath, wavPath, overwrite: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger?.LogWarning(ex, "Could not speed up the narration with FFmpeg atempo; dropping lines instead.");
+            return false;
+        }
+        finally
+        {
+            TryDelete(outPath);
+        }
     }
 
     private static IReadOnlyList<ISpeechAiProvider> ResolveProviders(IAiProviderRegistry registry, string? preferredProviderId)

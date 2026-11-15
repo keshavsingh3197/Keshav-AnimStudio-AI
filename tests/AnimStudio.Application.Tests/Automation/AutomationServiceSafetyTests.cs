@@ -228,10 +228,256 @@ public sealed class AutomationServiceSafetyTests
         Assert.NotNull(synced.SyncedToEcosystemAtUtc);
     }
 
+    [Fact]
+    public async Task Explicit_Panchang_publish_works_for_any_source_and_channel_and_can_be_unlisted()
+    {
+        var repo = new FakeAutomationRepository();
+        const string userId = "user-1";
+        var post = new AutomationPost
+        {
+            Id = "ap_spotlight_1",
+            UserId = userId,
+            RuleId = "rule-spotlight",
+            SourceType = AutomationSourceType.EcosystemSpotlight,
+            DateKey = "2026-11-15",
+            Fingerprint = "2026-11-15:rule-spotlight:1",
+            Title = "AI से ऑटो-वीडियो",
+            Status = AutomationPostStatus.Published,
+            TargetChannelHandle = "@KeshavSinghWorld",
+            PublishedChannelTitle = "KeshavSinghWorld",
+            PublishedVideoId = "abcDEF12345",
+            PublishedVideoUrl = "https://youtu.be/abcDEF12345",
+            PublishedAtUtc = DateTime.UtcNow
+        };
+        await repo.UpsertPostAsync(post, CancellationToken.None);
+
+        var calls = new List<(HttpMethod Method, string? Uri, string? Body)>();
+        using var harness = BuildHarness(
+            repo,
+            new DelayedSignalsClient(TimeSpan.Zero),
+            req =>
+            {
+                calls.Add((req.Method, req.RequestUri?.ToString(), req.Content?.ReadAsStringAsync().GetAwaiter().GetResult()));
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            });
+
+        using var scope = harness.Provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<EcosystemAutomationService>();
+
+        var synced = await svc.SyncPostToEcosystemAsync(userId, post.Id, "sso-token-123", CancellationToken.None);
+        Assert.NotNull(synced.SyncedToEcosystemAtUtc);
+        var push = Assert.Single(calls);
+        Assert.Equal(HttpMethod.Post, push.Method);
+        Assert.Contains("\"KeshavSinghWorld\"", push.Body);
+        Assert.Contains("https://www.youtube.com/@KeshavSinghWorld", push.Body);
+
+        var unlisted = await svc.RemovePostFromEcosystemAsync(userId, post.Id, "sso-token-123", CancellationToken.None);
+        Assert.Null(unlisted.SyncedToEcosystemAtUtc);
+        Assert.Equal(HttpMethod.Delete, calls[^1].Method);
+        Assert.Equal("https://panchang.example.com/api/videohub/automation-sync/ap_spotlight_1", calls[^1].Uri);
+    }
+
+    [Fact]
+    public async Task PrepareForDateAsync_reuses_a_card_prepared_earlier_under_an_older_unstable_key()
+    {
+        var repo = new FakeAutomationRepository();
+        const string userId = "user-1";
+        await repo.UpsertRuleAsync(KathaRule(userId), CancellationToken.None);
+        // Same pipeline + day, but keyed by the old title/id-based fingerprint.
+        await repo.UpsertPostAsync(new AutomationPost
+        {
+            Id = "ap_legacy",
+            UserId = userId,
+            RuleId = "rule-katha",
+            SourceType = AutomationSourceType.DailyKatha,
+            DateKey = "2026-11-15",
+            Fingerprint = "2026-11-15:rule-katha:katha:2026-11-15:katha-1",
+            Status = AutomationPostStatus.VideoReadyForReview,
+            AttachedRenderJobId = "job-1",
+            CreatedAtUtc = DateTime.UtcNow.AddHours(-3)
+        }, CancellationToken.None);
+
+        using var harness = BuildHarness(repo, new DelayedSignalsClient(TimeSpan.Zero), _ => new HttpResponseMessage(HttpStatusCode.OK));
+        using var scope = harness.Provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<EcosystemAutomationService>();
+
+        var result = await svc.PrepareForDateAsync(userId, "2026-11-15", null, forceRegenerate: false, CancellationToken.None);
+
+        Assert.Equal(0, result.PostsCreated);
+        Assert.Equal("ap_legacy", Assert.Single(repo.Posts).Id);
+    }
+
+    [Fact]
+    public async Task RemoveDuplicateDraftsAsync_keeps_published_and_video_cards_and_drops_redundant_drafts()
+    {
+        var repo = new FakeAutomationRepository();
+        const string userId = "user-1";
+        var t0 = DateTime.UtcNow.AddHours(-2);
+        AutomationPost Card(string id, string rule, AutomationSourceType type, AutomationPostStatus status, string fp, string? video = null, string? job = null, int minutes = 0) => new()
+        {
+            Id = id, UserId = userId, RuleId = rule, SourceType = type, DateKey = "2026-11-15", Fingerprint = fp,
+            Status = status, PublishedVideoId = video, AttachedRenderJobId = job, CreatedAtUtc = t0.AddMinutes(minutes), UpdatedAtUtc = t0.AddMinutes(minutes)
+        };
+        var posts = new List<AutomationPost>
+        {
+            Card("katha-pub-1", "rule-katha", AutomationSourceType.DailyKatha, AutomationPostStatus.Published, "fp-a", video: "ijDuEWYqvC8"),
+            Card("katha-pub-2", "rule-katha", AutomationSourceType.DailyKatha, AutomationPostStatus.Published, "fp-b", video: "yWR7dhXonzM", minutes: 1),
+            Card("katha-draft", "rule-katha", AutomationSourceType.DailyKatha, AutomationPostStatus.PreparedPreview, "fp-c", minutes: 2),
+            Card("panchang-video", "rule-panchang", AutomationSourceType.HinduPanchang, AutomationPostStatus.VideoReadyForReview, "2026-11-15:rule-panchang:panchang:", job: "job-9"),
+            Card("panchang-draft", "rule-panchang", AutomationSourceType.HinduPanchang, AutomationPostStatus.PreparedPreview, "2026-11-15:rule-panchang:panchang:2026-11-15", minutes: 5),
+            Card("fest-1", "rule-fest", AutomationSourceType.HinduFestival, AutomationPostStatus.PreparedPreview, "f:diwali"),
+            Card("fest-2", "rule-fest", AutomationSourceType.HinduFestival, AutomationPostStatus.PreparedPreview, "f:ekadashi")
+        };
+        foreach (var p in posts) await repo.UpsertPostAsync(p, CancellationToken.None);
+
+        using var harness = BuildHarness(repo, new DelayedSignalsClient(TimeSpan.Zero), _ => new HttpResponseMessage(HttpStatusCode.OK));
+        using var scope = harness.Provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<EcosystemAutomationService>();
+
+        var removed = await svc.RemoveDuplicateDraftsAsync(posts, CancellationToken.None);
+
+        Assert.Equal(2, removed);
+        var ids = repo.Posts.Select(p => p.Id).Order().ToList();
+        Assert.Equal(["fest-1", "fest-2", "katha-pub-1", "katha-pub-2", "panchang-video"], ids);
+        Assert.Equal(ids, posts.Select(p => p.Id).Order().ToList());
+    }
+
+    [Fact]
+    public async Task RemoveFromYouTubeAsync_marks_already_deleted_video_and_returns_card_to_ready_for_republish()
+    {
+        var repo = new FakeAutomationRepository();
+        const string userId = "user-1";
+        await repo.UpsertPostAsync(new AutomationPost
+        {
+            Id = "ap_wrong_channel",
+            UserId = userId,
+            RuleId = "rule-katha",
+            SourceType = AutomationSourceType.DailyKatha,
+            DateKey = "2026-11-15",
+            Fingerprint = "2026-11-15:rule-katha:katha:2026-11-15",
+            Status = AutomationPostStatus.Published,
+            TargetChannelId = "UC_wrong",
+            TargetChannelTitle = "OMKR",
+            PublishedVideoId = "ijDuEWYqvC8",
+            PublishedVideoUrl = "https://youtu.be/ijDuEWYqvC8",
+            PublishedAtUtc = DateTime.UtcNow.AddHours(-1),
+            AttachedRenderJobId = "job-1",
+            SyncedToEcosystemAtUtc = DateTime.UtcNow
+        }, CancellationToken.None);
+        var publications = new FakePublicationRepository();
+        await publications.UpsertAsync(new YouTubePublication { Id = "pub-1", UserId = userId, VideoId = "ijDuEWYqvC8", ChannelId = "UC_wrong", Health = YouTubeVideoHealth.Ok }, CancellationToken.None);
+
+        using var harness = BuildHarness(repo, new DelayedSignalsClient(TimeSpan.Zero), _ => new HttpResponseMessage(HttpStatusCode.OK), publications);
+        using var scope = harness.Provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<EcosystemAutomationService>();
+
+        // A published card can't be uploaded a second time by accident.
+        var dup = await Assert.ThrowsAsync<EditingException>(
+            () => svc.ApproveAndPublishAsync(userId, "ap_wrong_channel", publishNow: true, scheduledAtUtc: null, CancellationToken.None));
+        Assert.Equal("already-published", dup.Code);
+
+        var post = await svc.RemoveFromYouTubeAsync(userId, "ap_wrong_channel",
+            new AutomationYouTubeRemovalRequest(DeleteOnYouTube: false, TargetChannelId: null, RepublishNow: false), CancellationToken.None);
+
+        Assert.Equal(AutomationPostStatus.VideoReadyForReview, post.Status);
+        Assert.Null(post.PublishedVideoId);
+        Assert.Null(post.SyncedToEcosystemAtUtc);
+        Assert.Equal("job-1", post.AttachedRenderJobId);
+        var history = Assert.Single(post.RemovedVideos);
+        Assert.Equal("ijDuEWYqvC8", history.VideoId);
+        Assert.False(history.DeletedByApp);
+        Assert.Equal(YouTubeVideoHealth.Removed, (await publications.GetAsync("pub-1", CancellationToken.None))!.Health);
+
+        // A re-routed card survives duplicate cleanup even next to another card of the same slot.
+        var sibling = new AutomationPost
+        {
+            Id = "ap_sibling", UserId = userId, RuleId = "rule-katha", SourceType = AutomationSourceType.DailyKatha,
+            DateKey = "2026-11-15", Fingerprint = "x", Status = AutomationPostStatus.Published, PublishedVideoId = "yWR7dhXonzM"
+        };
+        await repo.UpsertPostAsync(sibling, CancellationToken.None);
+        Assert.Equal(0, await svc.RemoveDuplicateDraftsAsync([.. repo.Posts], CancellationToken.None));
+
+        var again = await Assert.ThrowsAsync<EditingException>(() => svc.RemoveFromYouTubeAsync(userId, "ap_wrong_channel",
+            new AutomationYouTubeRemovalRequest(false, null, false), CancellationToken.None));
+        Assert.Equal("video-not-published", again.Code);
+    }
+
+    [Fact]
+    public async Task Enhanced_3D_render_unlinks_an_old_story_run_so_pollers_cannot_mark_the_post_failed_mid_render()
+    {
+        // A card whose earlier AI story run failed ("The server restarted before the upload finished") is re-rendered
+        // as Enhanced 3D. While that dead run stayed linked, the overview poll and the background worker read it and
+        // saved the post as Failed mid-render, so the hub sat on "Starting render... 1%".
+        var repo = new FakeAutomationRepository();
+        const string userId = "user-1";
+        await repo.UpsertRuleAsync(KathaRule(userId), CancellationToken.None);
+        await repo.UpsertPostAsync(new AutomationPost
+        {
+            Id = "ap_itihaas",
+            UserId = userId,
+            RuleId = "rule-katha",
+            SourceType = AutomationSourceType.AajKaItihaas,
+            DateKey = "2026-11-15",
+            Fingerprint = "2026-11-15:rule-katha:itihaas",
+            Title = "15 नवंबर 1875: बिरसा मुंडा जयंती",
+            Script = "[सूत्रधार]: 15 नवंबर 1875 को बिरसा मुंडा का जन्म हुआ।\n[बिरसा मुंडा]: यह जंगल हमारा है।\n[ग्रामीण]: हम साथ हैं।",
+            Status = AutomationPostStatus.Failed,
+            LastError = "The server restarted before the upload finished.",
+            AttachedStoryRunId = "run-dead"
+        }, CancellationToken.None);
+        repo.PostSaves.Clear();
+
+        using var harness = BuildHarness(repo, new DelayedSignalsClient(TimeSpan.Zero), _ => new HttpResponseMessage(HttpStatusCode.OK));
+        using var scope = harness.Provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<EcosystemAutomationService>();
+
+        var post = await svc.GenerateAnimatedVideoAsync(userId, "ap_itihaas", ProceduralSceneTheme.Auto, 55, "720p", CancellationToken.None);
+
+        var rendering = repo.PostSaves.Where(s => s.Status == AutomationPostStatus.GeneratingVideo).ToList();
+        Assert.NotEmpty(rendering);
+        Assert.All(rendering, s => Assert.Null(s.StoryRunId));
+        Assert.Null(post.AttachedStoryRunId);
+        Assert.Null(post.LastError);
+        Assert.NotEqual(AutomationPostStatus.Failed, post.Status);
+    }
+
+    private static AutomationRule KathaRule(string userId) => new()
+    {
+        Id = "rule-katha",
+        UserId = userId,
+        Name = "Evening Daily Vedic Katha & Mantra",
+        Enabled = true,
+        SourceType = AutomationSourceType.DailyKatha,
+        Language = "hi",
+        Mode = AutomationPostMode.PreviewOnly,
+        VideoFormat = AutomationVideoFormat.Vertical,
+        FunnelWebsiteKeys = ["panchang"]
+    };
+
+    private sealed class FakePublicationRepository : IYouTubePublicationRepository
+    {
+        private readonly List<YouTubePublication> _items = [];
+        public Task<YouTubePublication?> GetAsync(string id, CancellationToken ct) => Task.FromResult(_items.FirstOrDefault(p => p.Id == id));
+        public Task<IReadOnlyList<YouTubePublication>> ListByUserAsync(string userId, string? projectId, int limit, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<YouTubePublication>>([.. _items.Where(p => p.UserId == userId)]);
+        public Task<IReadOnlyList<YouTubePublication>> ListByVideoIdsAsync(string userId, IReadOnlyCollection<string> videoIds, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<YouTubePublication>>([.. _items.Where(p => p.UserId == userId && videoIds.Contains(p.VideoId))]);
+        public Task<IReadOnlyList<YouTubePublication>> ListDueForCheckAsync(DateTime publishedAfter, DateTime checkedBefore, int limit, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<YouTubePublication>>([]);
+        public Task UpsertAsync(YouTubePublication publication, CancellationToken ct)
+        {
+            _items.RemoveAll(p => p.Id == publication.Id);
+            _items.Add(publication);
+            return Task.CompletedTask;
+        }
+        public Task<bool> DeleteAsync(string id, CancellationToken ct) => Task.FromResult(_items.RemoveAll(p => p.Id == id) > 0);
+    }
+
     private static TestHarness BuildHarness(
         IAutomationRepository repo,
         IEcosystemSignalsClient signals,
-        Func<HttpRequestMessage, HttpResponseMessage> httpResponder)
+        Func<HttpRequestMessage, HttpResponseMessage> httpResponder,
+        IYouTubePublicationRepository? publications = null)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "animstudio-auto-tests-" + Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(tempRoot);
@@ -271,6 +517,7 @@ public sealed class AutomationServiceSafetyTests
         services.AddSingleton<IAiExecutor, DisabledAiExecutor>();
         services.AddSingleton<IObjectStore, InMemoryObjectStore>();
         services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(httpResponder));
+        services.AddSingleton<IYouTubePublicationRepository>(publications ?? new FakePublicationRepository());
 
         return new TestHarness(services.BuildServiceProvider(), tempRoot);
     }
@@ -384,12 +631,16 @@ public sealed class AutomationServiceSafetyTests
             }
         }
 
+        /// <summary>The status and linked story run of a post at each save, in order (posts are stored by reference).</summary>
+        public List<(string PostId, AutomationPostStatus Status, string? StoryRunId)> PostSaves { get; } = [];
+
         public Task UpsertPostAsync(AutomationPost post, CancellationToken ct)
         {
             lock (_gate)
             {
                 _posts.RemoveAll(p => p.Id == post.Id);
                 _posts.Add(post);
+                PostSaves.Add((post.Id, post.Status, post.AttachedStoryRunId));
             }
             return Task.CompletedTask;
         }

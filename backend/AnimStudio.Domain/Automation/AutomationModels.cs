@@ -230,6 +230,16 @@ public sealed class AutomationPost
     public string? UploadId { get; set; }
     public string? PublishedVideoId { get; set; }
     public string? PublishedVideoUrl { get; set; }
+
+    /// <summary>The channel the current <see cref="PublishedVideoId"/> was uploaded to (the target can change later).</summary>
+    public string? PublishedChannelId { get; set; }
+    public string? PublishedChannelTitle { get; set; }
+
+    /// <summary>When the published video was last confirmed to still exist on YouTube.</summary>
+    public DateTime? YouTubeCheckedAtUtc { get; set; }
+
+    /// <summary>Earlier uploads of this card that were deleted (in the app or in YouTube Studio), newest last.</summary>
+    public List<AutomationRemovedVideo> RemovedVideos { get; set; } = [];
     public string? LastError { get; set; }
     public string? Notes { get; set; }
     public bool GeneratedByAi { get; set; }
@@ -258,6 +268,10 @@ public sealed class AutomationPost
     public AutomationNarrativeMode NarrativeMode { get; set; } = AutomationNarrativeMode.Auto;
     public int? TargetSeconds { get; set; }
     public List<string> AttachedAssetIds { get; set; } = [];
+
+    /// <summary>Enhanced 3D stage choices for this post: background template, character spots, music and voice pacing.</summary>
+    public AutomationStageSettings? Stage { get; set; }
+
     public List<string> ProvisionedCharacterNames { get; set; } = [];
     public string? StoryStageSummary { get; set; }
     public int? StoryProgressPercent { get; set; }
@@ -289,6 +303,57 @@ public sealed class AutomationPost
             .ThenByDescending(p => p.UpdatedAtUtc)
             .ThenByDescending(p => p.CreatedAtUtc)
             .FirstOrDefault();
+}
+
+/// <summary>
+/// Optional Enhanced 3D stage choices for one post. Everything here is optional: an empty object renders exactly as
+/// before, except that the script is followed as written by default.
+/// </summary>
+public sealed class AutomationStageSettings
+{
+    /// <summary>
+    /// A Studio Storage image (owned by the post's user) used as the whole background. It stays still and whole so
+    /// characters placed on it keep their spots; light and particle effects still play on top.
+    /// </summary>
+    public string? BackgroundTemplateAssetId { get; set; }
+
+    /// <summary>Where the story happens, e.g. "temple courtyard at sunrise". Picks the 3D setting and guides the script.</summary>
+    public string? LocationPrompt { get; set; }
+
+    /// <summary>Spot of the left main character on the frame; null keeps the default place.</summary>
+    public AutomationCharacterPlacement? LeftCharacter { get; set; }
+
+    /// <summary>Spot of the right main character on the frame; null keeps the default place.</summary>
+    public AutomationCharacterPlacement? RightCharacter { get; set; }
+
+    /// <summary>False renders voice only (no background music), e.g. to add a track later in YouTube.</summary>
+    public bool IncludeBackgroundMusic { get; set; } = true;
+
+    /// <summary>
+    /// True speaks every line as written at natural speed (no speed-up, no dropped lines) and ends the video with the
+    /// narration. A vertical video longer than 3 minutes is then uploaded as a normal video rather than a Short.
+    /// </summary>
+    public bool FollowScriptExactly { get; set; } = true;
+}
+
+/// <summary>Fractions of the frame: X = figure centre across, Y = ground line (feet) down, Scale = size multiplier.</summary>
+public sealed class AutomationCharacterPlacement
+{
+    public double X { get; set; } = 0.5;
+    public double Y { get; set; } = 0.6;
+    public double Scale { get; set; } = 1.0;
+}
+
+/// <summary>A YouTube upload of an automation card that no longer exists on YouTube.</summary>
+public sealed class AutomationRemovedVideo
+{
+    public string VideoId { get; set; } = string.Empty;
+    public string? ChannelId { get; set; }
+    public string? ChannelTitle { get; set; }
+    public DateTime RemovedAtUtc { get; set; }
+
+    /// <summary>True when the app deleted it through the YouTube API; false when it was found missing (deleted in YouTube Studio).</summary>
+    public bool DeletedByApp { get; set; }
 }
 
 /// <summary>
