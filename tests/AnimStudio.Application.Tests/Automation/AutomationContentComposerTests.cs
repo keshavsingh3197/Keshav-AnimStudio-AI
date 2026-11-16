@@ -235,4 +235,58 @@ public class AutomationContentComposerTests
         Assert.Equal(expectedOk, ok);
         Assert.Equal(expectedNorm, normalized);
     }
+
+    [Fact]
+    public void ComposeForRule_DailyKathaHindi_TranslatesEnglishFeedToFullHindiCharacterDialogueWithoutFocusLeak()
+    {
+        var signals = new EcosystemSignalsSnapshot(
+            DateKey: "2026-11-15",
+            Location: "New Delhi, India",
+            Panchang: null,
+            UpcomingFestivals: [],
+            DailyKatha: new EcosystemDailyKathaSignal(
+                "dhruva-1",
+                "Faith and Focus: Dhruva's Tapasya",
+                "Bhakta Dhruva & Narada Muni",
+                "Focus: Young Dhruva performed unwavering meditation guided by Guru Narada Muni's 'Om Namo Bhagavate Vasudevaya' mantra, earning eternal radiance as the Pole Star.",
+                "Moral: Pure devotion and resolute focus overcome every obstacle.",
+                "ॐ नमो भगवते वासुदेवाय"),
+            HistoricalIncidents: [],
+            Competitions: [],
+            FunnelCampaigns: [],
+            Warnings: [],
+            FetchedAtUtc: DateTime.UtcNow);
+
+        var rule = new AutomationRule
+        {
+            Id = "ar_katha_hi",
+            Name = "Evening Katha",
+            SourceType = AutomationSourceType.DailyKatha,
+            Language = "hi",
+            EnableCharacterDialogue = true,
+            FunnelWebsiteKeys = ["panchang", "studio"]
+        };
+
+        var composed = AutomationContentComposer.ComposeForRule(rule, signals, SampleEcosystem());
+        var item = Assert.Single(composed);
+
+        Assert.DoesNotContain("Faith and Focus", item.Title);
+        Assert.DoesNotContain("Focus:", item.Script);
+        Assert.Contains("[भक्त ध्रुव]:", item.Script);
+        Assert.Contains("[देवर्षि नारद मुनि]:", item.Script);
+        Assert.False(AutomationContentComposer.IsMostlyLatin(item.Script));
+
+        var upgraded = AutomationContentComposer.TryUpgradeLegacyPostToHindiDialogue(
+            AutomationSourceType.DailyKatha,
+            "hi",
+            "Faith and Focus: Dhruva's Tapasya | Bhakta Dhruva & Narada Muni की कथा",
+            "Focus: Young Dhruva performed unwavering meditation.",
+            "2026-11-15",
+            "https://panchang.example.com",
+            null,
+            null);
+        Assert.NotNull(upgraded);
+        Assert.Contains("[भक्त ध्रुव]:", upgraded!.Value.Script);
+        Assert.DoesNotContain("Focus:", upgraded.Value.Script);
+    }
 }

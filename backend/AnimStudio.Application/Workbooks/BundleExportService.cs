@@ -264,7 +264,8 @@ public sealed class BundleExportService(
         character.Staging.Anchor.ToString(),
         Round(character.Staging.HeightFraction),
         Round(character.Staging.OffsetXFraction),
-        Flag(character.Staging.FlipHorizontal)
+        Flag(character.Staging.FlipHorizontal),
+        character.SubtitleColorHex
     ];
 
     private static IReadOnlyList<string?> SceneRow(

@@ -14,7 +14,8 @@ internal static class ProceduralCharacterRenderer
         ProceduralSceneRasterizer canvas,
         double timeSeconds,
         ProceduralDialoguePlan plan,
-        ProceduralEventPalette palette)
+        ProceduralEventPalette palette,
+        ProceduralStageLayout? layout = null)
     {
         if (!plan.HasCharacters || plan.LeftCharacter is null || plan.RightCharacter is null)
             return;
@@ -27,49 +28,140 @@ internal static class ProceduralCharacterRenderer
         var activeTurn = plan.Turns.FirstOrDefault(turn =>
             !turn.IsTitleHook && timeSeconds >= turn.StartSeconds && timeSeconds <= turn.EndSeconds);
 
-        var leftSpeaking = activeTurn?.Slot == DialogueSpeakerSlot.Left;
-        var rightSpeaking = activeTurn?.Slot == DialogueSpeakerSlot.Right;
+        // A supporting character speaking stays in the back row and steps forward; the main pair keeps its places.
+        var supporting = plan.Supporting;
+        var activeSupportIndex = activeTurn is null ? -1 : IndexOfName(supporting, activeTurn.SpeakerName);
+        var leftSpeaking = activeSupportIndex < 0 && activeTurn?.Slot == DialogueSpeakerSlot.Left;
+        var rightSpeaking = activeSupportIndex < 0 && activeTurn?.Slot == DialogueSpeakerSlot.Right;
 
-        var stageY = isLandscape ? h * 0.77f : h * 0.67f;
-        var scale = isLandscape ? h * 0.255f : w * 0.265f;
+        // On 9:16 mobile Shorts, position characters safely above the bottom 27% UI overlay & mid-lower subtitles (y=0.60..0.72).
+        var stageY = isLandscape ? h * 0.77f : h * 0.555f;
+        var scale = isLandscape ? h * 0.255f : w * 0.238f;
 
-        var leftX = w * (isLandscape ? 0.25f : 0.26f);
-        var rightX = w * (isLandscape ? 0.75f : 0.74f);
+        var leftX = w * (isLandscape ? 0.24f : 0.27f);
+        var rightX = w * (isLandscape ? 0.76f : 0.73f);
+        float leftY = stageY, rightY = stageY, leftMul = 1f, rightMul = 1f;
+
+        // Placements chosen on a template picture: each main character stands on its own spot and size.
+        var placed = layout is { Left: not null } or { Right: not null };
+        if (layout?.Left is { } lp)
+        {
+            leftX = w * (float)lp.X;
+            leftY = h * (float)lp.Y;
+            leftMul = (float)lp.Scale;
+        }
+        if (layout?.Right is { } rp)
+        {
+            rightX = w * (float)rp.X;
+            rightY = h * (float)rp.Y;
+            rightMul = (float)rp.Scale;
+        }
+        var leftFacesRight = leftX <= rightX;
 
         var leftColor = ParseHexRgb(palette.SpeakerAHex, palette.PrimaryRgb);
         var rightColor = ParseHexRgb(palette.SpeakerBHex, palette.SecondaryRgb);
 
-        // Soft luminous podium beneath both communicating characters
-        canvas.FillEllipse(w * 0.5f, stageY + scale * 0.16f, (rightX - leftX) * 0.78f, scale * 0.22f,
-            12, 10, 22, 0.58f);
-        canvas.DrawAdditiveRing(leftX, stageY + scale * 0.14f, scale * (leftSpeaking ? 0.42f : 0.30f),
-            leftColor.R, leftColor.G, leftColor.B, leftSpeaking ? 0.45f : 0.18f);
-        canvas.DrawAdditiveRing(rightX, stageY + scale * 0.14f, scale * (rightSpeaking ? 0.42f : 0.30f),
-            rightColor.R, rightColor.G, rightColor.B, rightSpeaking ? 0.45f : 0.18f);
+        DrawSupportingCast(canvas, timeSeconds, supporting, activeSupportIndex, (leftY + rightY) * 0.5f, scale, isLandscape, palette);
+
+        // Soft luminous podium beneath both communicating characters. Characters placed on a picture stand on its
+        // own ground instead (each figure still casts its contact shadow).
+        if (!placed)
+        {
+            canvas.FillEllipse(w * 0.5f, stageY + scale * 0.16f, (rightX - leftX) * 0.78f, scale * 0.20f,
+                14, 10, 26, 0.62f);
+        }
+        var leftRingScale = scale * leftMul;
+        var rightRingScale = scale * rightMul;
+        canvas.DrawAdditiveRing(leftX, leftY + leftRingScale * 0.14f, leftRingScale * (leftSpeaking ? 0.44f : 0.30f),
+            leftColor.R, leftColor.G, leftColor.B, leftSpeaking ? 0.48f : 0.18f);
+        canvas.DrawAdditiveRing(rightX, rightY + rightRingScale * 0.14f, rightRingScale * (rightSpeaking ? 0.44f : 0.30f),
+            rightColor.R, rightColor.G, rightColor.B, rightSpeaking ? 0.48f : 0.18f);
 
         // Animated dialogue energy stream connecting the active speaker toward the listener
         if (leftSpeaking || rightSpeaking)
         {
-            var srcX = leftSpeaking ? leftX + scale * 0.26f : rightX - scale * 0.26f;
-            var dstX = leftSpeaking ? rightX - scale * 0.26f : leftX + scale * 0.26f;
+            var inward = leftFacesRight ? 1f : -1f;
+            var srcX = leftSpeaking ? leftX + inward * leftRingScale * 0.26f : rightX - inward * rightRingScale * 0.26f;
+            var dstX = leftSpeaking ? rightX - inward * rightRingScale * 0.26f : leftX + inward * leftRingScale * 0.26f;
             var waveColor = leftSpeaking ? leftColor : rightColor;
-            var mouthY = stageY - scale * 0.72f;
+            var mouthY = leftSpeaking ? leftY - leftRingScale * 0.70f : rightY - rightRingScale * 0.70f;
             var wavePhase = (float)((timeSeconds * 1.45) % 1.0);
-            for (var p = 0; p < 5; p++)
+            for (var p = 0; p < 6; p++)
             {
-                var u = (wavePhase + p * 0.2f) % 1.0f;
+                var u = (wavePhase + p * 0.166f) % 1.0f;
                 var px = srcX + (dstX - srcX) * u;
-                var py = mouthY - MathF.Sin(u * MathF.PI) * scale * 0.14f + MathF.Sin((float)timeSeconds * 6f + p) * 4f;
-                var alpha = MathF.Sin(u * MathF.PI) * 0.65f;
-                canvas.DrawAdditiveDisc(px, py, minSide * 0.015f, waveColor.R, waveColor.G, waveColor.B, alpha);
+                var py = mouthY - MathF.Sin(u * MathF.PI) * scale * 0.15f + MathF.Sin((float)timeSeconds * 6f + p) * 3.5f;
+                var alpha = MathF.Sin(u * MathF.PI) * 0.70f;
+                canvas.DrawAdditiveDisc(px, py, minSide * 0.014f, waveColor.R, waveColor.G, waveColor.B, alpha);
             }
         }
 
-        DrawCharacterFigure(canvas, leftX, stageY, scale, facingRight: true, timeSeconds,
-            plan.LeftCharacter.Role, leftSpeaking, leftColor, seedOffset: 0.0);
+        var activeLeftName = leftSpeaking && activeTurn is { SpeakerName.Length: > 0 }
+            ? activeTurn.SpeakerName
+            : plan.LeftCharacter.Name;
+        var activeLeftRole = leftSpeaking && activeTurn?.SpeakerRole is { } lRole && lRole != CharacterVisualRole.Narrator
+            ? lRole
+            : plan.LeftCharacter.Role;
+        var activeRightName = rightSpeaking && activeTurn is { SpeakerName.Length: > 0 }
+            ? activeTurn.SpeakerName
+            : plan.RightCharacter.Name;
+        var activeRightRole = rightSpeaking && activeTurn?.SpeakerRole is { } rRole && rRole != CharacterVisualRole.Narrator
+            ? rRole
+            : plan.RightCharacter.Role;
 
-        DrawCharacterFigure(canvas, rightX, stageY, scale, facingRight: false, timeSeconds,
-            plan.RightCharacter.Role, rightSpeaking, rightColor, seedOffset: 1.7);
+        var leftScale = (activeLeftRole == CharacterVisualRole.ChildDevotee ? scale * 0.85f : scale) * leftMul;
+        var rightScale = (activeRightRole == CharacterVisualRole.ChildDevotee ? scale * 0.85f : scale) * rightMul;
+
+        DrawCharacterFigure(canvas, leftX, leftY, leftScale, facingRight: leftFacesRight, timeSeconds,
+            activeLeftName, activeLeftRole, leftSpeaking, leftColor, seedOffset: 0.0,
+            robeHex: string.Equals(activeLeftName, plan.LeftCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.LeftCharacter.RobeHex : null);
+
+        DrawCharacterFigure(canvas, rightX, rightY, rightScale, facingRight: !leftFacesRight, timeSeconds,
+            activeRightName, activeRightRole, rightSpeaking, rightColor, seedOffset: 1.7,
+            robeHex: string.Equals(activeRightName, plan.RightCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.RightCharacter.RobeHex : null);
+    }
+
+    private static int IndexOfName(IReadOnlyList<ProceduralCharacterProfile> cast, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return -1;
+        for (var i = 0; i < cast.Count; i++)
+            if (string.Equals(cast[i].Name, name, StringComparison.OrdinalIgnoreCase)) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Up to three supporting characters stand further back (smaller, slightly hazed by depth). The one speaking
+    /// steps forward with an aura so viewers always see who talks.
+    /// </summary>
+    private static void DrawSupportingCast(
+        ProceduralSceneRasterizer canvas,
+        double timeSeconds,
+        IReadOnlyList<ProceduralCharacterProfile> supporting,
+        int activeIndex,
+        float stageY,
+        float scale,
+        bool isLandscape,
+        ProceduralEventPalette palette)
+    {
+        if (supporting.Count == 0) return;
+        var w = canvas.Width;
+        float[] slots = supporting.Count switch
+        {
+            1 => [0.5f],
+            2 => isLandscape ? [0.42f, 0.58f] : [0.5f, 0.12f],
+            _ => isLandscape ? [0.5f, 0.38f, 0.62f] : [0.5f, 0.11f, 0.89f]
+        };
+        var accent = ParseHexRgb(palette.SpeakerBHex, palette.SecondaryRgb);
+        for (var i = 0; i < supporting.Count && i < slots.Length; i++)
+        {
+            var member = supporting[i];
+            var speaking = i == activeIndex;
+            var depthScale = scale * (speaking ? 0.74f : 0.6f) * (member.Role == CharacterVisualRole.ChildDevotee ? 0.85f : 1f);
+            var baseY = stageY - scale * (speaking ? 0.2f : 0.3f);
+            var x = w * slots[i];
+            DrawCharacterFigure(canvas, x, baseY, depthScale, facingRight: x < w * 0.5f || (x == w * 0.5f && i % 2 == 0), timeSeconds,
+                member.Name, member.Role, speaking, accent, seedOffset: 3.1 + i * 1.3, robeHex: member.RobeHex, depthDim: speaking ? 0f : 0.28f);
+        }
     }
 
     private static void DrawCharacterFigure(
@@ -79,87 +171,162 @@ internal static class ProceduralCharacterRenderer
         float scale,
         bool facingRight,
         double timeSeconds,
+        string speakerName,
         CharacterVisualRole role,
         bool isSpeaking,
         RgbColor accent,
-        double seedOffset)
+        double seedOffset,
+        string? robeHex = null,
+        float depthDim = 0f)
     {
         var dir = facingRight ? 1f : -1f;
         var t = timeSeconds + seedOffset;
         var breathe = (float)Math.Sin(t * 2.1) * scale * (isSpeaking ? 0.022f : 0.011f);
-        var gestureBounce = isSpeaking ? (float)Math.Abs(Math.Sin(t * 7.2)) * scale * 0.04f : 0f;
-        var nod = isSpeaking ? (float)Math.Sin(t * 5.0) * scale * 0.012f : (float)Math.Sin(t * 1.4) * scale * 0.008f;
+        var gestureBounce = isSpeaking ? (float)Math.Abs(Math.Sin(t * 7.2)) * scale * 0.042f : 0f;
+        var nod = isSpeaking ? (float)Math.Sin(t * 5.0) * scale * 0.014f : (float)Math.Sin(t * 1.4) * scale * 0.008f;
+        var lean = isSpeaking ? dir * scale * 0.028f : 0f;
 
         var hipY = baseY;
         var shoulderY = baseY - scale * 0.44f + breathe;
         var headCenterY = shoulderY - scale * 0.27f + nod;
-        var headCenterX = baseX + dir * scale * 0.015f;
+        var headCenterX = baseX + dir * scale * 0.018f + lean;
+
+        // Soft contact shadow grounds the figure on the stage floor.
+        canvas.FillEllipse(baseX + dir * scale * 0.06f, baseY + scale * 0.13f, scale * 0.42f, scale * 0.07f, 6, 4, 10, 0.42f * (1f - depthDim));
 
         // Aura spotlight behind active speaker
-        var auraAlpha = isSpeaking ? 0.34f : 0.13f;
-        canvas.DrawAdditiveDisc(baseX, shoulderY - scale * 0.06f, scale * (isSpeaking ? 0.85f : 0.56f),
+        var auraAlpha = isSpeaking ? 0.38f : 0.14f;
+        canvas.DrawAdditiveDisc(baseX, shoulderY - scale * 0.08f, scale * (isSpeaking ? 0.92f : 0.58f),
             accent.R, accent.G, accent.B, auraAlpha);
 
-        // Divine halo behind head for Divine or active Sage/King
-        if (role == CharacterVisualRole.Divine || isSpeaking)
+        // Divine / Pauranik radiance halo behind head
+        var isGoddess = role == CharacterVisualRole.NobleWoman && IsGoddessName(speakerName);
+        if (role is CharacterVisualRole.Divine or CharacterVisualRole.SageRishi || isGoddess || isSpeaking)
         {
-            var haloR = role == CharacterVisualRole.Divine ? scale * 0.36f : scale * 0.28f;
+            var divineGlow = role == CharacterVisualRole.Divine || isGoddess;
+            var haloR = divineGlow ? scale * 0.38f : scale * 0.29f;
             canvas.DrawAdditiveDisc(headCenterX, headCenterY, haloR, accent.R, accent.G, accent.B,
-                role == CharacterVisualRole.Divine ? 0.48f : 0.22f);
-            canvas.DrawAdditiveRing(headCenterX, headCenterY, haloR * 0.85f, 255, 232, 160,
-                role == CharacterVisualRole.Divine ? 0.72f : 0.35f);
+                divineGlow ? 0.50f : (isSpeaking ? 0.26f : 0.12f));
+            canvas.DrawAdditiveRing(headCenterX, headCenterY, haloR * 0.86f, 255, 232, 160,
+                divineGlow ? 0.74f : (isSpeaking ? 0.42f : 0.16f));
         }
 
-        // Clothing palette per character role
+        // Clothing palette distinct per character archetype
         var (robeR, robeG, robeB, sashR, sashG, sashB) = role switch
         {
-            CharacterVisualRole.KingCrown => ((byte)138, (byte)36, (byte)54, (byte)245, (byte)185, (byte)52),
-            CharacterVisualRole.SageRishi => ((byte)214, (byte)102, (byte)24, (byte)252, (byte)218, (byte)130),
-            CharacterVisualRole.Divine => ((byte)54, (byte)96, (byte)204, (byte)255, (byte)214, (byte)64),
-            _ => ((byte)38, (byte)78, (byte)118, accent.R, accent.G, accent.B)
+            CharacterVisualRole.KingCrown => ((byte)146, (byte)36, (byte)58, (byte)245, (byte)190, (byte)56),
+            CharacterVisualRole.SageRishi => ((byte)216, (byte)104, (byte)24, (byte)253, (byte)224, (byte)130),
+            CharacterVisualRole.Divine => ((byte)50, (byte)96, (byte)214, (byte)255, (byte)216, (byte)64),
+            CharacterVisualRole.ChildDevotee => ((byte)234, (byte)162, (byte)32, (byte)225, (byte)86, (byte)42),
+            CharacterVisualRole.NobleWoman => ((byte)196, (byte)44, (byte)86, (byte)248, (byte)196, (byte)70),
+            CharacterVisualRole.Warrior => ((byte)120, (byte)84, (byte)52, (byte)178, (byte)182, (byte)192),
+            _ => ((byte)40, (byte)84, (byte)128, accent.R, accent.G, accent.B)
         };
-
-        if (!isSpeaking)
+        if (robeHex is not null)
         {
-            // Dim non-speaking listener subtly so attention locks onto speaker
-            robeR = (byte)(robeR * 0.78f);
-            robeG = (byte)(robeG * 0.78f);
-            robeB = (byte)(robeB * 0.78f);
+            var custom = ParseHexRgb(robeHex, new RgbColor(robeR, robeG, robeB));
+            (robeR, robeG, robeB) = (custom.R, custom.G, custom.B);
         }
 
-        // Seated/standing lower drape & torso silhouette
-        canvas.FillEllipse(baseX, hipY + scale * 0.02f, scale * 0.32f, scale * 0.17f,
-            (byte)(robeR * 0.75f), (byte)(robeG * 0.75f), (byte)(robeB * 0.75f), 0.96f);
-        canvas.FillCapsule(baseX, hipY, baseX, shoulderY, scale * 0.19f, robeR, robeG, robeB, 0.98f);
+        var dim = (isSpeaking ? 1f : 0.82f) * (1f - depthDim);
+        robeR = (byte)(robeR * dim);
+        robeG = (byte)(robeG * dim);
+        robeB = (byte)(robeB * dim);
 
-        // Diagonal Angavastram / Royal sash across chest
+        // Seated lotus / padmasana lower drape & torso silhouette
+        canvas.FillEllipse(baseX, hipY + scale * 0.02f, scale * 0.33f, scale * 0.17f,
+            (byte)(robeR * 0.74f), (byte)(robeG * 0.74f), (byte)(robeB * 0.74f), 0.97f);
+        canvas.FillCapsule(baseX, hipY, baseX + lean * 0.4f, shoulderY, scale * 0.19f, robeR, robeG, robeB, 0.98f);
+        // Form shading: the side away from the key light falls into shadow, the near side catches a rim light.
+        canvas.FillCapsule(baseX - dir * scale * 0.09f, hipY, baseX - dir * scale * 0.09f + lean * 0.4f, shoulderY + scale * 0.04f,
+            scale * 0.09f, (byte)(robeR * 0.62f), (byte)(robeG * 0.62f), (byte)(robeB * 0.62f), 0.55f);
+        canvas.DrawGlowLine(baseX + dir * scale * 0.17f, hipY - scale * 0.04f, baseX + dir * scale * 0.15f + lean * 0.4f, shoulderY + scale * 0.06f,
+            scale * 0.02f, 255, 236, 200, isSpeaking ? 0.38f : 0.18f);
+
+        if (role == CharacterVisualRole.NobleWoman)
+        {
+            // Saree pallu flowing from the shoulder, with a gold border.
+            canvas.FillCapsule(baseX + dir * scale * 0.12f, shoulderY + scale * 0.02f, baseX - dir * scale * 0.2f, hipY + scale * 0.06f,
+                scale * 0.06f, (byte)(robeR * 0.8f), (byte)(robeG * 0.8f), (byte)(robeB * 0.8f), 0.9f);
+            canvas.DrawGlowLine(baseX + dir * scale * 0.12f, shoulderY + scale * 0.02f, baseX - dir * scale * 0.2f, hipY + scale * 0.06f,
+                scale * 0.012f, 255, 214, 100, 0.85f);
+        }
+        else if (role == CharacterVisualRole.Warrior)
+        {
+            // Round shield on the back arm and a spear held upright.
+            var shieldX = baseX - dir * scale * 0.2f;
+            var shieldY = hipY - scale * 0.2f;
+            canvas.FillEllipse(shieldX, shieldY, scale * 0.15f, scale * 0.15f, 120, 70, 34, 0.97f);
+            canvas.DrawAdditiveRing(shieldX, shieldY, scale * 0.13f, 220, 190, 120, 0.6f);
+            canvas.FillEllipse(shieldX, shieldY, scale * 0.035f, scale * 0.035f, 214, 190, 130, 0.97f);
+            var spearX = baseX + dir * scale * 0.33f;
+            canvas.FillCapsule(spearX, hipY + scale * 0.12f, spearX, shoulderY - scale * 0.6f, scale * 0.012f, 110, 78, 44, 0.97f);
+            canvas.FillEllipse(spearX, shoulderY - scale * 0.64f, scale * 0.02f, scale * 0.06f, 210, 214, 222, 0.97f);
+        }
+
+        // Diagonal Angavastram / Royal uttariya & pearl kanthi mala
         canvas.DrawGlowLine(
-            baseX - dir * scale * 0.15f, shoulderY + scale * 0.04f,
+            baseX - dir * scale * 0.15f, shoulderY + scale * 0.03f,
             baseX + dir * scale * 0.15f, hipY - scale * 0.05f,
-            scale * 0.055f, sashR, sashG, sashB, isSpeaking ? 0.88f : 0.55f);
+            scale * 0.052f, sashR, sashG, sashB, isSpeaking ? 0.90f : 0.60f);
+        if (role is CharacterVisualRole.ChildDevotee or CharacterVisualRole.KingCrown or CharacterVisualRole.Divine)
+        {
+            canvas.DrawGlowLine(
+                baseX - scale * 0.08f, shoulderY + scale * 0.02f,
+                baseX + scale * 0.08f, shoulderY + scale * 0.02f,
+                scale * 0.018f, 255, 224, 120, 0.88f);
+        }
+
+        // Signature prop for Sage Narada (curved glowing Veena held across torso)
+        var isNarada = role == CharacterVisualRole.SageRishi
+            && (speakerName.Contains("narad", StringComparison.OrdinalIgnoreCase)
+                || speakerName.Contains("नारद", StringComparison.OrdinalIgnoreCase));
+        if (isNarada)
+        {
+            var gourdX = baseX - dir * scale * 0.16f;
+            var gourdY = hipY - scale * 0.11f;
+            var topVeenaX = baseX + dir * scale * 0.14f;
+            var topVeenaY = shoulderY - scale * 0.14f;
+            canvas.FillCapsule(gourdX, gourdY, topVeenaX, topVeenaY, scale * 0.022f, 168, 92, 34, 0.98f);
+            canvas.FillEllipse(gourdX, gourdY, scale * 0.085f, scale * 0.072f, 212, 128, 46, 0.98f);
+            canvas.FillEllipse(topVeenaX, topVeenaY, scale * 0.052f, scale * 0.048f, 232, 166, 62, 0.98f);
+            canvas.DrawGlowLine(gourdX, gourdY, topVeenaX, topVeenaY, 1.4f, 255, 234, 150, 0.85f);
+        }
 
         // Neck & Warm Skin Head
-        canvas.FillCapsule(baseX, shoulderY, headCenterX, headCenterY + scale * 0.12f,
-            scale * 0.065f, 208, 152, 114, 0.98f);
+        canvas.FillCapsule(baseX + lean * 0.4f, shoulderY, headCenterX, headCenterY + scale * 0.12f,
+            scale * 0.064f, 208, 152, 114, 0.98f);
 
         var (skinR, skinG, skinB) = role == CharacterVisualRole.Divine
             ? ((byte)185, (byte)215, (byte)255)
-            : ((byte)228, (byte)176, (byte)136);
-        if (!isSpeaking)
-        {
-            skinR = (byte)(skinR * 0.86f);
-            skinG = (byte)(skinG * 0.86f);
-            skinB = (byte)(skinB * 0.86f);
-        }
+            : ((byte)232, (byte)180, (byte)140);
+        var skinDim = (isSpeaking ? 1f : 0.88f) * (1f - depthDim);
+        skinR = (byte)(skinR * skinDim);
+        skinG = (byte)(skinG * skinDim);
+        skinB = (byte)(skinB * skinDim);
 
-        var headRadius = scale * 0.175f;
-        canvas.FillEllipse(headCenterX, headCenterY, headRadius, headRadius * 1.08f, skinR, skinG, skinB, 0.99f);
+        var headRadius = scale * 0.178f;
+        if (role == CharacterVisualRole.NobleWoman)
+        {
+            // Long braid falling behind the shoulder (drawn first so the head sits over it).
+            canvas.FillCapsule(headCenterX - dir * scale * 0.1f, headCenterY, headCenterX - dir * scale * 0.16f, shoulderY + scale * 0.3f,
+                scale * 0.05f, 30, 22, 30, 0.97f);
+            canvas.DrawAdditiveDisc(headCenterX - dir * scale * 0.16f, shoulderY + scale * 0.3f, scale * 0.04f, 255, 210, 220, 0.5f);
+        }
+        canvas.FillEllipse(headCenterX, headCenterY, headRadius, headRadius * 1.07f, skinR, skinG, skinB, 0.99f);
+        // Head shading: shadowed back of the head, warm highlight on the lit cheek.
+        canvas.FillEllipse(headCenterX - dir * headRadius * 0.42f, headCenterY + headRadius * 0.08f, headRadius * 0.55f, headRadius * 0.9f,
+            (byte)(skinR * 0.74f), (byte)(skinG * 0.72f), (byte)(skinB * 0.72f), 0.45f);
+        canvas.DrawAdditiveDisc(headCenterX + dir * headRadius * 0.35f, headCenterY - headRadius * 0.2f, headRadius * 0.45f, 255, 226, 196, 0.12f);
+
+        // Warm cheek tint & golden ear Kundal ornament
+        canvas.FillEllipse(headCenterX - dir * scale * 0.12f, headCenterY + scale * 0.02f,
+            scale * 0.032f, scale * 0.040f, 245, 198, 66, 0.95f);
 
         // Hair / Beards / Headgear by archetype
         switch (role)
         {
             case CharacterVisualRole.KingCrown:
-                // Royal three-tier Mukut crown + side ear ornaments
                 canvas.FillCapsule(headCenterX - scale * 0.14f, headCenterY - headRadius * 0.82f,
                     headCenterX + scale * 0.14f, headCenterY - headRadius * 0.82f,
                     scale * 0.06f, 236, 178, 36, 0.98f);
@@ -167,48 +334,93 @@ internal static class ProceduralCharacterRenderer
                 canvas.FillEllipse(headCenterX, headCenterY - headRadius * 1.15f, scale * 0.036f, scale * 0.048f, 225, 29, 72, 0.98f);
                 break;
 
+            case CharacterVisualRole.ChildDevotee:
+                // Crisp dark hair + golden Bal-Mukut prince headband with emerald gem
+                canvas.FillEllipse(headCenterX - dir * scale * 0.025f, headCenterY - headRadius * 0.84f,
+                    scale * 0.165f, scale * 0.095f, 26, 22, 34, 0.98f);
+                canvas.FillCapsule(headCenterX - scale * 0.13f, headCenterY - headRadius * 0.62f,
+                    headCenterX + scale * 0.13f, headCenterY - headRadius * 0.62f,
+                    scale * 0.025f, 248, 200, 52, 0.98f);
+                canvas.FillEllipse(headCenterX + dir * scale * 0.05f, headCenterY - headRadius * 0.78f,
+                    scale * 0.034f, scale * 0.040f, 16, 185, 129, 0.98f);
+                break;
+
             case CharacterVisualRole.SageRishi:
-                // Traditional Jata topknot + flowing white beard
                 canvas.FillEllipse(headCenterX - dir * scale * 0.04f, headCenterY - headRadius * 1.08f,
-                    scale * 0.105f, scale * 0.095f, 210, 210, 220, 0.98f);
+                    scale * 0.105f, scale * 0.095f, 220, 222, 232, 0.98f);
                 canvas.FillEllipse(headCenterX + dir * scale * 0.02f, headCenterY + headRadius * 0.72f,
-                    scale * 0.125f, scale * 0.16f, 230, 232, 238, 0.94f);
+                    scale * 0.125f, scale * 0.16f, 236, 238, 244, 0.95f);
+                break;
+
+            case CharacterVisualRole.NobleWoman:
+                // Centre-parted hair, maang-tikka and a small crown for queens / goddesses.
+                canvas.FillEllipse(headCenterX - dir * scale * 0.02f, headCenterY - headRadius * 0.8f,
+                    scale * 0.17f, scale * 0.1f, 30, 22, 30, 0.98f);
+                canvas.FillEllipse(headCenterX + dir * scale * 0.03f, headCenterY - headRadius * 0.52f, scale * 0.018f, scale * 0.022f, 250, 204, 21, 0.98f);
+                if (isGoddess || speakerName.Contains("rani", StringComparison.OrdinalIgnoreCase) || speakerName.Contains("रानी", StringComparison.Ordinal))
+                {
+                    canvas.FillCapsule(headCenterX - scale * 0.1f, headCenterY - headRadius * 0.95f,
+                        headCenterX + scale * 0.1f, headCenterY - headRadius * 0.95f, scale * 0.03f, 236, 178, 36, 0.98f);
+                    canvas.FillEllipse(headCenterX, headCenterY - headRadius * 1.12f, scale * 0.045f, scale * 0.06f, 250, 204, 21, 0.98f);
+                }
+                break;
+
+            case CharacterVisualRole.Warrior:
+                // Helmet with a red crest plume.
+                canvas.FillEllipse(headCenterX, headCenterY - headRadius * 0.55f, headRadius * 1.02f, headRadius * 0.62f, 150, 156, 168, 0.98f);
+                canvas.FillCapsule(headCenterX - headRadius, headCenterY - headRadius * 0.3f, headCenterX + headRadius, headCenterY - headRadius * 0.3f,
+                    scale * 0.02f, 196, 160, 70, 0.98f);
+                for (var plume = 0; plume < 4; plume++)
+                {
+                    var wave = MathF.Sin((float)t * 3f + plume) * scale * 0.01f;
+                    canvas.FillEllipse(headCenterX - dir * plume * scale * 0.035f, headCenterY - headRadius * 1.12f + plume * scale * 0.012f + wave,
+                        scale * 0.04f, scale * 0.025f, 200, 36, 44, 0.95f);
+                }
                 break;
 
             case CharacterVisualRole.Divine:
-                // Celestial peacock crown gem + dark curls
                 canvas.FillEllipse(headCenterX, headCenterY - headRadius * 0.85f, scale * 0.14f, scale * 0.09f, 28, 36, 68, 0.98f);
                 canvas.FillEllipse(headCenterX + dir * scale * 0.05f, headCenterY - headRadius * 1.32f, scale * 0.055f, scale * 0.075f, 16, 185, 129, 0.96f);
                 canvas.DrawAdditiveDisc(headCenterX, headCenterY - headRadius * 1.2f, scale * 0.09f, 250, 204, 21, 0.65f);
                 break;
 
             default:
-                // Scholar hair + neat tilak/turban accent
                 canvas.FillEllipse(headCenterX - dir * scale * 0.02f, headCenterY - headRadius * 0.84f,
                     scale * 0.165f, scale * 0.095f, 36, 30, 42, 0.98f);
                 break;
         }
 
-        // Tilak on forehead
-        canvas.FillCapsule(headCenterX + dir * scale * 0.055f, headCenterY - headRadius * 0.42f,
-            headCenterX + dir * scale * 0.055f, headCenterY - headRadius * 0.20f,
-            scale * 0.015f, 234, 88, 12, 0.95f);
+        // Sacred forehead tilak (a bindi for women; none under a warrior's helmet)
+        if (role == CharacterVisualRole.NobleWoman)
+        {
+            canvas.FillEllipse(headCenterX + dir * scale * 0.055f, headCenterY - headRadius * 0.3f, scale * 0.014f, scale * 0.014f, 200, 20, 40, 0.97f);
+        }
+        else if (role != CharacterVisualRole.Warrior)
+        {
+            canvas.FillCapsule(headCenterX + dir * scale * 0.055f, headCenterY - headRadius * 0.44f,
+                headCenterX + dir * scale * 0.055f, headCenterY - headRadius * 0.22f,
+                scale * 0.015f, 234, 88, 12, 0.95f);
+        }
 
-        // Eyes (blinks cleanly every ~3.8 seconds)
+        // Expressive eyebrow & blinking eyes
         var blinkWindow = (t % 3.8) > 3.66;
         var eyeX = headCenterX + dir * scale * 0.068f;
-        var eyeY = headCenterY - scale * 0.018f;
+        var eyeY = headCenterY - scale * 0.016f;
+        var browLift = isSpeaking ? scale * 0.010f : 0f;
+        canvas.DrawGlowLine(eyeX - scale * 0.028f, eyeY - scale * 0.040f - browLift,
+            eyeX + scale * 0.028f, eyeY - scale * 0.044f - browLift, 1.4f, 44, 30, 28, 0.85f);
+
         if (!blinkWindow)
         {
-            canvas.FillEllipse(eyeX, eyeY, scale * 0.024f, scale * 0.019f, 28, 22, 32, 0.96f);
-            canvas.FillEllipse(eyeX + dir * scale * 0.006f, eyeY - scale * 0.004f, scale * 0.008f, scale * 0.008f, 255, 255, 255, 0.9f);
+            canvas.FillEllipse(eyeX, eyeY, scale * 0.025f, scale * 0.020f, 28, 22, 32, 0.96f);
+            canvas.FillEllipse(eyeX + dir * scale * 0.006f, eyeY - scale * 0.004f, scale * 0.008f, scale * 0.008f, 255, 255, 255, 0.92f);
         }
         else
         {
             canvas.DrawGlowLine(eyeX - scale * 0.022f, eyeY, eyeX + scale * 0.022f, eyeY, 1.5f, 40, 28, 30, 0.9f);
         }
 
-        // Animated mouth: synced to real synthesized speech amplitude when available, falling back to smooth cadence
+        // Animated mouth: strictly tracks real synthesized audio energy when present so silence never flaps mouth!
         var mouthX = headCenterX + dir * scale * 0.088f;
         var mouthY = headCenterY + scale * 0.072f;
         var speechEnergy = isSpeaking
@@ -216,37 +428,47 @@ internal static class ProceduralCharacterRenderer
                 ? realSpeech
                 : (float)(0.5 + 0.5 * Math.Sin(timeSeconds * 16.5)))
             : 0f;
-        var mouthActive = isSpeaking && speechEnergy > 0.04f;
-        var mouthOpen = mouthActive
-            ? 0.011f + speechEnergy * 0.036f
-            : 0.009f;
+        var mouthActive = isSpeaking && speechEnergy > 0.045f;
         if (mouthActive)
         {
-            canvas.FillEllipse(mouthX, mouthY, scale * 0.036f, scale * mouthOpen, 120, 24, 34, 0.95f);
+            var mouthOpen = 0.012f + speechEnergy * 0.036f;
+            canvas.FillEllipse(mouthX, mouthY, scale * 0.036f, scale * mouthOpen, 128, 26, 36, 0.96f);
         }
         else
         {
-            canvas.DrawGlowLine(mouthX - scale * 0.026f, mouthY, mouthX + scale * 0.026f, mouthY - scale * 0.006f,
-                1.6f, 130, 54, 48, 0.92f);
+            canvas.DrawGlowLine(mouthX - scale * 0.026f, mouthY, mouthX + scale * 0.026f, mouthY - scale * 0.007f,
+                1.6f, 134, 58, 52, 0.92f);
         }
 
-        // Gesturing foreground arm toward conversation partner
-        var shoulderAnchorX = baseX + dir * scale * 0.13f;
+        // Gesturing foreground arm toward conversation partner (or serene folded Namaste/meditation gesture while listening)
+        var shoulderAnchorX = baseX + lean * 0.4f + dir * scale * 0.13f;
         var shoulderAnchorY = shoulderY + scale * 0.05f;
-        var elbowX = shoulderAnchorX + dir * scale * (isSpeaking ? 0.15f : 0.09f);
-        var elbowY = shoulderAnchorY + scale * (isSpeaking ? 0.10f : 0.17f);
-        var handX = elbowX + dir * scale * (isSpeaking ? 0.16f : 0.08f);
-        var handY = elbowY - scale * (isSpeaking ? 0.14f : 0.02f) - gestureBounce;
+        var elbowX = shoulderAnchorX + dir * scale * (isSpeaking ? 0.16f : 0.08f);
+        var elbowY = shoulderAnchorY + scale * (isSpeaking ? 0.09f : 0.16f);
+        var handX = elbowX + dir * scale * (isSpeaking ? 0.16f : 0.05f);
+        var handY = elbowY - scale * (isSpeaking ? 0.15f : 0.04f) - gestureBounce;
 
-        canvas.FillCapsule(shoulderAnchorX, shoulderAnchorY, elbowX, elbowY, scale * 0.052f, robeR, robeG, robeB, 0.96f);
-        canvas.FillCapsule(elbowX, elbowY, handX, handY, scale * 0.044f, robeR, robeG, robeB, 0.96f);
-        canvas.FillEllipse(handX, handY, scale * 0.048f, scale * 0.042f, skinR, skinG, skinB, 0.98f);
+        canvas.FillCapsule(shoulderAnchorX, shoulderAnchorY, elbowX, elbowY, scale * 0.050f, robeR, robeG, robeB, 0.96f);
+        canvas.FillCapsule(elbowX, elbowY, handX, handY, scale * 0.042f, robeR, robeG, robeB, 0.96f);
+        canvas.FillEllipse(handX, handY, scale * 0.046f, scale * 0.040f, skinR, skinG, skinB, 0.98f);
 
         if (isSpeaking)
         {
-            canvas.DrawAdditiveDisc(handX, handY, scale * 0.11f, accent.R, accent.G, accent.B, 0.35f);
+            canvas.DrawAdditiveDisc(handX, handY, scale * 0.11f, accent.R, accent.G, accent.B, 0.36f);
         }
+
+        // Speaker pedestal badge bar beneath active speaker for immediate visual clarity
+        var barW = scale * (isSpeaking ? 0.36f : 0.22f);
+        var barY = baseY + scale * 0.18f;
+        canvas.FillCapsule(baseX - barW, barY, baseX + barW, barY, scale * 0.022f,
+            accent.R, accent.G, accent.B, isSpeaking ? 0.85f : 0.30f);
     }
+
+    private static readonly string[] GoddessTokens =
+        ["devi", "mata", "durga", "lakshmi", "laxmi", "saraswati", "parvati", "sita", "radha", "देवी", "माता", "दुर्गा", "लक्ष्मी", "सरस्वती", "पार्वती", "सीता", "राधा"];
+
+    private static bool IsGoddessName(string name) =>
+        GoddessTokens.Any(t => name.Contains(t, StringComparison.OrdinalIgnoreCase));
 
     private static RgbColor ParseHexRgb(string? hex, RgbColor fallback)
     {

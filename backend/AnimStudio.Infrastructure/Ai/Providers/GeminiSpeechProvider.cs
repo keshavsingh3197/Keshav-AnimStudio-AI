@@ -44,7 +44,7 @@ public sealed partial class GeminiSpeechProvider(
     ILogger<GeminiSpeechProvider> logger,
     TimeProvider? clock = null)
     : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceReplicatingSpeechProvider, IMusicGeneratingProvider,
-      IImageReadingProvider, IImageEditingProvider
+      IImageReadingProvider, IImageEditingProvider, IGeminiImageGeneratingProvider
 {
     private const string DefaultReadingModel = "gemini-3.8-flash";
     /// <summary>Gemini 2.5 Flash Image ("Nano Banana"): edits a picture and keeps the rest of it, a few cents a picture.</summary>
@@ -107,6 +107,13 @@ public sealed partial class GeminiSpeechProvider(
     /// <summary>Google refuses a replication sample outside 10-30 s; a WAV is at most this.</summary>
     private const int MaxReplicationAudioBytes = 4 * 1024 * 1024;
     private static readonly TimeSpan ReplicationRetryDelay = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Every Gemini TTS model allows 10 requests a minute (aistudio.google.com/rate-limit), so speech
+    /// calls start at least 6.5 s apart (about 9 a minute). Static, so the limit holds even if more
+    /// than one instance of this provider exists in the process.
+    /// </summary>
+    private static readonly AiRequestPacer SpeechPacer = new(TimeSpan.FromSeconds(6.5));
 
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly SemaphoreSlim _catalogLock = new(1, 1);
@@ -214,6 +221,7 @@ public sealed partial class GeminiSpeechProvider(
             }
         };
 
+        await SpeechPacer.WaitTurnAsync(ct).ConfigureAwait(false);
         using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
 
         var (data, mimeType) = ReadInlineAudio(response.RootElement)
@@ -740,6 +748,17 @@ public sealed partial class GeminiSpeechProvider(
 
     private static string? StringOf(JsonElement element, string snake, string camel) =>
         Property(element, snake, camel) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
+
+    /// <summary>The first inline image part of the first candidate, in either casing.</summary>
+    internal static (string Data, string? MimeType)? ReadInlineImageData(JsonElement root) => ReadInlineData(root, "image/");
+
+    public Task<AiImageResult> GenerateSceneImageAsync(AiImageRequest request, string? model, CancellationToken ct) =>
+        GeminiImageProvider.GenerateWithGeminiAsync(
+            Id,
+            request,
+            string.IsNullOrWhiteSpace(model) ? DefaultEditingModel : model.Trim(),
+            PostJsonAsync,
+            ct);
 
     /// <summary>The first inline audio part of the first candidate, in either casing.</summary>
     private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root) => ReadInlineData(root, null);

@@ -351,6 +351,8 @@ public static class DependencyInjection
         services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
         services.AddScoped<MyVoiceTuning>();
         services.AddScoped<MyVoiceReplication>();
+        // The Songs page: AI-drafted lyrics and Google Lyria songs, kept in object storage per user.
+        services.AddScoped<AnimStudio.Application.Songs.SongLibrary>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddSingleton<ReleaseKitStore>();
 
@@ -358,6 +360,7 @@ public static class DependencyInjection
         // that stops every stream on shutdown.
         services.AddSingleton<LiveStreamManager>();
         services.AddHostedService(sp => sp.GetRequiredService<LiveStreamManager>());
+        services.AddSingleton<LiveQuizService>();
 
         // Saved per-channel stream keys, encrypted with the same data protector as provider keys.
         services.AddScoped<LiveStreamKeyStore>();
@@ -509,6 +512,8 @@ public static class DependencyInjection
 
         // --- running the server
         services.AddSingleton<AnimStudio.Application.Ecosystem.UiNavigationState>();
+        services.AddSingleton<AnimStudio.Infrastructure.Ecosystem.CentralLocalizationService>();
+        services.AddSingleton<AnimStudio.Infrastructure.Ecosystem.CentralChannelVideoWriter>();
         services.AddSingleton<AnimStudio.Application.Ecosystem.IEcosystemConfigProvider, AnimStudio.Infrastructure.Ecosystem.EcosystemConfigService>();
         services.Configure<AnimStudio.Application.Automation.EcosystemServiceOptions>(configuration.GetSection(AnimStudio.Application.Automation.EcosystemServiceOptions.Section));
         services.AddSingleton<AnimStudio.Application.Automation.IEcosystemSignalsClient, AnimStudio.Infrastructure.Automation.EcosystemSignalsClient>();
@@ -586,6 +591,15 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<PollinationsImageProvider>>()));
+                    break;
+
+                case AiProviderFamily.GeminiImage:
+                    services.AddSingleton<IAiProvider>(sp => new GeminiImageProvider(
+                        providerId,
+                        sp.GetRequiredService<IAiHttpClientFactory>(),
+                        sp.GetRequiredService<IAiSecretResolver>(),
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<GeminiImageProvider>>()));
                     break;
 
                 case AiProviderFamily.CloudflareWorkersAiImage:

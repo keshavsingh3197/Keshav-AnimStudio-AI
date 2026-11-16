@@ -122,6 +122,7 @@ export class AdminSettingsComponent {
 
   load(): void {
     this.loading.set(true);
+    this.loadLocalization();
     this.api.list().subscribe({
       next: (o) => this.applyOverview(o),
       error: (e: unknown) => {
@@ -422,5 +423,110 @@ export class AdminSettingsComponent {
     } catch {
       return new Set();
     }
+  }
+
+  // --- Studio UI localization policy ---------------------------------------------------
+
+  readonly locAdminState = signal<{
+    centralAdminPolicy: { defaultLocale: string; enabledLocales: string[]; controlledBy: string };
+    localSettings: {
+      overrideCentralLocalization: boolean;
+      defaultLocale: string;
+      enabledLocales: string[];
+      allowVisitorLanguageSwitch: boolean;
+      showLanguagePicker: boolean;
+      forceLocale: boolean;
+    };
+    effectivePolicy: { defaultLocale: string; enabledLocales: string[]; controlledBy: string; overrideCentralLocalization: boolean };
+  } | null>(null);
+
+  readonly locForm = signal<{
+    overrideCentralLocalization: boolean;
+    defaultLocale: string;
+    enabledLocales: string[];
+    allowVisitorLanguageSwitch: boolean;
+    showLanguagePicker: boolean;
+    forceLocale: boolean;
+  }>({
+    overrideCentralLocalization: false,
+    defaultLocale: 'en',
+    enabledLocales: ['en', 'hi'],
+    allowVisitorLanguageSwitch: true,
+    showLanguagePicker: true,
+    forceLocale: false,
+  });
+
+  readonly locSaving = signal(false);
+  readonly locSavedMsg = signal<string | null>(null);
+
+  loadLocalization(): void {
+    this.api.localizationState().subscribe({
+      next: (state) => {
+        this.locAdminState.set(state);
+        const s = state.localSettings;
+        this.locForm.set({
+          overrideCentralLocalization: !!s.overrideCentralLocalization,
+          defaultLocale: s.defaultLocale || 'en',
+          enabledLocales: [...(s.enabledLocales?.length ? s.enabledLocales : ['en', 'hi'])],
+          allowVisitorLanguageSwitch: s.allowVisitorLanguageSwitch !== false,
+          showLanguagePicker: s.showLanguagePicker !== false,
+          forceLocale: !!s.forceLocale,
+        });
+      },
+      error: () => {
+        // Optional until backend endpoint is reachable
+      },
+    });
+  }
+
+  hasLocLocale(code: string): boolean {
+    return this.locForm().enabledLocales.includes(code);
+  }
+
+  toggleLocLocale(code: string): void {
+    this.locForm.update((cur) => {
+      const next = cur.enabledLocales.includes(code)
+        ? cur.enabledLocales.filter((x) => x !== code)
+        : [...cur.enabledLocales, code];
+      const normalized = next.length > 0 ? next : [cur.defaultLocale || 'en'];
+      if (!normalized.includes(cur.defaultLocale)) {
+        normalized.unshift(cur.defaultLocale);
+      }
+      return { ...cur, enabledLocales: normalized };
+    });
+  }
+
+  setLocBool(
+    field: 'overrideCentralLocalization' | 'allowVisitorLanguageSwitch' | 'showLanguagePicker' | 'forceLocale',
+    value: boolean,
+  ): void {
+    this.locForm.update((cur) => ({ ...cur, [field]: value }));
+  }
+
+  setLocDefaultLocale(locale: string): void {
+    this.locForm.update((cur) => {
+      const next = cur.enabledLocales.includes(locale)
+        ? cur.enabledLocales
+        : [locale, ...cur.enabledLocales];
+      return { ...cur, defaultLocale: locale, enabledLocales: next };
+    });
+  }
+
+  saveLocalization(): void {
+    this.locSaving.set(true);
+    this.locSavedMsg.set(null);
+    this.api.saveLocalization(this.locForm()).subscribe({
+      next: (state) => {
+        this.locSaving.set(false);
+        this.locAdminState.set(state);
+        this.locSavedMsg.set(
+          `Saved (${state.effectivePolicy.controlledBy === 'site-override' ? 'Local Studio Override' : 'Central Admin'}).`,
+        );
+      },
+      error: (e: unknown) => {
+        this.locSaving.set(false);
+        this.locSavedMsg.set(this.messageOf(e, 'Failed to save localization policy.'));
+      },
+    });
   }
 }

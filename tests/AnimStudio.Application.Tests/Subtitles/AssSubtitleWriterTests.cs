@@ -172,4 +172,22 @@ public class AssSubtitleWriterTests
         Assert.True(row.Length < 500, $"line was {row.Length} characters");
         Assert.EndsWith("…", row);
     }
+
+    [Fact]
+    public void Portrait_canvas_sets_safe_bottom_and_right_margins_to_clear_shorts_chrome()
+    {
+        var portrait = new Canvas(720, 1280, new FrameRate(24, 1));
+        var ass = Writer.Write(new SubtitleRequest(portrait, [Line("नमस्ते दुनिया", 0, 48)], new Dictionary<string, SubtitleStyle>()));
+
+        var defaultStyle = ass.Split('\n').First(l => l.StartsWith("Style: Default,", StringComparison.Ordinal)).TrimEnd('\r');
+        // ASS Style format finishes: ...,Alignment,MarginL,MarginR,MarginV,Encoding
+        var cols = defaultStyle.Split(',');
+        var marginL = int.Parse(cols[^4], System.Globalization.CultureInfo.InvariantCulture);
+        var marginR = int.Parse(cols[^3], System.Globalization.CultureInfo.InvariantCulture);
+        var marginV = int.Parse(cols[^2], System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.True(marginL >= 40, $"MarginL was {marginL}");
+        Assert.True(marginR >= 126, $"MarginR was {marginR}");
+        Assert.True(marginV >= 310, $"MarginV was {marginV}");
+    }
 }

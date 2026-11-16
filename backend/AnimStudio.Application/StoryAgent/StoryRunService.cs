@@ -1276,12 +1276,18 @@ public sealed partial class StoryRunService(
             LookStyle = Enum.IsDefined(o.LookStyle) ? o.LookStyle : StoryLookStyle.Auto,
             RenderWhenReady = o.RenderWhenReady,
             AutoApprove = o.AutoApprove,
+            ReviewSteps = o.ReviewSteps,
             VideoSpeed = StoryVideoSpeed.Normalize(o.VideoSpeed),
             AutoPace = o.AutoPace,
             Pace = Enum.IsDefined(o.Pace) ? o.Pace : StoryPaceStyle.Auto,
             ArtStyle = Enum.IsDefined(o.ArtStyle) ? o.ArtStyle : StoryArtStyle.Auto,
             // A dub is a second voice: nothing to dub when the story has none.
-            Dub = o.Dub && o.Narration != StoryNarrationMode.None
+            Dub = o.Dub && o.Narration != StoryNarrationMode.None,
+            StorageAssetIds = [.. (o.StorageAssetIds ?? [])
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .Take(40)]
         };
     }
 

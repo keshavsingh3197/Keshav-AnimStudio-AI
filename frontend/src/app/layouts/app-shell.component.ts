@@ -16,6 +16,7 @@ import { StatusService } from '../core/services/status.service';
 import { ThemeService } from '../core/services/theme.service';
 import { UiNavigationService } from '../core/services/ui-navigation.service';
 import { EcosystemConfigService } from '../core/services/ecosystem-config.service';
+import { LocaleService } from '../core/services/locale.service';
 import { SocialIconComponent } from '../shared/social-icon.component';
 import { GlobalLoaderComponent } from '../shared/global-loader.component';
 
@@ -88,7 +89,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
             @if (tab.id === 'clips') {
               <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
                 <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-                <span class="topbar-label">{{ tab.label }}</span>
+                <span class="topbar-label">{{ locale.tabLabel(tab.id, tab.label) }}</span>
               </button>
             } @else if (tab.id !== 'admin') {
               <a [routerLink]="tab.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: tab.path === '/live' }" class="topbar-navlink" [title]="tab.description || tab.label">
@@ -113,6 +114,9 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
                   }
                   @case ('release') {
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                  }
+                  @case ('songs') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="22"/></svg>
                   }
                   @case ('youtube') {
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="4" width="20" height="16" rx="4"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
@@ -148,7 +152,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>
                   }
                 }
-                <span class="topbar-label">{{ tab.label }}</span>
+                <span class="topbar-label">{{ locale.tabLabel(tab.id, tab.label) }}</span>
                 @if (tab.id === 'shorts' && shortsAttention() > 0) {
                   <span class="topbar-badge warn">{{ shortsAttention() }}</span>
                 }
@@ -161,6 +165,18 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         </nav>
 
         <div class="topbar-end">
+          @if (locale.showPicker()) {
+            <div class="lang-toggle" role="group"
+                 [attr.aria-label]="locale.t('studio.language.label', 'Studio UI Language')"
+                 [title]="locale.t('studio.language.uiOnlyNote', 'UI labels only — video & song audio language is set per job')">
+              @if (locale.availableLanguages().includes('en')) {
+                <button type="button" class="lang-btn" [class.active]="locale.locale() === 'en'" (click)="locale.setLocale('en')">EN</button>
+              }
+              @if (locale.availableLanguages().includes('hi')) {
+                <button type="button" class="lang-btn" [class.active]="locale.locale() === 'hi'" (click)="locale.setLocale('hi')">हिं</button>
+              }
+            </div>
+          }
           <button type="button" class="theme-toggle" role="switch" [attr.aria-checked]="theme.theme() === 'light'"
                   (click)="theme.toggle()"
                   [attr.aria-label]="theme.theme() === 'dark' ? 'Light theme' : 'Dark theme'"
@@ -227,7 +243,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           @if (auth.isAdmin()) {
             <a routerLink="/admin" routerLinkActive="active" class="topbar-navlink topbar-settings" title="Server & Studio Settings">
               <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              <span>Settings</span>
+              <span>{{ locale.t('studio.nav.settings', 'Settings') }}</span>
             </a>
           }
         </div>
@@ -643,6 +659,32 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       font-size: .78rem;
       font-weight: 600;
       box-shadow: none;
+    }
+
+    .lang-toggle {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 2px;
+      background: var(--surface-2);
+      gap: 2px;
+    }
+
+    .lang-btn {
+      border: 0;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.22rem 0.5rem;
+      border-radius: 99px;
+      cursor: pointer;
+    }
+
+    .lang-btn.active {
+      background: var(--brand);
+      color: #fff;
     }
 
     .theme-toggle:hover:not(:disabled) {
@@ -1064,6 +1106,7 @@ export class AppShellComponent {
   readonly auth = inject(AuthService);
   readonly theme = inject(ThemeService);
   readonly ecosystem = inject(EcosystemConfigService);
+  readonly locale = inject(LocaleService);
   readonly sessionTimeout = inject(SessionTimeoutService);
   readonly uiNav = inject(UiNavigationService);
 

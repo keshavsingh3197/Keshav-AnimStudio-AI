@@ -110,6 +110,17 @@ public sealed class PublishQueueItem
 
     public string? Warning { get; set; }
     public string? UploadId { get; set; }
+
+    /// <summary>
+    /// The server process that holds <see cref="UploadId"/>. Uploads live in that process's memory, so
+    /// another process (a second instance on the same database, or this one after a restart) must not read
+    /// "not in my list" as "lost" while the owner is still sending it.
+    /// </summary>
+    public string? UploadHost { get; set; }
+
+    /// <summary>Last time the owning process saw the upload still running (UTC).</summary>
+    public DateTime? UploadHeartbeatAt { get; set; }
+
     public string? VideoId { get; set; }
     public string? PublicationId { get; set; }
 

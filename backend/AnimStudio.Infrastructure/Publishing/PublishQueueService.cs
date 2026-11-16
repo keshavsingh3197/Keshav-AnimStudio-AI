@@ -481,6 +481,8 @@ public sealed class PublishQueueService(
         item.StartedAt = now;
         item.DueAt = null;
         item.UploadId = null;
+        item.UploadHost = YouTubeUploadManager.InstanceId;
+        item.UploadHeartbeatAt = now;
         item.UpdatedAt = now;
         if (!await repository.ReplaceAsync(item, ct).ConfigureAwait(false)) return false;
 
@@ -599,9 +601,9 @@ public sealed class PublishQueueService(
     {
         if (item.UploadId is null)
         {
-            // Claimed but never handed over (the server stopped in between): try again.
+            // Claimed but never handed over (the server stopped in between): nothing was sent, so try again.
             if (item.StartedAt < Now - TimeSpan.FromMinutes(5))
-                await FailAsync(item, "queue-upload-lost", "The server stopped before the upload started.", ct).ConfigureAwait(false);
+                await FailAsync(item, "queue-upload-not-started", "The server stopped before the upload started.", ct).ConfigureAwait(false);
             return item;
         }
 
@@ -622,7 +624,28 @@ public sealed class PublishQueueService(
                 await TrySaveAsync(item, ct).ConfigureAwait(false);
                 return item;
             }
-            await FailAsync(item, "queue-upload-lost", "The server restarted before the upload finished.", ct).ConfigureAwait(false);
+
+            // Another server process (a second instance on the same database) may be sending it right now:
+            // leave it to that process until it stops reporting the upload.
+            if (!PublishQueueRules.IsUploadLost(item.UploadHost, YouTubeUploadManager.InstanceId, item.UploadHeartbeatAt, item.StartedAt, Now))
+                return item;
+
+            // Never retried automatically: the video may already be on YouTube without a saved record.
+            await FailAsync(item, "queue-upload-lost",
+                "The upload was interrupted (the server stopped or restarted). Check YouTube Studio: if the video isn't there, publish it again.",
+                ct).ConfigureAwait(false);
+            return item;
+        }
+
+        if (status.State is YouTubeUploadState.Queued or YouTubeUploadState.Uploading)
+        {
+            // Still running here: tell other processes sharing the database that this one holds it.
+            if (item.UploadHeartbeatAt is not { } beat || Now - beat >= PublishQueueRules.UploadHeartbeatEvery)
+            {
+                item.UploadHost = YouTubeUploadManager.InstanceId;
+                item.UploadHeartbeatAt = Now;
+                await TrySaveAsync(item, ct).ConfigureAwait(false);
+            }
             return item;
         }
 

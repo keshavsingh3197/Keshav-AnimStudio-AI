@@ -75,8 +75,8 @@ public sealed record StoryGenreRequest
 }
 
 public sealed record StoryGenreLinkDto(
-    [property: StringLength(60)] string Label,
-    [property: StringLength(300)] string Url);
+    [StringLength(60)] string Label,
+    [StringLength(300)] string Url);
 
 public sealed record StoryGenreTopicDto
 {
@@ -90,9 +90,9 @@ public sealed record StoryGenreTopicDto
 }
 
 public sealed record StoryGenreSourceDto(
-    [property: StringLength(64)] string TextId,
-    [property: StringLength(80)] string Ref,
-    [property: StringLength(200)] string? Note,
+    [StringLength(64)] string TextId,
+    [StringLength(80)] string Ref,
+    [StringLength(200)] string? Note,
     StorySourceConfidence Confidence);
 
 // ------------------------------------------------------------------------------------------------ responses

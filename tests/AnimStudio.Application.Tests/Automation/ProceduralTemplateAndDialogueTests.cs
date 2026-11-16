@@ -456,7 +456,7 @@ public sealed class ProceduralTemplateAndDialogueTests
             var cache = new ProceduralBgmCacheService(Microsoft.Extensions.Options.Options.Create(new FfmpegOptions()), paths);
 
             var initial = cache.ListPresets();
-            Assert.Equal(5, initial.Count);
+            Assert.Equal(6, initial.Count);
             Assert.All(initial, p => Assert.False(p.IsCached));
 
             var (firstPath, firstSource) = await cache.EnsurePresetWavAsync(ProceduralSceneTheme.VedicTempleSunrise3D);
@@ -578,5 +578,174 @@ public sealed class ProceduralTemplateAndDialogueTests
             return Task.FromResult(AiOutcome<AiSpeechResult>.Success(
                 new AiSpeechResult(wavBytes, "audio/wav", 2.0, new AiProvenance { ProviderId = "gemini-tts", Capability = AiCapability.Speech })));
         }
+    }
+
+    [Fact]
+    public void Portrait_ASS_subtitles_clear_YouTube_Shorts_overlay_and_wrap_full_Hindi_titles_without_ellipsis()
+    {
+        var title = "भक्त ध्रुव और देवर्षि नारद मुनि की संपूर्ण पावन कथा";
+        var script = """
+            [भक्त ध्रुव]: हे देवर्षि नारद मुनि, मुझे ऐसा अटल भक्ति मार्ग बताइए जो कभी न डगमगाए।
+            [देवर्षि नारद मुनि]: बालक ध्रुव, एकाग्र मन से पावन मंत्र ॐ नमो भगवते वासुदेवाय का जप करो।
+            """;
+        var plan = DialogueScriptParser.ParsePlan(title, script, prompt: null, 24, enableDialogue: true, eventType: "DailyKatha");
+        var palette = ProceduralEventPalette.Resolve("DailyKatha", ProceduralSceneTheme.VedicTempleSunrise3D);
+        var request = new ProceduralVideoRequest
+        {
+            Title = title,
+            EventType = "DailyKatha",
+            Language = "hi",
+            DurationSeconds = 24,
+            EnableCharacterDialogue = true,
+            SubtitlePreset = "event-glow"
+        };
+
+        var ass = ProceduralVideoGeneratorService.BuildAssSubtitlesWithWriter(
+            new AssSubtitleWriter(),
+            title,
+            request,
+            palette,
+            plan,
+            width: 720,
+            height: 1280,
+            fps: 24,
+            durationSeconds: 24);
+
+        Assert.Contains("भक्त ध्रुव", ass);
+        Assert.DoesNotContain("...", ass);
+        Assert.Contains(@"Style: SpeakerA,", ass);
+        // Portrait 720x1280 should keep dialogue MarginV >= 310 and right margin >= 126 to clear Shorts right buttons & bottom metadata
+        Assert.Contains(",46,130,352,", ass);
+        Assert.Contains(",46,130,292,", ass);
+    }
+
+    [Fact]
+    public void DialogueScriptParser_extracts_Dhruva_and_Narada_roles_and_InferTheme_prioritizes_DailyKatha()
+    {
+        var title = "Faith and Focus: Dhruva's Tapasya | Bhakta Dhruva & Narada Muni की कथा";
+        var (speakerA, speakerB) = DialogueScriptParser.InferCharacterPairFromTitle(title, "DailyKatha");
+
+        Assert.Equal("Bhakta Dhruva", speakerA);
+        Assert.Equal("Narada Muni", speakerB);
+        Assert.Equal(CharacterVisualRole.ChildDevotee, DialogueScriptParser.InferRole(speakerA!));
+        Assert.Equal(CharacterVisualRole.SageRishi, DialogueScriptParser.InferRole(speakerB!));
+
+        var theme = ProceduralVideoPlanner.InferTheme(
+            ProceduralSceneTheme.Auto,
+            title,
+            "Read Panchang & more on Hindu Panchang calendar website",
+            "Read full Panchang today",
+            eventType: "DailyKatha");
+        Assert.Equal(ProceduralSceneTheme.VedicTempleSunrise3D, theme);
+    }
+
+    [Fact]
+    public void DevanagariToPhonetic_transliterates_Hindi_prayer_into_speakable_Roman_syllables()
+    {
+        var spoken = ProceduralSpeechSynthesizer.DevanagariToPhonetic("भक्त ध्रुव! ॐ नमो भगवते वासुदेवाय।");
+        Assert.False(string.IsNullOrWhiteSpace(spoken));
+        Assert.DoesNotContain("भक्त", spoken);
+        Assert.Contains("Om", spoken, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("namo", spoken, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildFfmpegArguments_resamples_to_48kHz_stereo_AAC_LC_after_loudnorm_with_audible_bgm()
+    {
+        var speechAndBgm = string.Join(' ', ProceduralVideoGeneratorService.BuildFfmpegArguments(
+            720, 1280, 24, 30, hasSpeech: true, hasBgm: true, hasSubtitles: true));
+        Assert.Contains("loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2]", speechAndBgm);
+        Assert.Contains(",volume=0.45[bg]", speechAndBgm);
+        Assert.Contains("sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380", speechAndBgm);
+        Assert.Contains("amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", speechAndBgm);
+        Assert.Contains("-c:a aac -profile:a aac_low -ar 48000 -ac 2 -b:a 192k", speechAndBgm);
+
+        var speechOnly = string.Join(' ', ProceduralVideoGeneratorService.BuildFfmpegArguments(
+            720, 1280, 24, 30, hasSpeech: true, hasBgm: false, hasSubtitles: true));
+        Assert.Contains("loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", speechOnly);
+        Assert.Contains("-c:a aac -profile:a aac_low -ar 48000 -ac 2 -b:a 192k", speechOnly);
+
+        var bgmOnly = string.Join(' ', ProceduralVideoGeneratorService.BuildFfmpegArguments(
+            720, 1280, 24, 30, hasSpeech: false, hasBgm: true, hasSubtitles: false));
+        Assert.Contains("aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo", bgmOnly);
+        Assert.Contains("-c:a aac -profile:a aac_low -ar 48000 -ac 2 -b:a 192k", bgmOnly);
+    }
+
+    [Fact]
+    public void ProceduralBgmCacheService_IsStereo48kWav_distinguishes_48kHz_stereo_from_192kHz_and_mono()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "animstudio-wavhdr-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var wav48k = Path.Combine(dir, "ok-48k-stereo.wav");
+            var wav192k = Path.Combine(dir, "bad-192k-stereo.wav");
+            var wavMono = Path.Combine(dir, "bad-48k-mono.wav");
+
+            WriteTestPcmHeader(wav48k, sampleRate: 48_000, channels: 2, bitsPerSample: 16);
+            WriteTestPcmHeader(wav192k, sampleRate: 192_000, channels: 2, bitsPerSample: 16);
+            WriteTestPcmHeader(wavMono, sampleRate: 48_000, channels: 1, bitsPerSample: 16);
+
+            Assert.True(ProceduralBgmCacheService.IsStereo48kWav(wav48k));
+            Assert.False(ProceduralBgmCacheService.IsStereo48kWav(wav192k));
+            Assert.False(ProceduralBgmCacheService.IsStereo48kWav(wavMono));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+
+        static void WriteTestPcmHeader(string path, int sampleRate, short channels, short bitsPerSample)
+        {
+            using var fs = File.Create(path);
+            using var bw = new BinaryWriter(fs);
+            var byteRate = sampleRate * channels * (bitsPerSample / 8);
+            var blockAlign = (short)(channels * (bitsPerSample / 8));
+            bw.Write("RIFF"u8);
+            bw.Write(36);
+            bw.Write("WAVE"u8);
+            bw.Write("fmt "u8);
+            bw.Write(16);
+            bw.Write((short)1);
+            bw.Write(channels);
+            bw.Write(sampleRate);
+            bw.Write(byteRate);
+            bw.Write(blockAlign);
+            bw.Write(bitsPerSample);
+            bw.Write("data"u8);
+            bw.Write(0);
+        }
+    }
+
+    [Fact]
+    public void DialogueScriptParser_preserves_narrator_and_more_than_two_distinct_speakers_in_full_story()
+    {
+        var script =
+            "[सूत्रधार]: आइए सुनते हैं बालक ध्रुव की अमर कथा, जब पाँच वर्ष के राजकुमार ने अटल स्थान पाने का संकल्प लिया।\n" +
+            "[बालक ध्रुव]: माँ सुनीति, पिता की गोद से मुझे क्यों उतारा गया? क्या भगवान मुझे भी अपनाएंगे?\n" +
+            "[रानी सुनीति]: बेटा ध्रुव, केवल भगवान श्रीहरि नारायण की शरण में ही परम अटल स्थान मिलता है।\n" +
+            "[देवर्षि नारद मुनि]: वत्स ध्रुव, मधुवन में जाकर 'ॐ नमो भगवते वासुदेवाय' मंत्र का निरंतर जप करो।\n" +
+            "[भगवान श्रीहरि विष्णु]: तेरी निश्छल भक्ति से मैं प्रसन्न हूँ; तू आकाश में ध्रुव तारे के रूप में अटल रहेगा।\n" +
+            "[सूत्रधार]: इस कथा से सीख मिलती है कि अटूट श्रद्धा और धैर्य से असंभव भी संभव हो जाता है।";
+
+        var plan = DialogueScriptParser.ParsePlan(
+            title: "भक्त ध्रुव की अमर कथा",
+            script: script,
+            prompt: null,
+            durationSeconds: 165,
+            enableDialogue: true,
+            eventType: "DailyKatha");
+
+        Assert.True(plan.HasCharacters);
+        Assert.Contains(plan.Turns, t => t.Slot == DialogueSpeakerSlot.Narrator && t.SpeakerName == "सूत्रधार");
+        var distinctSpeakers = plan.Turns
+            .Where(t => !t.IsTitleHook)
+            .Select(t => t.SpeakerName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        Assert.True(distinctSpeakers.Count >= 4, $"Expected >= 4 speakers (Narrator + cast), got: {string.Join(", ", distinctSpeakers)}");
+        Assert.Contains("बालक ध्रुव", distinctSpeakers);
+        Assert.Contains("रानी सुनीति", distinctSpeakers);
+        Assert.Contains("देवर्षि नारद मुनि", distinctSpeakers);
     }
 }

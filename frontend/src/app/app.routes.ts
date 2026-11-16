@@ -211,6 +211,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'songs',
+    title: 'Songs - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/songs/songs.component').then((m) => m.SongsComponent),
+  },
+
+  {
     path: 'release',
     title: 'Music Release Kit - AnimStudio AI',
     canActivate: [sensitiveFeatureGuard],
@@ -295,6 +302,14 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/live-camera/live-camera.component')
         .then((m) => m.LiveCameraComponent),
+  },
+
+  {
+    path: 'live/quiz-overlay',
+    title: 'Live Quiz Overlay - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/live-stream/live-quiz-overlay.component')
+        .then((m) => m.LiveQuizOverlayComponent),
   },
 
   {

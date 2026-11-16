@@ -128,7 +128,7 @@ public abstract class HttpAiProviderBase : IAiProvider
         }
     }
 
-    protected Task<string?> GetSecretAsync(CancellationToken ct) =>
+    protected virtual Task<string?> GetSecretAsync(CancellationToken ct) =>
         _secrets.GetSecretAsync(Id, ct);
 
     /// <summary>

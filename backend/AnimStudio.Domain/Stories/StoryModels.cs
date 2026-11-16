@@ -143,6 +143,9 @@ public sealed class StoryBuildOptions
 
     public StoryVisualMode Visuals { get; set; } = StoryVisualMode.Auto;
 
+    /// <summary>Optional existing AnimStudio storage asset IDs selected to supply scene visuals before/instead of AI generation.</summary>
+    public List<string> StorageAssetIds { get; set; } = [];
+
     /// <summary>The picture style every generated image is asked for, after the scene's own subject.</summary>
     public string? ImageStyle { get; set; }
 
@@ -189,6 +192,12 @@ public sealed class StoryBuildOptions
 
     /// <summary>Skip the review and build as soon as the script exists.</summary>
     public bool AutoApprove { get; set; }
+
+    /// <summary>
+    /// With <see cref="AutoApprove"/>: still pause after the voices, the music and the finished video so the person can
+    /// hear or watch each one and redo it before the next step is made. Used by auto posts reviewed in the Story Studio.
+    /// </summary>
+    public bool ReviewSteps { get; set; }
 
     /// <summary>
     /// The look of the pictures and of the animation: a painting, a realistic film, a cartoon. Auto keeps the genre's

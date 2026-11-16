@@ -94,7 +94,7 @@ public sealed class ComedyWorkspaceControllerTests
     [Fact]
     public void Request_validation_refuses_oversized_and_unsupported_fields()
     {
-        var invalid = Input with { Material = new string('x', 20001), Language = "fr", Style = "live", TargetSeconds = 29, Voicing = "invalid" };
+        var invalid = Input with { Material = new string('x', 20001), Language = "fr", Style = "live", TargetSeconds = 9, Voicing = "invalid" };
         var errors = new List<ValidationResult>();
         Assert.False(Validator.TryValidateObject(invalid, new ValidationContext(invalid), errors, true));
         Assert.Equal(5, errors.Count);

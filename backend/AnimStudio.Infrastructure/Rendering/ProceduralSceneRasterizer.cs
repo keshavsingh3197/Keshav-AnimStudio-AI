@@ -9,7 +9,7 @@ namespace AnimStudio.Infrastructure.Rendering;
 /// particle fields into a pre-allocated RGBA buffer in milliseconds per frame with zero GPU or
 /// native graphics dependencies.
 /// </summary>
-public sealed class ProceduralSceneRasterizer
+public sealed partial class ProceduralSceneRasterizer
 {
     public int Width { get; }
     public int Height { get; }
@@ -22,15 +22,21 @@ public sealed class ProceduralSceneRasterizer
     private readonly ProceduralDialoguePlan? _dialoguePlan;
     private readonly float[]? _speechEnvelope;
     private readonly double _fps;
+    private readonly string _storyHint;
+    private readonly IReadOnlyList<byte[]>? _backdropFrames;
+    private readonly ProceduralStageLayout? _stageLayout;
 
     internal float? ActiveSpeechLevel { get; private set; }
+
+    /// <summary>True when a user template picture is the backdrop (shown still, no theme geometry over it).</summary>
+    internal bool IsTemplateBackdrop => _backdropFrames is not null && _stageLayout is { TemplateBackdrop: true };
 
     private readonly record struct Particle(float BaseX, float BaseY, float BaseZ, float Speed, float Size, float Phase, byte AccentKind);
     private readonly record struct Vec3(float X, float Y, float Z);
     private readonly record struct ScreenPt(float X, float Y, float Z, bool Visible);
 
     public ProceduralSceneRasterizer(int width, int height, ProceduralSceneTheme theme, int seed = 108)
-        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0)
+        : this(width, height, theme, seed, palette: null, dialoguePlan: null, speechEnvelope: null, fps: 24.0, storyHint: null, backdropFrames: null)
     {
     }
 
@@ -42,8 +48,12 @@ public sealed class ProceduralSceneRasterizer
         ProceduralEventPalette? palette,
         ProceduralDialoguePlan? dialoguePlan,
         float[]? speechEnvelope = null,
-        double fps = 24.0)
+        double fps = 24.0,
+        string? storyHint = null,
+        IReadOnlyList<byte[]>? backdropFrames = null,
+        ProceduralStageLayout? stageLayout = null)
     {
+        _stageLayout = stageLayout;
         Width = Math.Clamp(width, 160, 2160);
         Height = Math.Clamp(height, 160, 2160);
         Theme = theme == ProceduralSceneTheme.Auto ? ProceduralSceneTheme.VedicTempleSunrise3D : theme;
@@ -51,7 +61,13 @@ public sealed class ProceduralSceneRasterizer
         _dialoguePlan = dialoguePlan;
         _speechEnvelope = speechEnvelope is { Length: > 0 } ? speechEnvelope : null;
         _fps = fps > 0 ? fps : 24.0;
-        _frame = new byte[Width * Height * 4];
+        _storyHint = (storyHint ?? string.Empty).ToLowerInvariant();
+        var expectedBytes = Width * Height * 4;
+        _backdropFrames = backdropFrames is { Count: > 0 }
+            ? [.. backdropFrames.Where(b => b is not null && b.Length == expectedBytes)]
+            : null;
+        if (_backdropFrames is { Count: 0 }) _backdropFrames = null;
+        _frame = new byte[expectedBytes];
 
         var rng = new Random(seed ^ ((int)Theme * 7919));
         _particles = new Particle[96];
@@ -72,6 +88,8 @@ public sealed class ProceduralSceneRasterizer
         {
             _rays[i] = (-0.85 + i * 0.21, 0.22 + rng.NextDouble() * 0.35, 0.3 + rng.NextDouble() * 0.4);
         }
+
+        InitCinematics(seed);
     }
 
     public byte[] Buffer => _frame;
@@ -81,10 +99,24 @@ public sealed class ProceduralSceneRasterizer
         var dur = Math.Max(1.0, durationSeconds);
         var u = Math.Clamp(timeSeconds / dur, 0.0, 1.0);
         var pulse = (float)(0.5 + 0.5 * Math.Sin(timeSeconds * 1.8));
+        var scene = ResolveScene(timeSeconds, dur);
+        var activeTheme = scene.Setting != SceneSetting.Auto
+            ? SceneDirectives.ThemeFor(scene.Setting, Theme)
+            : ResolveActTheme(u);
 
-        PaintBackdrop(timeSeconds, u, pulse);
+        PaintBackdrop(timeSeconds, u, pulse, activeTheme, scene);
 
-        switch (Theme)
+        // A directed scene draws its own environment: the theme's abstract geometry (globe, aurora, grid) only
+        // stays for settings that are built from it (temple yantra, cosmos orbits) and never over a real photo.
+        // A user template is the whole set: no theme geometry is drawn over it at all.
+        var themeGeometry = !IsTemplateBackdrop && scene.Setting switch
+        {
+            SceneSetting.Auto => true,
+            SceneSetting.Temple or SceneSetting.Cosmos => _backdropFrames is null,
+            _ => false
+        };
+        if (themeGeometry)
+        switch (activeTheme)
         {
             case ProceduralSceneTheme.VedicTempleSunrise3D:
                 RenderVedicSunrise3D(timeSeconds, u, pulse);
@@ -101,36 +133,63 @@ public sealed class ProceduralSceneRasterizer
             case ProceduralSceneTheme.SereneNatureGlow:
                 RenderSereneNatureGlow(timeSeconds, u, pulse);
                 break;
+            case ProceduralSceneTheme.ComedyStage3D:
+                RenderComedyStage3D(timeSeconds, u, pulse);
+                break;
             default:
                 RenderVedicSunrise3D(timeSeconds, u, pulse);
                 break;
         }
 
+        DrawSettingLayer(scene, timeSeconds);
+
         ActiveSpeechLevel = SampleSpeechLevel(timeSeconds);
         if (_dialoguePlan is { HasCharacters: true })
         {
-            ProceduralCharacterRenderer.RenderDialogueStage(this, timeSeconds, _dialoguePlan, Palette);
+            ProceduralCharacterRenderer.RenderDialogueStage(this, timeSeconds, _dialoguePlan, Palette, _stageLayout);
         }
         else if (ActiveSpeechLevel is { } level)
         {
             RenderVoiceWaveIndicator(timeSeconds, level);
         }
 
+        ApplyCinematicGrade(scene, timeSeconds);
         ApplyTopTemplateBand(u);
         ApplyBottomCaptionScrim();
         DrawProgressBar(u);
         return _frame;
     }
 
-    private void PaintBackdrop(double t, double u, float pulse)
+    private ProceduralSceneTheme ResolveActTheme(double u)
     {
-        var (topR, topG, topB, midR, midG, midB, botR, botG, botB) = Theme switch
+        if (_dialoguePlan is not { HasCharacters: true } || _dialoguePlan.Turns.Count < 5)
+            return Theme;
+
+        // Long or multi-act animated stories evolve across chronological environments instead of staying on 1 backdrop.
+        return Theme switch
+        {
+            ProceduralSceneTheme.VedicTempleSunrise3D => u < 0.34
+                ? ProceduralSceneTheme.VedicTempleSunrise3D
+                : u < 0.68
+                    ? ProceduralSceneTheme.SereneNatureGlow
+                    : ProceduralSceneTheme.CosmosSacred3D,
+            ProceduralSceneTheme.HistoryChronicle3D => u < 0.50
+                ? ProceduralSceneTheme.HistoryChronicle3D
+                : ProceduralSceneTheme.VedicTempleSunrise3D,
+            _ => Theme
+        };
+    }
+
+    private void PaintBackdrop(double t, double u, float pulse, ProceduralSceneTheme activeTheme, SceneMoment scene)
+    {
+        var (topR, topG, topB, midR, midG, midB, botR, botG, botB) = activeTheme switch
         {
             ProceduralSceneTheme.VedicTempleSunrise3D => (22f, 11f, 36f, 148f, 48f, 22f, 22f, 10f, 12f),
             ProceduralSceneTheme.CosmosSacred3D => (8f, 10f, 34f, 34f, 20f, 82f, 10f, 14f, 38f),
             ProceduralSceneTheme.HistoryChronicle3D => (14f, 20f, 38f, 52f, 44f, 68f, 20f, 14f, 12f),
             ProceduralSceneTheme.NeonCyberGrid3D => (9f, 9f, 26f, 32f, 12f, 64f, 6f, 20f, 34f),
             ProceduralSceneTheme.SereneNatureGlow => (9f, 24f, 38f, 22f, 76f, 84f, 8f, 22f, 24f),
+            ProceduralSceneTheme.ComedyStage3D => (28f, 12f, 26f, 118f, 44f, 24f, 18f, 10f, 18f),
             _ => (22f, 11f, 36f, 148f, 48f, 22f, 22f, 10f, 12f)
         };
 
@@ -145,117 +204,151 @@ public sealed class ProceduralSceneRasterizer
         botG = botG * 0.45f + Palette.BotBackdropRgb.G * 0.55f;
         botB = botB * 0.45f + Palette.BotBackdropRgb.B * 0.55f;
 
+        if (_backdropFrames is { Count: > 0 } photos)
+        {
+            PaintPhotoBackdropKenBurns(photos, t, u, scene, topR, topG, topB, midR, midG, midB, botR, botG, botB);
+            return;
+        }
+
         var shimmer = 0.92f + 0.08f * pulse;
         var shift = (float)Math.Sin(t * 0.45) * 0.06f;
 
-        for (var y = 0; y < Height; y++)
+        ForRowBands(0, Height, (long)Width * Height, (band0, band1) =>
         {
-            var ny = (float)y / (Height - 1);
-            var h = Math.Clamp(ny + shift * (1f - Math.Abs(ny - 0.5f)), 0f, 1f);
+            for (var y = band0; y < band1; y++)
+            {
+                var ny = (float)y / (Height - 1);
+                var h = Math.Clamp(ny + shift * (1f - Math.Abs(ny - 0.5f)), 0f, 1f);
 
-            byte r, g, b;
-            if (h < 0.52f)
-            {
-                var k = h / 0.52f;
-                r = ClampByte((topR + (midR - topR) * k) * shimmer);
-                g = ClampByte((topG + (midG - topG) * k) * shimmer);
-                b = ClampByte((topB + (midB - topB) * k) * shimmer);
-            }
-            else
-            {
-                var k = (h - 0.52f) / 0.48f;
-                r = ClampByte(midR + (botR - midR) * k);
-                g = ClampByte(midG + (botG - midG) * k);
-                b = ClampByte(midB + (botB - midB) * k);
-            }
+                byte r, g, b;
+                if (h < 0.52f)
+                {
+                    var k = h / 0.52f;
+                    r = ClampByte((topR + (midR - topR) * k) * shimmer);
+                    g = ClampByte((topG + (midG - topG) * k) * shimmer);
+                    b = ClampByte((topB + (midB - topB) * k) * shimmer);
+                }
+                else
+                {
+                    var k = (h - 0.52f) / 0.48f;
+                    r = ClampByte(midR + (botR - midR) * k);
+                    g = ClampByte(midG + (botG - midG) * k);
+                    b = ClampByte(midB + (botB - midB) * k);
+                }
 
-            // Pack RGBA tuple per row into Span<uint> -> super fast row fill
-            var rowStart = y * Width * 4;
-            for (var x = 0; x < Width; x++)
-            {
-                var idx = rowStart + x * 4;
-                _frame[idx] = r;
-                _frame[idx + 1] = g;
-                _frame[idx + 2] = b;
-                _frame[idx + 3] = 255;
+                // One packed RGBA word per pixel: a single vectorised fill per row.
+                var rgba = r | (uint)g << 8 | (uint)b << 16 | 0xFF000000u;
+                System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(_frame.AsSpan(y * Width * 4, Width * 4)).Fill(rgba);
             }
-        }
+        });
     }
 
     private void RenderVedicSunrise3D(double t, double u, float pulse)
     {
         var cx = Width * 0.5f;
-        var horizonY = Height * 0.62f;
-        var sunY = Height * (0.43f - (float)u * 0.08f);
+        var isPortrait = Height > Width;
+        var horizonY = isPortrait ? Height * 0.56f : Height * 0.64f;
+        var sunY = isPortrait ? Height * (0.35f - (float)u * 0.06f) : Height * (0.42f - (float)u * 0.07f);
         var minSide = MathF.Min(Width, Height);
 
-        // Warm rising solar glow & rotating god-rays
-        DrawAdditiveDisc(cx, sunY, minSide * 0.44f, 255, 165, 45, 0.34f);
-        DrawAdditiveDisc(cx, sunY, minSide * 0.16f, 255, 232, 160, 0.85f);
+        // Act progression: dawn temple -> warm Sri Yantra tapasya energy -> celestial star / darshan blessing
+        var darshanBoost = (float)Math.Clamp((u - 0.50) / 0.45, 0.0, 1.0);
+        DrawAdditiveDisc(cx, sunY, minSide * (0.42f + 0.14f * darshanBoost), 255, 165, 45, 0.34f + 0.12f * darshanBoost);
+        DrawAdditiveDisc(cx, sunY, minSide * 0.15f, 255, 234, 165, 0.85f);
 
         for (var i = 0; i < _rays.Length; i++)
         {
             var angle = (float)(_rays[i].Azimuth + t * 0.08 * (i % 2 == 0 ? 1 : -1));
-            var rx = cx + MathF.Sin(angle) * minSide * 0.95f;
-            var ry = sunY - MathF.Cos(angle) * minSide * 0.95f;
-            DrawGlowLine(cx, sunY, rx, ry, minSide * 0.025f, 255, 196, 85, 0.12f);
+            var rx = cx + MathF.Sin(angle) * minSide * 0.92f;
+            var ry = sunY - MathF.Cos(angle) * minSide * 0.92f;
+            DrawGlowLine(cx, sunY, rx, ry, minSide * 0.024f, 255, 196, 85, 0.13f + 0.08f * darshanBoost);
         }
+
+        // Swinging sacred brass temple bells near upper corners
+        DrawTempleBell(Width * 0.11f, Height * (isPortrait ? 0.165f : 0.145f), minSide * 0.09f, (float)Math.Sin(t * 1.45) * 0.16f);
+        DrawTempleBell(Width * 0.89f, Height * (isPortrait ? 0.165f : 0.145f), minSide * 0.09f, (float)Math.Sin(t * 1.45 + 0.8) * 0.16f);
 
         // 3D perspective golden mandala / Sri Yantra geometry rotating smoothly in space
         var yaw = (float)(t * 0.32);
         var pitch = 0.38f + 0.18f * MathF.Sin((float)t * 0.4f);
-        var focal = minSide * 0.92f;
-        var camDist = 3.25f - (float)(u * 0.35);
+        var focal = minSide * 0.90f;
+        var camDist = 3.30f - (float)(u * 0.32);
 
-        DrawProjectedRing3D(cx, sunY, focal, camDist, 1.05f, 0f, yaw, pitch, 36, 255, 214, 110, 0.72f, 2.2f);
-        DrawProjectedRing3D(cx, sunY, focal, camDist, 0.78f, 0.08f, -yaw * 1.4f, pitch + 0.25f, 24, 255, 145, 50, 0.80f, 2.0f);
+        DrawProjectedRing3D(cx, sunY, focal, camDist, 1.02f, 0f, yaw, pitch, 36, 255, 214, 110, 0.72f, 2.2f);
+        DrawProjectedRing3D(cx, sunY, focal, camDist, 0.76f, 0.08f, -yaw * 1.4f, pitch + 0.25f, 24, 255, 145, 50, 0.80f, 2.0f);
+        DrawPolygon3D(cx, sunY, focal, camDist, 0.90f, 0.02f, yaw, pitch, 3, 0f, 255, 228, 140, 0.92f, 2.5f);
+        DrawPolygon3D(cx, sunY, focal, camDist, 0.90f, -0.02f, yaw, pitch, 3, MathF.PI, 255, 175, 80, 0.88f, 2.5f);
+        DrawPolygon3D(cx, sunY, focal, camDist, 0.54f, 0.06f, -yaw * 0.8f, pitch, 8, (float)t * 0.2f, 255, 245, 200, 0.75f, 1.8f);
 
-        // Nested 3D rotating interlocking sacred triangles (upward Shiva + downward Shakti)
-        DrawPolygon3D(cx, sunY, focal, camDist, 0.92f, 0.02f, yaw, pitch, 3, 0f, 255, 228, 140, 0.92f, 2.5f);
-        DrawPolygon3D(cx, sunY, focal, camDist, 0.92f, -0.02f, yaw, pitch, 3, MathF.PI, 255, 175, 80, 0.88f, 2.5f);
-        DrawPolygon3D(cx, sunY, focal, camDist, 0.56f, 0.06f, -yaw * 0.8f, pitch, 8, (float)t * 0.2f, 255, 245, 200, 0.75f, 1.8f);
+        // Eternal Pole Star (Dhruva Tara) & Polar Constellation emerging during Tapasya / Darshan climax
+        if (darshanBoost > 0.02f)
+        {
+            var starX = cx;
+            var starY = isPortrait ? Height * 0.24f : Height * 0.22f;
+            DrawPolarStarAndConstellation(starX, starY, minSide, t, darshanBoost);
+        }
 
-        // 3D Sacred Horizon Grid + Temple Silhouette
-        DrawPerspectiveGrid(t, horizonY, 210, 120, 42, 0.34f);
+        // Temple sanctuary + sacred reflecting pond shimmer below horizon
+        DrawPerspectiveGrid(t * 0.45, horizonY, 210, 128, 48, 0.28f);
         DrawMountainAndTempleSilhouette(horizonY, (float)t);
+        DrawFloatingDiyas(horizonY, minSide, (float)t);
 
-        // Floating golden diya embers drifting upward
-        DrawParticles(t, upward: true, 255, 205, 90, 255, 120, 40, minSide * 0.015f);
+        // Floating golden diya embers / celestial flower petals (Act 3) drifting peacefully
+        DrawParticles(t, upward: u < 0.72, 255, 205, 90, 255, (byte)(u >= 0.72 ? 150 : 120), (byte)(u >= 0.72 ? 175 : 40), minSide * 0.015f);
     }
 
     private void RenderCosmosSacred3D(double t, double u, float pulse)
     {
         var cx = Width * 0.5f;
-        var cy = Height * 0.44f;
+        var isPortrait = Height > Width;
+        var cy = isPortrait ? Height * 0.36f : Height * 0.43f;
+        var horizonY = isPortrait ? Height * 0.57f : Height * 0.69f;
         var minSide = MathF.Min(Width, Height);
 
-        DrawAdditiveDisc(cx, cy, minSide * 0.50f, 92, 62, 220, 0.32f);
-        DrawAdditiveDisc(cx, cy, minSide * 0.14f, 210, 232, 255, 0.85f);
+        DrawAdditiveDisc(cx, cy, minSide * 0.48f, 120, 82, 232, 0.30f);
+        DrawAdditiveDisc(cx, cy, minSide * 0.14f, 255, 224, 150, 0.82f);
 
-        // Warp starfield flying past camera
-        DrawStarfieldWarp(t, cx, cy, minSide, 180, 220, 255);
+        // Warp starfield flying gently in deep space
+        DrawStarfieldWarp(t, cx, cy, minSide, 190, 224, 255);
 
-        // 3D Orbital Zodiac & Nakshatra rings
+        // Radiant eastern Surya sunrise glow + upper-right waxing Chandra crescent
+        DrawAdditiveDisc(Width * 0.18f, horizonY - minSide * 0.04f, minSide * 0.18f, 255, 165, 62, 0.42f);
+        var moonX = Width * 0.82f;
+        var moonY = isPortrait ? Height * 0.23f : Height * 0.22f;
+        DrawAdditiveDisc(moonX, moonY, minSide * 0.07f, 210, 230, 255, 0.58f);
+        FillEllipse(moonX, moonY, minSide * 0.036f, minSide * 0.036f, 236, 244, 255, 0.92f);
+        FillEllipse(moonX + minSide * 0.014f, moonY - minSide * 0.008f, minSide * 0.030f, minSide * 0.032f, 20, 14, 48, 0.90f);
+
+        // 3D Orbital Nakshatra & Kalachakra rings
         var yaw = (float)(t * 0.28);
-        var focal = minSide * 0.95f;
-        var camDist = 3.1f - 0.25f * (float)u;
+        var focal = minSide * 0.94f;
+        var camDist = 3.15f - 0.22f * (float)u;
 
-        DrawProjectedRing3D(cx, cy, focal, camDist, 1.15f, 0f, yaw, 0.55f, 48, 125, 211, 252, 0.78f, 2.2f);
-        DrawProjectedRing3D(cx, cy, focal, camDist, 0.88f, 0f, -yaw * 1.2f, 1.05f, 40, 245, 198, 96, 0.84f, 2.4f);
-        DrawProjectedRing3D(cx, cy, focal, camDist, 0.62f, 0f, yaw * 1.6f, 0.22f, 32, 192, 132, 252, 0.75f, 2.0f);
+        DrawProjectedRing3D(cx, cy, focal, camDist, 1.12f, 0f, yaw, 0.55f, 48, 125, 211, 252, 0.78f, 2.2f);
+        DrawProjectedRing3D(cx, cy, focal, camDist, 0.86f, 0f, -yaw * 1.2f, 1.05f, 40, 245, 198, 96, 0.86f, 2.4f);
+        DrawProjectedRing3D(cx, cy, focal, camDist, 0.60f, 0f, yaw * 1.6f, 0.22f, 32, 245, 158, 11, 0.76f, 2.0f);
 
-        // Orbiting glowing planets on the primary ring
+        // 12 zodiac spoke rays from center Kalachakra hub
+        for (var s = 0; s < 12; s++)
+        {
+            var a = (float)(t * 0.18 + s * (Math.PI * 2.0 / 12.0));
+            DrawGlowLine(cx, cy, cx + MathF.Cos(a) * minSide * 0.28f, cy + MathF.Sin(a) * minSide * 0.28f,
+                1.4f, 253, 224, 71, 0.28f);
+        }
+
+        // Orbiting glowing grahas on rings
         for (var p = 0; p < 5; p++)
         {
             var a = (float)(t * (0.45 + p * 0.17) + p * 1.25);
-            var r = 0.62f + (p % 3) * 0.26f;
+            var r = 0.60f + (p % 3) * 0.26f;
             var world = Rotate3D(new Vec3(MathF.Cos(a) * r, 0f, MathF.Sin(a) * r), yaw, 0.65f + (p % 2) * 0.3f, 0f);
             var pt = Project(world, cx, cy, focal, camDist);
             if (pt.Visible)
                 DrawAdditiveDisc(pt.X, pt.Y, minSide * (0.018f + (p % 2) * 0.008f), 255, 220, 130, 0.95f);
         }
 
-        DrawPerspectiveGrid(t * 0.6, Height * 0.72f, 99, 102, 241, 0.28f);
+        DrawPerspectiveGrid(t * 0.55, horizonY, 245, 158, 11, 0.24f);
+        DrawMountainAndTempleSilhouette(horizonY, (float)t, includeTempleSpire: true);
         DrawParticles(t, upward: false, 165, 180, 255, 252, 211, 102, minSide * 0.013f);
     }
 
@@ -359,6 +452,26 @@ public sealed class ProceduralSceneRasterizer
         DrawMountainAndTempleSilhouette(horizonY, (float)t, includeTempleSpire: false);
         DrawPerspectiveGrid(t * 0.35, horizonY, 52, 211, 153, 0.24f);
         DrawParticles(t, upward: true, 167, 243, 208, 253, 230, 138, minSide * 0.014f);
+    }
+
+    private void RenderComedyStage3D(double t, double u, float pulse)
+    {
+        var cx = Width * 0.5f;
+        var horizonY = Height * 0.62f;
+        var minSide = MathF.Min(Width, Height);
+
+        // Twin crisscrossing stage spotlight beams + warm center comedic glow
+        var swayA = MathF.Sin((float)t * 1.4f) * Width * 0.16f;
+        var swayB = MathF.Cos((float)t * 1.2f) * Width * 0.16f;
+        DrawAdditiveDisc(cx + swayA, horizonY * 0.68f, minSide * 0.34f, 249, 115, 22, 0.24f);
+        DrawAdditiveDisc(cx + swayB, horizonY * 0.68f, minSide * 0.28f, 250, 204, 21, 0.24f);
+        DrawGlowLine(Width * 0.18f, Height * 0.06f, cx + swayA, horizonY, minSide * 0.032f, 255, 224, 130, 0.22f);
+        DrawGlowLine(Width * 0.82f, Height * 0.06f, cx + swayB, horizonY, minSide * 0.032f, 255, 165, 90, 0.22f);
+
+        // Marquee bokeh rings + upbeat bounce grid + sparkles
+        DrawAdditiveRing(cx, Height * 0.42f, minSide * (0.24f + pulse * 0.04f), 250, 204, 21, 0.28f);
+        DrawPerspectiveGrid(t * 1.15, horizonY, 249, 115, 22, 0.36f);
+        DrawParticles(t, upward: true, 250, 204, 21, 249, 115, 22, minSide * 0.016f);
     }
 
     private void DrawPerspectiveGrid(double t, float horizonY, byte r, byte g, byte b, float alpha)
@@ -546,22 +659,89 @@ public sealed class ProceduralSceneRasterizer
         }
     }
 
-    private void ApplyTopTemplateBand(double progress)
+    private void DrawTempleBell(float anchorX, float anchorY, float ropeLen, float swingAngle)
     {
-        var bandBottom = Math.Max(48, (int)(Height * 0.145f));
-        for (var y = 0; y < bandBottom; y++)
+        var sin = MathF.Sin(swingAngle);
+        var cos = MathF.Cos(swingAngle);
+        var bellX = anchorX + sin * ropeLen;
+        var bellY = anchorY + cos * ropeLen;
+        var bellScale = ropeLen * 0.34f;
+
+        DrawGlowLine(anchorX, anchorY - 4f, bellX, bellY, 1.5f, 250, 204, 21, 0.85f);
+        FillEllipse(bellX, bellY, bellScale, bellScale * 0.85f, 217, 152, 34, 0.95f);
+        FillEllipse(bellX, bellY + bellScale * 0.55f, bellScale * 1.28f, bellScale * 0.38f, 250, 204, 21, 0.96f);
+        FillEllipse(bellX + sin * bellScale * 0.4f, bellY + bellScale * 0.88f, bellScale * 0.28f, bellScale * 0.28f, 255, 232, 160, 0.95f);
+        DrawAdditiveDisc(bellX, bellY + bellScale * 0.4f, bellScale * 2.1f, 255, 198, 80, 0.24f);
+    }
+
+    private void DrawPolarStarAndConstellation(float cx, float cy, float minSide, double t, float intensity)
+    {
+        var sparkle = 0.85f + 0.15f * MathF.Sin((float)t * 4.2f);
+        DrawAdditiveDisc(cx, cy, minSide * 0.16f, 180, 224, 255, 0.36f * intensity * sparkle);
+        DrawAdditiveDisc(cx, cy, minSide * 0.055f, 255, 250, 220, 0.85f * intensity);
+
+        // 8-point radiant Dhruva Tara star spikes
+        for (var i = 0; i < 8; i++)
         {
-            var k = (float)y / bandBottom;
-            var darken = 0.42f + k * 0.48f;
-            var rowStart = y * Width * 4;
-            for (var x = 0; x < Width; x++)
+            var a = i * (MathF.PI / 4f) + (float)t * 0.08f;
+            var len = minSide * (i % 2 == 0 ? 0.11f : 0.065f) * intensity * sparkle;
+            DrawGlowLine(cx, cy, cx + MathF.Cos(a) * len, cy + MathF.Sin(a) * len,
+                i % 2 == 0 ? 2.2f : 1.5f, 255, 244, 196, 0.86f * intensity);
+        }
+
+        // Supporting Saptarishi constellation arc flanking the Pole Star
+        Span<(float Dx, float Dy)> starOffsets =
+        [
+            (-0.26f, 0.06f), (-0.18f, 0.03f), (-0.10f, 0.05f),
+            (0.11f, 0.04f), (0.19f, 0.02f), (0.27f, 0.07f)
+        ];
+        for (var i = 0; i < starOffsets.Length; i++)
+        {
+            var sx = cx + starOffsets[i].Dx * Width;
+            var sy = cy + starOffsets[i].Dy * Height;
+            DrawAdditiveDisc(sx, sy, minSide * 0.020f, 224, 242, 254, 0.70f * intensity);
+            if (i > 0 && i != 3)
             {
-                var idx = rowStart + x * 4;
-                _frame[idx] = (byte)(_frame[idx] * darken);
-                _frame[idx + 1] = (byte)(_frame[idx + 1] * darken);
-                _frame[idx + 2] = (byte)(_frame[idx + 2] * darken);
+                var px = cx + starOffsets[i - 1].Dx * Width;
+                var py = cy + starOffsets[i - 1].Dy * Height;
+                DrawGlowLine(px, py, sx, sy, 1.1f, 148, 197, 253, 0.35f * intensity);
             }
         }
+    }
+
+    private void DrawFloatingDiyas(float horizonY, float minSide, float t)
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            var fx = Width * (0.12f + i * 0.19f) + MathF.Sin(t * 0.7f + i * 1.4f) * Width * 0.015f;
+            var fy = horizonY + MathF.Sin(t * 1.3f + i * 0.9f) * 3.5f + (i % 2) * 8f;
+            DrawAdditiveDisc(fx, fy - 4f, minSide * 0.045f, 255, 165, 45, 0.42f);
+            FillEllipse(fx, fy + 2f, minSide * 0.024f, minSide * 0.009f, 146, 64, 14, 0.92f);
+            FillEllipse(fx, fy - 4f, minSide * 0.008f, minSide * 0.014f, 255, 228, 128, 0.96f);
+        }
+    }
+
+    private void ApplyTopTemplateBand(double progress)
+    {
+        var bandBottom = Height > Width
+            ? Math.Max(68, (int)(Height * 0.165f))
+            : Math.Max(48, (int)(Height * 0.145f));
+        ForRowBands(0, Math.Min(bandBottom, Height), (long)bandBottom * Width, (band0, band1) =>
+        {
+            for (var y = band0; y < band1; y++)
+            {
+                var k = (float)y / bandBottom;
+                var darken = 0.40f + k * 0.48f;
+                var rowStart = y * Width * 4;
+                for (var x = 0; x < Width; x++)
+                {
+                    var idx = rowStart + x * 4;
+                    _frame[idx] = (byte)(_frame[idx] * darken);
+                    _frame[idx + 1] = (byte)(_frame[idx + 1] * darken);
+                    _frame[idx + 2] = (byte)(_frame[idx + 2] * darken);
+                }
+            }
+        });
 
         // Fixed event-colored accent divider separating top title header from 3D stage
         var ruleH = Math.Max(2, Height / 260);
@@ -586,21 +766,27 @@ public sealed class ProceduralSceneRasterizer
 
     private void ApplyBottomCaptionScrim()
     {
-        var scrimTop = (int)(Height * 0.72f);
+        // On portrait Shorts, subtly boost contrast across the safe-zone subtitle window (57%..78%) and calm bottom chrome below 78%.
+        var scrimTop = Height > Width ? (int)(Height * 0.57f) : (int)(Height * 0.72f);
         var span = Math.Max(1, Height - scrimTop);
-        for (var y = scrimTop; y < Height; y++)
+        ForRowBands(scrimTop, Height, (long)span * Width, (band0, band1) =>
         {
-            var k = (float)(y - scrimTop) / span;
-            var darken = 1f - k * 0.56f;
-            var rowStart = y * Width * 4;
-            for (var x = 0; x < Width; x++)
+            for (var y = band0; y < band1; y++)
             {
-                var idx = rowStart + x * 4;
-                _frame[idx] = (byte)(_frame[idx] * darken);
-                _frame[idx + 1] = (byte)(_frame[idx + 1] * darken);
-                _frame[idx + 2] = (byte)(_frame[idx + 2] * darken);
+                var k = (float)(y - scrimTop) / span;
+                var darken = Height > Width
+                    ? 0.78f - k * 0.34f
+                    : 1f - k * 0.56f;
+                var rowStart = y * Width * 4;
+                for (var x = 0; x < Width; x++)
+                {
+                    var idx = rowStart + x * 4;
+                    _frame[idx] = (byte)(_frame[idx] * darken);
+                    _frame[idx + 1] = (byte)(_frame[idx + 1] * darken);
+                    _frame[idx + 2] = (byte)(_frame[idx + 2] * darken);
+                }
             }
-        }
+        });
     }
 
     private void DrawProgressBar(double progress)
@@ -668,33 +854,57 @@ public sealed class ProceduralSceneRasterizer
         var stepY = dy / steps;
         var radInt = Math.Clamp((int)MathF.Ceiling(radius), 1, 14);
         var maxDistSq = radius * radius + 0.5f;
+        var diameter = radInt * 2 + 1;
 
-        for (var s = 0; s <= steps; s++)
+        // The stamp's falloff depends only on (ox, oy), so it is worked out once instead of once per stamp.
+        var kernel = System.Buffers.ArrayPool<float>.Shared.Rent(diameter * diameter);
+        for (var oy = -radInt; oy <= radInt; oy++)
+        for (var ox = -radInt; ox <= radInt; ox++)
         {
-            var px = (int)(x0 + stepX * s);
-            var py = (int)(y0 + stepY * s);
-            if (px + radInt < 0 || px - radInt >= Width || py + radInt < 0 || py - radInt >= Height) continue;
+            var d2 = ox * ox + oy * oy;
+            kernel[(oy + radInt) * diameter + ox + radInt] = d2 > maxDistSq
+                ? OutsideStamp
+                : (1f - MathF.Sqrt(d2) / (radius + 0.5f)) * alpha * 0.35f;
+        }
 
-            for (var oy = -radInt; oy <= radInt; oy++)
+        var minY = Math.Max(0, (int)MathF.Min(y0, y1) - radInt - 1);
+        var maxY = Math.Min(Height, (int)MathF.Max(y0, y1) + radInt + 2);
+
+        // Each band replays every stamp in order but only writes its own rows, so overlapping stamps still add up in
+        // exactly the same order as on one thread.
+        ForRowBands(minY, maxY, (long)(steps + 1) * diameter * diameter, (band0, band1) =>
+        {
+            for (var s = 0; s <= steps; s++)
             {
-                var yy = py + oy;
-                if ((uint)yy >= (uint)Height) continue;
-                var rowStart = yy * Width * 4;
-                for (var ox = -radInt; ox <= radInt; ox++)
+                var px = (int)(x0 + stepX * s);
+                var py = (int)(y0 + stepY * s);
+                if (px + radInt < 0 || px - radInt >= Width || py + radInt < 0 || py - radInt >= Height) continue;
+
+                var oyFrom = Math.Max(-radInt, Math.Max(0, band0) - py);
+                var oyTo = Math.Min(radInt, Math.Min(Height, band1) - 1 - py);
+                var oxFrom = Math.Max(-radInt, -px);
+                var oxTo = Math.Min(radInt, Width - 1 - px);
+                for (var oy = oyFrom; oy <= oyTo; oy++)
                 {
-                    var xx = px + ox;
-                    if ((uint)xx >= (uint)Width) continue;
-                    var d2 = ox * ox + oy * oy;
-                    if (d2 > maxDistSq) continue;
-                    var falloff = (1f - MathF.Sqrt(d2) / (radius + 0.5f)) * alpha * 0.35f;
-                    var idx = rowStart + xx * 4;
-                    _frame[idx] = ClampByte(_frame[idx] + r * falloff);
-                    _frame[idx + 1] = ClampByte(_frame[idx + 1] + g * falloff);
-                    _frame[idx + 2] = ClampByte(_frame[idx + 2] + b * falloff);
+                    var rowStart = (py + oy) * Width * 4;
+                    var kRow = (oy + radInt) * diameter + radInt;
+                    for (var ox = oxFrom; ox <= oxTo; ox++)
+                    {
+                        var falloff = kernel[kRow + ox];
+                        if (falloff == OutsideStamp) continue;
+                        var idx = rowStart + (px + ox) * 4;
+                        _frame[idx] = ClampByte(_frame[idx] + r * falloff);
+                        _frame[idx + 1] = ClampByte(_frame[idx + 1] + g * falloff);
+                        _frame[idx + 2] = ClampByte(_frame[idx + 2] + b * falloff);
+                    }
                 }
             }
-        }
+        });
+        System.Buffers.ArrayPool<float>.Shared.Return(kernel);
     }
+
+    /// <summary>Marks kernel cells outside a glow stamp's circle; no real falloff is ever negative infinity.</summary>
+    private const float OutsideStamp = float.NegativeInfinity;
 
     internal void DrawAdditiveDisc(float cx, float cy, float radius, byte r, byte g, byte b, float alpha)
     {
@@ -707,25 +917,28 @@ public sealed class ProceduralSceneRasterizer
         var maxX = Math.Min(Width - 1, (int)cx + rad);
         var invRadius = 1f / MathF.Max(1f, radius);
 
-        for (var y = minY; y <= maxY; y++)
+        ForRowBands(minY, maxY + 1, (long)(maxY - minY + 1) * (maxX - minX + 1), (band0, band1) =>
         {
-            var dy = y - cy;
-            var dySq = dy * dy;
-            var rowStart = y * Width * 4;
-            for (var x = minX; x <= maxX; x++)
+            for (var y = band0; y < band1; y++)
             {
-                var dx = x - cx;
-                var distSq = dx * dx + dySq;
-                if (distSq >= radius * radius) continue;
+                var dy = y - cy;
+                var dySq = dy * dy;
+                var rowStart = y * Width * 4;
+                for (var x = minX; x <= maxX; x++)
+                {
+                    var dx = x - cx;
+                    var distSq = dx * dx + dySq;
+                    if (distSq >= radius * radius) continue;
 
-                var k = 1f - MathF.Sqrt(distSq) * invRadius;
-                var a = k * k * alpha;
-                var idx = rowStart + x * 4;
-                _frame[idx] = ClampByte(_frame[idx] + r * a);
-                _frame[idx + 1] = ClampByte(_frame[idx + 1] + g * a);
-                _frame[idx + 2] = ClampByte(_frame[idx + 2] + b * a);
+                    var k = 1f - MathF.Sqrt(distSq) * invRadius;
+                    var a = k * k * alpha;
+                    var idx = rowStart + x * 4;
+                    _frame[idx] = ClampByte(_frame[idx] + r * a);
+                    _frame[idx + 1] = ClampByte(_frame[idx + 1] + g * a);
+                    _frame[idx + 2] = ClampByte(_frame[idx + 2] + b * a);
+                }
             }
-        }
+        });
     }
 
     internal void DrawAdditiveRing(float cx, float cy, float radius, byte r, byte g, byte b, float alpha)
@@ -755,25 +968,28 @@ public sealed class ProceduralSceneRasterizer
         var invRx = 1f / rx;
         var invRy = 1f / ry;
 
-        for (var y = minY; y <= maxY; y++)
+        ForRowBands(minY, maxY + 1, (long)(maxY - minY + 1) * (maxX - minX + 1), (band0, band1) =>
         {
-            var ny = (y - cy) * invRy;
-            var nySq = ny * ny;
-            if (nySq > 1.08f) continue;
-            var rowStart = y * Width * 4;
-            for (var x = minX; x <= maxX; x++)
+            for (var y = band0; y < band1; y++)
             {
-                var nx = (x - cx) * invRx;
-                var d = MathF.Sqrt(nx * nx + nySq);
-                if (d >= 1.04f) continue;
-                var edge = Math.Clamp((1.04f - d) * 14f, 0f, 1f) * alpha;
-                var inv = 1f - edge;
-                var idx = rowStart + x * 4;
-                _frame[idx] = ClampByte(_frame[idx] * inv + r * edge);
-                _frame[idx + 1] = ClampByte(_frame[idx + 1] * inv + g * edge);
-                _frame[idx + 2] = ClampByte(_frame[idx + 2] * inv + b * edge);
+                var ny = (y - cy) * invRy;
+                var nySq = ny * ny;
+                if (nySq > 1.08f) continue;
+                var rowStart = y * Width * 4;
+                for (var x = minX; x <= maxX; x++)
+                {
+                    var nx = (x - cx) * invRx;
+                    var d = MathF.Sqrt(nx * nx + nySq);
+                    if (d >= 1.04f) continue;
+                    var edge = Math.Clamp((1.04f - d) * 14f, 0f, 1f) * alpha;
+                    var inv = 1f - edge;
+                    var idx = rowStart + x * 4;
+                    _frame[idx] = ClampByte(_frame[idx] * inv + r * edge);
+                    _frame[idx + 1] = ClampByte(_frame[idx + 1] * inv + g * edge);
+                    _frame[idx + 2] = ClampByte(_frame[idx + 2] * inv + b * edge);
+                }
             }
-        }
+        });
     }
 
     internal void FillCapsule(float x0, float y0, float x1, float y1, float radius, byte r, byte g, byte b, float alpha)
@@ -789,26 +1005,29 @@ public sealed class ProceduralSceneRasterizer
         var abY = y1 - y0;
         var abLenSq = MathF.Max(0.0001f, abX * abX + abY * abY);
 
-        for (var y = minY; y <= maxY; y++)
+        ForRowBands(minY, maxY + 1, (long)(maxY - minY + 1) * (maxX - minX + 1), (band0, band1) =>
         {
-            var py = y - y0;
-            var rowStart = y * Width * 4;
-            for (var x = minX; x <= maxX; x++)
+            for (var y = band0; y < band1; y++)
             {
-                var px = x - x0;
-                var h = Math.Clamp((px * abX + py * abY) / abLenSq, 0f, 1f);
-                var dx = px - abX * h;
-                var dy = py - abY * h;
-                var dist = MathF.Sqrt(dx * dx + dy * dy);
-                if (dist >= radius + 1.2f) continue;
-                var edge = Math.Clamp((radius + 1.2f - dist) * 0.85f, 0f, 1f) * alpha;
-                var inv = 1f - edge;
-                var idx = rowStart + x * 4;
-                _frame[idx] = ClampByte(_frame[idx] * inv + r * edge);
-                _frame[idx + 1] = ClampByte(_frame[idx + 1] * inv + g * edge);
-                _frame[idx + 2] = ClampByte(_frame[idx + 2] * inv + b * edge);
+                var py = y - y0;
+                var rowStart = y * Width * 4;
+                for (var x = minX; x <= maxX; x++)
+                {
+                    var px = x - x0;
+                    var h = Math.Clamp((px * abX + py * abY) / abLenSq, 0f, 1f);
+                    var dx = px - abX * h;
+                    var dy = py - abY * h;
+                    var dist = MathF.Sqrt(dx * dx + dy * dy);
+                    if (dist >= radius + 1.2f) continue;
+                    var edge = Math.Clamp((radius + 1.2f - dist) * 0.85f, 0f, 1f) * alpha;
+                    var inv = 1f - edge;
+                    var idx = rowStart + x * 4;
+                    _frame[idx] = ClampByte(_frame[idx] * inv + r * edge);
+                    _frame[idx + 1] = ClampByte(_frame[idx + 1] * inv + g * edge);
+                    _frame[idx + 2] = ClampByte(_frame[idx + 2] * inv + b * edge);
+                }
             }
-        }
+        });
     }
 
     private float? SampleSpeechLevel(double timeSeconds)
@@ -821,7 +1040,7 @@ public sealed class ProceduralSceneRasterizer
     private void RenderVoiceWaveIndicator(double t, float speechLevel)
     {
         var centerX = Width * 0.5f;
-        var baseY = Height * 0.72f;
+        var baseY = Height > Width ? Height * 0.56f : Height * 0.72f;
         var unit = MathF.Min(Width, Height) * 0.008f;
         const int bars = 9;
         var spacing = unit * 2.4f;

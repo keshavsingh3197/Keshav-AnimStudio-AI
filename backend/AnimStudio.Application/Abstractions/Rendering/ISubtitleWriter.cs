@@ -21,7 +21,9 @@ public sealed record SubtitleStyle(
     string? OutlineColorHex = null,
     string? BackColorHex = null,
     string? SecondaryColorHex = null,
-    SubtitleMotionPreset MotionPreset = SubtitleMotionPreset.None);
+    SubtitleMotionPreset MotionPreset = SubtitleMotionPreset.None,
+    int MarginL = 72,
+    int MarginR = 72);
 
 public sealed record SubtitleRequest(
     Canvas Canvas,

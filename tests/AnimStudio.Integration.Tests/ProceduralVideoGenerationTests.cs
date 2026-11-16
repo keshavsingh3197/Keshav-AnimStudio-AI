@@ -132,8 +132,8 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         Assert.Equal("h264,720,1280", dimensions);
 
         var audioCodec = FfmpegLocator.Probe(
-            $"-v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 \"{mp4Path}\"");
-        Assert.Equal("aac", audioCodec);
+            $"-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of csv=p=0 \"{mp4Path}\"");
+        Assert.Equal("aac,48000,2", audioCodec);
 
         var duration = double.Parse(
             FfmpegLocator.Probe($"-v error -show_entries format=duration -of csv=p=0 \"{mp4Path}\""),
@@ -216,6 +216,97 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         var header = new byte[8];
         Assert.Equal(8, await cardStream!.ReadAsync(header));
         Assert.Equal([137, 80, 78, 71, 13, 10, 26, 10], header);
+
+        // Verify Hindi DailyKatha portrait (>= 10s) renders with H.264 + AAC spoken voice track & safe margins
+        var hindiKathaVideo = await service.GenerateAsync("user-auto-hi", new ProceduralVideoRequest
+        {
+            Title = "भक्त ध्रुव और देवर्षि नारद मुनि की संपूर्ण कथा",
+            EventType = "DailyKatha",
+            TopCategoryLabel = "पौराणिक कथा संवाद",
+            Language = "hi",
+            Prompt = "Sacred forest tapasya dialogue leading to Dhruva Tara",
+            Script = "[भक्त ध्रुव]: देवर्षि नारद मुनि, कृपया मुझे भक्ति का अटल मार्ग बताइए।\n[देवर्षि नारद मुनि]: बालक ध्रुव, एकाग्र मन से पावन मंत्र ॐ नमो भगवते वासुदेवाय का जप करो।",
+            Theme = ProceduralSceneTheme.Auto,
+            SubtitlePreset = "event-glow",
+            EnableCharacterDialogue = true,
+            SpeakerAName = "भक्त ध्रुव",
+            SpeakerBName = "देवर्षि नारद मुनि",
+            FooterLabel = "panchang.keshavsingh.in",
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 10,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.Equal(ProceduralSceneTheme.VedicTempleSunrise3D, hindiKathaVideo.ResolvedTheme);
+        Assert.NotNull(hindiKathaVideo.InlineMp4Bytes);
+        Assert.True(hindiKathaVideo.SizeBytes > 5_000);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Contains("voice=", hindiKathaVideo.Summary);
+        }
+        var hindiPath = Path.Combine(_root, "verified-hindi-katha.mp4");
+        await File.WriteAllBytesAsync(hindiPath, hindiKathaVideo.InlineMp4Bytes!);
+        Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{hindiPath}\""));
+        Assert.Equal("aac,48000,2", FfmpegLocator.Probe(
+            $"-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of csv=p=0 \"{hindiPath}\""));
+    }
+
+    [FfmpegFact]
+    public async Task ProceduralBgmCacheService_resamples_existing_192kHz_cached_preset_to_48kHz_without_losing_source()
+    {
+        var bgmRoot = Path.Combine(_root, "bgm-upgrade-test");
+        Directory.CreateDirectory(bgmRoot);
+        var paths = AppDataPaths.Resolve(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), bgmRoot);
+        var presetsDir = Path.Combine(paths.Root, "bgm-presets");
+        Directory.CreateDirectory(presetsDir);
+
+        var wavPath = Path.Combine(presetsDir, "vedic-sunrise.wav");
+        var sourcePath = Path.Combine(presetsDir, "vedic-sunrise.source");
+        await File.WriteAllTextAsync(sourcePath, "lyria:lyria-3.5");
+
+        // Create a 192kHz cached WAV reproducing what loudnorm previously saved.
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = FfmpegLocator.FfmpegPath,
+            Arguments = $"-y -f lavfi -i \"sine=frequency=432:duration=2\" -ar 192000 -ac 2 -c:a pcm_s16le \"{wavPath}\"",
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using (var proc = System.Diagnostics.Process.Start(psi)!)
+        {
+            await proc.WaitForExitAsync();
+            Assert.Equal(0, proc.ExitCode);
+        }
+
+        Assert.False(ProceduralBgmCacheService.IsStereo48kWav(wavPath));
+
+        var cache = new ProceduralBgmCacheService(
+            Options.Create(new FfmpegOptions
+            {
+                FfmpegPath = FfmpegLocator.FfmpegPath,
+                FfprobePath = FfmpegLocator.FfprobePath
+            }),
+            paths);
+
+        var (resolvedPath, resolvedSource) = await cache.EnsurePresetWavAsync(
+            ProceduralSceneTheme.VedicTempleSunrise3D,
+            forceRefresh: false,
+            CancellationToken.None);
+
+        Assert.Equal(wavPath, resolvedPath);
+        Assert.Equal("lyria:lyria-3.5", resolvedSource);
+        Assert.True(ProceduralBgmCacheService.IsStereo48kWav(wavPath));
+        Assert.Equal("48000,2", FfmpegLocator.Probe(
+            $"-v error -select_streams a:0 -show_entries stream=sample_rate,channels -of csv=p=0 \"{wavPath}\""));
     }
 
     private sealed class Workspaces(string root, IObjectStore store) : IRenderWorkspaceFactory

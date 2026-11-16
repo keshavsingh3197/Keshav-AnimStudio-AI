@@ -38,6 +38,7 @@ import { FileDropDirective } from '../../shared/file-drop.directive';
 import { parseVideoList } from '../youtube/video-details.component';
 import { MediaPreview, MediaPreviewDialogComponent } from '../../shared/media-preview-dialog.component';
 import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent, expandBroadcastTokens } from '../../shared/youtube-live-setup.component';
+import { LiveQuizPanelComponent } from './live-quiz-panel.component';
 
 type AddMode = 'upload' | 'renders' | 'assets' | 'links';
 type KeyMode = LiveStreamKeyMode;
@@ -81,7 +82,7 @@ function youTubeVideoIdOf(url: string | undefined): string | undefined {
 
 @Component({
   selector: 'app-live-stream',
-  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent, YouTubeLiveSetupComponent, LoadingStateComponent],
+  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent, YouTubeLiveSetupComponent, LoadingStateComponent, LiveQuizPanelComponent],
   templateUrl: './live-stream.component.html',
   styleUrls: ['./live-stream.component.css'],
 })
@@ -1303,5 +1304,19 @@ export class LiveStreamComponent {
     } catch {
       // Not worth telling anyone about.
     }
+  }
+
+  onApplyPlaybookPreset(preset: { title: string; label: string }): void {
+    this.form.label = preset.label;
+    this.youTubeDraft.set({
+      channelId: this.youTubeBroadcast()?.channelId ?? this.form.channelId ?? '',
+      title: preset.title,
+      description: 'Live Ecosystem Q&A + Quiz · Verify at https://pratiyogita.keshavsingh.in/winners',
+      tags: ['Keshav Singh Live', 'KESHAV-ANIM-FF', 'OmkarShivBhakti', 'Pratiyogita Quiz'],
+      categoryId: '24',
+      privacy: 'public',
+      madeForKids: false,
+      enableDvr: true,
+    });
   }
 }

@@ -1,9 +1,14 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, map, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
+import {
+  LocaleService,
+  SiteLocalizationAdminStateResponse,
+  UpdateSiteLocalizationRequest,
+} from './locale.service';
 
 export type WebSettingType = 'Boolean' | 'Integer' | 'Number' | 'Text' | 'Choice' | 'Url';
 
@@ -89,7 +94,24 @@ export interface ChannelPublishSettings {
 @Injectable({ providedIn: 'root' })
 export class AdminSettingsService {
   private readonly http = inject(HttpClient);
+  private readonly locale = inject(LocaleService);
   private readonly base = `${environment.apiUrl}/api/admin`;
+  private readonly i18nSettingsUrl = `${environment.apiUrl}/api/settings/localization`;
+
+  localizationState(): Observable<SiteLocalizationAdminStateResponse> {
+    return this.http
+      .get<ApiResponse<SiteLocalizationAdminStateResponse>>(this.i18nSettingsUrl)
+      .pipe(map((r) => r.data!));
+  }
+
+  saveLocalization(body: UpdateSiteLocalizationRequest): Observable<SiteLocalizationAdminStateResponse> {
+    return this.http
+      .put<ApiResponse<SiteLocalizationAdminStateResponse>>(this.i18nSettingsUrl, body)
+      .pipe(
+        map((r) => r.data!),
+        tap((state) => this.locale.applyPolicyUpdate(state.effectivePolicy)),
+      );
+  }
 
   list(): Observable<WebSettingsOverview> {
     return this.http.get<ApiResponse<WebSettingsOverview>>(`${this.base}/settings`).pipe(map((r) => r.data!));

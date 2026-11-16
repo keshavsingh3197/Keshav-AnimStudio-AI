@@ -136,6 +136,15 @@ public interface IImageEditingProvider : IAiProvider
 
 public sealed record AiEditedImage(byte[] Content, string MimeType, string Model);
 
+/// <summary>
+/// Allows a configured Gemini speech/API key to also synthesize scene illustrations via
+/// <c>gemini-2.5-flash-image</c> when no standalone image engine has been enabled yet.
+/// </summary>
+public interface IGeminiImageGeneratingProvider : IAiProvider
+{
+    Task<AiImageResult> GenerateSceneImageAsync(AiImageRequest request, string? model, CancellationToken ct);
+}
+
 public interface ITranscriptionProvider : IAiProvider
 {
     Task<AiTranscriptionResult> TranscribeAsync(AiTranscriptionRequest request, CancellationToken ct);

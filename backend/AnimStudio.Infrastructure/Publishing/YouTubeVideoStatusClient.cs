@@ -92,6 +92,47 @@ public sealed class YouTubeVideoStatusClient : IDisposable
         }
     }
 
+    private const string DeleteUrl = "https://www.googleapis.com/youtube/v3/videos?id=";
+
+    /// <summary>
+    /// Permanently deletes one of the channel's videos with <c>videos.delete</c> (50 quota units). Needs the
+    /// <c>youtube.force-ssl</c> scope; a channel connected before that scope was asked must be connected again.
+    /// </summary>
+    /// <returns>True when YouTube deleted it; false when YouTube no longer had it (already deleted).</returns>
+    public async Task<bool> DeleteAsync(string videoId, string accessToken, CancellationToken ct)
+    {
+        if (!YouTubeRelatedVideos.IsVideoId(videoId))
+            throw new ArgumentException("Not a valid video id.", nameof(videoId));
+
+        using var request = new HttpRequestMessage(HttpMethod.Delete, DeleteUrl + Uri.EscapeDataString(videoId));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            throw new YouTubePublishException("youtube-unreachable", "YouTube couldn't be reached to delete the video. Try again later.");
+        }
+
+        using (response)
+        {
+            if (response.IsSuccessStatusCode) return true;
+            if (response.StatusCode == HttpStatusCode.NotFound) return false;
+
+            var reason = await GoogleErrors.ReadReasonAsync(response, ct).ConfigureAwait(false);
+            _logger.LogWarning("YouTube videos.delete answered {Status} ({Reason})", (int)response.StatusCode, reason ?? "unknown");
+            if (reason is "quotaExceeded" or "dailyLimitExceeded" or "rateLimitExceeded")
+                throw new YouTubePublishException("youtube-quota", "This server has used its YouTube API quota for today. Delete it in YouTube Studio, or try again tomorrow.");
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                throw new YouTubePublishException("youtube-reconnect",
+                    "YouTube refused the delete. Reconnect this channel (it needs the manage-videos permission), or delete it in YouTube Studio and choose 'I already deleted it'.");
+            throw new YouTubePublishException("youtube-unreachable", "YouTube couldn't delete the video just now. Try again later.");
+        }
+    }
+
     internal static IReadOnlyDictionary<string, YouTubeVideoStatusSnapshot> Parse(JsonElement root)
     {
         var result = new Dictionary<string, YouTubeVideoStatusSnapshot>(StringComparer.Ordinal);

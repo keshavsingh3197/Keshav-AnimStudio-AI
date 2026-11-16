@@ -54,7 +54,8 @@ public sealed class ProceduralBgmCacheService(
             Describe(ProceduralSceneTheme.CosmosSacred3D, "cosmos-sacred", "Sacred Cosmos Meditative Pad", "Daily Panchang, Nakshatra & Astronomy"),
             Describe(ProceduralSceneTheme.HistoryChronicle3D, "history-chronicle", "Archival Cello & Documentary Bed", "Aaj Ka Itihaas & Historical Stories"),
             Describe(ProceduralSceneTheme.NeonCyberGrid3D, "neon-cyber", "Modern Chill Synth Underscore", "Tech, Pratiyogita Quizzes & Tutorials"),
-            Describe(ProceduralSceneTheme.SereneNatureGlow, "serene-nature", "Serene Acoustic Morning Breeze", "Wisdom Quotes, Motivation & Calm Shorts")
+            Describe(ProceduralSceneTheme.SereneNatureGlow, "serene-nature", "Serene Acoustic Morning Breeze", "Wisdom Quotes, Motivation & Calm Shorts"),
+            Describe(ProceduralSceneTheme.ComedyStage3D, "comedy-stage", "Upbeat Comedy & Tapri Pluck Groove", "Funny Shorts, Jokes & @KESHAV-ANIM-FF")
         ];
     }
 
@@ -65,6 +66,7 @@ public sealed class ProceduralBgmCacheService(
         "history-chronicle" => ProceduralSceneTheme.HistoryChronicle3D,
         "neon-cyber" => ProceduralSceneTheme.NeonCyberGrid3D,
         "serene-nature" => ProceduralSceneTheme.SereneNatureGlow,
+        "comedy-stage" => ProceduralSceneTheme.ComedyStage3D,
         _ => null
     };
 
@@ -82,7 +84,7 @@ public sealed class ProceduralBgmCacheService(
         var wavPath = Path.Combine(PresetsDir, $"{slug}.wav");
         var sourcePath = Path.Combine(PresetsDir, $"{slug}.source");
 
-        if (!forceRefresh && IsValidNonEmptyWav(wavPath))
+        if (!forceRefresh && IsValidNonEmptyWav(wavPath) && IsStereo48kWav(wavPath))
         {
             var cachedSource = File.Exists(sourcePath)
                 ? (await File.ReadAllTextAsync(sourcePath, ct).ConfigureAwait(false)).Trim()
@@ -96,6 +98,24 @@ public sealed class ProceduralBgmCacheService(
         {
             if (!forceRefresh && IsValidNonEmptyWav(wavPath))
             {
+                if (!IsStereo48kWav(wavPath))
+                {
+                    var tmpNorm = Path.Combine(PresetsDir, $"{slug}.{Guid.NewGuid():n}.48k.wav");
+                    try
+                    {
+                        if (await NormalizeToLoopableWavAsync(wavPath, tmpNorm, ct).ConfigureAwait(false)
+                            && IsStereo48kWav(tmpNorm)
+                            && IsValidNonEmptyWav(tmpNorm))
+                        {
+                            File.Move(tmpNorm, wavPath, overwrite: true);
+                        }
+                    }
+                    finally
+                    {
+                        TryDelete(tmpNorm);
+                    }
+                }
+
                 var cachedSource = File.Exists(sourcePath)
                     ? (await File.ReadAllTextAsync(sourcePath, ct).ConfigureAwait(false)).Trim()
                     : "cached";
@@ -254,7 +274,18 @@ public sealed class ProceduralBgmCacheService(
         return null;
     }
 
-    private async Task<bool> NormalizeToLoopableWavAsync(string inputPath, string outputWavPath, CancellationToken ct)
+    public Task<bool> NormalizeCustomAudioToWavAsync(
+        string inputPath,
+        string outputWavPath,
+        int maxSeconds,
+        CancellationToken ct) =>
+        NormalizeToLoopableWavAsync(inputPath, outputWavPath, ct, Math.Clamp(maxSeconds, 10, 600));
+
+    private async Task<bool> NormalizeToLoopableWavAsync(
+        string inputPath,
+        string outputWavPath,
+        CancellationToken ct,
+        int maxSeconds = 45)
     {
         var ffmpegPath = string.IsNullOrWhiteSpace(ffmpegOptions.Value.FfmpegPath)
             ? "ffmpeg"
@@ -270,14 +301,16 @@ public sealed class ProceduralBgmCacheService(
             CreateNoWindow = true
         };
 
-        // Keep up to 45s of clean instrumental normalized to -22 LUFS so voice always sits clearly in front.
+        // Keep up to 45s of clean instrumental normalized to -22 LUFS and resampled back to 48kHz stereo after loudnorm (which upsamples to 192kHz internally).
         foreach (var arg in new[]
         {
             "-y",
             "-i", inputPath,
             "-vn",
-            "-t", "45",
-            "-af", "aresample=48000,aformat=channel_layouts=stereo,highpass=f=60,lowpass=f=12000,loudnorm=I=-22:TP=-2:LRA=8,afade=t=in:st=0:d=0.6",
+            "-t", maxSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-af", "aresample=48000,aformat=channel_layouts=stereo,highpass=f=60,lowpass=f=12000,loudnorm=I=-22:TP=-2:LRA=8,aresample=48000,aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.6",
+            "-ar", "48000",
+            "-ac", "2",
             "-c:a", "pcm_s16le",
             outputWavPath
         })
@@ -303,6 +336,49 @@ public sealed class ProceduralBgmCacheService(
         return fi.Length > 4096;
     }
 
+    internal static bool IsStereo48kWav(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (fs.Length < 44) return false;
+
+            Span<byte> buf = stackalloc byte[(int)Math.Min(fs.Length, 4096)];
+            var read = fs.Read(buf);
+            if (read < 44) return false;
+            if (buf[0] != 'R' || buf[1] != 'I' || buf[2] != 'F' || buf[3] != 'F') return false;
+            if (buf[8] != 'W' || buf[9] != 'A' || buf[10] != 'V' || buf[11] != 'E') return false;
+
+            var offset = 12;
+            while (offset + 8 <= read)
+            {
+                var isFmt = buf[offset] == 'f' && buf[offset + 1] == 'm' && buf[offset + 2] == 't' && buf[offset + 3] == ' ';
+                var chunkSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(offset + 4, 4));
+                var payloadOffset = offset + 8;
+
+                if (isFmt)
+                {
+                    if (chunkSize < 16 || payloadOffset + 16 > read) return false;
+                    var audioFormat = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buf.Slice(payloadOffset, 2));
+                    var channels = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buf.Slice(payloadOffset + 2, 2));
+                    var sampleRate = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(payloadOffset + 4, 4));
+                    var bitsPerSample = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buf.Slice(payloadOffset + 14, 2));
+                    return audioFormat == 1 && channels == 2 && sampleRate == 48_000 && bitsPerSample == 16;
+                }
+
+                var step = 8L + chunkSize + (chunkSize & 1);
+                if (step <= 8 || offset + step > read) break;
+                offset += (int)step;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static string SlugFor(ProceduralSceneTheme theme) => theme switch
     {
         ProceduralSceneTheme.VedicTempleSunrise3D => "vedic-sunrise",
@@ -310,6 +386,7 @@ public sealed class ProceduralBgmCacheService(
         ProceduralSceneTheme.HistoryChronicle3D => "history-chronicle",
         ProceduralSceneTheme.NeonCyberGrid3D => "neon-cyber",
         ProceduralSceneTheme.SereneNatureGlow => "serene-nature",
+        ProceduralSceneTheme.ComedyStage3D => "comedy-stage",
         _ => "vedic-sunrise"
     };
 
@@ -323,6 +400,8 @@ public sealed class ProceduralBgmCacheService(
             "Warm cinematic documentary underscore with gentle cello, soft acoustic plucked lute and atmospheric pad, noble timeless mood suitable behind storytelling narration, instrumental only, no vocals.",
         ProceduralSceneTheme.NeonCyberGrid3D =>
             "Smooth warm chillwave electric piano and subtle soft analog synth pad, calm modern educational underscore suitable behind voiceover, instrumental only, no vocals.",
+        ProceduralSceneTheme.ComedyStage3D =>
+            "Playful upbeat Indian comedy underscore with light pizzicato strings, soft marimba plucks and cheerful bounce suitable behind funny dialogue punchlines, instrumental only, no vocals.",
         _ =>
             "Peaceful fingerpicked acoustic guitar and soft warm morning flute breeze pad, gentle uplifting meditation underscore behind voiceover, instrumental only, no vocals."
     };
@@ -333,6 +412,7 @@ public sealed class ProceduralBgmCacheService(
         ProceduralSceneTheme.CosmosSacred3D => ("ambient spiritual pad meditation", "calm"),
         ProceduralSceneTheme.HistoryChronicle3D => ("cinematic documentary piano cello", "inspirational"),
         ProceduralSceneTheme.NeonCyberGrid3D => ("chill lo-fi ambient synth", "hopeful"),
+        ProceduralSceneTheme.ComedyStage3D => ("playful comedy pizzicato upbeat", "happy"),
         _ => ("peaceful acoustic nature ambient", "calm")
     };
 

@@ -25,7 +25,8 @@ public sealed class EcosystemConfigService(
     IOptionsMonitor<AdminOptions> adminOptions,
     IConfiguration configuration,
     UiNavigationState uiNavigationState,
-    ILogger<EcosystemConfigService> logger) : IEcosystemConfigProvider
+    ILogger<EcosystemConfigService> logger,
+    CentralLocalizationService? centralLocalization = null) : IEcosystemConfigProvider
 {
     public const string UiNavigationSettingKey = "Admin:UiNavigation:Json";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
@@ -229,6 +230,12 @@ public sealed class EcosystemConfigService(
 
     private async Task<CentralConfigEnvelope?> FetchCentralEnvelopeAsync(string idpBase, CancellationToken ct)
     {
+        if (centralLocalization is not null)
+        {
+            var mongoEnvelope = await centralLocalization.TryLoadCentralEnvelopeFromMongoAsync(ct).ConfigureAwait(false);
+            if (mongoEnvelope is not null) return mongoEnvelope;
+        }
+
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

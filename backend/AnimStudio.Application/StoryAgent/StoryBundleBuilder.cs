@@ -131,9 +131,12 @@ public static class StoryBundleBuilder
         var media = new Dictionary<string, BundleMedia>(StringComparer.Ordinal);
         var document = new WorkbookDocument();
         var projectTable = Table(WorkbookSchema.Project);
+        var characterTable = Table(WorkbookSchema.Characters);
         var sceneTable = Table(WorkbookSchema.Scenes);
         var dialogueTable = Table(WorkbookSchema.Dialogue);
         var assetTable = Table(WorkbookSchema.Assets);
+
+        var canonicalSpeakers = PopulateCharactersTable(characterTable, script);
 
         var musicPath = music is null
             ? string.Empty
@@ -199,7 +202,8 @@ public static class StoryBundleBuilder
             // When each speaker talks, timed against the voice like the subtitles; their mouths in each picture follow it.
             var talking = isClip ? [] : StoryFaces.Talking(story, seconds, hasAudio ? scene.Pauses : null);
 
-            var chunks = StoryPacing.SplitCaptions(story.Narration);
+            var captionItems = CaptionItems(story, canonicalSpeakers);
+            var chunks = captionItems.Select(c => c.Text).ToList();
             var spans = hasAudio
                 ? StoryPacing.Align(chunks, seconds, scene.Pauses)
                 : StoryPacing.Spread(chunks, seconds);
@@ -312,13 +316,16 @@ public static class StoryBundleBuilder
                 var from = Seconds(part.From);
                 var to = lastPart ? seconds : Seconds(part.To);
                 var order = 0;
-                foreach (var span in spans)
+                for (var spanIdx = 0; spanIdx < spans.Count; spanIdx++)
                 {
+                    var span = spans[spanIdx];
+                    var speaker = spanIdx < captionItems.Count ? captionItems[spanIdx].Speaker : null;
                     var (start, end) = parts.Count == 1 ? (span.Start, span.End) : (Math.Max(span.Start, from) - from, Math.Min(span.End, to) - from);
                     if (parts.Count > 1 && end - start < 0.1) continue;
                     dialogueTable.Add(Row(WorkbookSchema.Dialogue,
                         ("SceneNumber", number),
                         ("Order", (++order).ToString(CultureInfo.InvariantCulture)),
+                        ("Speaker", speaker ?? string.Empty),
                         ("Text", Truncate(span.Text, 1000)),
                         ("StartSeconds", start.ToString("0.00", CultureInfo.InvariantCulture)),
                         ("EndSeconds", end.ToString("0.00", CultureInfo.InvariantCulture))));
@@ -370,6 +377,7 @@ public static class StoryBundleBuilder
         }
 
         document.Add(projectTable);
+        document.Add(characterTable);
         document.Add(sceneTable);
         document.Add(dialogueTable);
         document.Add(assetTable);
@@ -534,6 +542,111 @@ public static class StoryBundleBuilder
         if (!string.IsNullOrWhiteSpace(scene.English)) parts.Add(scene.English!);
         parts.Add(sources.Length > 0 ? $"Source: {sources}" : $"Basis: {basis}");
         return string.Join(" | ", parts);
+    }
+
+    private static readonly string[] CharacterSubtitlePalette =
+    [
+        "#93C5FD",
+        "#FCA5A5",
+        "#6EE7B7",
+        "#DDD6FE",
+        "#FDBA74",
+        "#F9A8D4",
+        "#A5F3FC"
+    ];
+
+    private static Dictionary<string, string> PopulateCharactersTable(WorkbookTable characterTable, StoryScript script)
+    {
+        var canonicalBySpeaker = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paletteIdx = 0;
+
+        // Always include the Narrator / Sutradhar so narrator captions & project character roster stay consistent.
+        var narratorDisplay = "Narrator";
+        characterTable.Add(Row(WorkbookSchema.Characters,
+            ("Name", narratorDisplay),
+            ("Description", "Story Sutradhar / Narrator."),
+            ("IsNarrator", "TRUE"),
+            ("SubtitleColor", "#FDE68A")));
+        addedNames.Add(narratorDisplay);
+        canonicalBySpeaker[StoryCastMember.Narrator] = narratorDisplay;
+        canonicalBySpeaker["सूत्रधार"] = narratorDisplay;
+        canonicalBySpeaker["sutradhar"] = narratorDisplay;
+
+        void AddCharacter(string rawName, StoryCastMember? profile)
+        {
+            var cleaned = Truncate(rawName.Trim(), 80);
+            if (cleaned.Length == 0) return;
+
+            if (string.Equals(cleaned, StoryCastMember.Narrator, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cleaned, "सूत्रधार", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cleaned, "sutradhar", StringComparison.OrdinalIgnoreCase))
+            {
+                canonicalBySpeaker[rawName.Trim()] = narratorDisplay;
+                return;
+            }
+
+            canonicalBySpeaker[rawName.Trim()] = cleaned;
+            canonicalBySpeaker[cleaned] = cleaned;
+            if (!addedNames.Add(cleaned)) return;
+
+            var color = CharacterSubtitlePalette[paletteIdx++ % CharacterSubtitlePalette.Length];
+            var mappedAge = profile?.Age?.ToLowerInvariant() switch
+            {
+                "child" => "9",
+                "young" => "22",
+                "adult" => "35",
+                "elder" => "65",
+                _ => string.Empty
+            };
+
+            characterTable.Add(Row(WorkbookSchema.Characters,
+                ("Name", cleaned),
+                ("Description", Truncate(profile?.Look ?? $"Story character in {Truncate(script.Title, 80)}", 1000)),
+                ("IsNarrator", "FALSE"),
+                ("Age", mappedAge),
+                ("Gender", Truncate(profile?.Gender, 40)),
+                ("Details", Truncate(profile?.Look, 500)),
+                ("SubtitleColor", color)));
+        }
+
+        foreach (var member in script.Cast)
+        {
+            if (!string.IsNullOrWhiteSpace(member.Name))
+                AddCharacter(member.Name, member);
+        }
+
+        foreach (var scene in script.Scenes)
+        {
+            foreach (var line in scene.Lines)
+            {
+                if (!string.IsNullOrWhiteSpace(line.Speaker) && !canonicalBySpeaker.ContainsKey(line.Speaker.Trim()))
+                    AddCharacter(line.Speaker, script.Cast.FirstOrDefault(c => string.Equals(c.Name, line.Speaker.Trim(), StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+
+        return canonicalBySpeaker;
+    }
+
+    private static List<(string? Speaker, string Text)> CaptionItems(
+        StoryScene story,
+        Dictionary<string, string> canonicalSpeakers)
+    {
+        var nonEmptyLines = story.Lines.Where(l => !string.IsNullOrWhiteSpace(l.Text)).ToList();
+        if (nonEmptyLines.Count == 0)
+            return [.. StoryPacing.SplitCaptions(story.Narration).Select(text => ((string?)null, text))];
+
+        var result = new List<(string? Speaker, string Text)>();
+        foreach (var line in nonEmptyLines)
+        {
+            var rawSpeaker = string.IsNullOrWhiteSpace(line.Speaker)
+                ? StoryCastMember.Narrator
+                : line.Speaker.Trim();
+            canonicalSpeakers.TryGetValue(rawSpeaker, out var canonical);
+            foreach (var chunk in StoryPacing.SplitCaptions(line.Text))
+                result.Add((canonical, chunk));
+        }
+        return result;
     }
 
     private static string Truncate(string? value, int max)

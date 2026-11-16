@@ -47,7 +47,14 @@ public sealed class ProceduralVideoGeneratorService(
     private const string SpeakerBStyleCharId = "speaker-b";
     private const string BodyStyleCharId = "beat-body";
     private const string FooterStyleCharId = "footer-link";
-    private static readonly TimeSpan EncodeTimeout = TimeSpan.FromMinutes(6);
+    /// <summary>
+    /// How long a render may go without any progress (no frame accepted by FFmpeg, no output from FFmpeg) before it is
+    /// treated as hung. There is deliberately no limit on total time: a slow machine or a long video just takes longer.
+    /// </summary>
+    internal static readonly TimeSpan RenderStallLimit = TimeSpan.FromMinutes(3);
+
+    /// <summary>Keep only this much FFmpeg output; the error message uses the last 1,200 characters.</summary>
+    private const int MaxFfmpegLogChars = 32 * 1024;
 
     public async Task<ProceduralVideoResult> GenerateAsync(
         string userId,
@@ -67,23 +74,32 @@ public sealed class ProceduralVideoGeneratorService(
 
         var title = string.IsNullOrWhiteSpace(request.Title) ? "AnimStudio 3D Motion" : request.Title.Trim();
         var durationSeconds = ProceduralVideoPlanner.ClampDuration(request.DurationSeconds);
+        // Following the script exactly means no length cap: the narration decides how long the video is.
+        var lengthCap = request.FollowScriptExactly ? null : request.MaxDurationSeconds;
+        if (lengthCap is > 0 and var cap)
+            durationSeconds = Math.Min(durationSeconds, ProceduralVideoPlanner.ClampDuration(cap));
         var fps = Math.Clamp(request.Fps <= 0 ? 24 : request.Fps, 12, 30);
         var (width, height, normalizedFormat) = ProceduralVideoPlanner.ResolveDimensions(request.Format, request.Resolution);
-        var resolvedTheme = ProceduralVideoPlanner.InferTheme(request.Theme, title, request.Prompt, request.Script);
+        var resolvedTheme = ProceduralVideoPlanner.InferTheme(request.Theme, title, request.Prompt, request.Script, request.EventType);
         var preset = ProceduralVideoPlanner.DescribeTheme(resolvedTheme);
         var palette = ProceduralEventPalette.Resolve(request.EventType, resolvedTheme);
-        var dialoguePlan = DialogueScriptParser.ParsePlan(
+        // Plan over the longest allowed video when following the script, so no line is merged into another (a merged
+        // line would be spoken in the first speaker's voice). Real timings come from the measured voices below.
+        ProceduralDialoguePlan PlanFor(int seconds) => DialogueScriptParser.ParsePlan(
             title,
             request.Script,
             request.Prompt,
-            durationSeconds,
+            seconds,
             request.EnableCharacterDialogue,
             request.SpeakerAName,
             request.SpeakerBName,
             request.EventType);
+        var dialoguePlan = PlanFor(request.FollowScriptExactly ? ProceduralVideoRequest.MaxSeconds : durationSeconds);
 
         var seed = StableSeed($"{title}|{resolvedTheme}|{palette.EventKey}|{normalizedFormat}");
         var swTotal = Stopwatch.StartNew();
+        var progress = request.Progress;
+        progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.VoicesStart, "Synthesizing character voices"));
 
         await using var workspace = await workspaces.CreateAsync($"proc3d-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
         var outPath = workspace.Resolve("out/video.mp4");
@@ -108,7 +124,9 @@ public sealed class ProceduralVideoGeneratorService(
         {
             hasSpeech = true;
             dialoguePlan = speechResult.UpdatedPlan;
-            durationSeconds = speechResult.RecommendedDurationSeconds;
+            durationSeconds = lengthCap is > 0 and var speechCap
+                ? Math.Min(speechResult.RecommendedDurationSeconds, ProceduralVideoPlanner.ClampDuration(speechCap))
+                : speechResult.RecommendedDurationSeconds;
             speechEnvelope = ProceduralAudioSynthesizer.ComputeFrameEnvelope(
                 speechResult.SpeechWavPath,
                 durationSeconds * fps,
@@ -118,14 +136,31 @@ public sealed class ProceduralVideoGeneratorService(
                 "Procedural 3D video speech synthesized via {Voices} ({Duration}s) for title '{Title}'.",
                 voiceSummary, durationSeconds, title);
         }
+        else if (request.FollowScriptExactly)
+        {
+            // No voices: lay the captions out over the actual video length instead of the planning maximum.
+            dialoguePlan = PlanFor(durationSeconds);
+        }
 
         // 2. Clean stereo BGM bed (one-time cached reusable studio BGM preset when DI cache is wired, else warm pad)
         var hasBgm = false;
         string? bgmSource = null;
         if (request.IncludeAmbientAudio)
         {
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Music, "Preparing background music"));
             var bgmDst = workspace.Resolve("in/ambient.wav");
-            if (bgmCache is not null)
+            if (!string.IsNullOrWhiteSpace(request.CustomBgmPath) && File.Exists(request.CustomBgmPath))
+            {
+                var customOk = bgmCache is not null
+                    ? await bgmCache.NormalizeCustomAudioToWavAsync(request.CustomBgmPath, bgmDst, request.DurationSeconds, ct).ConfigureAwait(false)
+                    : await TranscodeCustomBgmAsync("ffmpeg", request.CustomBgmPath, bgmDst, request.DurationSeconds, ct).ConfigureAwait(false);
+                if (customOk && File.Exists(bgmDst))
+                {
+                    hasBgm = true;
+                    bgmSource = "custom-song";
+                }
+            }
+            if (!hasBgm && bgmCache is not null)
             {
                 var (cachedPath, src) = await bgmCache.EnsurePresetWavAsync(resolvedTheme, ct: ct).ConfigureAwait(false);
                 if (File.Exists(cachedPath))
@@ -149,6 +184,7 @@ public sealed class ProceduralVideoGeneratorService(
         var hasSubtitles = false;
         if (request.IncludeCaptions && capabilities.Supports(RenderFeature.BurnedSubtitles))
         {
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Captions, "Building subtitles"));
             var assContent = BuildAssSubtitles(title, request, palette, dialoguePlan, width, height, fps, durationSeconds);
             await File.WriteAllTextAsync(workspace.Resolve("in/subs.ass"), assContent, new UTF8Encoding(false), ct)
                 .ConfigureAwait(false);
@@ -158,6 +194,15 @@ public sealed class ProceduralVideoGeneratorService(
         // 4. Stream pure C# 3D procedural frames directly into FFmpeg stdin -> H.264 MP4
         var ffmpegExe = ffmpegOptions.Value.FfmpegPath;
         if (string.IsNullOrWhiteSpace(ffmpegExe)) ffmpegExe = "ffmpeg";
+
+        if (request.BackgroundImagePaths is { Count: > 0 })
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Backdrops, "Loading backdrop images"));
+        var backdropFrames = await DecodeBackdropFramesAsync(
+            request.BackgroundImagePaths,
+            ffmpegExe,
+            width,
+            height,
+            ct).ConfigureAwait(false);
 
         var startInfo = new ProcessStartInfo
         {
@@ -188,43 +233,81 @@ public sealed class ProceduralVideoGeneratorService(
                 ex);
         }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(EncodeTimeout);
-        var linkedCt = timeoutCts.Token;
+        // No total time limit: the render runs as long as it keeps moving. Only a render that makes no progress at all
+        // for RenderStallLimit (hung FFmpeg, stuck frame) is stopped.
+        using var watchdog = new RenderStallWatchdog(RenderStallLimit, ct, clock);
+        var renderCt = watchdog.Token;
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCt);
-        var stderrTask = process.StandardError.ReadToEndAsync(linkedCt);
+        var stdoutTask = DrainAsync(process.StandardOutput, watchdog, renderCt);
+        var stderrTask = DrainAsync(process.StandardError, watchdog, renderCt);
 
         var totalFrames = durationSeconds * fps;
         var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps);
+        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames,
+            request.StageLayout);
 
         try
         {
             await using (var stdin = process.StandardInput.BaseStream)
             {
+                // Two hand-off buffers: FFmpeg reads frame N from one while frame N+1 is drawn and copied into the
+                // other, so drawing and encoding overlap instead of taking turns.
+                var frameBytes = rasterizer.Buffer.Length;
+                byte[][] handOff = [new byte[frameBytes], new byte[frameBytes]];
+                var pendingWrite = Task.CompletedTask;
+                var lastReportedPercent = -1;
                 for (var frameIndex = 0; frameIndex < totalFrames; frameIndex++)
                 {
-                    linkedCt.ThrowIfCancellationRequested();
+                    renderCt.ThrowIfCancellationRequested();
+                    if (progress is not null)
+                    {
+                        var pct = ProceduralRenderStages.FramePercent(frameIndex, totalFrames);
+                        if (pct != lastReportedPercent)
+                        {
+                            lastReportedPercent = pct;
+                            progress.Report(new ProceduralRenderProgress(pct,
+                                $"Animating 3D frames ({frameIndex / fps}s of {durationSeconds}s)"));
+                        }
+                    }
+
                     var timeSeconds = (double)frameIndex / fps;
-                    var rgba = rasterizer.RenderFrame(timeSeconds, durationSeconds);
-                    await stdin.WriteAsync(rasterizer.Buffer, 0, rgba.Length, linkedCt).ConfigureAwait(false);
+                    var buffer = handOff[frameIndex & 1];
+                    rasterizer.RenderFrame(timeSeconds, durationSeconds).CopyTo(buffer);
+
+                    await pendingWrite.ConfigureAwait(false);
+                    watchdog.Touch();
+                    pendingWrite = stdin.WriteAsync(buffer, renderCt).AsTask();
                 }
 
-                await stdin.FlushAsync(linkedCt).ConfigureAwait(false);
+                await pendingWrite.ConfigureAwait(false);
+                await stdin.FlushAsync(renderCt).ConfigureAwait(false);
+                watchdog.Touch();
             }
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Encode, "Finishing MP4 encode"));
+            await process.WaitForExitAsync(renderCt).ConfigureAwait(false);
         }
         catch (IOException) when (process.HasExited)
         {
             // FFmpeg closed pipe early; stderr below reports why.
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (watchdog.Stalled && !ct.IsCancellationRequested)
         {
             TryKill(process);
-            throw new RenderException(RenderErrorCode.Timeout, "3D procedural rendering timed out on this machine.");
+            workspace.MarkFailed("stalled");
+            logger.LogWarning(
+                "Procedural render stalled: no progress for {Minutes} min (renderer or FFmpeg stopped responding).",
+                RenderStallLimit.TotalMinutes);
+            throw new RenderException(
+                RenderErrorCode.Timeout,
+                $"3D render stopped responding (no progress for {RenderStallLimit.TotalMinutes:0} minutes). Please try again.");
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            throw;
         }
 
-        await process.WaitForExitAsync(linkedCt).ConfigureAwait(false);
+        if (!process.HasExited) await process.WaitForExitAsync(ct).ConfigureAwait(false);
         _ = await stdoutTask.ConfigureAwait(false);
         var stderr = await stderrTask.ConfigureAwait(false);
         swPrep.Stop();
@@ -249,6 +332,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         if (request.SaveAsRenderJob)
         {
+            progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Save, "Saving video to Studio"));
             projectId = await EnsureTargetProjectAsync(userId, request.ProjectId, width, height, fps, ct).ConfigureAwait(false);
             jobId = Guid.NewGuid().ToString("N");
             storageKey = $"renders/{jobId}.mp4";
@@ -299,6 +383,7 @@ public sealed class ProceduralVideoGeneratorService(
             "Generated {Theme} 3D animated video ({Width}x{Height}, {Duration}s, {Bytes} bytes) in {Elapsed}ms for user {UserId}.",
             resolvedTheme, width, height, durationSeconds, mp4Bytes.Length, swTotal.ElapsedMilliseconds, userId);
 
+        var summaryVoice = string.IsNullOrWhiteSpace(voiceSummary) ? string.Empty : $", voice={voiceSummary}";
         return new ProceduralVideoResult(
             jobId,
             projectId,
@@ -310,10 +395,31 @@ public sealed class ProceduralVideoGeneratorService(
             mp4Bytes.Length,
             storageKey,
             request.ReturnInlineBytes ? mp4Bytes : null,
-            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
+            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
     }
 
     private string BuildAssSubtitles(
+        string title,
+        ProceduralVideoRequest request,
+        ProceduralEventPalette palette,
+        ProceduralDialoguePlan dialoguePlan,
+        int width,
+        int height,
+        int fps,
+        int durationSeconds) =>
+        BuildAssSubtitlesWithWriter(
+            subtitleWriter,
+            title,
+            request,
+            palette,
+            dialoguePlan,
+            width,
+            height,
+            fps,
+            durationSeconds);
+
+    internal static string BuildAssSubtitlesWithWriter(
+        ISubtitleWriter subtitleWriter,
         string title,
         ProceduralVideoRequest request,
         ProceduralEventPalette palette,
@@ -327,8 +433,10 @@ public sealed class ProceduralVideoGeneratorService(
         var lines = new List<DialogueLine>(dialoguePlan.Turns.Count + 4);
         var endFrame = Math.Max(2, (durationSeconds * fps) - 2);
         var index = 0;
+        var isPortrait = height > width;
+        var isHindi = !string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase);
 
-        // 1. Fixed Top Header Template ("Content of the Day" badge + engaging top title)
+        // 1. Fixed Top Header Template ("Content of the Day" badge + clean 2-line full title without "..." cutoff)
         var categoryText = string.IsNullOrWhiteSpace(request.TopCategoryLabel)
             ? palette.HeaderBadgeText
             : request.TopCategoryLabel.Trim();
@@ -342,7 +450,7 @@ public sealed class ProceduralVideoGeneratorService(
             RelativeEndFrame = endFrame
         });
 
-        var headerTitle = title.Length > 64 ? title[..63].TrimEnd() + "..." : title;
+        var headerTitle = WrapLinesForAss(title, isPortrait ? 34 : 56, maxLines: 2);
         lines.Add(new DialogueLine
         {
             Index = index++,
@@ -353,31 +461,59 @@ public sealed class ProceduralVideoGeneratorService(
             RelativeEndFrame = endFrame
         });
 
-        // 2. Colorful Animated Subtitles (per speaker when 2-character dialogue is active)
+        // 2. Colorful Animated Subtitles (safe-zoned above YouTube Shorts UI on 9:16 portrait)
+        var bodyWrapWidth = isPortrait ? 30 : 54;
         foreach (var turn in dialoguePlan.Turns)
         {
-            var styleCharId = turn.IsTitleHook
-                ? TitleStyleCharId
-                : turn.Slot switch
-                {
-                    DialogueSpeakerSlot.Left => SpeakerAStyleCharId,
-                    DialogueSpeakerSlot.Right => SpeakerBStyleCharId,
-                    _ => BodyStyleCharId
-                };
-
-            var displayText = !turn.IsTitleHook && dialoguePlan.HasCharacters && !string.IsNullOrWhiteSpace(turn.SpeakerName)
-                ? $"{turn.SpeakerName}: {turn.Text}"
-                : turn.Text;
-
-            lines.Add(new DialogueLine
+            if (turn.IsTitleHook)
             {
-                Index = index++,
-                SpeakerLabel = turn.SpeakerName,
-                SpeakerCharacterId = styleCharId,
-                Text = displayText,
-                RelativeStartFrame = Math.Max(0, (int)Math.Round(turn.StartSeconds * fps)),
-                RelativeEndFrame = Math.Max(1, (int)Math.Round(turn.EndSeconds * fps))
-            });
+                if (dialoguePlan.HasCharacters
+                    && dialoguePlan.LeftCharacter is not null
+                    && dialoguePlan.RightCharacter is not null)
+                {
+                    var introText = isHindi
+                        ? $"पात्र संवाद: {dialoguePlan.LeftCharacter.Name} एवं {dialoguePlan.RightCharacter.Name}"
+                        : $"Dialogue: {dialoguePlan.LeftCharacter.Name} & {dialoguePlan.RightCharacter.Name}";
+                    lines.Add(new DialogueLine
+                    {
+                        Index = index++,
+                        SpeakerLabel = "TitleHook",
+                        SpeakerCharacterId = TitleStyleCharId,
+                        Text = introText,
+                        RelativeStartFrame = Math.Max(0, (int)Math.Round(turn.StartSeconds * fps)),
+                        RelativeEndFrame = Math.Max(1, (int)Math.Round(turn.EndSeconds * fps))
+                    });
+                }
+                continue;
+            }
+
+            var styleCharId = turn.Slot switch
+            {
+                DialogueSpeakerSlot.Left => SpeakerAStyleCharId,
+                DialogueSpeakerSlot.Right => SpeakerBStyleCharId,
+                _ => BodyStyleCharId
+            };
+
+            var prefix = dialoguePlan.HasCharacters
+                && !string.IsNullOrWhiteSpace(turn.SpeakerName)
+                && !turn.Text.StartsWith(turn.SpeakerName + ":", StringComparison.OrdinalIgnoreCase)
+                ? $"{turn.SpeakerName}: "
+                : string.Empty;
+
+            // A long line is shown as consecutive on-screen chunks while it is spoken, never cut off with "…".
+            var chunkChars = Math.Max(24, bodyWrapWidth * 3 - prefix.Length - 4);
+            foreach (var chunk in CaptionChunker.Split(turn.Text, turn.StartSeconds, turn.EndSeconds, chunkChars))
+            {
+                lines.Add(new DialogueLine
+                {
+                    Index = index++,
+                    SpeakerLabel = turn.SpeakerName,
+                    SpeakerCharacterId = styleCharId,
+                    Text = WrapLinesForAss(prefix + chunk.Text, bodyWrapWidth, maxLines: 3),
+                    RelativeStartFrame = Math.Max(0, (int)Math.Round(chunk.StartSeconds * fps)),
+                    RelativeEndFrame = Math.Max(1, (int)Math.Round(chunk.EndSeconds * fps))
+                });
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(request.FooterLabel))
@@ -400,24 +536,32 @@ public sealed class ProceduralVideoGeneratorService(
             _ => SubtitleMotionPreset.EventGlow
         };
 
-        var topCategoryMargin = Math.Max(12, height / 64);
-        var topTitleMargin = Math.Max(42, height / 20);
-        var titleHookMargin = Math.Max(108, height / 8);
-        var dialogueMargin = dialoguePlan.HasCharacters ? Math.Max(52, height / 15) : Math.Max(58, height / 16);
-        var footerMargin = Math.Max(14, height / 68);
+        var topCategoryMargin = Math.Max(14, height / 62);
+        var topTitleMargin = isPortrait ? Math.Max(48, height / 23) : Math.Max(42, height / 20);
+        var titleHookMargin = isPortrait ? Math.Max(215, (int)Math.Round(height * 0.175)) : Math.Max(118, (int)Math.Round(height * 0.165));
+
+        // On 9:16 mobile Shorts, reserve bottom ~27% for YouTube @handle/title/Share overlay and right ~18% for Like/Save/Comment/Share buttons.
+        var dialogueMargin = isPortrait
+            ? Math.Max(310, (int)Math.Round(height * 0.275))
+            : Math.Max(58, height / 11);
+        var captionMarginL = isPortrait ? Math.Max(46, width / 16) : Math.Max(68, width / 14);
+        var captionMarginR = isPortrait ? Math.Max(126, (int)Math.Round(width * 0.18)) : Math.Max(68, width / 14);
+        var footerMargin = isPortrait
+            ? Math.Max(265, (int)Math.Round(height * 0.228))
+            : Math.Max(18, height / 50);
 
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
         {
-            [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
-            [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: 78, MotionPreset: SubtitleMotionPreset.TopBannerReveal),
-            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: 102, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow),
-            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
-            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset),
-            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset),
-            [FooterStyleCharId] = new("FooterTag", "#CBD5E1", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: 54, MotionPreset: SubtitleMotionPreset.None)
+            [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: isPortrait ? 54 : 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 40, MarginR: 40),
+            [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? 70 : 76, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 38, MarginR: 38),
+            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? 82 : 90, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait ? captionMarginR : captionMarginL),
+            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [FooterStyleCharId] = new("FooterTag", "#E2E8F0", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: isPortrait ? 52 : 54, OutlineColorHex: "#0F172A", MotionPreset: SubtitleMotionPreset.None, MarginL: captionMarginL, MarginR: captionMarginR)
         };
 
-        var fontSize = width >= height ? Math.Max(34, height / 17) : Math.Max(32, width / 18);
+        var fontSize = width >= height ? Math.Max(34, height / 17) : Math.Max(32, width / 19);
         return subtitleWriter.Write(new SubtitleRequest(
             canvas,
             lines,
@@ -426,7 +570,42 @@ public sealed class ProceduralVideoGeneratorService(
             fontSize));
     }
 
-    private static List<string> BuildFfmpegArguments(
+    private static string WrapLinesForAss(string text, int maxCharsPerLine, int maxLines)
+    {
+        var clean = System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
+        if (clean.Length <= maxCharsPerLine || maxLines <= 1)
+            return clean;
+
+        var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var wrapped = new List<string>(maxLines);
+        var current = new StringBuilder();
+
+        foreach (var word in words)
+        {
+            if (current.Length > 0 && current.Length + 1 + word.Length > maxCharsPerLine)
+            {
+                wrapped.Add(current.ToString());
+                current.Clear();
+                if (wrapped.Count == maxLines - 1)
+                {
+                    // Last line absorbs remaining text cleanly without chopping mid-phrase unnecessarily
+                    var tail = string.Join(' ', words.Skip(Math.Max(0, wrapped.Sum(l => l.Split(' ').Length))));
+                    var maxTail = maxCharsPerLine * 2 + 8;
+                    wrapped.Add(tail.Length <= maxTail ? tail : tail[..(maxTail - 1)].TrimEnd() + "…");
+                    return string.Join('\n', wrapped);
+                }
+            }
+            if (current.Length > 0) current.Append(' ');
+            current.Append(word);
+        }
+
+        if (current.Length > 0)
+            wrapped.Add(current.ToString());
+
+        return string.Join('\n', wrapped);
+    }
+
+    internal static List<string> BuildFfmpegArguments(
         int width,
         int height,
         int fps,
@@ -461,10 +640,10 @@ public sealed class ProceduralVideoGeneratorService(
 
         if (hasSpeech && hasBgm)
         {
-            // Loudness-normalize speech to -16 LUFS, split for sidechain key + dry voice, and duck loopable BGM cleanly.
+            // Loudness-normalize speech to -16 LUFS, resample back from loudnorm's 192kHz to 48kHz stereo, then duck loopable BGM cleanly.
             var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
             var audioFilter = string.Create(CultureInfo.InvariantCulture,
-                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=channel_layouts=stereo,volume=0.28[bg];[bg][sp1]sidechaincompress=threshold=0.018:ratio=6:attack=35:release=320[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
 
             args.AddRange([
                 "-filter_complex", videoFilter + audioFilter,
@@ -477,7 +656,7 @@ public sealed class ProceduralVideoGeneratorService(
             args.AddRange([
                 "-map", "0:v",
                 "-map", "1:a",
-                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9")
+                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo")
             ]);
             if (hasSubtitles)
                 args.AddRange(["-vf", "ass=in/subs.ass"]);
@@ -487,7 +666,7 @@ public sealed class ProceduralVideoGeneratorService(
             args.AddRange([
                 "-map", "0:v",
                 "-map", "1:a",
-                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
+                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
             ]);
             if (hasSubtitles)
                 args.AddRange(["-vf", "ass=in/subs.ass"]);
@@ -510,7 +689,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         if (hasSpeech || hasBgm)
         {
-            args.AddRange(["-c:a", "aac", "-b:a", "128k", "-t", durStr, "-shortest"]);
+            args.AddRange(["-c:a", "aac", "-profile:a", "aac_low", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-t", durStr, "-shortest"]);
         }
         else
         {
@@ -569,6 +748,158 @@ public sealed class ProceduralVideoGeneratorService(
                 h = (h ^ ch) * 16777619u;
             return (int)(h & 0x7FFFFFFF);
         }
+    }
+
+    private async Task<List<byte[]>> DecodeBackdropFramesAsync(
+        IReadOnlyList<string>? paths,
+        string ffmpegExe,
+        int width,
+        int height,
+        CancellationToken ct)
+    {
+        var result = new List<byte[]>();
+        if (paths is null || paths.Count == 0) return result;
+
+        var expectedBytes = width * height * 4;
+        var vf = $"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}";
+
+        foreach (var path in paths.Take(20))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+
+            try
+            {
+                using var decodeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                decodeCts.CancelAfter(TimeSpan.FromSeconds(20));
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegExe,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                startInfo.ArgumentList.Add("-hide_banner");
+                startInfo.ArgumentList.Add("-loglevel");
+                startInfo.ArgumentList.Add("error");
+                startInfo.ArgumentList.Add("-nostdin");
+                startInfo.ArgumentList.Add("-y");
+                startInfo.ArgumentList.Add("-i");
+                startInfo.ArgumentList.Add(path);
+                startInfo.ArgumentList.Add("-vf");
+                startInfo.ArgumentList.Add(vf);
+                startInfo.ArgumentList.Add("-frames:v");
+                startInfo.ArgumentList.Add("1");
+                startInfo.ArgumentList.Add("-f");
+                startInfo.ArgumentList.Add("rawvideo");
+                startInfo.ArgumentList.Add("-pix_fmt");
+                startInfo.ArgumentList.Add("rgba");
+                startInfo.ArgumentList.Add("pipe:1");
+
+                using var proc = Process.Start(startInfo);
+                if (proc is null) continue;
+
+                var errTask = proc.StandardError.ReadToEndAsync(decodeCts.Token);
+                await using var ms = new MemoryStream(expectedBytes);
+                await proc.StandardOutput.BaseStream.CopyToAsync(ms, decodeCts.Token).ConfigureAwait(false);
+                await proc.WaitForExitAsync(decodeCts.Token).ConfigureAwait(false);
+                var err = await errTask.ConfigureAwait(false);
+
+                if (proc.ExitCode == 0 && ms.Length == expectedBytes)
+                {
+                    result.Add(ms.ToArray());
+                }
+                else
+                {
+                    logger.LogDebug(
+                        "Skipping procedural backdrop '{Path}': exit {ExitCode}, got {Bytes}/{Expected} bytes. {Err}",
+                        path, proc.ExitCode, ms.Length, expectedBytes, err);
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                logger.LogDebug("Timed out decoding procedural backdrop '{Path}'.", path);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Could not decode procedural backdrop '{Path}'.", path);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Reads an FFmpeg output stream to the end, counting every chunk as progress for the watchdog, and keeps only the
+    /// tail so a chatty encode cannot grow memory without bound.
+    /// </summary>
+    private static async Task<string> DrainAsync(StreamReader reader, RenderStallWatchdog watchdog, CancellationToken ct)
+    {
+        var log = new StringBuilder();
+        var chunk = new char[4096];
+        try
+        {
+            int read;
+            while ((read = await reader.ReadAsync(chunk.AsMemory(), ct).ConfigureAwait(false)) > 0)
+            {
+                watchdog.Touch();
+                log.Append(chunk, 0, read);
+                if (log.Length > MaxFfmpegLogChars * 2) log.Remove(0, log.Length - MaxFfmpegLogChars);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The render was cancelled or stalled; the caller reports that, and whatever was read is still useful.
+        }
+        return log.ToString();
+    }
+
+    private static async Task<bool> TranscodeCustomBgmAsync(
+        string ffmpegExe,
+        string inputPath,
+        string outputWavPath,
+        int maxSeconds,
+        CancellationToken ct)
+    {
+        var dir = Path.GetDirectoryName(outputWavPath);
+        if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegExe,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        var limit = Math.Clamp(maxSeconds, 10, 600).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var arg in new[]
+        {
+            "-y",
+            "-i", inputPath,
+            "-vn",
+            "-t", limit,
+            "-af", "aresample=48000,aformat=channel_layouts=stereo,highpass=f=60,lowpass=f=12000,loudnorm=I=-22:TP=-2:LRA=8,aresample=48000,aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.6",
+            "-ar", "48000",
+            "-ac", "2",
+            "-c:a", "pcm_s16le",
+            outputWavPath
+        })
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        using var proc = Process.Start(startInfo);
+        if (proc is null) return false;
+        proc.StandardInput.Close();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+        _ = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
+        await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+        return proc.ExitCode == 0 && File.Exists(outputWavPath);
     }
 
     private static void TryKill(Process process)

@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 import { ApiResponse } from '../models/api.models';
 import { ContentTopic } from '../models/calendar.models';
 import { YouTubeChannel } from '../models/youtube.models';
@@ -16,7 +17,8 @@ export type AutomationSourceType =
   | 'AajKaItihaas'
   | 'Pratiyogita'
   | 'EcosystemSpotlight'
-  | 'CustomPrompt';
+  | 'CustomPrompt'
+  | 'FunnyComedy';
 
 export type AutomationPostMode = 'PreviewOnly' | 'AutoVideoAndPreview' | 'FullAutopilot';
 
@@ -38,7 +40,40 @@ export type ProceduralSceneTheme =
 
 export type AutomationVideoFormat = 'Vertical' | 'Wide' | 'CommunityPost';
 
+export type AutomationVisualEngine =
+  | 'Auto'
+  | 'AiRealisticStory'
+  | 'StorageImagesStory'
+  | 'Procedural3D';
+
+export type AutomationNarrativeMode = 'Auto' | 'ShortReel' | 'FullStory';
+
 export type SubtitleMotionPreset = 'event-glow' | 'karaoke-pulse' | 'classic-clean';
+
+export interface AutomationStorageImageItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  name: string;
+  width?: number | null;
+  height?: number | null;
+  updatedAtUtc: string;
+}
+
+export interface AutomationCharacterProfileItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  name: string;
+  description?: string | null;
+  isNarrator: boolean;
+  subtitleColorHex?: string | null;
+}
+
+export interface AutomationStorageCatalog {
+  images: AutomationStorageImageItem[];
+  characters: AutomationCharacterProfileItem[];
+}
 
 export interface ProceduralEventPalette {
   eventKey: string;
@@ -193,10 +228,107 @@ export interface AutomationRule {
   enableCharacterDialogue?: boolean;
   speakerAName?: string | null;
   speakerBName?: string | null;
+  visualEngine?: AutomationVisualEngine;
+  narrativeMode?: AutomationNarrativeMode;
+  attachedAssetIds?: string[];
   sortOrder: number;
   lastPreparedDateKey?: string | null;
   createdAtUtc?: string;
   updatedAtUtc?: string;
+}
+
+export interface AutomationScriptTemplate {
+  kind: 'story' | 'dialogue';
+  ready: boolean;
+  prompt?: string | null;
+  message?: string | null;
+}
+
+/** An earlier upload of a card that is no longer on YouTube. */
+export interface AutomationRemovedVideo {
+  videoId: string;
+  channelId?: string | null;
+  channelTitle?: string | null;
+  removedAtUtc: string;
+  /** True when the app deleted it; false when it was found missing / marked as deleted in YouTube Studio. */
+  deletedByApp: boolean;
+}
+
+export interface AutomationYouTubeRemoval {
+  /** Delete the video on YouTube through the API; false = it was already deleted in YouTube Studio. */
+  deleteOnYouTube: boolean;
+  /** Move the card to another connected channel (null keeps the current one). */
+  targetChannelId?: string | null;
+  /** Upload again right away (to the new channel when given). */
+  republishNow: boolean;
+}
+
+/** Fractions of the video frame: x = figure centre across, y = ground line (feet) down, scale = size multiplier. */
+export interface AutomationCharacterPlacement {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export interface AutomationStageSettings {
+  /** A Studio Storage image used as the whole, still background; characters and light effects play on top. */
+  backgroundTemplateAssetId?: string | null;
+  /** Where the story happens; picks the 3D setting and guides the script. */
+  locationPrompt?: string | null;
+  leftCharacter?: AutomationCharacterPlacement | null;
+  rightCharacter?: AutomationCharacterPlacement | null;
+  includeBackgroundMusic: boolean;
+  /** Speak every line as written at natural speed; the video ends with the narration. */
+  followScriptExactly: boolean;
+  /** Story engines: pause after the voices, the music and the finished video for a check in the Story Studio. */
+  reviewSteps?: boolean;
+  /** Optional SongLibrary track id (`song_<hex>`) to mux behind the 3D scene. */
+  attachedSongId?: string | null;
+  /** Camera move over the background picture; 'Still' keeps characters exactly on their spots. */
+  backgroundMotion?: AutomationBackdropMotion;
+  /**
+   * The user's own picture for each directed scene, in order (picture 1 = first [SCENE] line). Used when there is no
+   * single background picture.
+   */
+  sceneBackgroundAssetIds?: string[];
+}
+
+/** One scene that gets its own picture, in render order. */
+export interface AutomationScenePicture {
+  number: number;
+  setting: string;
+  timeOfDay: string;
+  mood?: string | null;
+  prompt: string;
+}
+
+/** The pictures a script needs (picture n = scene n) and one numbered prompt to make the whole set elsewhere. */
+export interface AutomationScenePicturePlan {
+  width: number;
+  height: number;
+  aspectRatio: string;
+  scenes: AutomationScenePicture[];
+  batchPrompt: string;
+  negativePrompt: string;
+}
+
+export type AutomationBackdropMotion = 'Still' | 'GentleZoom' | 'SlowPan';
+
+/** Image prompt for a post's background picture: paste into any image tool, or let the app's image engine make it. */
+export interface AutomationBackgroundPrompt {
+  prompt: string;
+  negativePrompt: string;
+  aspectRatio: string;
+  width: number;
+  height: number;
+  /** What the place was taken from: 'location' | 'script' | 'topic' | 'event'. */
+  basis: string;
+}
+
+export interface AutomationGeneratedBackground {
+  assetId: string;
+  provider: string;
+  prompt: string;
 }
 
 export interface AutomationPost {
@@ -240,6 +372,9 @@ export interface AutomationPost {
   uploadId?: string | null;
   publishedVideoId?: string | null;
   publishedVideoUrl?: string | null;
+  publishedChannelId?: string | null;
+  publishedChannelTitle?: string | null;
+  removedVideos?: AutomationRemovedVideo[];
   lastError?: string | null;
   notes?: string | null;
   generatedByAi: boolean;
@@ -252,6 +387,15 @@ export interface AutomationPost {
   speakerAName?: string | null;
   speakerBName?: string | null;
   subtitlePreset?: SubtitleMotionPreset | string | null;
+  visualEngine?: AutomationVisualEngine;
+  narrativeMode?: AutomationNarrativeMode;
+  targetSeconds?: number | null;
+  attachedAssetIds?: string[];
+  /** Enhanced 3D stage choices (background template, character spots, location, music, pacing). */
+  stage?: AutomationStageSettings | null;
+  provisionedCharacterNames?: string[];
+  storyStageSummary?: string | null;
+  storyProgressPercent?: number | null;
   syncedToEcosystemAtUtc?: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
@@ -319,11 +463,15 @@ export class AutomationService {
     );
   }
 
-  getOverview(date?: string): Observable<AutomationOverview> {
+  /** `background` marks refresh polls so they never raise the global "waking up" loader. */
+  getOverview(date?: string, background = false): Observable<AutomationOverview> {
     let params = new HttpParams();
     if (date) params = params.set('date', date);
     return this.unwrap(
-      this.http.get<ApiResponse<AutomationOverview>>(`${this.base}/overview`, { params })
+      this.http.get<ApiResponse<AutomationOverview>>(`${this.base}/overview`, {
+        params,
+        context: background ? silentHttpContext() : undefined,
+      })
     );
   }
 
@@ -392,6 +540,16 @@ export class AutomationService {
     ).pipe(map(() => undefined));
   }
 
+  getStorageMediaCatalog(): Observable<AutomationStorageCatalog> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AutomationStorageCatalog>>(`${this.base}/storage-images`)
+    );
+  }
+
+  storageAssetThumbnailUrl(assetId: string): string {
+    return this.media.sign(`${environment.apiUrl}/api/assets/${encodeURIComponent(assetId)}/thumbnail`);
+  }
+
   getVideoCandidates(postId: string): Observable<AutomationVideoCandidate[]> {
     return this.unwrap(
       this.http.get<ApiResponse<AutomationVideoCandidate[]>>(`${this.base}/queue/${encodeURIComponent(postId)}/video-candidates`)
@@ -404,9 +562,64 @@ export class AutomationService {
     );
   }
 
-  generateVideo(postId: string): Observable<AutomationPost> {
+  generateVideo(
+    postId: string,
+    body?: {
+      visualEngine?: AutomationVisualEngine;
+      narrativeMode?: AutomationNarrativeMode;
+      targetSeconds?: number | null;
+      attachedAssetIds?: string[];
+      /** Start the Story Agent run in manual-writer mode: it waits for a script pasted from an outside AI. */
+      useTemplateScript?: boolean;
+    }
+  ): Observable<AutomationPost> {
     return this.unwrap(
-      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/generate-video`, {})
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/generate-video`,
+        body ?? {}
+      )
+    );
+  }
+
+  /** Starts the post's failed story run again from the step it stopped at; what was already made is kept. */
+  retryVideo(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/retry-video`, {})
+    );
+  }
+
+  /** The copy-and-paste script template for an outside AI tool (story JSON, or Enhanced 3D dialogue lines). */
+  /** `targetSeconds` is the length picked in the wizard (0 = let the server choose from the post and rule). */
+  getScriptTemplate(postId: string, engine: AutomationVisualEngine, targetSeconds = 0): Observable<AutomationScriptTemplate> {
+    const params: Record<string, string> = { engine };
+    if (targetSeconds > 0) params['targetSeconds'] = String(targetSeconds);
+    return this.unwrap(
+      this.http.get<ApiResponse<AutomationScriptTemplate>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/script-template`,
+        { params }
+      )
+    );
+  }
+
+  /** Sends the outside AI's reply; the video continues from it on the server. */
+  submitScriptTemplate(
+    postId: string,
+    engine: AutomationVisualEngine,
+    reply: string,
+    options: { targetSeconds?: number; subtitlePreset?: string | null } = {}
+  ): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/script-template`,
+        {
+          engine,
+          reply,
+          targetSeconds: options.targetSeconds && options.targetSeconds > 0 ? options.targetSeconds : null,
+          subtitlePreset: options.subtitlePreset || null,
+        },
+        // A 3D reply renders inside this request for minutes; the wizard shows that progress itself.
+        { context: engine === 'Procedural3D' ? silentHttpContext() : undefined }
+      )
     );
   }
 
@@ -421,12 +634,63 @@ export class AutomationService {
       subtitlePreset?: SubtitleMotionPreset | string;
       speakerAName?: string | null;
       speakerBName?: string | null;
+      narrativeMode?: AutomationNarrativeMode;
+      attachedAssetIds?: string[];
     }
   ): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(
         `${this.base}/queue/${encodeURIComponent(postId)}/generate-animated-video`,
-        body ?? {}
+        body ?? {},
+        // Renders inside this request for minutes; the hub shows live progress, so it is not a "server waking up" wait.
+        { context: silentHttpContext() }
+      )
+    );
+  }
+
+  /** Saves the Enhanced 3D stage choices for a post; used by the next render (AI, template paste or autopilot). */
+  saveStage(postId: string, stage: AutomationStageSettings): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.put<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/stage`, stage)
+    );
+  }
+
+  /** The project uploaded background templates go into (created on first use); upload through its asset upload. */
+  backgroundTemplateProject(): Observable<{ projectId: string }> {
+    return this.unwrap(
+      this.http.post<ApiResponse<{ projectId: string }>>(`${this.base}/background-templates/project`, {})
+    );
+  }
+
+  /** A ready image prompt for this post's background picture, built from the wizard's unsaved stage choices. */
+  backgroundPicturePrompt(postId: string, stage: AutomationStageSettings): Observable<AutomationBackgroundPrompt> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationBackgroundPrompt>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/background-picture/prompt`,
+        { stage }
+      )
+    );
+  }
+
+  /** The scene pictures a script needs, in render order. Uses the pasted reply when given, else the post's script. */
+  scenePicturePlan(postId: string, script: string | null, stage: AutomationStageSettings): Observable<AutomationScenePicturePlan> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationScenePicturePlan>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/scene-pictures/plan`,
+        { script, stage },
+        { context: silentHttpContext() }
+      )
+    );
+  }
+
+  /** Makes the background picture with the configured image engine; returns the new Studio Storage asset id. */
+  generateBackgroundPicture(postId: string, stage: AutomationStageSettings, prompt: string | null): Observable<AutomationGeneratedBackground> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationGeneratedBackground>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/background-picture/generate`,
+        { stage, prompt },
+        // The hub shows its own spinner; image engines can take up to a couple of minutes.
+        { context: silentHttpContext() }
       )
     );
   }
@@ -453,6 +717,16 @@ export class AutomationService {
     );
   }
 
+  /** Deletes the card's video from YouTube (or records it is already gone) and optionally re-publishes elsewhere. */
+  removeFromYouTube(postId: string, body: AutomationYouTubeRemoval): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/youtube-removal`,
+        body
+      )
+    );
+  }
+
   syncToPanchang(postId: string): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(
@@ -462,9 +736,28 @@ export class AutomationService {
     );
   }
 
+  removeFromPanchang(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.delete<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/sync-panchang`
+      )
+    );
+  }
+
   publishPost(postId: string, body?: { publishNow?: boolean; scheduledAtUtc?: string | null }): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/publish`, body ?? { publishNow: true })
+    );
+  }
+
+  compileComedy(body: {
+    postIds: string[];
+    title?: string | null;
+    maxSeconds?: number;
+    targetChannelId?: string | null;
+  }): Observable<CompileComedyResult> {
+    return this.unwrap(
+      this.http.post<ApiResponse<CompileComedyResult>>(`${this.base}/compile-comedy`, body)
     );
   }
 
@@ -478,4 +771,12 @@ export class AutomationService {
       })
     );
   }
+}
+
+export interface CompileComedyResult {
+  post: AutomationPost;
+  renderJobId: string;
+  durationSeconds: number;
+  clipCount: number;
+  chapters: string[];
 }
