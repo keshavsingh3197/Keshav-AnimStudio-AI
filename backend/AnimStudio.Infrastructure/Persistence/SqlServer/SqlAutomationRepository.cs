@@ -218,6 +218,26 @@ public sealed class SqlAutomationRepository(ISqlConnectionFactory factory) : IAu
             },
             ct);
 
+    public async Task<bool> TryReplacePostIfStatusAsync(AutomationPost post, AutomationPostStatus expectedStatus, CancellationToken ct) =>
+        await SqlRows.ExecuteAsync(
+            factory,
+            """
+            UPDATE AutomationPosts SET
+                Status = @Status,
+                UpdatedAtUtc = @UpdatedAtUtc,
+                DataJson = @DataJson
+            WHERE Id = @Id AND Status = @ExpectedStatus
+            """,
+            p =>
+            {
+                p.AddWithValue("@Id", post.Id);
+                p.AddWithValue("@Status", (int)post.Status);
+                p.AddWithValue("@ExpectedStatus", (int)expectedStatus);
+                p.AddWithValue("@UpdatedAtUtc", post.UpdatedAtUtc);
+                p.AddWithValue("@DataJson", SqlJson.Serialize(post));
+            },
+            ct).ConfigureAwait(false) > 0;
+
     public async Task<bool> DeletePostAsync(string id, CancellationToken ct) =>
         await SqlRows.ExecuteAsync(
             factory,

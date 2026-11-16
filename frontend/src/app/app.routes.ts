@@ -305,6 +305,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'live/quiz-overlay',
+    title: 'Live Quiz Overlay - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/live-stream/live-quiz-overlay.component')
+        .then((m) => m.LiveQuizOverlayComponent),
+  },
+
+  {
     path: 'motion-copy',
     title: 'Motion Copy - AnimStudio AI',
     loadComponent: () =>

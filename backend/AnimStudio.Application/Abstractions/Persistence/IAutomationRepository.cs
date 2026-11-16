@@ -26,5 +26,11 @@ public interface IAutomationRepository
     Task<AutomationPost?> GetPostAsync(string id, CancellationToken ct);
     Task<AutomationPost?> FindPostByFingerprintAsync(string userId, string fingerprint, CancellationToken ct);
     Task UpsertPostAsync(AutomationPost post, CancellationToken ct);
+
+    /// <summary>
+    /// Saves <paramref name="post"/> only while the stored copy still has <paramref name="expectedStatus"/>.
+    /// Atomic, so of two requests (or two server processes) racing to publish the same card only one wins.
+    /// </summary>
+    Task<bool> TryReplacePostIfStatusAsync(AutomationPost post, AutomationPostStatus expectedStatus, CancellationToken ct);
     Task<bool> DeletePostAsync(string id, CancellationToken ct);
 }

@@ -29,11 +29,21 @@ public sealed record ProceduralStagePlacement(double X, double Y, double Scale)
 /// <param name="Left">Placement of the left main character, or null for the default place.</param>
 /// <param name="Right">Placement of the right main character, or null for the default place.</param>
 /// <param name="TemplateBackdrop">
-/// True when the backdrop is a user-supplied template picture: it is shown still and whole (no zoom or pan, so
-/// characters placed on it stay on their spot), and the theme's abstract 3D geometry is not drawn over it. Light
-/// and particle effects and the characters still play on top.
+/// True when the backdrop is a user-supplied template picture: it is shown whole (by default still, so characters
+/// placed on it stay on their spot), and the theme's abstract 3D geometry is not drawn over it. Light and particle
+/// effects and the characters still play on top.
 /// </param>
+/// <param name="TemplateMotion">Slow camera move over the template picture; <see cref="TemplateBackdropMotion.Still"/> by default.</param>
 public sealed record ProceduralStageLayout(
     ProceduralStagePlacement? Left,
     ProceduralStagePlacement? Right,
-    bool TemplateBackdrop);
+    bool TemplateBackdrop,
+    TemplateBackdropMotion TemplateMotion = TemplateBackdropMotion.Still);
+
+/// <summary>Camera move over a template backdrop. Moves are small and continuous across the whole video (no jump at scene cuts).</summary>
+public enum TemplateBackdropMotion
+{
+    Still = 0,
+    GentleZoom = 1,
+    SlowPan = 2
+}

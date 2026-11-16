@@ -133,6 +133,9 @@ public sealed partial class ProceduralSceneRasterizer
             case ProceduralSceneTheme.SereneNatureGlow:
                 RenderSereneNatureGlow(timeSeconds, u, pulse);
                 break;
+            case ProceduralSceneTheme.ComedyStage3D:
+                RenderComedyStage3D(timeSeconds, u, pulse);
+                break;
             default:
                 RenderVedicSunrise3D(timeSeconds, u, pulse);
                 break;
@@ -186,6 +189,7 @@ public sealed partial class ProceduralSceneRasterizer
             ProceduralSceneTheme.HistoryChronicle3D => (14f, 20f, 38f, 52f, 44f, 68f, 20f, 14f, 12f),
             ProceduralSceneTheme.NeonCyberGrid3D => (9f, 9f, 26f, 32f, 12f, 64f, 6f, 20f, 34f),
             ProceduralSceneTheme.SereneNatureGlow => (9f, 24f, 38f, 22f, 76f, 84f, 8f, 22f, 24f),
+            ProceduralSceneTheme.ComedyStage3D => (28f, 12f, 26f, 118f, 44f, 24f, 18f, 10f, 18f),
             _ => (22f, 11f, 36f, 148f, 48f, 22f, 22f, 10f, 12f)
         };
 
@@ -202,7 +206,7 @@ public sealed partial class ProceduralSceneRasterizer
 
         if (_backdropFrames is { Count: > 0 } photos)
         {
-            PaintPhotoBackdropKenBurns(photos, u, scene, topR, topG, topB, midR, midG, midB, botR, botG, botB);
+            PaintPhotoBackdropKenBurns(photos, t, u, scene, topR, topG, topB, midR, midG, midB, botR, botG, botB);
             return;
         }
 
@@ -448,6 +452,26 @@ public sealed partial class ProceduralSceneRasterizer
         DrawMountainAndTempleSilhouette(horizonY, (float)t, includeTempleSpire: false);
         DrawPerspectiveGrid(t * 0.35, horizonY, 52, 211, 153, 0.24f);
         DrawParticles(t, upward: true, 167, 243, 208, 253, 230, 138, minSide * 0.014f);
+    }
+
+    private void RenderComedyStage3D(double t, double u, float pulse)
+    {
+        var cx = Width * 0.5f;
+        var horizonY = Height * 0.62f;
+        var minSide = MathF.Min(Width, Height);
+
+        // Twin crisscrossing stage spotlight beams + warm center comedic glow
+        var swayA = MathF.Sin((float)t * 1.4f) * Width * 0.16f;
+        var swayB = MathF.Cos((float)t * 1.2f) * Width * 0.16f;
+        DrawAdditiveDisc(cx + swayA, horizonY * 0.68f, minSide * 0.34f, 249, 115, 22, 0.24f);
+        DrawAdditiveDisc(cx + swayB, horizonY * 0.68f, minSide * 0.28f, 250, 204, 21, 0.24f);
+        DrawGlowLine(Width * 0.18f, Height * 0.06f, cx + swayA, horizonY, minSide * 0.032f, 255, 224, 130, 0.22f);
+        DrawGlowLine(Width * 0.82f, Height * 0.06f, cx + swayB, horizonY, minSide * 0.032f, 255, 165, 90, 0.22f);
+
+        // Marquee bokeh rings + upbeat bounce grid + sparkles
+        DrawAdditiveRing(cx, Height * 0.42f, minSide * (0.24f + pulse * 0.04f), 250, 204, 21, 0.28f);
+        DrawPerspectiveGrid(t * 1.15, horizonY, 249, 115, 22, 0.36f);
+        DrawParticles(t, upward: true, 250, 204, 21, 249, 115, 22, minSide * 0.016f);
     }
 
     private void DrawPerspectiveGrid(double t, float horizonY, byte r, byte g, byte b, float alpha)

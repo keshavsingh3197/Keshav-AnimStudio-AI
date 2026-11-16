@@ -17,7 +17,8 @@ export type AutomationSourceType =
   | 'AajKaItihaas'
   | 'Pratiyogita'
   | 'EcosystemSpotlight'
-  | 'CustomPrompt';
+  | 'CustomPrompt'
+  | 'FunnyComedy';
 
 export type AutomationPostMode = 'PreviewOnly' | 'AutoVideoAndPreview' | 'FullAutopilot';
 
@@ -281,6 +282,53 @@ export interface AutomationStageSettings {
   followScriptExactly: boolean;
   /** Story engines: pause after the voices, the music and the finished video for a check in the Story Studio. */
   reviewSteps?: boolean;
+  /** Optional SongLibrary track id (`song_<hex>`) to mux behind the 3D scene. */
+  attachedSongId?: string | null;
+  /** Camera move over the background picture; 'Still' keeps characters exactly on their spots. */
+  backgroundMotion?: AutomationBackdropMotion;
+  /**
+   * The user's own picture for each directed scene, in order (picture 1 = first [SCENE] line). Used when there is no
+   * single background picture.
+   */
+  sceneBackgroundAssetIds?: string[];
+}
+
+/** One scene that gets its own picture, in render order. */
+export interface AutomationScenePicture {
+  number: number;
+  setting: string;
+  timeOfDay: string;
+  mood?: string | null;
+  prompt: string;
+}
+
+/** The pictures a script needs (picture n = scene n) and one numbered prompt to make the whole set elsewhere. */
+export interface AutomationScenePicturePlan {
+  width: number;
+  height: number;
+  aspectRatio: string;
+  scenes: AutomationScenePicture[];
+  batchPrompt: string;
+  negativePrompt: string;
+}
+
+export type AutomationBackdropMotion = 'Still' | 'GentleZoom' | 'SlowPan';
+
+/** Image prompt for a post's background picture: paste into any image tool, or let the app's image engine make it. */
+export interface AutomationBackgroundPrompt {
+  prompt: string;
+  negativePrompt: string;
+  aspectRatio: string;
+  width: number;
+  height: number;
+  /** What the place was taken from: 'location' | 'script' | 'topic' | 'event'. */
+  basis: string;
+}
+
+export interface AutomationGeneratedBackground {
+  assetId: string;
+  provider: string;
+  prompt: string;
 }
 
 export interface AutomationPost {
@@ -614,6 +662,39 @@ export class AutomationService {
     );
   }
 
+  /** A ready image prompt for this post's background picture, built from the wizard's unsaved stage choices. */
+  backgroundPicturePrompt(postId: string, stage: AutomationStageSettings): Observable<AutomationBackgroundPrompt> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationBackgroundPrompt>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/background-picture/prompt`,
+        { stage }
+      )
+    );
+  }
+
+  /** The scene pictures a script needs, in render order. Uses the pasted reply when given, else the post's script. */
+  scenePicturePlan(postId: string, script: string | null, stage: AutomationStageSettings): Observable<AutomationScenePicturePlan> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationScenePicturePlan>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/scene-pictures/plan`,
+        { script, stage },
+        { context: silentHttpContext() }
+      )
+    );
+  }
+
+  /** Makes the background picture with the configured image engine; returns the new Studio Storage asset id. */
+  generateBackgroundPicture(postId: string, stage: AutomationStageSettings, prompt: string | null): Observable<AutomationGeneratedBackground> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationGeneratedBackground>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/background-picture/generate`,
+        { stage, prompt },
+        // The hub shows its own spinner; image engines can take up to a couple of minutes.
+        { context: silentHttpContext() }
+      )
+    );
+  }
+
   generateCommunityCard(postId: string): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(
@@ -669,6 +750,17 @@ export class AutomationService {
     );
   }
 
+  compileComedy(body: {
+    postIds: string[];
+    title?: string | null;
+    maxSeconds?: number;
+    targetChannelId?: string | null;
+  }): Observable<CompileComedyResult> {
+    return this.unwrap(
+      this.http.post<ApiResponse<CompileComedyResult>>(`${this.base}/compile-comedy`, body)
+    );
+  }
+
   private unwrap<T>(obs: Observable<ApiResponse<T>>): Observable<T> {
     return obs.pipe(
       map((res) => {
@@ -679,4 +771,12 @@ export class AutomationService {
       })
     );
   }
+}
+
+export interface CompileComedyResult {
+  post: AutomationPost;
+  renderJobId: string;
+  durationSeconds: number;
+  clipCount: number;
+  chapters: string[];
 }

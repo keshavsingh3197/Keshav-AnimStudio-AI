@@ -32,9 +32,16 @@ public static partial class AutomationStageScript
     {
         var left = ToPlacement(stage?.LeftCharacter);
         var right = ToPlacement(stage?.RightCharacter);
-        return left is null && right is null && !usingTemplate
-            ? null
-            : new ProceduralStageLayout(left, right, usingTemplate);
+        if (left is null && right is null && !usingTemplate) return null;
+        var motion = usingTemplate
+            ? (stage?.BackgroundMotion ?? AutomationBackdropMotion.Still) switch
+            {
+                AutomationBackdropMotion.GentleZoom => TemplateBackdropMotion.GentleZoom,
+                AutomationBackdropMotion.SlowPan => TemplateBackdropMotion.SlowPan,
+                _ => TemplateBackdropMotion.Still
+            }
+            : TemplateBackdropMotion.Still;
+        return new ProceduralStageLayout(left, right, usingTemplate, motion);
     }
 
     /// <summary>
@@ -50,15 +57,37 @@ public static partial class AutomationStageScript
         else if (assetId.Length > MaxAssetIdChars || !AssetIdRegex().IsMatch(assetId))
             throw new ArgumentException("That background image id is not valid.", nameof(input));
 
+        var songId = input.AttachedSongId?.Trim();
+        if (string.IsNullOrEmpty(songId)) songId = null;
+        else if (songId.Length > MaxAssetIdChars || !AssetIdRegex().IsMatch(songId))
+            throw new ArgumentException("That attached song id is not valid.", nameof(input));
+
+        // Order matters (picture n is scene n); the same picture may serve two scenes.
+        var scenePictures = new List<string>();
+        foreach (var raw in input.SceneBackgroundAssetIds ?? [])
+        {
+            var id = raw?.Trim();
+            if (string.IsNullOrEmpty(id) || id.Length > MaxAssetIdChars || !AssetIdRegex().IsMatch(id))
+                throw new ArgumentException("A scene picture id is not valid.", nameof(input));
+            scenePictures.Add(id);
+        }
+        if (scenePictures.Count > DialogueScriptParser.MaxScenes)
+            throw new ArgumentException($"At most {DialogueScriptParser.MaxScenes} scene pictures.", nameof(input));
+
         return new AutomationStageSettings
         {
             BackgroundTemplateAssetId = assetId,
+            // A single background picture covers the whole video, so scene pictures would never show.
+            SceneBackgroundAssetIds = assetId is null ? scenePictures : [],
             LocationPrompt = CleanLocation(input.LocationPrompt),
             LeftCharacter = ClampPlacement(input.LeftCharacter),
             RightCharacter = ClampPlacement(input.RightCharacter),
             IncludeBackgroundMusic = input.IncludeBackgroundMusic,
             FollowScriptExactly = input.FollowScriptExactly,
-            ReviewSteps = input.ReviewSteps
+            ReviewSteps = input.ReviewSteps,
+            AttachedSongId = songId,
+            // An unknown number from the client falls back to the still picture.
+            BackgroundMotion = Enum.IsDefined(input.BackgroundMotion) ? input.BackgroundMotion : AutomationBackdropMotion.Still
         };
     }
 

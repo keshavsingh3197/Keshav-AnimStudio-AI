@@ -37,14 +37,42 @@ public static class PublishQueueRules
 
     private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(45)];
 
-    /// <summary>Failures that are about the moment, not the item: worth trying again later.</summary>
+    /// <summary>
+    /// Failures that are about the moment, not the item: worth trying again later.
+    /// <para>
+    /// "queue-upload-lost" is deliberately NOT here: an upload whose process went away may already be on
+    /// YouTube (it can finish sending before its record is saved), so retrying it automatically is how the same
+    /// video ends up on a channel several times. It fails, and the owner checks YouTube Studio before trying
+    /// again. "queue-upload-not-started" (claimed, but nothing was sent) is safe to retry.
+    /// </para>
+    /// </summary>
     private static readonly HashSet<string> TransientCodes = new(StringComparer.Ordinal)
     {
         "youtube-unreachable",
         "youtube-busy",
         "youtube-upload-failed",
-        "queue-upload-lost",
+        "queue-upload-not-started",
     };
+
+    /// <summary>
+    /// An upload held by another server process is only declared lost once that process has not reported it
+    /// running for this long (its scheduler refreshes the heartbeat every round).
+    /// </summary>
+    public static readonly TimeSpan UploadHeartbeatTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>How often the owning process refreshes an upload's heartbeat.</summary>
+    public static readonly TimeSpan UploadHeartbeatEvery = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// True when an upload this process can't see should be treated as lost: it belongs to this process
+    /// (so it really is gone), or its owner stopped reporting it.
+    /// </summary>
+    public static bool IsUploadLost(string? uploadHost, string thisHost, DateTime? heartbeatAt, DateTime? startedAt, DateTime nowUtc)
+    {
+        if (string.Equals(uploadHost, thisHost, StringComparison.Ordinal)) return true;
+        var lastSeen = heartbeatAt ?? startedAt;
+        return lastSeen is null || nowUtc - lastSeen.Value > UploadHeartbeatTimeout;
+    }
 
     /// <summary>Busy right now: put back without spending an attempt.</summary>
     public static bool IsBusy(string? code) => code is "youtube-too-many-uploads" or "youtube-busy";

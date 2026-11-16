@@ -647,3 +647,8 @@
   <app-media-preview-dialog [preview]="sp.preview" [canAdd]="!!sp.add"
                             (add)="addFromPreview()" (measured)="onPreviewMeasured($event)" (closed)="closeSourcePreview()" />
 }
+
+<app-live-quiz-panel
+  [broadcastId]="youTubeBroadcast()?.broadcast?.broadcastId"
+  [youTubeChannelId]="youTubeBroadcast()?.channelId"
+  (applyLaunchPreset)="onApplyPlaybookPreset($event)" />

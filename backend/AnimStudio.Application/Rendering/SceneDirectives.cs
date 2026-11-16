@@ -15,7 +15,9 @@ public enum SceneSetting
     Village = 7,
     Battlefield = 8,
     Archive = 9,
-    ModernCity = 10
+    ModernCity = 10,
+    ChaiStall = 11,
+    ComedyStage = 12
 }
 
 /// <summary>Light of a scene: shifts sky colours, sun position and particle kind.</summary>
@@ -55,6 +57,8 @@ public static partial class SceneDirectives
         (SceneSetting.Village, ["village", "home", "house", "hut", "farm", "field", "courtyard", "गाँव", "गांव", "घर", "खेत", "आँगन", "आंगन"]),
         (SceneSetting.Battlefield, ["battlefield", "battle", "war", "kurukshetra", "army", "rebellion", "revolt", "fight", "युद्ध", "रणभूमि", "कुरुक्षेत्र", "सेना", "विद्रोह", "संग्राम"]),
         (SceneSetting.Archive, ["archive", "library", "museum", "classroom", "school", "study", "manuscript", "scroll", "पुस्तकालय", "संग्रहालय", "कक्षा", "विद्यालय", "पांडुलिपि"]),
+        (SceneSetting.ChaiStall, ["chai", "tapri", "tea stall", "nukkad", "dhaba", "mohalla", "gali", "टपरी", "चाय", "नुक्कड़", "मोहल्ला", "ढाबा"]),
+        (SceneSetting.ComedyStage, ["comedy", "funny", "meme", "standup", "stage", "roast", "sketch", "prank", "laugh", "joker", "joke", "कॉमेडी", "हंसी", "मज़ाक", "चुटकुला"]),
         (SceneSetting.ModernCity, ["city", "office", "street", "modern", "tech", "lab", "studio", "शहर", "दफ्तर", "सड़क", "आधुनिक"]),
         (SceneSetting.Temple, ["temple", "mandir", "shrine", "sanctum", "garbhagriha", "aarti", "puja", "मंदिर", "देवालय", "गर्भगृह", "आरती", "पूजा"])
     ];
@@ -149,11 +153,28 @@ public static partial class SceneDirectives
         SceneSetting.Cosmos => ProceduralSceneTheme.CosmosSacred3D,
         SceneSetting.PalaceCourt or SceneSetting.Battlefield or SceneSetting.Archive => ProceduralSceneTheme.HistoryChronicle3D,
         SceneSetting.ModernCity => ProceduralSceneTheme.NeonCyberGrid3D,
+        SceneSetting.ChaiStall or SceneSetting.ComedyStage => ProceduralSceneTheme.ComedyStage3D,
         _ => fallback
     };
 
     /// <summary>Encodes a scene as a compact cue carried on each dialogue turn: <c>setting/time</c>.</summary>
     public static string ToCue(SceneSetting setting, SceneTimeOfDay time) => $"{setting}/{time}";
+
+    /// <summary>
+    /// The cue of the <paramref name="sceneNumber"/>-th explicit <c>[SCENE]</c> line (1-based): <c>setting/time/n</c>.
+    /// Every directed scene gets its own cue, so two scenes in the same place and light still get their own picture
+    /// (the story moves on), and picture n always belongs to scene line n.
+    /// </summary>
+    public static string ToCue(SceneSetting setting, SceneTimeOfDay time, int sceneNumber) => $"{setting}/{time}/{sceneNumber}";
+
+    /// <summary>The 1-based <c>[SCENE]</c> line a cue came from; null for a cue inferred from spoken text.</summary>
+    public static int? SceneNumber(string? cue)
+    {
+        if (string.IsNullOrWhiteSpace(cue)) return null;
+        var parts = cue.Split('/');
+        return parts.Length > 2 && int.TryParse(parts[2], System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var n) && n > 0 ? n : null;
+    }
 
     public static (SceneSetting Setting, SceneTimeOfDay Time) FromCue(string? cue)
     {

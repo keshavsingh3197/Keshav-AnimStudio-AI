@@ -360,6 +360,7 @@ public static class DependencyInjection
         // that stops every stream on shutdown.
         services.AddSingleton<LiveStreamManager>();
         services.AddHostedService(sp => sp.GetRequiredService<LiveStreamManager>());
+        services.AddSingleton<LiveQuizService>();
 
         // Saved per-channel stream keys, encrypted with the same data protector as provider keys.
         services.AddScoped<LiveStreamKeyStore>();
@@ -511,6 +512,8 @@ public static class DependencyInjection
 
         // --- running the server
         services.AddSingleton<AnimStudio.Application.Ecosystem.UiNavigationState>();
+        services.AddSingleton<AnimStudio.Infrastructure.Ecosystem.CentralLocalizationService>();
+        services.AddSingleton<AnimStudio.Infrastructure.Ecosystem.CentralChannelVideoWriter>();
         services.AddSingleton<AnimStudio.Application.Ecosystem.IEcosystemConfigProvider, AnimStudio.Infrastructure.Ecosystem.EcosystemConfigService>();
         services.Configure<AnimStudio.Application.Automation.EcosystemServiceOptions>(configuration.GetSection(AnimStudio.Application.Automation.EcosystemServiceOptions.Section));
         services.AddSingleton<AnimStudio.Application.Automation.IEcosystemSignalsClient, AnimStudio.Infrastructure.Automation.EcosystemSignalsClient>();

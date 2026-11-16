@@ -65,11 +65,29 @@ public class PublishQueueRulesTests
     public void Transient_failures_are_retried_until_the_limit_with_growing_waits()
     {
         Assert.True(PublishQueueRules.ShouldRetry("youtube-unreachable", 1));
-        Assert.True(PublishQueueRules.ShouldRetry("queue-upload-lost", 2));
+        Assert.True(PublishQueueRules.ShouldRetry("queue-upload-not-started", 2));
         Assert.False(PublishQueueRules.ShouldRetry("youtube-unreachable", PublishQueueRules.MaxAttempts));
         Assert.False(PublishQueueRules.ShouldRetry("youtube-reconnect", 1));
         Assert.False(PublishQueueRules.ShouldRetry("title-too-long", 1));
         Assert.True(PublishQueueRules.RetryDelay(2) > PublishQueueRules.RetryDelay(1));
+    }
+
+    [Fact]
+    public void A_lost_upload_is_never_retried_automatically_because_it_may_already_be_on_YouTube() =>
+        Assert.False(PublishQueueRules.ShouldRetry("queue-upload-lost", 1));
+
+    [Fact]
+    public void An_upload_held_by_another_running_process_is_not_lost()
+    {
+        var started = Now.AddMinutes(-30);
+        // Another process reported it a minute ago: leave it alone.
+        Assert.False(PublishQueueRules.IsUploadLost("other", "me", Now.AddMinutes(-1), started, Now));
+        // That process went quiet: it is lost.
+        Assert.True(PublishQueueRules.IsUploadLost("other", "me", Now.AddMinutes(-11), started, Now));
+        // This process holds it and can't see it: it is gone.
+        Assert.True(PublishQueueRules.IsUploadLost("me", "me", Now, started, Now));
+        // Legacy item with no heartbeat: judged by when it started.
+        Assert.False(PublishQueueRules.IsUploadLost(null, "me", null, Now.AddMinutes(-2), Now));
     }
 
     [Fact]

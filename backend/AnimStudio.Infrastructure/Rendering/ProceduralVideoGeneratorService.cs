@@ -149,7 +149,18 @@ public sealed class ProceduralVideoGeneratorService(
         {
             progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Music, "Preparing background music"));
             var bgmDst = workspace.Resolve("in/ambient.wav");
-            if (bgmCache is not null)
+            if (!string.IsNullOrWhiteSpace(request.CustomBgmPath) && File.Exists(request.CustomBgmPath))
+            {
+                var customOk = bgmCache is not null
+                    ? await bgmCache.NormalizeCustomAudioToWavAsync(request.CustomBgmPath, bgmDst, request.DurationSeconds, ct).ConfigureAwait(false)
+                    : await TranscodeCustomBgmAsync("ffmpeg", request.CustomBgmPath, bgmDst, request.DurationSeconds, ct).ConfigureAwait(false);
+                if (customOk && File.Exists(bgmDst))
+                {
+                    hasBgm = true;
+                    bgmSource = "custom-song";
+                }
+            }
+            if (!hasBgm && bgmCache is not null)
             {
                 var (cachedPath, src) = await bgmCache.EnsurePresetWavAsync(resolvedTheme, ct: ct).ConfigureAwait(false);
                 if (File.Exists(cachedPath))
@@ -843,6 +854,52 @@ public sealed class ProceduralVideoGeneratorService(
             // The render was cancelled or stalled; the caller reports that, and whatever was read is still useful.
         }
         return log.ToString();
+    }
+
+    private static async Task<bool> TranscodeCustomBgmAsync(
+        string ffmpegExe,
+        string inputPath,
+        string outputWavPath,
+        int maxSeconds,
+        CancellationToken ct)
+    {
+        var dir = Path.GetDirectoryName(outputWavPath);
+        if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegExe,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        var limit = Math.Clamp(maxSeconds, 10, 600).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var arg in new[]
+        {
+            "-y",
+            "-i", inputPath,
+            "-vn",
+            "-t", limit,
+            "-af", "aresample=48000,aformat=channel_layouts=stereo,highpass=f=60,lowpass=f=12000,loudnorm=I=-22:TP=-2:LRA=8,aresample=48000,aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.6",
+            "-ar", "48000",
+            "-ac", "2",
+            "-c:a", "pcm_s16le",
+            outputWavPath
+        })
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        using var proc = Process.Start(startInfo);
+        if (proc is null) return false;
+        proc.StandardInput.Close();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+        _ = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
+        await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+        return proc.ExitCode == 0 && File.Exists(outputWavPath);
     }
 
     private static void TryKill(Process process)

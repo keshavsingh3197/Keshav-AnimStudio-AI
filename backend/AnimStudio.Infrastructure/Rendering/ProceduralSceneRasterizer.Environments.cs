@@ -112,7 +112,7 @@ public sealed partial class ProceduralSceneRasterizer
     /// photos shared evenly across the video. Sampled bilinearly through per-row/per-column lookup tables.
     /// </summary>
     private void PaintPhotoBackdropKenBurns(
-        IReadOnlyList<byte[]> photos, double u, SceneMoment scene,
+        IReadOnlyList<byte[]> photos, double t, double u, SceneMoment scene,
         float topR, float topG, float topB, float midR, float midG, float midB, float botR, float botG, float botB)
     {
         int index;
@@ -131,15 +131,23 @@ public sealed partial class ProceduralSceneRasterizer
 
         var photo = photos[index];
         var eased = (float)(local * local * (3 - 2 * local));
-        // A template picture stays still and whole: characters were placed on exact spots of it, and a push-in or
-        // drift would slide the picture out from under them.
+        // A template picture is still and whole by default: characters were placed on exact spots of it. Its optional
+        // moves are small and follow the video clock rather than the scene, so a scene cut never makes it jump.
         var isTemplate = IsTemplateBackdrop;
-        var zoom = isTemplate ? 1f : 1.05f + 0.11f * eased;
-        var maxPanX = (1f - 1f / zoom) * Width * 0.5f;
-        var maxPanY = (1f - 1f / zoom) * Height * 0.5f;
-        var dirX = index % 2 == 0 ? 1f : -1f;
-        var panX = dirX * maxPanX * 0.8f * (eased - 0.5f) * 2f;
-        var panY = -maxPanY * 0.5f * (eased - 0.5f) * 2f;
+        float zoom, panX, panY;
+        if (isTemplate)
+        {
+            (zoom, panX, panY) = TemplateCameraMove(t);
+        }
+        else
+        {
+            zoom = 1.05f + 0.11f * eased;
+            var maxPanX = (1f - 1f / zoom) * Width * 0.5f;
+            var maxPanY = (1f - 1f / zoom) * Height * 0.5f;
+            var dirX = index % 2 == 0 ? 1f : -1f;
+            panX = dirX * maxPanX * 0.8f * (eased - 0.5f) * 2f;
+            panY = -maxPanY * 0.5f * (eased - 0.5f) * 2f;
+        }
         // A template keeps its own colours; other photos are tinted further toward the event colours.
         var photoWeight = isTemplate ? 0.92f : 0.80f;
         var tintWeight = 1f - photoWeight;
@@ -197,6 +205,38 @@ public sealed partial class ProceduralSceneRasterizer
     private int[]? _kenBurnsColX;
     private float[]? _kenBurnsColF;
 
+    /// <summary>Seconds for one full breath of the gentle zoom, and one full sweep (there and back) of the slow pan.</summary>
+    private const double TemplateZoomCycleSeconds = 20.0;
+    private const double TemplatePanCycleSeconds = 32.0;
+
+    /// <summary>
+    /// Zoom and pan (in output pixels) of a template backdrop at <paramref name="t"/> seconds. Both moves start at rest
+    /// (zoom 1, centred) and are periodic sines, so any video length loops smoothly and the first frame matches the
+    /// placement editor.
+    /// </summary>
+    internal (float Zoom, float PanX, float PanY) TemplateCameraMove(double t)
+    {
+        switch (_stageLayout?.TemplateMotion ?? TemplateBackdropMotion.Still)
+        {
+            case TemplateBackdropMotion.GentleZoom:
+            {
+                // 1.00 -> 1.07 -> 1.00: characters near the middle move by about 1% of the frame.
+                var breath = 0.5f - 0.5f * MathF.Cos((float)(t * 2 * Math.PI / TemplateZoomCycleSeconds));
+                return (1f + 0.07f * breath, 0f, 0f);
+            }
+            case TemplateBackdropMotion.SlowPan:
+            {
+                // A fixed 10% crop leaves room to glide; the sweep uses 90% of that room so the edge never shows.
+                const float zoom = 1.10f;
+                var maxPanX = (1f - 1f / zoom) * Width * 0.5f;
+                var sweep = MathF.Sin((float)(t * 2 * Math.PI / TemplatePanCycleSeconds));
+                return (zoom, maxPanX * 0.9f * sweep, 0f);
+            }
+            default:
+                return (1f, 0f, 0f);
+        }
+    }
+
     // ------------------------------------------------------------------ painted environments
 
     private float HorizonY => Height > Width ? Height * 0.56f : Height * 0.64f;
@@ -234,6 +274,8 @@ public sealed partial class ProceduralSceneRasterizer
             case SceneSetting.Battlefield: DrawBattlefield(t); break;
             case SceneSetting.Archive: DrawArchive(t); break;
             case SceneSetting.ModernCity: DrawCitySkyline(t); break;
+            case SceneSetting.ChaiStall: DrawChaiStall(t); break;
+            case SceneSetting.ComedyStage: DrawComedyStage(t); break;
             case SceneSetting.Temple: DrawTempleSanctum(t); break;
             case SceneSetting.Cosmos: DrawCosmosNebula(t); break;
         }
@@ -700,6 +742,88 @@ public sealed partial class ProceduralSceneRasterizer
         FillEllipse(px - minSide * 0.015f, py - minSide * 0.015f, minSide * 0.03f, minSide * 0.03f, 236, 186, 130, 0.6f);
         DrawGlowLine(px - minSide * 0.09f, py + minSide * 0.02f, px + minSide * 0.09f, py - minSide * 0.02f, 1.6f, 230, 210, 170, 0.6f);
         DrawNightSky(t);
+    }
+
+    private void DrawChaiStall(double t)
+    {
+        var h = HorizonY;
+        var minSide = MathF.Min(Width, Height);
+
+        // Warm evening street floor and roadside tea-stall timber counter
+        FillGradientRect(0, h, Width, Height, (72, 46, 36), (26, 16, 14), 0.78f);
+        var roofY = h - minSide * 0.42f;
+        var stallL = Width * 0.10f;
+        var stallR = Width * 0.90f;
+
+        // Striped orange & cream canvas canopy
+        const int stripes = 10;
+        var sw = (stallR - stallL) / stripes;
+        for (var i = 0; i < stripes; i++)
+        {
+            var isAccent = (i & 1) == 0;
+            FillRect(stallL + i * sw, roofY, stallL + (i + 1) * sw, roofY + minSide * 0.065f,
+                isAccent ? (byte)228 : (byte)245,
+                isAccent ? (byte)98 : (byte)228,
+                isAccent ? (byte)32 : (byte)192, 0.92f);
+        }
+
+        // Bamboo support posts & lower tea counter plank
+        FillCapsule(stallL + minSide * 0.02f, roofY + minSide * 0.06f, stallL + minSide * 0.02f, h + minSide * 0.04f,
+            minSide * 0.012f, 142, 92, 54, 0.95f);
+        FillCapsule(stallR - minSide * 0.02f, roofY + minSide * 0.06f, stallR - minSide * 0.02f, h + minSide * 0.04f,
+            minSide * 0.012f, 142, 92, 54, 0.95f);
+        FillRect(Width * 0.18f, h - minSide * 0.07f, Width * 0.82f, h, 118, 72, 42, 0.94f);
+
+        // Steaming brass chai kettle + rising steam curls + terracotta kulhads
+        var kx = Width * 0.5f;
+        var ky = h - minSide * 0.105f;
+        FillEllipse(kx, ky, minSide * 0.046f, minSide * 0.036f, 212, 162, 72, 0.96f);
+        for (var s = 0; s < 3; s++)
+        {
+            var lift = (float)((t * 0.7 + s * 0.33) % 1.0);
+            var sx = kx + MathF.Sin((float)t * 3f + s * 2f) * minSide * 0.018f;
+            var sy = ky - minSide * (0.045f + lift * 0.11f);
+            DrawAdditiveDisc(sx, sy, minSide * (0.016f + lift * 0.018f), 255, 244, 224, (1f - lift) * 0.45f);
+        }
+        foreach (var cxCup in new[] { kx - minSide * 0.09f, kx + minSide * 0.09f })
+        {
+            FillEllipse(cxCup, h - minSide * 0.088f, minSide * 0.022f, minSide * 0.026f, 186, 98, 62, 0.95f);
+        }
+
+        // Warm string bulbs hanging under canopy
+        for (var b = 0; b < 7; b++)
+        {
+            var bx = stallL + (stallR - stallL) * ((b + 0.5f) / 7f);
+            var by = roofY + minSide * 0.08f + MathF.Sin(b * 0.9f) * minSide * 0.01f;
+            var glow = 0.75f + 0.25f * MathF.Sin((float)t * 4.5f + b);
+            DrawAdditiveDisc(bx, by, minSide * 0.028f * glow, 255, 212, 110, 0.65f);
+            FillEllipse(bx, by, minSide * 0.008f, minSide * 0.010f, 255, 245, 200, 0.96f);
+        }
+    }
+
+    private void DrawComedyStage(double t)
+    {
+        var h = HorizonY;
+        var minSide = MathF.Min(Width, Height);
+
+        // Polished wood stage floor & velvet side theater drapes
+        FillGradientRect(0, h, Width, Height, (108, 58, 34), (44, 22, 14), 0.85f);
+        foreach (var dx in new[] { 0f, Width * 0.88f })
+        {
+            FillRect(dx, 0, dx + Width * 0.12f, h, 128, 22, 38, 0.92f);
+            FillRect(dx + Width * 0.04f, 0, dx + Width * 0.07f, h, 168, 36, 54, 0.55f);
+        }
+
+        // Center chrome stand-up mic Stand + warm footlight bulbs along stage edge
+        var mx = Width * 0.5f;
+        FillCapsule(mx, h + minSide * 0.02f, mx, h - minSide * 0.24f, minSide * 0.006f, 195, 205, 218, 0.95f);
+        FillEllipse(mx, h - minSide * 0.255f, minSide * 0.016f, minSide * 0.022f, 225, 232, 240, 0.98f);
+        for (var f = 1; f <= 5; f++)
+        {
+            var fx = Width * (f / 6f);
+            var pulse = 0.75f + 0.25f * MathF.Sin((float)t * 5f + f * 1.1f);
+            DrawAdditiveDisc(fx, h + minSide * 0.02f, minSide * 0.032f * pulse, 255, 208, 92, 0.52f);
+        }
     }
 
     // ------------------------------------------------------------------ final grade

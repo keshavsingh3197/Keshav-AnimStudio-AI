@@ -92,6 +92,16 @@ public sealed class MongoAutomationRepository(MongoDbService mongo) : IAutomatio
     public Task UpsertPostAsync(AutomationPost post, CancellationToken ct) =>
         Posts.ReplaceOneAsync(p => p.Id == post.Id, post, new ReplaceOptions { IsUpsert = true }, ct);
 
+    public async Task<bool> TryReplacePostIfStatusAsync(AutomationPost post, AutomationPostStatus expectedStatus, CancellationToken ct)
+    {
+        var result = await Posts.ReplaceOneAsync(
+            p => p.Id == post.Id && p.Status == expectedStatus,
+            post,
+            new ReplaceOptions { IsUpsert = false },
+            ct).ConfigureAwait(false);
+        return result.MatchedCount > 0;
+    }
+
     public async Task<bool> DeletePostAsync(string id, CancellationToken ct) =>
         (await Posts.DeleteOneAsync(p => p.Id == id, ct).ConfigureAwait(false)).DeletedCount > 0;
 }

@@ -54,7 +54,8 @@ public sealed class ProceduralBgmCacheService(
             Describe(ProceduralSceneTheme.CosmosSacred3D, "cosmos-sacred", "Sacred Cosmos Meditative Pad", "Daily Panchang, Nakshatra & Astronomy"),
             Describe(ProceduralSceneTheme.HistoryChronicle3D, "history-chronicle", "Archival Cello & Documentary Bed", "Aaj Ka Itihaas & Historical Stories"),
             Describe(ProceduralSceneTheme.NeonCyberGrid3D, "neon-cyber", "Modern Chill Synth Underscore", "Tech, Pratiyogita Quizzes & Tutorials"),
-            Describe(ProceduralSceneTheme.SereneNatureGlow, "serene-nature", "Serene Acoustic Morning Breeze", "Wisdom Quotes, Motivation & Calm Shorts")
+            Describe(ProceduralSceneTheme.SereneNatureGlow, "serene-nature", "Serene Acoustic Morning Breeze", "Wisdom Quotes, Motivation & Calm Shorts"),
+            Describe(ProceduralSceneTheme.ComedyStage3D, "comedy-stage", "Upbeat Comedy & Tapri Pluck Groove", "Funny Shorts, Jokes & @KESHAV-ANIM-FF")
         ];
     }
 
@@ -65,6 +66,7 @@ public sealed class ProceduralBgmCacheService(
         "history-chronicle" => ProceduralSceneTheme.HistoryChronicle3D,
         "neon-cyber" => ProceduralSceneTheme.NeonCyberGrid3D,
         "serene-nature" => ProceduralSceneTheme.SereneNatureGlow,
+        "comedy-stage" => ProceduralSceneTheme.ComedyStage3D,
         _ => null
     };
 
@@ -272,7 +274,18 @@ public sealed class ProceduralBgmCacheService(
         return null;
     }
 
-    private async Task<bool> NormalizeToLoopableWavAsync(string inputPath, string outputWavPath, CancellationToken ct)
+    public Task<bool> NormalizeCustomAudioToWavAsync(
+        string inputPath,
+        string outputWavPath,
+        int maxSeconds,
+        CancellationToken ct) =>
+        NormalizeToLoopableWavAsync(inputPath, outputWavPath, ct, Math.Clamp(maxSeconds, 10, 600));
+
+    private async Task<bool> NormalizeToLoopableWavAsync(
+        string inputPath,
+        string outputWavPath,
+        CancellationToken ct,
+        int maxSeconds = 45)
     {
         var ffmpegPath = string.IsNullOrWhiteSpace(ffmpegOptions.Value.FfmpegPath)
             ? "ffmpeg"
@@ -294,7 +307,7 @@ public sealed class ProceduralBgmCacheService(
             "-y",
             "-i", inputPath,
             "-vn",
-            "-t", "45",
+            "-t", maxSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "-af", "aresample=48000,aformat=channel_layouts=stereo,highpass=f=60,lowpass=f=12000,loudnorm=I=-22:TP=-2:LRA=8,aresample=48000,aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.6",
             "-ar", "48000",
             "-ac", "2",
@@ -373,6 +386,7 @@ public sealed class ProceduralBgmCacheService(
         ProceduralSceneTheme.HistoryChronicle3D => "history-chronicle",
         ProceduralSceneTheme.NeonCyberGrid3D => "neon-cyber",
         ProceduralSceneTheme.SereneNatureGlow => "serene-nature",
+        ProceduralSceneTheme.ComedyStage3D => "comedy-stage",
         _ => "vedic-sunrise"
     };
 
@@ -386,6 +400,8 @@ public sealed class ProceduralBgmCacheService(
             "Warm cinematic documentary underscore with gentle cello, soft acoustic plucked lute and atmospheric pad, noble timeless mood suitable behind storytelling narration, instrumental only, no vocals.",
         ProceduralSceneTheme.NeonCyberGrid3D =>
             "Smooth warm chillwave electric piano and subtle soft analog synth pad, calm modern educational underscore suitable behind voiceover, instrumental only, no vocals.",
+        ProceduralSceneTheme.ComedyStage3D =>
+            "Playful upbeat Indian comedy underscore with light pizzicato strings, soft marimba plucks and cheerful bounce suitable behind funny dialogue punchlines, instrumental only, no vocals.",
         _ =>
             "Peaceful fingerpicked acoustic guitar and soft warm morning flute breeze pad, gentle uplifting meditation underscore behind voiceover, instrumental only, no vocals."
     };
@@ -396,6 +412,7 @@ public sealed class ProceduralBgmCacheService(
         ProceduralSceneTheme.CosmosSacred3D => ("ambient spiritual pad meditation", "calm"),
         ProceduralSceneTheme.HistoryChronicle3D => ("cinematic documentary piano cello", "inspirational"),
         ProceduralSceneTheme.NeonCyberGrid3D => ("chill lo-fi ambient synth", "hopeful"),
+        ProceduralSceneTheme.ComedyStage3D => ("playful comedy pizzicato upbeat", "happy"),
         _ => ("peaceful acoustic nature ambient", "calm")
     };
 

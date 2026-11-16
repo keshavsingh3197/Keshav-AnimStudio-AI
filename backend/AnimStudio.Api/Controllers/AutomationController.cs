@@ -322,6 +322,54 @@ public sealed class AutomationController(
         return Ok(ApiResponse<AutomationTemplateProject>.Ok(new AutomationTemplateProject(projectId)));
     }
 
+    /// <summary>
+    /// A ready image prompt for this post's background picture (place, light, frame shape, open ground where the
+    /// characters stand), built from the wizard's unsaved stage choices. Nothing is generated or saved.
+    /// </summary>
+    [HttpPost("queue/{id}/background-picture/prompt")]
+    [RequestSizeLimit(16 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationBackgroundPrompt>>> BackgroundPicturePrompt(
+        string id,
+        [FromBody] AutomationBackgroundPictureRequest? request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationBackgroundPrompt>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationBackgroundPrompt>.Ok(
+            await automation.GetBackgroundPromptAsync(currentUser.UserId, id, request?.Stage, ct)));
+    }
+
+    /// <summary>
+    /// Makes this post's background picture with the configured image engine and saves it to the user's Background
+    /// Templates project. Returns the new asset id; the wizard selects it and saves the stage as usual.
+    /// </summary>
+    [HttpPost("queue/{id}/background-picture/generate")]
+    [RequestSizeLimit(16 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationGeneratedBackground>>> GenerateBackgroundPicture(
+        string id,
+        [FromBody] AutomationBackgroundPictureRequest? request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationGeneratedBackground>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationGeneratedBackground>.Ok(
+            await automation.GenerateBackgroundPictureAsync(currentUser.UserId, id, request, ct)));
+    }
+
+    /// <summary>
+    /// The pictures a script needs, one per directed scene and in render order, with a numbered prompt to make them all
+    /// in an outside image tool. Uses the pasted reply when given, else the post's script. Nothing is saved.
+    /// </summary>
+    [HttpPost("queue/{id}/scene-pictures/plan")]
+    [RequestSizeLimit(128 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationScenePicturePlan>>> ScenePicturePlan(
+        string id,
+        [FromBody] AutomationScenePicturePlanRequest? request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationScenePicturePlan>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationScenePicturePlan>.Ok(
+            await automation.GetScenePicturePlanAsync(currentUser.UserId, id, request, ct)));
+    }
+
     [HttpPost("queue/{id}/community-card")]
     public async Task<ActionResult<ApiResponse<AutomationPost>>> GenerateCommunityCard(
         string id,
@@ -422,6 +470,19 @@ public sealed class AutomationController(
         return Ok(ApiResponse<AutomationPost>.Ok(post));
     }
 
+    [HttpPost("compile-comedy")]
+    public async Task<ActionResult<ApiResponse<ComedyCompilationResult>>> CompileComedy(
+        [FromBody] CompileComedyRequest request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<ComedyCompilationResult>() is { } denied) return denied;
+        var result = await automation.BuildComedyCompilationAsync(
+            currentUser.UserId,
+            new CompileComedyRequestDto(request.PostIds, request.Title, request.MaxSeconds, request.TargetChannelId),
+            ct);
+        return Ok(ApiResponse<ComedyCompilationResult>.Ok(result));
+    }
+
     [HttpDelete("queue/{id}")]
     public async Task<ActionResult<ApiResponse<EmptyPayload>>> DeletePost(
         string id,
@@ -432,3 +493,9 @@ public sealed class AutomationController(
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
     }
 }
+
+public sealed record CompileComedyRequest(
+    IReadOnlyList<string> PostIds,
+    string? Title = null,
+    int MaxSeconds = 180,
+    string? TargetChannelId = null);

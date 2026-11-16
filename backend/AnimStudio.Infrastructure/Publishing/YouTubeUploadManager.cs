@@ -90,6 +90,12 @@ public sealed record YouTubeUploadRequest(
 /// </summary>
 public sealed class YouTubeUploadManager : IHostedService, IDisposable
 {
+    /// <summary>
+    /// Identifies this server process. Uploads live only in its memory, so records that track them say which
+    /// process holds them; a random id per start means a restarted process is a different host.
+    /// </summary>
+    public static readonly string InstanceId = Guid.NewGuid().ToString("N");
+
     private readonly IServiceScopeFactory _scopes;
     private readonly YouTubeVideoUploader _uploader;
     private readonly YouTubeCommentClient _comments;

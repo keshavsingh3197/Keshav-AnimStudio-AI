@@ -128,7 +128,12 @@ public sealed partial class EcosystemAutomationService(
     TimeProvider clock,
     ILogger<EcosystemAutomationService> logger,
     IAssetRepository? assets = null,
-    ICharacterRepository? characters = null)
+    ICharacterRepository? characters = null,
+    AnimStudio.Application.Songs.SongLibrary? songLibrary = null,
+    Microsoft.Extensions.Options.IOptions<AnimStudio.Infrastructure.Ffmpeg.FfmpegOptions>? ffmpegOptions = null,
+    AnimStudio.Infrastructure.Ecosystem.CentralChannelVideoWriter? catalogWriter = null,
+    IAiProviderRegistry? aiRegistry = null,
+    IAiUsageRepository? aiUsage = null)
 {
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
@@ -389,6 +394,7 @@ public sealed partial class EcosystemAutomationService(
                 AutomationSourceType.AajKaItihaas, worldChannel, historyTopic, "18:00", settings, ["panchang", "pratiyogita", "blog", "studio"], "27", now),
             BuildStarterRule(userId, 5, "Pratiyogita & Ecosystem Growth Spotlight", "Promotes live quizzes/competitions, AI video tools & analytics portal to build cross-site traffic.",
                 AutomationSourceType.EcosystemSpotlight, worldChannel, spotlightTopic, "20:30", settings, ["pratiyogita", "social", "studio", "blog"], "28", now),
+            await BuildFunnyComedyStarterRuleAsync(userId, 6, worldChannel, settings, now, ct).ConfigureAwait(false)
         };
 
         foreach (var r in defaults)
@@ -1156,6 +1162,14 @@ public sealed partial class EcosystemAutomationService(
         if (stage.BackgroundTemplateAssetId is { } templateId && !await IsOwnedImageAsync(userId, templateId, ct).ConfigureAwait(false))
             throw EditingException.Invalid("template-not-found", "That background image was not found in your Studio Storage.");
 
+        // Default deny: every scene picture must be one of the user's own images.
+        if (stage.SceneBackgroundAssetIds.Count > 0)
+        {
+            var owned = await OwnedImageIdsAsync(userId, stage.SceneBackgroundAssetIds, ct).ConfigureAwait(false);
+            if (stage.SceneBackgroundAssetIds.Any(id => !owned.Contains(id)))
+                throw EditingException.Invalid("scene-picture-not-found", "A scene picture was not found in your Studio Storage. Upload it again.");
+        }
+
         post.Stage = stage;
         post.UpdatedAtUtc = UtcNow;
         await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
@@ -1193,6 +1207,21 @@ public sealed partial class EcosystemAutomationService(
         if (asset is null || asset.Kind != AssetKind.Image || string.IsNullOrWhiteSpace(asset.StorageKey)) return false;
         var userProjects = await projects.ListAsync(userId, ct).ConfigureAwait(false);
         return userProjects.Any(p => string.Equals(p.Id, asset.ProjectId, StringComparison.Ordinal));
+    }
+
+    /// <summary>The ids among <paramref name="assetIds"/> that are images in the user's own projects.</summary>
+    private async Task<HashSet<string>> OwnedImageIdsAsync(string userId, IReadOnlyCollection<string> assetIds, CancellationToken ct)
+    {
+        var owned = new HashSet<string>(StringComparer.Ordinal);
+        if (assets is null || assetIds.Count == 0) return owned;
+        var found = await assets.GetManyAsync([.. assetIds.Distinct(StringComparer.Ordinal)], ct).ConfigureAwait(false);
+        var projectIds = (await projects.ListAsync(userId, ct).ConfigureAwait(false)).Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var asset in found)
+        {
+            if (asset.Kind == AssetKind.Image && !string.IsNullOrWhiteSpace(asset.StorageKey) && projectIds.Contains(asset.ProjectId))
+                owned.Add(asset.Id);
+        }
+        return owned;
     }
 
     /// <summary>
@@ -1376,8 +1405,9 @@ public sealed partial class EcosystemAutomationService(
             - Language of the dialogue: {language}
             - {speakers}{placeRule}
             - CAST block first: one [CAST] line per character (main and supporting). Role is one of: {roles}. Look = outfit colours and ornaments, e.g. "saffron dhoti, gold crown, rudraksha mala".
-            - Split the story into {scenes} scenes. Start each scene with one [SCENE] line BEFORE its dialogue: setting | time of day | mood | IMAGE: one-sentence photorealistic background with no people in it.
+            - Split the story into {scenes} scenes, one per moment of the story (each new event, place or turn of the plot is a new scene). Start each scene with one [SCENE] line BEFORE its dialogue: setting | time of day | mood | IMAGE: background picture prompt.
               Setting is one of: {settings}. Time is one of: dawn, day, sunset, night.
+            - Each IMAGE prompt is used on its own to make that scene's picture in an image tool, so make it complete and specific (25-45 words): the exact place, architecture and props from this moment of the story, light and weather, colour mood, camera angle, photorealistic cinematic style, {(post.Format == AutomationVideoFormat.Wide ? "16:9 wide frame" : "9:16 tall vertical frame")}. No people, no faces, no text: the characters are animated on top of the picture. Keep one consistent look across all scenes.
             - Write {turns} dialogue lines in total, each 15-28 words (about {budget.Words} words altogether), so everything is spoken in about {seconds} seconds.
             - Line 1 of scene 1: [{narrator}] gives a gripping hook: who, where, and why it matters.{(budget.MinScenes >= 3 ? $"{Environment.NewLine}- [{narrator}] may bridge two scenes with one short line; most lines still belong to the characters." : string.Empty)}
             - The characters act the story out (conflict -> turning point -> resolution), speaking to each other, not lecturing. Supporting characters speak at least once each.
@@ -1415,7 +1445,8 @@ public sealed partial class EcosystemAutomationService(
             if (!match.Success) continue;
 
             var speaker = AiOutputSanitizer.ToSafeLine(match.Groups[1].Value, 34);
-            var text = AiOutputSanitizer.ToSafeLine(match.Groups[2].Value, 400);
+            // Scene lines carry a full picture prompt after the setting, time and mood.
+            var text = AiOutputSanitizer.ToSafeLine(match.Groups[2].Value, SceneDirectives.IsDirectiveTag(speaker) ? 600 : 400);
             if (string.IsNullOrWhiteSpace(speaker) || string.IsNullOrWhiteSpace(text)) continue;
 
             // [CAST] and [SCENE] stage directions are kept (never spoken); they don't count as dialogue.
@@ -1680,11 +1711,41 @@ public sealed partial class EcosystemAutomationService(
             return post;
         }
 
+        // Work on the stored copy from here on: the caller's object may be stale (the worker loaded it before a
+        // click published it), and the claim below has to compare against what is really saved.
+        var stored = await repository.GetPostAsync(post.Id, ct).ConfigureAwait(false) ?? post;
+        if (stored.Status == AutomationPostStatus.Publishing)
+            throw EditingException.Conflict("publish-in-progress", "This card is already uploading to YouTube. Wait for it to finish.");
+        if (stored.Status == AutomationPostStatus.Published || !string.IsNullOrWhiteSpace(stored.PublishedVideoId))
+            throw EditingException.Conflict("already-published",
+                "This card is already on YouTube. Use 'Remove / Move' first to delete it there or publish it to another channel.");
+        post = stored;
+        var previousStatus = post.Status;
+
         // Route 1: Completed RenderJob (direct or from attached StoryRun / Handoff) -> PublishQueueService!
         var renderJob = await ResolveUsableRenderJobAsync(userId, post, ct).ConfigureAwait(false);
         if (renderJob is not null)
         {
-            var metadata = new YouTubeVideoMetadata
+            // An earlier attempt may already have put this render on the channel (a lost status, a restart, a
+            // second click). Adopt that video instead of uploading the same thing again.
+            if (await FindLivePublicationAsync(post, renderJob.Id, connection.ChannelId, ct).ConfigureAwait(false) is { } live)
+            {
+                post.PublishedChannelId = connection.ChannelId;
+                post.PublishedChannelTitle = connection.ChannelTitle;
+                await MarkPublishedAsync(post, live.VideoId, $"https://www.youtube.com/watch?v={live.VideoId}", live.PublishedAt, ct).ConfigureAwait(false);
+                logger.LogInformation("Automation post {PostId}: render {JobId} is already on channel {ChannelId} as {VideoId}; not uploading again",
+                    post.Id, renderJob.Id, connection.ChannelId, live.VideoId);
+                return post;
+            }
+
+            // A queue item from an earlier attempt is reused rather than adding another one next to it.
+            if (await TryResumeQueueItemAsync(userId, post, previousStatus, connection, ct).ConfigureAwait(false) is { } resumed)
+                return resumed;
+
+            await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
+            try
+            {
+                var metadata = new YouTubeVideoMetadata
             {
                 Title = post.Title,
                 Description = post.Description,
@@ -1695,34 +1756,178 @@ public sealed partial class EcosystemAutomationService(
                 NotifySubscribers = true,
                 Language = post.Language
             };
-            var queued = await publishQueue.AddAsync(userId, new PublishQueueDraft(
-                renderJob.Id,
-                connection.ChannelId,
-                metadata,
-                null,
-                post.PinnedComment,
-                null,
-                null,
-                null,
-                PublishQueueMode.UploadAtTime,
-                Hold: false,
-                Notes: $"Automation: {post.RuleName}"), ct).ConfigureAwait(false);
+                // Added held, so the board's scheduler can't start it on its own while we start it here: that race
+                // made PublishNow fail, left the card "Approved", and the next worker tick queued yet another copy.
+                var queued = await publishQueue.AddAsync(userId, new PublishQueueDraft(
+                    renderJob.Id,
+                    connection.ChannelId,
+                    metadata,
+                    null,
+                    post.PinnedComment,
+                    null,
+                    null,
+                    null,
+                    PublishQueueMode.UploadAtTime,
+                    Hold: true,
+                    Notes: $"Automation: {post.RuleName}"), ct).ConfigureAwait(false);
 
-            var pushed = await publishQueue.PublishNowAsync(userId, queued.Id, ct).ConfigureAwait(false);
-            post.QueueItemId = pushed.Id;
-            post.PublishedChannelId = connection.ChannelId;
-            post.PublishedChannelTitle = connection.ChannelTitle;
-            post.Status = AutomationPostStatus.Publishing;
-            post.LastError = null;
-            post.UpdatedAtUtc = UtcNow;
-            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
-            return post;
+                // Saved before the upload starts, so any later attempt finds and reuses this item.
+                post.QueueItemId = queued.Id;
+                post.UpdatedAtUtc = UtcNow;
+                await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+
+                await publishQueue.PublishNowAsync(userId, queued.Id, ct).ConfigureAwait(false);
+                return post;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await ReleasePublishClaimAsync(post, previousStatus, ex, ct).ConfigureAwait(false);
+                throw;
+            }
         }
 
         // Route 2: Google Drive clip (`PhoneHandoff` without a RenderJob in IObjectStore)
         if (!string.IsNullOrWhiteSpace(post.AttachedHandoffId))
         {
-            var handoff = await handoffs.GetAsync(post.AttachedHandoffId, ct).ConfigureAwait(false)
+            await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
+            try
+            {
+                return await PublishDriveClipAsync(userId, post, connection, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await ReleasePublishClaimAsync(post, previousStatus, ex, ct).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        throw EditingException.Invalid("video-not-attached", "Attach a Drive clip / finished Render or click 'Generate AI Video' before publishing.");
+    }
+
+    /// <summary>
+    /// Marks the card Publishing with an atomic compare-and-set on its status. Of two requests (a click and the
+    /// worker, or two server processes on one database) only the first gets through; the other is told it is
+    /// already uploading instead of starting a second upload.
+    /// </summary>
+    private async Task ClaimForPublishAsync(AutomationPost post, AutomationPostStatus previousStatus, YouTubeChannelConnection connection, CancellationToken ct)
+    {
+        post.Status = AutomationPostStatus.Publishing;
+        post.PublishedChannelId = connection.ChannelId;
+        post.PublishedChannelTitle = connection.ChannelTitle;
+        post.LastError = null;
+        post.UpdatedAtUtc = UtcNow;
+        if (!await repository.TryReplacePostIfStatusAsync(post, previousStatus, ct).ConfigureAwait(false))
+        {
+            post.Status = previousStatus;
+            throw EditingException.Conflict("publish-in-progress", "This card is already being published. Refresh to see its progress.");
+        }
+    }
+
+    /// <summary>Starting the upload failed before anything was sent: put the card back so it can be tried again.</summary>
+    private async Task ReleasePublishClaimAsync(AutomationPost post, AutomationPostStatus previousStatus, Exception ex, CancellationToken ct)
+    {
+        post.Status = previousStatus;
+        post.LastError = ex is EditingException or YouTubePublishException ? ex.Message : "The upload couldn't be started. Try again.";
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        if (ex is not (EditingException or YouTubePublishException))
+            logger.LogError(ex, "Starting the YouTube upload of automation post {PostId} failed", post.Id);
+    }
+
+    /// <summary>
+    /// Continues with the card's queue item from an earlier attempt instead of adding a second one. Null when
+    /// there is none worth reusing (never created, removed from the board, failed or cancelled).
+    /// </summary>
+    private async Task<AutomationPost?> TryResumeQueueItemAsync(
+        string userId, AutomationPost post, AutomationPostStatus previousStatus, YouTubeChannelConnection connection, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(post.QueueItemId)) return null;
+
+        PublishQueueItemView view;
+        try
+        {
+            view = await publishQueue.GetAsync(userId, post.QueueItemId, ct).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException)
+        {
+            post.QueueItemId = null;
+            return null;
+        }
+
+        // Only an item for the same channel is the same upload.
+        if (!string.Equals(view.ChannelId, connection.ChannelId, StringComparison.Ordinal)) return null;
+
+        switch (view.State)
+        {
+            case PublishQueueState.Published when !string.IsNullOrWhiteSpace(view.VideoId):
+                post.PublishedChannelId = connection.ChannelId;
+                post.PublishedChannelTitle = connection.ChannelTitle;
+                await MarkPublishedAsync(post, view.VideoId!, view.VideoUrl ?? $"https://www.youtube.com/watch?v={view.VideoId}",
+                    view.FinishedAt, ct).ConfigureAwait(false);
+                return post;
+
+            case PublishQueueState.Uploading:
+                await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
+                return post;
+
+            case PublishQueueState.Waiting or PublishQueueState.Held:
+                await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
+                try
+                {
+                    await publishQueue.PublishNowAsync(userId, view.Id, ct).ConfigureAwait(false);
+                }
+                catch (EditingException ex) when (ex.Code == "queue-item-locked")
+                {
+                    // The board's scheduler started it a moment ago: that is the upload we wanted.
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    await ReleasePublishClaimAsync(post, previousStatus, ex, ct).ConfigureAwait(false);
+                    throw;
+                }
+                return post;
+
+            default:
+                // Failed or cancelled: a new item is added (the video isn't on YouTube - that was checked first).
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// The app's own record of this render on this channel since the card was made, unless that video was
+    /// removed (by "Remove / Move" or in YouTube Studio).
+    /// </summary>
+    private async Task<YouTubePublication?> FindLivePublicationAsync(AutomationPost post, string jobId, string channelId, CancellationToken ct)
+    {
+        var removed = post.RemovedVideos.Select(r => r.VideoId).ToHashSet(StringComparer.Ordinal);
+        var records = await publications.ListByUserAsync(post.UserId, null, 200, ct).ConfigureAwait(false);
+        return records
+            .Where(p => string.Equals(p.JobId, jobId, StringComparison.Ordinal)
+                && string.Equals(p.ChannelId, channelId, StringComparison.Ordinal)
+                && p.PublishedAt >= post.CreatedAtUtc
+                && p.Health != YouTubeVideoHealth.Removed
+                && !removed.Contains(p.VideoId))
+            .OrderByDescending(p => p.PublishedAt)
+            .FirstOrDefault();
+    }
+
+    private async Task MarkPublishedAsync(AutomationPost post, string videoId, string videoUrl, DateTime? publishedAt, CancellationToken ct)
+    {
+        post.PublishedVideoId = videoId;
+        post.PublishedVideoUrl = videoUrl;
+        post.Status = AutomationPostStatus.Published;
+        post.PublishedAtUtc = publishedAt ?? UtcNow;
+        post.LastError = null;
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
+        if (catalogWriter is not null) await catalogWriter.UpsertPublishedPostAsync(post, ct).ConfigureAwait(false);
+    }
+
+    private async Task<AutomationPost> PublishDriveClipAsync(string userId, AutomationPost post, YouTubeChannelConnection connection, CancellationToken ct)
+    {
+        {
+            var handoff = await handoffs.GetAsync(post.AttachedHandoffId!, ct).ConfigureAwait(false)
                 ?? throw EditingException.Invalid("video-missing", "Attached Drive clip was not found.");
 
             if (handoff.DriveFileId is null || handoff.DriveMissing)
@@ -1772,20 +1977,24 @@ public sealed partial class EcosystemAutomationService(
                 FirstComment: comment,
                 LocalFilePath: localFile));
 
-            // Mark the Drive clip Used & archive on Drive best-effort so it's never reused in duplicate!
-            await MarkDriveClipUsedAsync(handoff, driveToken, driveTarget, ct).ConfigureAwait(false);
-
+            // The upload is under way: record it first, so nothing after this can put the card back to be uploaded again.
             post.UploadId = uploadStatus.UploadId;
-            post.PublishedChannelId = connection.ChannelId;
-            post.PublishedChannelTitle = connection.ChannelTitle;
             post.Status = AutomationPostStatus.Publishing;
             post.LastError = null;
             post.UpdatedAtUtc = UtcNow;
-            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            await repository.UpsertPostAsync(post, CancellationToken.None).ConfigureAwait(false);
+
+            // Mark the Drive clip Used & archive on Drive best-effort so it's never reused in duplicate!
+            try
+            {
+                await MarkDriveClipUsedAsync(handoff, driveToken, driveTarget, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Automation post {PostId}: marking the Drive clip used failed; the upload continues", post.Id);
+            }
             return post;
         }
-
-        throw EditingException.Invalid("video-not-attached", "Attach a Drive clip / finished Render or click 'Generate AI Video' before publishing.");
     }
 
     private async Task<int> PollStoryRunProgressAsync(
@@ -1882,9 +2091,36 @@ public sealed partial class EcosystemAutomationService(
 
     private async Task<int> PollPublishProgressAsync(AutomationPost post, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(post.QueueItemId) && string.IsNullOrWhiteSpace(post.UploadId))
+        {
+            // Claimed, but the server stopped before the upload was handed over: nothing is tracking it.
+            if (post.UpdatedAtUtc < UtcNow - TimeSpan.FromMinutes(15))
+            {
+                post.Status = AutomationPostStatus.Failed;
+                post.LastError = "Publishing was interrupted before the upload started. Check YouTube Studio, then publish again.";
+                post.UpdatedAtUtc = UtcNow;
+                await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                return 1;
+            }
+            return 0;
+        }
+
         if (!string.IsNullOrWhiteSpace(post.QueueItemId))
         {
-            var view = await publishQueue.GetAsync(post.UserId, post.QueueItemId, ct).ConfigureAwait(false);
+            PublishQueueItemView view;
+            try
+            {
+                view = await publishQueue.GetAsync(post.UserId, post.QueueItemId, ct).ConfigureAwait(false);
+            }
+            catch (KeyNotFoundException)
+            {
+                post.Status = AutomationPostStatus.Failed;
+                post.QueueItemId = null;
+                post.LastError = "The upload was removed from the publishing board. Check YouTube Studio, then publish again.";
+                post.UpdatedAtUtc = UtcNow;
+                await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                return 1;
+            }
             if (view.State == PublishQueueState.Published)
             {
                 post.PublishedVideoId = view.VideoId;
@@ -1894,6 +2130,7 @@ public sealed partial class EcosystemAutomationService(
                 post.UpdatedAtUtc = UtcNow;
                 await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                 await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
+                if (catalogWriter is not null) await catalogWriter.UpsertPublishedPostAsync(post, ct).ConfigureAwait(false);
                 return 1;
             }
             if (view.State is PublishQueueState.Failed or PublishQueueState.Cancelled)
@@ -1921,6 +2158,7 @@ public sealed partial class EcosystemAutomationService(
                     post.UpdatedAtUtc = UtcNow;
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                     await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
+                    if (catalogWriter is not null) await catalogWriter.UpsertPublishedPostAsync(post, ct).ConfigureAwait(false);
                     return 1;
                 }
                 if (status.State is YouTubeUploadState.Failed or YouTubeUploadState.Cancelled)
@@ -1949,6 +2187,7 @@ public sealed partial class EcosystemAutomationService(
                     post.UpdatedAtUtc = UtcNow;
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                     await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
+                    if (catalogWriter is not null) await catalogWriter.UpsertPublishedPostAsync(post, ct).ConfigureAwait(false);
                     return 1;
                 }
             }
@@ -2262,7 +2501,7 @@ public sealed partial class EcosystemAutomationService(
             ? post.NarrativeMode
             : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
         var targetSeconds = ResolvePostTargetSeconds(post, rule, effectiveMode, durationSeconds);
-        var duration = Math.Clamp(targetSeconds, 15, ProceduralVideoRequest.MaxSeconds);
+        var duration = Math.Clamp(targetSeconds, 10, ProceduralVideoRequest.MaxSeconds);
         var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
         var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
         var formatArg = post.Format switch
@@ -2273,6 +2512,7 @@ public sealed partial class EcosystemAutomationService(
         };
 
         var stage = post.Stage ?? new AutomationStageSettings();
+        using var songLease = await MaterializeStageSongLeaseAsync(userId, stage.AttachedSongId, ct).ConfigureAwait(false);
         string? tempDir = null;
         List<string> bgPaths = [];
         var usingTemplate = false;
@@ -2285,7 +2525,27 @@ public sealed partial class EcosystemAutomationService(
                 logger.LogWarning("Background template for automation post {PostId} is no longer available; using the default stage.", post.Id);
         }
 
-        if (!usingTemplate)
+        var usingScenePictures = false;
+        if (!usingTemplate && stage.SceneBackgroundAssetIds.Count > 0)
+        {
+            tracker?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Dialogue + 4,
+                $"Fetching your {stage.SceneBackgroundAssetIds.Count} scene pictures"));
+            (tempDir, bgPaths) = await MaterializeStorageImagesAsync(userId, stage.SceneBackgroundAssetIds, ct).ConfigureAwait(false);
+            usingScenePictures = bgPaths.Count == stage.SceneBackgroundAssetIds.Count;
+            if (!usingScenePictures)
+            {
+                // A missing picture would move every later scene onto the wrong one: use none rather than a shifted set.
+                logger.LogWarning("Scene pictures for automation post {PostId}: {Found} of {Wanted} available; using the default stage.",
+                    post.Id, bgPaths.Count, stage.SceneBackgroundAssetIds.Count);
+                if (tempDir is not null)
+                {
+                    try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort scratch cleanup */ }
+                }
+                (tempDir, bgPaths) = (null, []);
+            }
+        }
+
+        if (!usingTemplate && !usingScenePictures)
         {
             var assetIds = post.AttachedAssetIds.Count > 0 ? post.AttachedAssetIds : (rule?.AttachedAssetIds ?? []);
             if (assetIds.Count > 0)
@@ -2318,7 +2578,9 @@ public sealed partial class EcosystemAutomationService(
                 FollowScriptExactly = stage.FollowScriptExactly,
                 StageLayout = AutomationStageScript.ToLayout(stage, usingTemplate),
                 IncludeCaptions = true,
-                IncludeAmbientAudio = stage.IncludeBackgroundMusic,
+                IncludeAmbientAudio = stage.IncludeBackgroundMusic || songLease.Path is not null,
+            CustomBgmPath = songLease.Path,
+            IsSeamlessLoop = post.SourceType == AutomationSourceType.FunnyComedy || duration <= 30,
                 IncludeSpeech = true,
                 Language = post.Language,
                 FooterLabel = footer,
@@ -2346,6 +2608,7 @@ public sealed partial class EcosystemAutomationService(
             var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
             var extras = (hasVoice ? " • Voice" : string.Empty)
                 + (usingTemplate ? " • Your background" : string.Empty)
+                + (usingScenePictures ? $" • {bgPaths.Count} scene pictures" : string.Empty)
                 + (stage.IncludeBackgroundMusic ? string.Empty : " • No music");
             post.AttachedVideoSourceLabel = $"3D Animated ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s{extras})";
             post.StoryStageSummary = "3D Animated MP4 Ready";
@@ -2987,7 +3250,7 @@ public sealed partial class EcosystemAutomationService(
     /// <summary>A full 16:9 video may tell the whole story: up to 10 minutes (the Story Agent's own ceiling).</summary>
     internal const int FullVideoMaxSeconds = 600;
 
-    internal const int MinVideoSeconds = 25;
+    internal const int MinVideoSeconds = 10;
 
     /// <summary>The longest video a format may be: Shorts are capped by YouTube, full videos are not.</summary>
     internal static int MaxSecondsFor(AutomationVideoFormat format) =>
@@ -3255,7 +3518,9 @@ public sealed partial class EcosystemAutomationService(
                 tracker?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Dialogue + 4,
                     $"Painting realistic scene {i + 1} of {cues.Count}"));
                 var (setting, time) = SceneDirectives.FromCue(cues[i]);
-                var directive = directed.FirstOrDefault(d => SceneDirectives.ToCue(d.Setting, d.TimeOfDay) == cues[i]);
+                var directive = SceneDirectives.SceneNumber(cues[i]) is { } n && n <= directed.Count
+                    ? directed[n - 1]
+                    : directed.FirstOrDefault(d => SceneDirectives.ToCue(d.Setting, d.TimeOfDay) == cues[i]);
                 var request = new AiImageRequest
                 {
                     Prompt = BuildSceneImagePrompt(directive, setting, time),
@@ -3306,26 +3571,11 @@ public sealed partial class EcosystemAutomationService(
         return (tempDir, paths);
     }
 
-    private static readonly Dictionary<SceneSetting, string> SceneImageSubjects = new()
-    {
-        [SceneSetting.Temple] = "ancient carved stone Hindu temple sanctum with brass oil lamps, marigold garlands and incense haze",
-        [SceneSetting.ForestAshram] = "sacred forest ashram clearing with a thatched hermitage hut, banyan trees and soft god rays",
-        [SceneSetting.RiverGhat] = "holy river ghat with stone steps, floating diyas and distant temple spires reflected in calm water",
-        [SceneSetting.Himalaya] = "majestic snow-capped Himalayan peaks above drifting clouds and a quiet meditation ledge",
-        [SceneSetting.PalaceCourt] = "grand ancient Indian royal court with carved marble pillars, silk drapes and a golden throne",
-        [SceneSetting.Cosmos] = "vast cosmic sky with nebula clouds, glowing stars and celestial light",
-        [SceneSetting.Village] = "traditional Indian village with mud huts, fields, a neem tree and cooking-fire smoke",
-        [SceneSetting.Battlefield] = "ancient battlefield plain with banners, chariots in the far distance and dust in golden light",
-        [SceneSetting.Archive] = "old library archive with wooden shelves of manuscripts, scrolls and a warm lamp",
-        [SceneSetting.ModernCity] = "modern Indian city skyline with glass towers and soft evening lights",
-        [SceneSetting.Auto] = "cinematic Indian landscape"
-    };
-
     internal static string BuildSceneImagePrompt(SceneDirective? directive, SceneSetting setting, SceneTimeOfDay time)
     {
         var subject = !string.IsNullOrWhiteSpace(directive?.ImagePrompt)
             ? directive!.ImagePrompt!
-            : SceneImageSubjects.GetValueOrDefault(setting, SceneImageSubjects[SceneSetting.Auto]);
+            : AutomationBackgroundPromptBuilder.SubjectFor(setting);
         var light = time switch
         {
             SceneTimeOfDay.Dawn => "golden sunrise light",

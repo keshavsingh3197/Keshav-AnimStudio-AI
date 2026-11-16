@@ -68,6 +68,101 @@
     </div>
   </div>
 
+  <section class="card loc-policy-card">
+    <div class="loc-header">
+      <div>
+        <h3>🌐 Studio UI Language &amp; Localization Policy</h3>
+        <p class="muted small">
+          Controlled by Central Admin (AdminDb) by default, or override locally for AnimStudio.
+        </p>
+        <p class="small loc-note">
+          Controls Studio UI labels only — per-job Video &amp; Song audio generation language is unchanged.
+        </p>
+      </div>
+      @if (locAdminState(); as st) {
+        <span class="pill" [class.brand]="st.effectivePolicy.overrideCentralLocalization">
+          Active: {{ st.effectivePolicy.controlledBy === 'site-override' ? 'Local Studio Override' : 'Central Admin' }}
+          · {{ st.effectivePolicy.defaultLocale.toUpperCase() }}
+        </span>
+      }
+    </div>
+
+    <div class="loc-checks">
+      <label class="loc-check">
+        <input type="checkbox"
+               [checked]="locForm().overrideCentralLocalization"
+               (change)="setLocBool('overrideCentralLocalization', $any($event.target).checked)" />
+        <span>Override Central Admin localization policy locally for AnimStudio</span>
+      </label>
+    </div>
+
+    <div class="loc-grid">
+      <div class="loc-field">
+        <label class="muted small" for="studio-default-locale">Default UI Language</label>
+        <select id="studio-default-locale"
+                [disabled]="!locForm().overrideCentralLocalization"
+                [value]="locForm().defaultLocale"
+                (change)="setLocDefaultLocale($any($event.target).value)">
+          <option value="en">English (en)</option>
+          <option value="hi">हिन्दी (hi)</option>
+        </select>
+      </div>
+
+      <div class="loc-field">
+        <span class="muted small">Enabled Studio UI Locales</span>
+        <div class="loc-checks" style="margin-top:0.2rem">
+          <label class="loc-check">
+            <input type="checkbox"
+                   [disabled]="!locForm().overrideCentralLocalization"
+                   [checked]="hasLocLocale('en')"
+                   (change)="toggleLocLocale('en')" />
+            <span>English (EN)</span>
+          </label>
+          <label class="loc-check">
+            <input type="checkbox"
+                   [disabled]="!locForm().overrideCentralLocalization"
+                   [checked]="hasLocLocale('hi')"
+                   (change)="toggleLocLocale('hi')" />
+            <span>हिन्दी (HI)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="loc-checks">
+      <label class="loc-check">
+        <input type="checkbox"
+               [disabled]="!locForm().overrideCentralLocalization"
+               [checked]="locForm().allowVisitorLanguageSwitch"
+               (change)="setLocBool('allowVisitorLanguageSwitch', $any($event.target).checked)" />
+        <span>Allow users to switch Studio UI language</span>
+      </label>
+      <label class="loc-check">
+        <input type="checkbox"
+               [disabled]="!locForm().overrideCentralLocalization"
+               [checked]="locForm().showLanguagePicker"
+               (change)="setLocBool('showLanguagePicker', $any($event.target).checked)" />
+        <span>Show EN / हिं switcher in header</span>
+      </label>
+      <label class="loc-check">
+        <input type="checkbox"
+               [disabled]="!locForm().overrideCentralLocalization"
+               [checked]="locForm().forceLocale"
+               (change)="setLocBool('forceLocale', $any($event.target).checked)" />
+        <span>Force default UI locale (hide switcher)</span>
+      </label>
+    </div>
+
+    <div class="loc-actions">
+      <button type="button" class="ad-btn primary" [disabled]="locSaving()" (click)="saveLocalization()">
+        {{ locSaving() ? 'Saving...' : 'Save UI Language Policy' }}
+      </button>
+      @if (locSavedMsg()) {
+        <span class="small muted">{{ locSavedMsg() }}</span>
+      }
+    </div>
+  </section>
+
   @if (dirtyKeys().length > 0) {
     <div class="ws-savebar" role="region" aria-label="Unsaved changes">
       <span class="ws-savebar-text">

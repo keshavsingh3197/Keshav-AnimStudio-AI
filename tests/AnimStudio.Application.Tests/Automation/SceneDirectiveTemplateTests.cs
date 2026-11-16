@@ -143,5 +143,47 @@ public sealed class SceneDirectiveTemplateTests
         Assert.Contains("[SCENE]:", prompt);
         Assert.Contains("IMAGE:", prompt);
         Assert.Contains("supporting characters", prompt);
+        Assert.Contains("9:16 tall vertical frame", prompt);
+    }
+
+    private const string RepeatedPlaceScript = """
+        [SCENE]: palace court | day | calm | IMAGE: royal court at peace, king on the throne
+        [Narrator]: The king held court on a bright, quiet morning in the old palace.
+        [King]: Bring the humble visitor in, I wish to hear him speak today.
+        [SCENE]: palace court | day | tense | IMAGE: same royal court, guards blocking the great carved doors
+        [Guard]: Majesty, the beggar at the gate claims he is your childhood friend.
+        [King]: Then open the doors at once and let my friend walk in.
+        [SCENE]: forest ashram | dawn | warm | IMAGE: hermitage clearing where two boys once studied
+        [Narrator]: Long ago, two boys had shared everything in a forest school.
+        """;
+
+    [Fact]
+    public void Every_directed_scene_gets_its_own_picture_even_when_place_and_light_repeat()
+    {
+        var plan = DialogueScriptParser.ParsePlan("Friends", RepeatedPlaceScript, null, 60, enableDialogue: true);
+
+        Assert.Equal(3, plan.SceneCueOrder.Count);
+        Assert.Equal([1, 2, 3], plan.SceneCueOrder.Select(c => SceneDirectives.SceneNumber(c)!.Value));
+        // The setting and light are still read from a numbered cue.
+        Assert.Equal((SceneSetting.PalaceCourt, SceneTimeOfDay.Day), SceneDirectives.FromCue(plan.SceneCueOrder[1]));
+        Assert.Null(SceneDirectives.SceneNumber(SceneDirectives.ToCue(SceneSetting.Temple, SceneTimeOfDay.Dawn)));
+    }
+
+    [Fact]
+    public void Scene_picture_plan_lists_one_prompt_per_scene_in_render_order_with_a_numbered_batch_prompt()
+    {
+        var post = new AnimStudio.Domain.Automation.AutomationPost { Title = "Friends", Language = "en" };
+        var plan = EcosystemAutomationService.BuildScenePicturePlan(post, RepeatedPlaceScript);
+
+        Assert.Equal("9:16", plan.AspectRatio);
+        Assert.Equal(3, plan.Scenes.Count);
+        Assert.StartsWith("same royal court, guards blocking", plan.Scenes[1].Prompt);
+        Assert.Contains("Create 3 separate images", plan.BatchPrompt);
+        Assert.Contains("2. same royal court", plan.BatchPrompt);
+        Assert.Contains("3. hermitage clearing", plan.BatchPrompt);
+
+        var none = EcosystemAutomationService.BuildScenePicturePlan(post, "[Narrator]: no scenes here at all, only words.");
+        Assert.Empty(none.Scenes);
+        Assert.Equal(string.Empty, none.BatchPrompt);
     }
 }

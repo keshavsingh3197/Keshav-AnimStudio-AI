@@ -264,6 +264,14 @@ public static class ProceduralAudioSynthesizer
             FilterCutoffHz: 1150,
             BreezeLevel: 0.10),
 
+        // Playful upbeat pizzicato/marimba comedy bounce (G major I-vi-IV-V feel)
+        ProceduralSceneTheme.ComedyStage3D => new(
+            [196.00, 164.81, 130.81, 146.83],
+            [1.0, 1.25, 1.5, 2.0],
+            ArpRateHz: 1.35,
+            FilterCutoffHz: 1350,
+            BreezeLevel: 0.08),
+
         // Peaceful serene acoustic breeze
         _ => new(
             [130.81, 110.00, 146.83, 196.00],

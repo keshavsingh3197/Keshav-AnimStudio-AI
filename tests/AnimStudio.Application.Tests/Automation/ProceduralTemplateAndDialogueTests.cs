@@ -456,7 +456,7 @@ public sealed class ProceduralTemplateAndDialogueTests
             var cache = new ProceduralBgmCacheService(Microsoft.Extensions.Options.Options.Create(new FfmpegOptions()), paths);
 
             var initial = cache.ListPresets();
-            Assert.Equal(5, initial.Count);
+            Assert.Equal(6, initial.Count);
             Assert.All(initial, p => Assert.False(p.IsCached));
 
             var (firstPath, firstSource) = await cache.EnsurePresetWavAsync(ProceduralSceneTheme.VedicTempleSunrise3D);

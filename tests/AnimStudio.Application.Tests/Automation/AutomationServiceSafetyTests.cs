@@ -640,9 +640,27 @@ public sealed class AutomationServiceSafetyTests
             {
                 _posts.RemoveAll(p => p.Id == post.Id);
                 _posts.Add(post);
+                _savedStatus[post.Id] = post.Status;
                 PostSaves.Add((post.Id, post.Status, post.AttachedStoryRunId));
             }
             return Task.CompletedTask;
+        }
+
+        /// <summary>Status as last saved: posts are held by reference, so the live object can be ahead of the store.</summary>
+        private readonly Dictionary<string, AutomationPostStatus> _savedStatus = new(StringComparer.Ordinal);
+
+        public Task<bool> TryReplacePostIfStatusAsync(AutomationPost post, AutomationPostStatus expectedStatus, CancellationToken ct)
+        {
+            lock (_gate)
+            {
+                if (!_savedStatus.TryGetValue(post.Id, out var saved) || saved != expectedStatus)
+                    return Task.FromResult(false);
+                _posts.RemoveAll(p => p.Id == post.Id);
+                _posts.Add(post);
+                _savedStatus[post.Id] = post.Status;
+                PostSaves.Add((post.Id, post.Status, post.AttachedStoryRunId));
+                return Task.FromResult(true);
+            }
         }
 
         public Task<bool> DeletePostAsync(string id, CancellationToken ct)

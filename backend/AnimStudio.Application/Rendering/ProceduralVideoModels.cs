@@ -10,7 +10,8 @@ public enum ProceduralSceneTheme
     CosmosSacred3D = 2,
     HistoryChronicle3D = 3,
     NeonCyberGrid3D = 4,
-    SereneNatureGlow = 5
+    SereneNatureGlow = 5,
+    ComedyStage3D = 6
 }
 
 public sealed record ProceduralThemePreset(
@@ -97,6 +98,12 @@ public sealed class ProceduralVideoRequest
     /// </summary>
     public bool FollowScriptExactly { get; init; }
 
+    /// <summary>Optional path to a custom audio file (e.g. from SongLibrary) to mux as background music.</summary>
+    public string? CustomBgmPath { get; init; }
+
+    /// <summary>When true, shapes punchline pacing and loop visual cue for short-form repeat loops (10s-30s).</summary>
+    public bool IsSeamlessLoop { get; init; }
+
     public bool SaveAsRenderJob { get; init; } = true;
     public bool ReturnInlineBytes { get; init; }
 
@@ -163,7 +170,9 @@ public static partial class ProceduralVideoPlanner
         new("neon-cyber", ProceduralSceneTheme.NeonCyberGrid3D, "Neon Cyber Grid 3D", "Pratiyogita Quizzes, Tech, AI & Social Analytics", "#06B6D4",
             "Endless 3D perspective synthwave horizon grid, rotating wireframe polyhedra, and animated cyan/magenta light waves."),
         new("serene-nature", ProceduralSceneTheme.SereneNatureGlow, "Serene Aurora Nature", "Quotes, Wisdom, Peace & Morning Motivation", "#10B981",
-            "Multi-layer parallax mountain silhouettes, glowing aurora sky ribbons, drifting fireflies, and calm meditation tones.")
+            "Multi-layer parallax mountain silhouettes, glowing aurora sky ribbons, drifting fireflies, and calm meditation tones."),
+        new("comedy-stage", ProceduralSceneTheme.ComedyStage3D, "Comedy Stage & Chai Tapri 3D", "Funny Shorts, Memes, Skit Loops & Punchlines (@KESHAV-ANIM-FF)", "#F97316",
+            "Warm comic spotlights, expressive dual-character banter on a chai stall or comedy stage, punchline reactions, and upbeat bounce.")
     ];
 
     public static ProceduralThemePreset DescribeTheme(ProceduralSceneTheme theme) =>
@@ -220,6 +229,7 @@ public static partial class ProceduralVideoPlanner
                 "HinduPanchang" => ProceduralSceneTheme.CosmosSacred3D,
                 "AajKaItihaas" => ProceduralSceneTheme.HistoryChronicle3D,
                 "Pratiyogita" => ProceduralSceneTheme.NeonCyberGrid3D,
+                "FunnyComedy" => ProceduralSceneTheme.ComedyStage3D,
                 _ => ProceduralSceneTheme.Auto
             };
             if (byEvent != ProceduralSceneTheme.Auto)
@@ -228,6 +238,10 @@ public static partial class ProceduralVideoPlanner
 
         // Prioritize title + prompt over script tail because CTA lines in Katha/History scripts often mention Panchang links.
         var leadText = $"{title} {prompt}".ToLowerInvariant();
+        if (ContainsAny(leadText,
+            "comedy", "funny", "कॉमेडी", "हंसी", "मज़ाक", "चुटकुला", "chutkula", "punchline",
+            "skit", "parody", "roast", "meme", "tapri", "टपरी", "pappu", "पप्पू", "bablu", "बबलू"))
+            return ProceduralSceneTheme.ComedyStage3D;
         if (ContainsAny(leadText,
             "katha", "कथा", "dhruva", "ध्रुव", "narad", "नारद", "harishchandra", "हरिश्चंद्र", "prahlad", "प्रह्लाद",
             "sudama", "सुदामा", "tapasya", "तपस्या", "aarti", "आरती", "festival", "vrat", "व्रत", "puja", "पूजा", "bhakti", "भक्ति"))

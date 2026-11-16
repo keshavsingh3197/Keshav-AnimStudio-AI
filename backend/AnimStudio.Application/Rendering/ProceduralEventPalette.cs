@@ -121,6 +121,22 @@ public sealed record ProceduralEventPalette(
         PrimaryRgb: new RgbColor(16, 185, 129),
         SecondaryRgb: new RgbColor(56, 189, 248));
 
+    public static readonly ProceduralEventPalette Comedy = new(
+        EventKey: "FunnyComedy",
+        DisplayLabel: "Comedy Stage • Tangerine & Punchline Gold",
+        HeaderBadgeText: "KESHAV-ANIM-FF • COMEDY SHORT",
+        RecommendedTheme: ProceduralSceneTheme.ComedyStage3D,
+        PrimaryHex: "#F97316",
+        SecondaryHex: "#FACC15",
+        SpeakerAHex: "#FDE047",
+        SpeakerBHex: "#7DD3FC",
+        TitleHex: "#FEF9C3",
+        TopBackdropRgb: new RgbColor(42, 16, 28),
+        MidBackdropRgb: new RgbColor(112, 42, 26),
+        BotBackdropRgb: new RgbColor(24, 12, 20),
+        PrimaryRgb: new RgbColor(249, 115, 22),
+        SecondaryRgb: new RgbColor(250, 204, 21));
+
     private static readonly IReadOnlyDictionary<string, ProceduralEventPalette> ByKey =
         new Dictionary<string, ProceduralEventPalette>(StringComparer.OrdinalIgnoreCase)
         {
@@ -133,12 +149,14 @@ public sealed record ProceduralEventPalette(
             ["AajKaItihaas"] = History,
             ["History"] = History,
             ["Pratiyogita"] = Pratiyogita,
+            ["FunnyComedy"] = Comedy,
+            ["Comedy"] = Comedy,
             ["EcosystemSpotlight"] = Spotlight,
             ["CustomPrompt"] = Spotlight
         };
 
     public static IReadOnlyList<ProceduralEventPalette> All { get; } =
-        [Panchang, Festival, Katha, History, Pratiyogita, Spotlight];
+        [Panchang, Festival, Katha, History, Pratiyogita, Comedy, Spotlight];
 
     public static ProceduralEventPalette Resolve(string? eventType, ProceduralSceneTheme themeFallback)
     {
@@ -150,6 +168,7 @@ public sealed record ProceduralEventPalette(
             ProceduralSceneTheme.CosmosSacred3D => Panchang,
             ProceduralSceneTheme.HistoryChronicle3D => History,
             ProceduralSceneTheme.NeonCyberGrid3D => Pratiyogita,
+            ProceduralSceneTheme.ComedyStage3D => Comedy,
             ProceduralSceneTheme.SereneNatureGlow => Spotlight,
             _ => Panchang
         };

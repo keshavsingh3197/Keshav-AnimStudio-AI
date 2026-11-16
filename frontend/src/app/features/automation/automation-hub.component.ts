@@ -14,6 +14,9 @@ import {
   AutomationRule,
   AutomationService,
   AutomationSourceType,
+  AutomationBackdropMotion,
+  AutomationBackgroundPrompt,
+  AutomationScenePicturePlan,
   AutomationStageSettings,
   AutomationStorageCatalog,
   AutomationVideoCandidate,
@@ -26,6 +29,7 @@ import {
 } from '../../core/services/automation.service';
 import { StatusService } from '../../core/services/status.service';
 import { ApiService } from '../../core/services/api.service';
+import { Song, SongsService } from '../../core/services/songs.service';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 type HubTab = 'queue' | 'rules' | 'settings';
@@ -39,6 +43,7 @@ const SOURCE_LABELS: Record<AutomationSourceType, { label: string; icon: string;
   Pratiyogita: { label: 'Pratiyogita Spotlight', icon: '🏆', badge: 'Contests & GK', color: '#06B6D4', banner: 'PRATIYOGITA • EXAM & QUIZ PULSE' },
   EcosystemSpotlight: { label: 'Ecosystem Promo', icon: '🚀', badge: 'Website Traffic', color: '#10B981', banner: 'CONTENT OF THE DAY • SPOTLIGHT' },
   CustomPrompt: { label: 'Custom AI Prompt', icon: '✨', badge: 'Custom Pipeline', color: '#10B981', banner: 'CONTENT OF THE DAY • SPOTLIGHT' },
+  FunnyComedy: { label: 'Comedy Shorts', icon: '😂', badge: 'Comedy / Memes', color: '#F97316', banner: 'KESHAV-ANIM-FF • COMEDY SHORT' },
 };
 
 const FORMAT_OPTIONS: { value: AutomationVideoFormat; label: string; shortLabel: string }[] = [
@@ -113,6 +118,7 @@ const DEFAULT_STAGE: AutomationStageSettings = {
   includeBackgroundMusic: false,
   followScriptExactly: true,
   reviewSteps: false,
+  attachedSongId: null,
 };
 const MAX_TEMPLATE_BYTES = 25 * 1024 * 1024;
 const TEMPLATE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -338,6 +344,25 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             </div>
           </div>
 
+          @if (hasRenderedComedyPosts(filteredPosts())) {
+            <div class="warn-strip" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:rgba(249,115,22,0.12);border-color:rgba(249,115,22,0.4);">
+              <div>
+                <strong>😂 Comedy Compilation Stitcher (&lt; 3 min)</strong>
+                <span class="muted-note" style="margin-left:8px;">
+                  {{ selectedComedyIds().length >= 2 ? selectedComedyIds().length + ' selected' : 'Auto-picks up to 6 rendered comedy shorts' }} (capped at 180s).
+                </span>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="text" placeholder="Optional compilation title..." [ngModel]="compilationTitle()" (ngModelChange)="compilationTitle.set($event)"
+                       style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--sunk-2);color:var(--text);font-size:12px;min-width:200px;" />
+                <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="compileSelectedComedy(filteredPosts())">
+                  @if (busyAction() === 'compile-comedy') { <span class="btn-spin" aria-hidden="true"></span> Compiling… }
+                  @else { 🎞️ Compile &lt;3 min Best-Of }
+                </button>
+              </div>
+            </div>
+          }
+
           @if (filteredPosts().length === 0) {
             <div class="empty-state">
               <h3>No prepared posts match this filter yet</h3>
@@ -367,6 +392,12 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     </span>
                     <span class="pill" [ngClass]="'tone-' + statusInfo(post.status).tone">{{ statusInfo(post.status).label }}</span>
                     <span class="pill subtle">{{ post.format }} • {{ post.language.toUpperCase() }}</span>
+                    @if (post.sourceType === 'FunnyComedy' && post.attachedRenderJobId) {
+                      <label class="pill subtle" style="cursor:pointer;" (click)="$event.stopPropagation()">
+                        <input type="checkbox" [checked]="isComedySelected(post.id)" (change)="toggleComedySelect(post.id)" style="margin-right:4px;" />
+                        Best-Of
+                      </label>
+                    }
                     @if (post.syncedToEcosystemAtUtc && post.publishedVideoId) {
                       <span class="pill ok" title="Listed on panchang.keshavsingh.in/videos">🕉️ On Panchang</span>
                     }
@@ -1005,16 +1036,50 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     <button type="button" class="choice-card" [class.selected]="wz.backdrop === 'default'" (click)="setWizardBackdrop('default')">
                       <span class="choice-icon" aria-hidden="true">🌌</span>
                       <strong>Animated 3D stage</strong>
-                      <small>The current look: moving 3D scenery picked from the script, or realistic scenes painted by the image engine.</small>
+                      <small>Moving 3D scenery picked from the script. With an image engine set up, each scene gets its own realistic AI picture with a slow zoom and a soft transition between scenes.
+                        With "Template → my AI tool", you can also upload your own picture for every scene after pasting the answer.</small>
                     </button>
                     <button type="button" class="choice-card" [class.selected]="wz.backdrop === 'picture'" (click)="setWizardBackdrop('picture')">
                       <span class="choice-icon" aria-hidden="true">🖼</span>
                       <strong>My background picture</strong>
-                      <small>Upload or pick a picture. It stays still behind the video; characters, voices, captions and light effects play on top.</small>
+                      <small>Generate one with AI from a ready prompt, or upload or pick your own. Characters, voices, captions and light effects play on top; the picture can stay still or move slowly.</small>
                     </button>
                   </div>
 
                   @if (wz.backdrop === 'picture') {
+                    <div class="bg-make">
+                      <div class="snip-label">
+                        <span>✨ Picture prompt for this post</span>
+                        <span class="bg-make-actions">
+                          <button type="button" class="copy-btn" [disabled]="!bgPromptText().trim()"
+                                  (click)="copyText(bgPromptText(), 'Picture prompt copied! Paste it into Gemini or ChatGPT.')">Copy prompt</button>
+                          <button type="button" class="link-btn" [disabled]="bgPromptLoading()" (click)="loadBackgroundPrompt(true)">↻ Rebuild</button>
+                        </span>
+                      </div>
+                      @if (bgPromptLoading() && !bgPromptText()) {
+                        <div class="template-wait" role="status"><span class="btn-spin" aria-hidden="true"></span><span>Writing the picture prompt…</span></div>
+                      } @else {
+                        <textarea class="tpl-text" rows="5" maxlength="2000" [ngModel]="bgPromptText()" (ngModelChange)="setBackgroundPromptText($event)"
+                                  aria-label="Background picture prompt"></textarea>
+                      }
+                      @if (bgPrompt(); as bp) {
+                        <small class="muted-note">
+                          Built from {{ promptBasisLabel(bp.basis) }} for a {{ bp.width }}×{{ bp.height }} ({{ bp.aspectRatio }}) frame, with open ground where your characters stand.
+                          Edit it freely. Rebuild after changing the location or the character spots.
+                          <button type="button" class="link-btn" (click)="copyText(bp.negativePrompt, 'Negative prompt copied!')">Copy negative prompt</button>
+                        </small>
+                      }
+                      <div class="bg-pick-row">
+                        <button type="button" class="btn primary" [disabled]="busy() || !bgPromptText().trim()" (click)="generateBackgroundPicture()">
+                          @if (busyAction() === 'bg-generate') { <span class="btn-spin" aria-hidden="true"></span> Making your picture… }
+                          @else { ✨ {{ wz.stage.backgroundTemplateAssetId ? 'Generate another' : 'Generate with AI' }} }
+                        </button>
+                        <a class="funnel-chip" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">↗ Gemini</a>
+                        <a class="funnel-chip" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">↗ ChatGPT</a>
+                        <small class="muted-note">Generate uses your image engine (or Gemini). Or copy the prompt, make the picture in any tool, then upload it below.</small>
+                      </div>
+                    </div>
+
                     <div class="bg-pick-row">
                       <label class="btn ghost file-btn" [class.disabled]="busy()">
                         @if (busyAction() === 'bg-upload') { <span class="btn-spin" aria-hidden="true"></span> Uploading… }
@@ -1077,6 +1142,17 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                         }
                       </div>
                       <small class="muted-note">Tip: keep faces out of the shaded bottom area; captions and the YouTube buttons sit there. Arrow keys move a selected character.</small>
+
+                      <div class="field">
+                        <span>Picture motion</span>
+                        <div class="filter-pills" role="radiogroup" aria-label="Picture motion">
+                          @for (m of backdropMotions; track m.value) {
+                            <button type="button" role="radio" [attr.aria-checked]="(wz.stage.backgroundMotion ?? 'Still') === m.value"
+                                    [class.active]="(wz.stage.backgroundMotion ?? 'Still') === m.value" (click)="setStageMotion(m.value)">{{ m.label }}</button>
+                          }
+                        </div>
+                        <small class="muted-note">{{ backdropMotionHint(wz.stage.backgroundMotion) }} Light rays, glowing particles and scene-change dips play on top either way.</small>
+                      </div>
                     }
                   }
 
@@ -1104,6 +1180,21 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       <small>No music in the file, so you can add any track or sound in YouTube or another editor later.</small>
                     </button>
                   </div>
+                  @if (wz.engine === 'Procedural3D') {
+                    <label class="field" style="margin-top:12px;">
+                      <span>Song-to-3D Audio Bridge (optional track from Songs Library)</span>
+                      <select [ngModel]="wz.stage.attachedSongId ?? ''" (ngModelChange)="setStageSong($event)">
+                        <option value="">-- Use automatic theme instrumental music --</option>
+                        @for (s of librarySongs(); track s.id) {
+                          <option [value]="s.id">🎵 {{ s.title }} ({{ s.language.toUpperCase() }} • {{ s.style }})</option>
+                        }
+                      </select>
+                      <small class="muted-note">
+                        @if (librarySongs().length === 0) { No saved songs in Studio Songs yet — compose one on the Songs tab or use automatic theme BGM above. }
+                        @else { Selected song is normalized to -22 LUFS and automatically ducked behind dialogue! }
+                      </small>
+                    </label>
+                  }
                   @if (wz.engine !== 'Procedural3D') {
                     <p class="muted-note">With music, a score is composed for the story (Google Lyria when set up). Voice only skips that step and saves a Lyria request.</p>
                     <label class="check-row">
@@ -1154,7 +1245,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                           <span>Step B: paste the AI's full answer here</span>
                           <span>{{ templateReply().length | number }} chars</span>
                         </div>
-                        <textarea class="tpl-text" rows="10" [ngModel]="templateReply()" (ngModelChange)="templateReply.set($event)"
+                        <textarea class="tpl-text" rows="10" [ngModel]="templateReply()" (ngModelChange)="onTemplateReplyChange($event)"
                                   [placeholder]="wz.engine === 'Procedural3D' ? dialoguePlaceholder : storyPlaceholder"
                                   aria-label="Pasted AI reply"></textarea>
                         <small class="muted-note">
@@ -1163,6 +1254,84 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                           @else { After it is accepted, voices, pictures, music and the render start on their own. }
                         </small>
                       </div>
+
+                      @if (showScenePictures() && templateReply().trim().length >= 20) {
+                        <div class="tpl-step scene-pics">
+                          <div class="snip-label">
+                            <span>Step C (optional): a real picture for every scene</span>
+                            @if (scenePlanLoading()) { <span class="btn-spin" aria-hidden="true"></span> }
+                          </div>
+                          @if (scenePlan(); as plan) {
+                            @if (plan.scenes.length === 0) {
+                              <small class="muted-note">This answer has no [SCENE] lines, so the animated 3D stage is used. Ask your AI tool to follow the template's format to get one picture per scene.</small>
+                            } @else {
+                              <small class="muted-note">
+                                Your script has {{ plan.scenes.length }} scenes. Copy all picture prompts into Gemini, ChatGPT or any image tool to make the whole set at once
+                                ({{ plan.aspectRatio }}, {{ plan.width }}×{{ plan.height }}), then upload them together in order.
+                                Picture 1 is shown during scene 1, picture 2 during scene 2, and so on, with a slow camera move and a cut between scenes.
+                                Leave every slot empty to keep the animated 3D stage.
+                              </small>
+                              <div class="bg-pick-row">
+                                <button type="button" class="copy-btn" (click)="copyText(plan.batchPrompt, 'All ' + plan.scenes.length + ' picture prompts copied! Paste them into your image tool.')">
+                                  Copy all {{ plan.scenes.length }} picture prompts
+                                </button>
+                                <button type="button" class="link-btn" (click)="copyText(plan.negativePrompt, 'Negative prompt copied!')">Copy negative prompt</button>
+                                <a class="funnel-chip" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">↗ Gemini</a>
+                                <a class="funnel-chip" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">↗ ChatGPT</a>
+                              </div>
+                              <div class="bg-pick-row">
+                                <label class="btn ghost file-btn" [class.disabled]="sceneBusy() !== null || busy()">
+                                  @if (sceneBusy() === -1) { <span class="btn-spin" aria-hidden="true"></span> Uploading… }
+                                  @else { ⬆ Upload pictures in order }
+                                  <input type="file" multiple accept="image/png,image/jpeg,image/webp" (change)="uploadScenePictures($event)"
+                                         [disabled]="sceneBusy() !== null || busy()" hidden />
+                                </label>
+                                <button type="button" class="btn ghost" [disabled]="sceneBusy() !== null || busy() || scenePicsFilled() === plan.scenes.length"
+                                        (click)="generateMissingScenePictures()">✨ Make missing ones with AI</button>
+                                @if (scenePicsFilled() > 0) {
+                                  <button type="button" class="link-btn" [disabled]="sceneBusy() !== null" (click)="clearAllScenePics()">Clear all</button>
+                                }
+                                <small class="muted-note">{{ scenePicsFilled() }} of {{ plan.scenes.length }} scenes have a picture. Files are sorted by name (1, 2 … 10), so number them before uploading.</small>
+                              </div>
+                              <ol class="scene-pic-list">
+                                @for (scene of plan.scenes; track scene.number; let i = $index) {
+                                  @let picId = scenePics()[i];
+                                  <li class="scene-pic">
+                                    <div class="scene-pic-thumb" [class.wide]="wp.format === 'Wide'">
+                                      @if (sceneBusy() === i) {
+                                        <span class="btn-spin" aria-hidden="true"></span>
+                                      } @else if (picId) {
+                                        <img [src]="storageAssetThumbnailUrl(picId)" [alt]="'Picture for scene ' + scene.number" loading="lazy" />
+                                      } @else {
+                                        <span class="scene-pic-empty">{{ scene.number }}</span>
+                                      }
+                                    </div>
+                                    <div class="scene-pic-body">
+                                      <strong>Scene {{ scene.number }} · {{ sceneLabel(scene.setting, scene.timeOfDay) }}@if (scene.mood) { · {{ scene.mood }} }</strong>
+                                      <small class="scene-pic-prompt">{{ scene.prompt }}</small>
+                                      <div class="scene-pic-actions">
+                                        <button type="button" class="link-btn" (click)="copyText(scene.prompt, 'Scene ' + scene.number + ' prompt copied!')">Copy prompt</button>
+                                        <label class="link-btn" [class.disabled]="sceneBusy() !== null">
+                                          {{ picId ? 'Replace' : 'Upload' }}
+                                          <input type="file" accept="image/png,image/jpeg,image/webp" (change)="uploadScenePicture(i, $event)" [disabled]="sceneBusy() !== null" hidden />
+                                        </label>
+                                        <button type="button" class="link-btn" [disabled]="sceneBusy() !== null" (click)="generateScenePicture(i)">✨ {{ picId ? 'Make another' : 'Make with AI' }}</button>
+                                        @if (picId) {
+                                          <button type="button" class="link-btn" [disabled]="i === 0" (click)="moveScenePic(i, -1)" [attr.aria-label]="'Move picture to scene ' + i">↑</button>
+                                          <button type="button" class="link-btn" [disabled]="i === plan.scenes.length - 1" (click)="moveScenePic(i, 1)" [attr.aria-label]="'Move picture to scene ' + (i + 2)">↓</button>
+                                          <button type="button" class="link-btn" (click)="clearScenePic(i)">Remove</button>
+                                        }
+                                      </div>
+                                    </div>
+                                  </li>
+                                }
+                              </ol>
+                            }
+                          } @else if (!scenePlanLoading()) {
+                            <button type="button" class="link-btn" (click)="loadScenePlan()">Find the scenes in this answer</button>
+                          }
+                        </div>
+                      }
                     }
                   }
                 }
@@ -1943,12 +2112,27 @@ const FULL_VIDEO_MAX_SECONDS = 600;
     .wiz-steps li.active { border-color: var(--brand); color: var(--brand-bright); background: var(--brand-subtle); }
     .wiz-steps li.done { color: var(--ok); border-color: var(--ok); }
     .bg-pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+    .bg-make { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding: 11px 13px; border-radius: var(--radius-sm);
+      background: var(--sunk-1); border: 1px solid var(--border-bright); }
+    .bg-make .bg-pick-row { margin: 4px 0 0; }
+    .bg-make-actions { display: inline-flex; gap: 12px; align-items: center; }
     .file-btn { cursor: pointer; }
     .file-btn.disabled { opacity: 0.6; pointer-events: none; }
     .bg-library { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; max-height: 190px; overflow-y: auto; margin-bottom: 12px; }
     .bg-thumb { padding: 0; border: 2px solid var(--border); border-radius: 8px; overflow: hidden; background: none; cursor: pointer; aspect-ratio: 1; }
     .bg-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .bg-thumb.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-subtle); }
+    .scene-pic-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; max-height: 420px; overflow-y: auto; }
+    .scene-pic { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
+    .scene-pic-thumb { flex: 0 0 56px; aspect-ratio: 9 / 16; border-radius: 6px; overflow: hidden; border: 1px dashed var(--border);
+      display: flex; align-items: center; justify-content: center; background: var(--surface-2, transparent); }
+    .scene-pic-thumb.wide { flex-basis: 96px; aspect-ratio: 16 / 9; }
+    .scene-pic-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .scene-pic-empty { font-weight: 700; color: var(--muted); }
+    .scene-pic-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .scene-pic-prompt { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+    .scene-pic-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+    .scene-pic-actions label.disabled { opacity: 0.5; pointer-events: none; }
     .stage-editor { position: relative; width: min(100%, 300px); aspect-ratio: 9 / 16; margin: 8px auto 12px; border-radius: 10px; overflow: hidden;
       border: 1px solid var(--border); background: #111; touch-action: none; user-select: none; }
     .stage-editor.wide { width: 100%; max-width: 560px; aspect-ratio: 16 / 9; }
@@ -2002,6 +2186,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
 export class AutomationHubComponent implements OnInit {
   private readonly api = inject(AutomationService);
   private readonly studioApi = inject(ApiService);
+  private readonly songsApi = inject(SongsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly status = inject(StatusService);
@@ -2046,6 +2231,10 @@ export class AutomationHubComponent implements OnInit {
 
   readonly storageCatalog = signal<AutomationStorageCatalog | null>(null);
   readonly loadingStorageCatalog = signal(false);
+  readonly librarySongs = signal<Song[]>([]);
+  readonly selectedComedyIds = signal<string[]>([]);
+  readonly compilationTitle = signal('');
+  readonly comedyCompilationTargetSeconds = 180;
   readonly storagePickerTarget = signal<
     | { kind: 'post'; post: AutomationPost }
     | { kind: 'rule'; rule: AutomationRule }
@@ -2062,6 +2251,15 @@ export class AutomationHubComponent implements OnInit {
   readonly templateState = signal<{ ready: boolean; prompt?: string | null; message?: string | null } | null>(null);
   readonly templateReply = signal('');
   private templatePollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Scene pictures for an Enhanced 3D template script: the server's plan (picture n = scene n) and the chosen ids. */
+  readonly scenePlan = signal<AutomationScenePicturePlan | null>(null);
+  readonly scenePlanLoading = signal(false);
+  readonly scenePics = signal<(string | null)[]>([]);
+  /** Slot being uploaded or generated (-1 for a batch upload), null when idle. */
+  readonly sceneBusy = signal<number | null>(null);
+  private scenePlanTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly scenePicsFilled = computed(() => this.scenePics().filter((id) => !!id).length);
 
   /** When the in-flight Enhanced 3D render request started (null when none), plus a 1s clock for the elapsed label. */
   readonly renderStartedAt = signal<number | null>(null);
@@ -2106,6 +2304,7 @@ export class AutomationHubComponent implements OnInit {
     'Pratiyogita',
     'EcosystemSpotlight',
     'CustomPrompt',
+    'FunnyComedy',
   ];
   readonly modes: AutomationPostMode[] = ['PreviewOnly', 'AutoVideoAndPreview', 'FullAutopilot'];
   readonly strategies: AutomationVideoStrategy[] = [
@@ -2142,6 +2341,9 @@ export class AutomationHubComponent implements OnInit {
   /** Lengths a Short can be (YouTube caps Shorts at 3 minutes). */
   private readonly shortDurationOptions: ReadonlyArray<{ value: number; label: string }> = [
     { value: 0, label: 'Auto Fit (Short <= 60s / Story <= 165s)' },
+    { value: 10, label: 'Ultra-Short Comedy Loop (~10s)' },
+    { value: 15, label: 'Punchy Comedy Short (~15s)' },
+    { value: 30, label: 'Comedy Skit / Fast Short (~30s)' },
     { value: 55, label: 'Short Reel (~55s)' },
     { value: 90, label: 'Medium Story (~90s)' },
     { value: 145, label: 'Full Story (~2.5 min)' },
@@ -2305,7 +2507,11 @@ export class AutomationHubComponent implements OnInit {
   openGenerateWizard(post: AutomationPost): void {
     const current = post.visualEngine && post.visualEngine !== 'Auto' ? post.visualEngine : 'AiRealisticStory';
     this.resetTemplate();
+    this.resetBackgroundPrompt();
     this.showTemplateLibrary.set(false);
+    if (this.librarySongs().length === 0) {
+      void firstValueFrom(this.songsApi.list()).then((res) => this.librarySongs.set(res.songs ?? [])).catch(() => {});
+    }
     const stage: AutomationStageSettings = { ...DEFAULT_STAGE, ...(post.stage ?? {}) };
     this.wizard.set({
       postId: post.id, engine: current, source: 'ai', step: 'engine', stage,
@@ -2317,6 +2523,7 @@ export class AutomationHubComponent implements OnInit {
   resumeTemplate(post: AutomationPost): void {
     const engine = post.visualEngine === 'StorageImagesStory' ? 'StorageImagesStory' : 'AiRealisticStory';
     this.resetTemplate();
+    this.resetBackgroundPrompt();
     const stage: AutomationStageSettings = { ...DEFAULT_STAGE, ...(post.stage ?? {}) };
     this.wizard.set({
       postId: post.id, engine, source: 'template', step: 'template', stage,
@@ -2359,6 +2566,7 @@ export class AutomationHubComponent implements OnInit {
     const next = steps[this.wizardStepIndex() + 1];
     if (!next || next.key === 'template') return;
     this.wizard.update((w) => (w ? { ...w, step: next.key } : w));
+    if (next.key === 'background' && !this.bgPromptText()) void this.loadBackgroundPrompt();
   }
 
   wizardBack(): void {
@@ -2384,18 +2592,159 @@ export class AutomationHubComponent implements OnInit {
       backdrop,
       // The animated stage has no picture to place characters on, so its spots go back to the defaults.
       stage: backdrop === 'default'
-        ? { ...w.stage, backgroundTemplateAssetId: null, leftCharacter: null, rightCharacter: null }
+        ? { ...w.stage, backgroundTemplateAssetId: null, leftCharacter: null, rightCharacter: null, backgroundMotion: 'Still' }
         : w.stage,
     } : w));
+    if (backdrop === 'picture' && !this.bgPromptText()) void this.loadBackgroundPrompt();
   }
 
   setStageLocation(value: string): void {
     const v = (value ?? '').slice(0, 200);
     this.updateStage({ locationPrompt: v.trim() ? v : null });
+    this.scheduleBackgroundPrompt();
+  }
+
+  // ---------------------------------------------------------------- background picture: prompt, AI generation, motion
+
+  readonly bgPrompt = signal<AutomationBackgroundPrompt | null>(null);
+  readonly bgPromptText = signal('');
+  readonly bgPromptLoading = signal(false);
+  /** True once the user typed in the prompt box: automatic rebuilds then leave their text alone. */
+  private bgPromptEdited = false;
+  private bgPromptTimer: ReturnType<typeof setTimeout> | null = null;
+
+  readonly backdropMotions: ReadonlyArray<{ value: AutomationBackdropMotion; label: string }> = [
+    { value: 'Still', label: 'Still' },
+    { value: 'GentleZoom', label: 'Gentle zoom' },
+    { value: 'SlowPan', label: 'Slow pan' },
+  ];
+
+  backdropMotionHint(motion: AutomationBackdropMotion | undefined): string {
+    switch (motion) {
+      case 'GentleZoom': return 'The camera breathes in and out a little (about 7%), so characters stay close to their spots.';
+      case 'SlowPan': return 'The picture glides slowly sideways behind the characters, back and forth.';
+      default: return 'The picture stays still, so characters stand exactly where you placed them.';
+    }
+  }
+
+  setStageMotion(motion: AutomationBackdropMotion): void {
+    this.updateStage({ backgroundMotion: motion });
+  }
+
+  promptBasisLabel(basis: string): string {
+    switch (basis) {
+      case 'location': return 'your location';
+      case 'script': return "the script's first scene";
+      case 'topic': return 'the post topic';
+      default: return 'the event type';
+    }
+  }
+
+  setBackgroundPromptText(value: string): void {
+    this.bgPromptText.set((value ?? '').slice(0, 2000));
+    this.bgPromptEdited = true;
+  }
+
+  /** Builds the picture prompt from the wizard's current choices. `force` (Rebuild) replaces text the user edited. */
+  async loadBackgroundPrompt(force = false): Promise<void> {
+    const wz = this.wizard();
+    if (!wz || wz.backdrop !== 'picture' || (this.bgPromptEdited && !force)) return;
+    this.bgPromptLoading.set(true);
+    try {
+      const built = await firstValueFrom(this.api.backgroundPicturePrompt(wz.postId, wz.stage));
+      const still = this.wizard();
+      if (!still || still.postId !== wz.postId || (this.bgPromptEdited && !force)) return;
+      this.bgPrompt.set(built);
+      this.bgPromptText.set(built.prompt);
+      this.bgPromptEdited = false;
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Could not build the picture prompt.'));
+    } finally {
+      this.bgPromptLoading.set(false);
+    }
+  }
+
+  private scheduleBackgroundPrompt(): void {
+    if (this.bgPromptTimer) clearTimeout(this.bgPromptTimer);
+    this.bgPromptTimer = setTimeout(() => {
+      this.bgPromptTimer = null;
+      void this.loadBackgroundPrompt();
+    }, 700);
+  }
+
+  private resetBackgroundPrompt(): void {
+    if (this.bgPromptTimer) clearTimeout(this.bgPromptTimer);
+    this.bgPromptTimer = null;
+    this.bgPrompt.set(null);
+    this.bgPromptText.set('');
+    this.bgPromptEdited = false;
+  }
+
+  /** Makes the background picture with the server's image engine and selects it, ready for placing characters. */
+  async generateBackgroundPicture(): Promise<void> {
+    const wz = this.wizard();
+    const text = this.bgPromptText().trim();
+    if (!wz || !text) return;
+    await this.runAction('bg-generate', async () => {
+      // An untouched prompt is rebuilt on the server from the same choices; only an edited one is sent.
+      const made = await firstValueFrom(this.api.generateBackgroundPicture(wz.postId, wz.stage, this.bgPromptEdited ? text : null));
+      if (this.wizard()?.postId !== wz.postId) return;
+      this.updateStage({ backgroundTemplateAssetId: made.assetId });
+      this.storageCatalog.set(null); // the new picture shows next time the library opens
+      this.status.showNotice('Background picture made. Place your characters on it, or generate another.');
+    });
   }
 
   setStageMusic(on: boolean): void {
     this.updateStage({ includeBackgroundMusic: on });
+  }
+
+  setStageSong(songId: string | null): void {
+    const clean = songId && songId.trim() ? songId.trim() : null;
+    this.updateStage({
+      attachedSongId: clean,
+      includeBackgroundMusic: clean ? true : (this.wizard()?.stage.includeBackgroundMusic ?? false),
+    });
+  }
+
+  hasRenderedComedyPosts(posts: AutomationPost[]): boolean {
+    return posts.filter((p) => p.sourceType === 'FunnyComedy' && !!p.attachedRenderJobId).length >= 2;
+  }
+
+  isComedySelected(postId: string): boolean {
+    return this.selectedComedyIds().includes(postId);
+  }
+
+  toggleComedySelect(postId: string): void {
+    const cur = this.selectedComedyIds();
+    this.selectedComedyIds.set(cur.includes(postId) ? cur.filter((id) => id !== postId) : [...cur, postId]);
+  }
+
+  async compileSelectedComedy(posts: AutomationPost[]): Promise<void> {
+    let ids = this.selectedComedyIds();
+    if (ids.length < 2) {
+      ids = posts
+        .filter((p) => p.sourceType === 'FunnyComedy' && !!p.attachedRenderJobId)
+        .slice(0, 6)
+        .map((p) => p.id);
+    }
+    if (ids.length < 2) {
+      this.status.showError('Select (or render) at least 2 FunnyComedy shorts to compile.');
+      return;
+    }
+    await this.runAction('compile-comedy', async () => {
+      const res = await firstValueFrom(
+        this.api.compileComedy({
+          postIds: ids,
+          title: this.compilationTitle().trim() || null,
+          maxSeconds: this.comedyCompilationTargetSeconds,
+        })
+      );
+      this.selectedComedyIds.set([]);
+      this.compilationTitle.set('');
+      this.status.showNotice(`Compiled ${res.clipCount} comedy clips (${res.durationSeconds}s) into a ready-to-publish post!`);
+      await this.loadOverview(true);
+    });
   }
 
   setStageFollowScript(on: boolean): void {
@@ -2476,6 +2825,7 @@ export class AutomationHubComponent implements OnInit {
 
   resetPlacements(): void {
     this.updateStage({ leftCharacter: null, rightCharacter: null });
+    this.scheduleBackgroundPrompt();
   }
 
   startStageDrag(side: StageSide, event: PointerEvent): void {
@@ -2498,6 +2848,8 @@ export class AutomationHubComponent implements OnInit {
   }
 
   endStageDrag(): void {
+    // The prompt names the open ground where the characters stand, so it follows a finished drag.
+    if (this.stageDrag) this.scheduleBackgroundPrompt();
     this.stageDrag = null;
   }
 
@@ -2531,11 +2883,15 @@ export class AutomationHubComponent implements OnInit {
       this.status.showError('Upload or pick a background picture, or go Back and choose the animated 3D stage.');
       return false;
     }
+    // An AI-written script has new scenes, so pictures chosen for an earlier pasted script would land on the wrong ones.
+    const stage: AutomationStageSettings = wz.source === 'ai' && wz.step !== 'template'
+      ? { ...wz.stage, sceneBackgroundAssetIds: [] }
+      : wz.stage;
     let ok = false;
     await this.runAction('stage-save', async () => {
-      const saved = await firstValueFrom(this.api.saveStage(wz.postId, wz.stage));
+      const saved = await firstValueFrom(this.api.saveStage(wz.postId, stage));
       const post = this.wizardPost();
-      if (post) post.stage = saved.stage ?? wz.stage;
+      if (post) post.stage = saved.stage ?? stage;
       ok = true;
     });
     return ok;
@@ -2545,6 +2901,7 @@ export class AutomationHubComponent implements OnInit {
     this.stopTemplatePoll();
     this.wizard.set(null);
     this.resetTemplate();
+    this.resetBackgroundPrompt();
   }
 
   async startWizard(): Promise<void> {
@@ -2609,6 +2966,183 @@ export class AutomationHubComponent implements OnInit {
   private resetTemplate(): void {
     this.templateState.set(null);
     this.templateReply.set('');
+    if (this.scenePlanTimer) clearTimeout(this.scenePlanTimer);
+    this.scenePlanTimer = null;
+    this.scenePlan.set(null);
+    this.scenePics.set([]);
+    this.sceneBusy.set(null);
+  }
+
+  // ---------------------------------------------------------------- scene pictures (template path, Enhanced 3D)
+
+  /** Scene pictures apply to Enhanced 3D without a single background picture (that one covers the whole video). */
+  showScenePictures(): boolean {
+    const wz = this.wizard();
+    return !!wz && wz.engine === 'Procedural3D' && wz.backdrop !== 'picture';
+  }
+
+  onTemplateReplyChange(value: string): void {
+    this.templateReply.set(value ?? '');
+    if (!this.showScenePictures()) return;
+    if (this.scenePlanTimer) clearTimeout(this.scenePlanTimer);
+    this.scenePlanTimer = setTimeout(() => {
+      this.scenePlanTimer = null;
+      void this.loadScenePlan();
+    }, 800);
+  }
+
+  /** Asks the server which pictures the pasted script needs, in the order the video uses them. */
+  async loadScenePlan(): Promise<void> {
+    const wz = this.wizard();
+    const reply = this.templateReply().trim();
+    if (!wz || reply.length < 20) {
+      this.scenePlan.set(null);
+      return;
+    }
+    this.scenePlanLoading.set(true);
+    try {
+      const plan = await firstValueFrom(this.api.scenePicturePlan(wz.postId, reply, wz.stage));
+      if (this.wizard()?.postId !== wz.postId) return;
+      this.scenePlan.set(plan);
+      // Keep pictures already chosen; the slot count follows the script.
+      const current = this.scenePics();
+      this.scenePics.set(plan.scenes.map((_, i) => current[i] ?? wz.stage.sceneBackgroundAssetIds?.[i] ?? null));
+    } catch (err: unknown) {
+      this.scenePlan.set(null);
+      this.status.showError(this.readErr(err, 'Could not read the scenes of this script.'));
+    } finally {
+      this.scenePlanLoading.set(false);
+    }
+  }
+
+  private setScenePic(index: number, assetId: string | null): void {
+    this.scenePics.update((list) => list.map((id, i) => (i === index ? assetId : id)));
+  }
+
+  clearScenePic(index: number): void {
+    this.setScenePic(index, null);
+  }
+
+  clearAllScenePics(): void {
+    this.scenePics.update((list) => list.map(() => null));
+  }
+
+  moveScenePic(index: number, delta: -1 | 1): void {
+    const target = index + delta;
+    this.scenePics.update((list) => {
+      if (target < 0 || target >= list.length) return list;
+      const next = [...list];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  private checkPictureFile(file: File): string | null {
+    // Quick checks for a clear message; the server validates the real file type and size again.
+    if (!TEMPLATE_TYPES.includes(file.type)) return `${file.name}: pick a PNG, JPG or WebP picture.`;
+    if (file.size > MAX_TEMPLATE_BYTES) return `${file.name} is larger than 25 MB.`;
+    return null;
+  }
+
+  /**
+   * Uploads several pictures at once, in file-name order (1.png, 2.png … 10.png), into the empty slots from the top;
+   * when every slot is filled they replace the set from scene 1.
+   */
+  async uploadScenePictures(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    const wz = this.wizard();
+    if (!wz || files.length === 0) return;
+    const bad = files.map((f) => this.checkPictureFile(f)).find((m) => m);
+    if (bad) {
+      this.status.showError(bad);
+      return;
+    }
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const slots = this.scenePics();
+    let targets = slots.map((id, i) => (id ? -1 : i)).filter((i) => i >= 0);
+    if (targets.length === 0) targets = slots.map((_, i) => i);
+    const count = Math.min(files.length, targets.length);
+
+    this.sceneBusy.set(-1);
+    try {
+      const { projectId } = await firstValueFrom(this.api.backgroundTemplateProject());
+      for (let k = 0; k < count; k++) {
+        const asset = await firstValueFrom(this.studioApi.uploadAsset(projectId, files[k]));
+        if (this.wizard()?.postId !== wz.postId) return;
+        this.setScenePic(targets[k], asset.id);
+      }
+      this.storageCatalog.set(null);
+      const extra = files.length - count;
+      this.status.showNotice(extra > 0
+        ? `Uploaded ${count} pictures in order. ${extra} more than the script has scenes were skipped.`
+        : `Uploaded ${count} picture${count === 1 ? '' : 's'} in order. Check each scene below.`);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'A picture could not be uploaded. The ones before it are kept.'));
+    } finally {
+      this.sceneBusy.set(null);
+    }
+  }
+
+  async uploadScenePicture(index: number, event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    const wz = this.wizard();
+    if (!wz || !file) return;
+    const bad = this.checkPictureFile(file);
+    if (bad) {
+      this.status.showError(bad);
+      return;
+    }
+    this.sceneBusy.set(index);
+    try {
+      const { projectId } = await firstValueFrom(this.api.backgroundTemplateProject());
+      const asset = await firstValueFrom(this.studioApi.uploadAsset(projectId, file));
+      if (this.wizard()?.postId === wz.postId) this.setScenePic(index, asset.id);
+      this.storageCatalog.set(null);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Could not upload that picture.'));
+    } finally {
+      this.sceneBusy.set(null);
+    }
+  }
+
+  /** Makes one scene's picture with the app's image engine from that scene's prompt. */
+  async generateScenePicture(index: number): Promise<boolean> {
+    const wz = this.wizard();
+    const scene = this.scenePlan()?.scenes[index];
+    if (!wz || !scene) return false;
+    this.sceneBusy.set(index);
+    try {
+      const made = await firstValueFrom(this.api.generateBackgroundPicture(wz.postId, wz.stage, scene.prompt));
+      if (this.wizard()?.postId !== wz.postId) return false;
+      this.setScenePic(index, made.assetId);
+      this.storageCatalog.set(null);
+      return true;
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, `Could not make the picture for scene ${index + 1}.`));
+      return false;
+    } finally {
+      this.sceneBusy.set(null);
+    }
+  }
+
+  /** Fills every empty slot with the image engine, one after another; stops at the first failure. */
+  async generateMissingScenePictures(): Promise<void> {
+    const empty = this.scenePics().map((id, i) => (id ? -1 : i)).filter((i) => i >= 0);
+    for (const i of empty) {
+      if (!(await this.generateScenePicture(i))) return;
+    }
+    if (empty.length > 0) this.status.showNotice('Every scene has a picture now.');
+  }
+
+  sceneLabel(setting: string, time: string): string {
+    const words = (v: string) => v.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    const place = setting === 'Auto' ? 'scene' : words(setting);
+    return time === 'Auto' ? place : `${place}, ${words(time)}`;
   }
 
   async submitTemplateReply(): Promise<void> {
@@ -2617,6 +3151,23 @@ export class AutomationHubComponent implements OnInit {
     const reply = this.templateReply().trim();
     if (!wz || !post || !reply) return;
     const is3d = wz.engine === 'Procedural3D';
+
+    // Scene pictures are all-or-nothing: a gap would move every later scene onto the wrong picture.
+    if (is3d && this.showScenePictures()) {
+      const pics = this.scenePics();
+      const filled = pics.filter((id) => !!id).length;
+      if (filled > 0 && filled < pics.length) {
+        this.status.showError(`Add a picture for every scene (${filled} of ${pics.length} done), or clear them to use the 3D stage.`);
+        return;
+      }
+      const ids = filled > 0 ? (pics as string[]) : [];
+      const same = JSON.stringify(ids) === JSON.stringify(wz.stage.sceneBackgroundAssetIds ?? []);
+      if (!same) {
+        this.wizard.set({ ...wz, stage: { ...wz.stage, sceneBackgroundAssetIds: ids } });
+        if (!(await this.saveWizardStage())) return;
+      }
+    }
+
     const submit = async () => {
       await firstValueFrom(this.api.submitScriptTemplate(post.id, wz.engine, reply, {
         targetSeconds: this.postDurationSeconds(post.id),

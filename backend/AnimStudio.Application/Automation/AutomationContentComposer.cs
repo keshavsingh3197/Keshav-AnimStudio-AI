@@ -81,6 +81,9 @@ public static class AutomationContentComposer
             AutomationSourceType.CustomPrompt =>
                 [ComposeCustom(rule, dateKey, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
 
+            AutomationSourceType.FunnyComedy =>
+                [ComposeFunnyComedy(rule, dateKey, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
+
             _ => []
         };
 
@@ -695,6 +698,148 @@ public static class AutomationContentComposer
             title, script, prompt, thumbPrompt, description, comment, tags, primaryLink, links);
     }
 
+    private static ComposedAutomationContent ComposeFunnyComedy(
+        AutomationRule rule,
+        string dateKey,
+        IReadOnlyList<AutomationWebsiteLink> links,
+        string? primaryLink,
+        IReadOnlyList<string> baseTags,
+        IReadOnlyList<string> baseHashtags,
+        string ratioLabel,
+        bool isHindi)
+    {
+        var customSeed = string.IsNullOrWhiteSpace(rule.CustomTopicPrompt) ? null : rule.CustomTopicPrompt.Trim();
+        var (speakerA, speakerB) = ResolveSpeakerPair(rule, customSeed ?? "Comedy Chai Tapri", null, isHindi);
+        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode(dateKey)) % 4;
+        var isFull = IsFullStoryMode(rule);
+
+        var topicTitleHi = customSeed ?? slot switch
+        {
+            0 => "चाय की टपरी पर दो दोस्तों का बिल लॉजिक 😂",
+            1 => "सुबह 5 बजे का अलार्म बनाम अखंड आलस 😂",
+            2 => "मम्मी के सामने 'ऑनलाइन क्लास' का सच 😂",
+            _ => "जब दोस्त बोले 'भाई मैं बस 2 मिनट में पहुँच रहा हूँ' 😂"
+        };
+        var topicTitleEn = customSeed ?? slot switch
+        {
+            0 => "Tea Stall Bill Math Gone Wrong 😂",
+            1 => "The 5 AM Alarm vs. Pure Laziness 😂",
+            2 => "When Your Friend Says 'I'm 2 Minutes Away' 😂",
+            _ => "Free Wi-Fi Password Negotiation 😂"
+        };
+
+        var title = Truncate(
+            isHindi ? $"{topicTitleHi} | #Shorts Comedy" : $"{topicTitleEn} | 3D Comedy Short",
+            MaxTitleLength);
+
+        var script = isHindi
+            ? (rule.EnableCharacterDialogue
+                ? (isFull
+                    ? slot switch
+                    {
+                        0 => $"""
+                            [SCENE]: chai stall
+                            [{speakerB}]: भाई {speakerA}, आज तो दो समोसे और चार चाय का बिल तू ही देगा ना? मेरी तो जेब में सिर्फ़ हवा भरी है!
+                            [{speakerA}]: अरे बिल्कुल बबलू! दोस्ती में हिसाब नहीं होता... बस देख सामने उधार खाता किसके नाम खुलता है।
+                            [{speakerB}]: अबे टपरी वाले भैया तो पहले से तेरा आधार कार्ड दीवार पर चिपकाए बैठे हैं!
+                            [{speakerA}]: चुप कर! वही तो मेरी पक्की VIP मेंबरशिप है — बिना पैसे दिए रोज़ चाय मिलती है!
+                            [सूत्रधार]: ऐसे ही देसी कॉमेडी शॉर्ट्स के लिए सब्सक्राइब करें — और बताइए आपका सबसे कंजूस दोस्त कौन है!
+                            """,
+                        1 => $"""
+                            [SCENE]: comedy stage
+                            [{speakerB}]: {speakerA}, कल रात तुमने कहा था आज सुबह 5 बजे उठकर जिम और पढ़ाई दोनों करोगे, अभी 11 बज रहे हैं!
+                            [{speakerA}]: भाई 5 बजे अलार्म बजा तो था, पर सपने में एक संत आए और बोले — 'बेटा अभी और सो, ब्रह्मांड को तेरे आराम की ज़रूरत है!'
+                            [{speakerB}]: गजब बहाना है! और कल परीक्षा में भी यही संत उत्तर लिखने आएंगे?
+                            [{speakerA}]: नहीं भाई, कल तो चाय की टपरी पर ही ग्रुप स्टडी होगी!
+                            [सूत्रधार]: हँसते रहिए और चैनल को अभी सब्सक्राइब कीजिए!
+                            """,
+                        2 => $"""
+                            [SCENE]: chai stall
+                            [{speakerB}]: {speakerA}, सुबह से दस बार फ़ोन कर चुका हूँ — 'बस दो मिनट में पहुँच रहा हूँ' बोलकर अभी तक घर से नहीं निकला!
+                            [{speakerA}]: अरे यार, मैंने तो घड़ी में टाइम भी चेक नहीं किया... मेरे हिसाब से इंडिया में 'दो मिनट' का मतलब कम से कम आधा घंटा होता है!
+                            [{speakerB}]: अच्छा? तो तेरी शादी की बारात भी 'दो मिनट' बोलकर अगले दिन पहुँचेगी क्या?
+                            [{speakerA}]: कम से कम तब तक तू चाय पीकर दो बार बिल दे चुका होगा!
+                            [सूत्रधार]: अपना '2 मिनट वाला दोस्त' कमेंट में टैग करो!
+                            """,
+                        _ => $"""
+                            [SCENE]: comedy stage
+                            [{speakerB}]: भाई {speakerA}, आज बिना पैसे के नया बिज़नेस आइडिया बता ना — करोड़पति बनना है!
+                            [{speakerA}]: एकदम आसान है! चाय की टपरी खोलो और फ्री वाई-फ़ाई लिख दो... पासवर्ड सिर्फ़ दूसरी चाय ऑर्डर करने पर बताओ!
+                            [{speakerB}]: पर कोई पहली चाय ही न पिए तो?
+                            [{speakerA}]: तो बोर्ड लगा दो — 'यहाँ बैठकर रील्स देखने का भी किराया लगेगा!'
+                            [सूत्रधार]: पसंद आए तो लाइक और शेयर ज़रूर करें!
+                            """
+                    }
+                    : slot switch
+                    {
+                        0 => $"""
+                            [SCENE]: chai stall
+                            [{speakerB}]: भाई आज टपरी का बिल तू देगा?
+                            [{speakerA}]: हाँ बिल्कुल... बस तेरे नाम पर उधार लिखवा दूँगा!
+                            [{speakerB}]: अरे मेरा तो पहले से पक्का उधार खाता चल रहा है यहाँ!
+                            [{speakerA}]: इसीलिए तो दोस्ती पक्की है — चल एक और चाय बोल!
+                            """,
+                        1 => $"""
+                            [SCENE]: comedy stage
+                            [{speakerB}]: सुबह 5 बजे का अलार्म लगाया था ना? फिर भी 11 बजे उठे?
+                            [{speakerA}]: अरे 5 बजे उठा था भाई... बस स्नूज़ बटन को प्यार हो गया मुझसे!
+                            [{speakerB}]: और अब अगले साल फिर 5 बजे का संकल्प लोगे?
+                            [{speakerA}]: बिल्कुल! कल से पक्का!
+                            """,
+                        2 => $"""
+                            [SCENE]: chai stall
+                            [{speakerB}]: 30 मिनट पहले बोला था 'बस 2 मिनट में आया'! अभी तक टपरी पे नहीं पहुँचा?
+                            [{speakerA}]: अरे भाई, मैं रास्ते में नहीं... अभी तो चप्पल ढूँढ रहा हूँ!
+                            [{speakerB}]: गजब टाइम मैनेजमेंट है यार तेरा!
+                            """,
+                        _ => $"""
+                            [SCENE]: comedy stage
+                            [{speakerB}]: मम्मी के सामने 'ऑनलाइन क्लास' बोलकर गेम खेल रहा था ना?
+                            [{speakerA}]: अरे वह 'ब्रेन एक्सरसाइज' लेक्चर चल रहा था!
+                            [{speakerB}]: अच्छा! और मम्मी की चप्पल को क्या बोलेगा — 'फ़िज़िकल टेस्ट'?
+                            """
+                    })
+                : $"""
+                    [SCENE]: chai stall
+                    [HOOK 0-3s] जब दोस्त कहे 'भाई आज टपरी पर बिल मैं दूँगा'...
+                    [BODY 3-12s] और जेब में हाथ डालकर बोले — 'अरे यार, वॉलेट तो घर पर ही रह गया!'
+                    [PUNCHLINE] बस यहीं से असली दोस्ती की परीक्षा शुरू होती है — चाय पीयो और कमेंट में दोस्त को टैग करो!
+                    """)
+            : (rule.EnableCharacterDialogue
+                ? $"""
+                    [SCENE]: chai stall
+                    [{speakerB}]: Wait — you texted 'two minutes away' forty minutes ago!
+                    [{speakerA}]: Technically my spirit arrived two minutes ago, only my slippers are still buffering!
+                    [{speakerB}]: Next time bring two cups of chai as interest!
+                    [{speakerA}]: Deal — put both on your tab!
+                    """
+                : $"""
+                    [SCENE]: comedy stage
+                    [HOOK 0-3s] Me setting five alarms for 5 AM to change my entire life...
+                    [BODY 3-12s] Only to wake up at 11 AM feeling proud that I turned all five off in my sleep!
+                    [PUNCHLINE] Subscribe and tag your snooze-champion friend!
+                    """);
+
+        var summaryText = isHindi ? $"{topicTitleHi} — मज़ेदार 3D कॉमेडी शॉर्ट" : $"{topicTitleEn} — 3D animated comedy loop";
+        var prompt = ApplyPromptOverride(rule,
+            $"Expressive colorful 3D comedy animation in {ratioLabel} at a lively Indian chai tapri / comedy stage: " +
+            $"warm tangerine spotlights, exaggerated cartoon expressions, punchline bounce, crisp comedic timing on '{topicTitleHi}'.");
+        var thumbPrompt = $"Bright expressive 3D cartoon comedy thumbnail for '{title}', punchy yellow/orange contrast, shock/laugh faces.";
+        var tags = MergeTags(["Comedy Shorts", "Funny 3D Animation", "Desi Comedy", "KESHAV-ANIM-FF", "Shorts"], baseTags, baseHashtags);
+        var description = BuildDescription(rule,
+            $"{summaryText}\n😂 Subscribe for daily 10s-30s 3D comedy skits & relatable punchlines!",
+            links, tags);
+        var comment = rule.IncludePinnedComment
+            ? BuildPinnedComment($"😂 आपको कौन-सा पंच सबसे मज़ेदार लगा? कमेंट में बताएं 👇\n🔗 {primaryLink}", links)
+            : null;
+
+        return new ComposedAutomationContent(
+            $"comedy:{dateKey}:{rule.Id}",
+            summaryText,
+            topicTitleEn,
+            title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
+    }
+
     private static IReadOnlyList<AutomationWebsiteLink> BuildTrackedLinks(
         AutomationRule rule,
         EcosystemSignalsSnapshot signals,
@@ -773,6 +918,8 @@ public static class AutomationContentComposer
             => ["panchang", "blog", "pratiyogita", "studio"],
         AutomationSourceType.Pratiyogita
             => ["pratiyogita", "social", "studio"],
+        AutomationSourceType.FunnyComedy
+            => ["studio", "pratiyogita", "social"],
         _ => ["studio", "social", "panchang", "blog"]
     };
 

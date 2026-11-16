@@ -31,16 +31,47 @@
               @for (s of styles; track s.value) { <option [value]="s.value">{{ s.label }}</option> }
             </select>
           </label>
-          <label>Feel <span class="muted">(optional)</span>
+          <label>Feel / tune <span class="muted">(optional)</span>
             <input maxlength="80" [ngModel]="mood()" (ngModelChange)="mood.set($event)" placeholder="peaceful, harmonium and tabla" />
+            <button type="button" class="link" (click)="freshTune()" title="Pick a new raga, tempo, instruments and voice">🎲 Fresh tune</button>
           </label>
         </div>
-        <div class="sg-actions">
-          <button type="button" [disabled]="!canWriteLyrics()" (click)="writeLyrics()">
-            @if (busy() === 'lyrics') { <span class="btn-spin" aria-hidden="true"></span> Writing… } @else { ✍ Draft lyrics with AI }
+
+        <div class="choice-row" role="radiogroup" aria-label="Who writes the lyrics">
+          <button type="button" class="choice" [class.selected]="lyricsSource() === 'ai'" (click)="lyricsSource.set('ai')"
+                  role="radio" [attr.aria-checked]="lyricsSource() === 'ai'">
+            <strong>✨ AI writes the lyrics</strong><small>Your configured text model, one request</small>
+          </button>
+          <button type="button" class="choice" [class.selected]="lyricsSource() === 'template'" (click)="lyricsSource.set('template')"
+                  role="radio" [attr.aria-checked]="lyricsSource() === 'template'">
+            <strong>📋 Template → my AI tool</strong><small>Copy a prompt into ChatGPT, Gemini or Claude, paste the answer back</small>
           </button>
         </div>
-        <p class="muted">Uses your configured text model (one request). The lyrics are original; always read them before use.</p>
+
+        @if (lyricsSource() === 'ai') {
+          <div class="sg-actions">
+            <button type="button" [disabled]="!canWriteLyrics()" (click)="writeLyrics()">
+              @if (busy() === 'lyrics') { <span class="btn-spin" aria-hidden="true"></span> Writing… } @else { ✍ Draft lyrics with AI }
+            </button>
+          </div>
+          <p class="muted">Uses your configured text model (one request). The lyrics are original; always read them before use.</p>
+        } @else {
+          <label for="sg-template">Step A: copy this template <span class="muted">— built from the story, language, style, feel and song length</span></label>
+          <textarea id="sg-template" rows="8" readonly [value]="lyricsTemplate()"></textarea>
+          <div class="sg-actions">
+            <button type="button" (click)="copyTemplate()">📋 Copy template</button>
+            <a class="sg-chip" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">↗ ChatGPT</a>
+            <a class="sg-chip" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">↗ Gemini</a>
+            <a class="sg-chip" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">↗ Claude</a>
+          </div>
+          <label for="sg-reply">Step B: paste the AI's whole answer</label>
+          <textarea id="sg-reply" rows="8" maxlength="12000" [ngModel]="templateReply()" (ngModelChange)="templateReply.set($event)"
+            [placeholder]="'TITLE: ...\nMUSIC STYLE: ...\nLYRICS:\n[Verse 1]\n...'"></textarea>
+          <div class="sg-actions">
+            <button type="button" [disabled]="templateReply().trim().length < 10" (click)="usePastedSong()">⤵ Use this answer</button>
+          </div>
+          <p class="muted">The title, music style (as the feel) and lyrics go into the form below for you to check. Every template asks for a fresh melody direction.</p>
+        }
       </section>
 
       <section class="card sg-section">

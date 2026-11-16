@@ -9,7 +9,8 @@ public enum AutomationSourceType
     AajKaItihaas = 3,
     Pratiyogita = 4,
     EcosystemSpotlight = 5,
-    CustomPrompt = 6
+    CustomPrompt = 6,
+    FunnyComedy = 7
 }
 
 /// <summary>Whether the rule stops in the Preview List or proceeds autonomously to YouTube.</summary>
@@ -317,6 +318,13 @@ public sealed class AutomationStageSettings
     /// </summary>
     public string? BackgroundTemplateAssetId { get; set; }
 
+    /// <summary>
+    /// The user's own pictures for the directed scenes, in order: picture 1 for the first <c>[SCENE]</c> line, picture 2
+    /// for the second, and so on (made in any outside tool from the template's IMAGE prompts). Used when there is no
+    /// <see cref="BackgroundTemplateAssetId"/>; each gets the slow camera move and a cut between scenes.
+    /// </summary>
+    public List<string> SceneBackgroundAssetIds { get; set; } = [];
+
     /// <summary>Where the story happens, e.g. "temple courtyard at sunrise". Picks the 3D setting and guides the script.</summary>
     public string? LocationPrompt { get; set; }
 
@@ -340,6 +348,28 @@ public sealed class AutomationStageSettings
     /// the Story Studio before the next step. Off runs straight through to the video.
     /// </summary>
     public bool ReviewSteps { get; set; }
+
+    /// <summary>Optional SongLibrary track id (`song_&lt;hex&gt;`) to mux as custom background music in the 3D video.</summary>
+    public string? AttachedSongId { get; set; }
+
+    /// <summary>
+    /// How the background picture moves behind the characters. <see cref="AutomationBackdropMotion.Still"/> keeps it
+    /// exactly as placed; the others add a slow camera move. Only used with <see cref="BackgroundTemplateAssetId"/>.
+    /// </summary>
+    public AutomationBackdropMotion BackgroundMotion { get; set; } = AutomationBackdropMotion.Still;
+}
+
+/// <summary>Camera move over a user's background picture in an Enhanced 3D video.</summary>
+public enum AutomationBackdropMotion
+{
+    /// <summary>The picture stays still and whole, so characters keep their exact spots on it.</summary>
+    Still = 0,
+
+    /// <summary>A slow, small push-in and back (a few percent), like a breathing camera.</summary>
+    GentleZoom = 1,
+
+    /// <summary>The picture glides slowly sideways behind the characters, back and forth.</summary>
+    SlowPan = 2
 }
 
 /// <summary>Fractions of the frame: X = figure centre across, Y = ground line (feet) down, Scale = size multiplier.</summary>

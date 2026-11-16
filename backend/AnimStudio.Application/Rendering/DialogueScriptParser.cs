@@ -351,6 +351,7 @@ public static partial class DialogueScriptParser
             "DailyKatha" => ("देवर्षि नारद", "भक्त"),
             "AajKaItihaas" => ("इतिहासकार", "विद्यार्थी"),
             "Pratiyogita" => ("मेंटर", "प्रतिभागी"),
+            "FunnyComedy" => ("पप्पू भैया", "बबलू यार"),
             _ => ("आचार्य", "जिज्ञासु")
         };
     }
@@ -387,8 +388,10 @@ public static partial class DialogueScriptParser
             if (speakerMatch.Success && SceneDirectives.IsSceneTag(speakerMatch.Groups[1].Value))
             {
                 var scene = SceneDirectives.ParseScene(speakerMatch.Groups[2].Value);
-                if (scenes.Count < MaxScenes) scenes.Add(scene);
-                currentCue = SceneDirectives.ToCue(scene.Setting, scene.TimeOfDay);
+                if (scenes.Count >= MaxScenes) continue; // further scene lines keep the last scene's picture
+                scenes.Add(scene);
+                // Numbered, so each directed scene has its own picture even when place and light repeat.
+                currentCue = SceneDirectives.ToCue(scene.Setting, scene.TimeOfDay, scenes.Count);
                 continue;
             }
             if (speakerMatch.Success && SceneDirectives.IsCastTag(speakerMatch.Groups[1].Value))

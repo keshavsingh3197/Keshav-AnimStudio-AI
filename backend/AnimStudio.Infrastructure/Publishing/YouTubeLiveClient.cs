@@ -209,6 +209,118 @@ public sealed partial class YouTubeLiveClient : IDisposable
             "YouTube didn't return a stream key for that broadcast. Create a new one here.");
     }
 
+    /// <summary>
+    /// Looks up the active <c>liveChatId</c> bound to a live broadcast or watch video id.
+    /// Returns <see langword="null"/> when the broadcast has not created an active chat yet.
+    /// </summary>
+    public async Task<string?> GetActiveLiveChatIdAsync(string broadcastOrVideoId, string accessToken, CancellationToken ct)
+    {
+        if (!IsBroadcastId(broadcastOrVideoId))
+            throw new ArgumentException("Not a valid YouTube broadcast or video id.", nameof(broadcastOrVideoId));
+
+        using var videoDoc = await SendAsync(
+            HttpMethod.Get,
+            $"videos?part=liveStreamingDetails&id={Uri.EscapeDataString(broadcastOrVideoId)}",
+            null, accessToken, "videos.list.liveChat", ct).ConfigureAwait(false);
+
+        if (FirstItem(videoDoc.RootElement) is { } videoItem
+            && videoItem.TryGetProperty("liveStreamingDetails", out var lsd)
+            && lsd.ValueKind == JsonValueKind.Object
+            && ReadString(lsd, "activeLiveChatId") is { Length: > 0 } chatId)
+        {
+            return chatId;
+        }
+
+        using var broadcastDoc = await SendAsync(
+            HttpMethod.Get,
+            $"liveBroadcasts?part=snippet&id={Uri.EscapeDataString(broadcastOrVideoId)}",
+            null, accessToken, "liveBroadcasts.list.liveChat", ct).ConfigureAwait(false);
+
+        if (FirstItem(broadcastDoc.RootElement) is { } broadcastItem
+            && broadcastItem.TryGetProperty("snippet", out var snippet)
+            && snippet.ValueKind == JsonValueKind.Object
+            && ReadString(snippet, "liveChatId") is { Length: > 0 } fallbackChatId)
+        {
+            return fallbackChatId;
+        }
+
+        return null;
+    }
+
+    /// <summary>Polls one page of public live-chat messages for an active broadcast chat.</summary>
+    public async Task<YouTubeLiveChatPage> ListLiveChatMessagesAsync(
+        string liveChatId, string accessToken, string? pageToken, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(liveChatId))
+            throw new ArgumentException("Live chat id is required.", nameof(liveChatId));
+
+        var path = $"liveChat/messages?liveChatId={Uri.EscapeDataString(liveChatId.Trim())}&part=snippet,authorDetails&maxResults=200";
+        if (!string.IsNullOrWhiteSpace(pageToken))
+            path += $"&pageToken={Uri.EscapeDataString(pageToken.Trim())}";
+
+        using var doc = await SendAsync(HttpMethod.Get, path, null, accessToken, "liveChatMessages.list", ct).ConfigureAwait(false);
+        return ParseLiveChatPage(liveChatId.Trim(), doc.RootElement);
+    }
+
+    public static YouTubeLiveChatPage ParseLiveChatPage(string liveChatId, JsonElement root)
+    {
+        var nextToken = ReadString(root, "nextPageToken");
+        var pollingMs = root.TryGetProperty("pollingIntervalMillis", out var pollEl) && pollEl.TryGetInt32(out var ms)
+            ? Math.Clamp(ms, 1000, 60000)
+            : 5000;
+
+        var list = new List<YouTubeLiveChatMessage>();
+        if (root.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                var id = ReadString(item, "id");
+                if (string.IsNullOrWhiteSpace(id)) continue;
+
+                var snippet = item.TryGetProperty("snippet", out var sn) ? sn : default;
+                var author = item.TryGetProperty("authorDetails", out var ad) ? ad : default;
+
+                var authorChannelId = author.ValueKind == JsonValueKind.Object ? ReadString(author, "channelId") : null;
+                var authorName = author.ValueKind == JsonValueKind.Object ? ReadString(author, "displayName") : null;
+                if (string.IsNullOrWhiteSpace(authorChannelId) && string.IsNullOrWhiteSpace(authorName)) continue;
+
+                string? message = snippet.ValueKind == JsonValueKind.Object ? ReadString(snippet, "displayMessage") : null;
+                if (string.IsNullOrWhiteSpace(message)
+                    && snippet.ValueKind == JsonValueKind.Object
+                    && snippet.TryGetProperty("textMessageDetails", out var tmd))
+                {
+                    message = ReadString(tmd, "messageText");
+                }
+                if (string.IsNullOrWhiteSpace(message)) continue;
+
+                var publishedAt = DateTime.UtcNow;
+                if (snippet.ValueKind == JsonValueKind.Object
+                    && ReadString(snippet, "publishedAt") is { } pub
+                    && DateTime.TryParse(pub, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedTime))
+                {
+                    publishedAt = parsedTime;
+                }
+
+                list.Add(new YouTubeLiveChatMessage(
+                    id,
+                    authorChannelId ?? string.Empty,
+                    authorName ?? authorChannelId ?? "Viewer",
+                    author.ValueKind == JsonValueKind.Object ? ReadString(author, "profileImageUrl") : null,
+                    Shorten(message.Trim(), 300),
+                    publishedAt,
+                    author.ValueKind == JsonValueKind.Object && ReadBool(author, "isChatSponsor"),
+                    author.ValueKind == JsonValueKind.Object && ReadBool(author, "isChatModerator"),
+                    author.ValueKind == JsonValueKind.Object && ReadBool(author, "isChatOwner")));
+            }
+        }
+
+        return new YouTubeLiveChatPage(liveChatId, list, nextToken, pollingMs);
+    }
+
+    private static bool ReadBool(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+
     private async Task<JsonDocument> SendAsync(HttpMethod method, string path, object? body, string accessToken,
         string operation, CancellationToken ct)
     {
@@ -306,3 +418,20 @@ public sealed partial class YouTubeLiveClient : IDisposable
     [GeneratedRegex("^[A-Za-z0-9_-]{11}$")]
     private static partial Regex BroadcastIdPattern();
 }
+
+public sealed record YouTubeLiveChatMessage(
+    string Id,
+    string AuthorChannelId,
+    string AuthorDisplayName,
+    string? AuthorProfileImageUrl,
+    string MessageText,
+    DateTime PublishedAtUtc,
+    bool IsChatSponsor = false,
+    bool IsChatModerator = false,
+    bool IsChatOwner = false);
+
+public sealed record YouTubeLiveChatPage(
+    string ActiveLiveChatId,
+    IReadOnlyList<YouTubeLiveChatMessage> Messages,
+    string? NextPageToken,
+    int PollingIntervalMillis);

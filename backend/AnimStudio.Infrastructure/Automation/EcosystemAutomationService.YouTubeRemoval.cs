@@ -84,6 +84,7 @@ public sealed partial class EcosystemAutomationService
 
         await MarkPublicationRemovedAsync(userId, videoId, deletedByApp, ct).ConfigureAwait(false);
         await TryUnlistFromPanchangAsync(post, ct).ConfigureAwait(false);
+        if (catalogWriter is not null) await catalogWriter.MarkRemovedAsync(videoId, ct).ConfigureAwait(false);
         ResetAfterYouTubeRemoval(post, channelId, channelTitle, deletedByApp,
             deletedByApp
                 ? $"Deleted from YouTube ({channelTitle ?? channelId}) in the app."
@@ -174,6 +175,7 @@ public sealed partial class EcosystemAutomationService
                                 post.Id, post.PublishedVideoId);
                             await MarkPublicationRemovedAsync(post.UserId, post.PublishedVideoId!, deletedByApp: false, ct).ConfigureAwait(false);
                             await TryUnlistFromPanchangAsync(post, ct).ConfigureAwait(false);
+                            if (catalogWriter is not null) await catalogWriter.MarkRemovedAsync(post.PublishedVideoId, ct).ConfigureAwait(false);
                             ResetAfterYouTubeRemoval(post, byChannel.Key, post.PublishedChannelTitle ?? post.TargetChannelTitle, deletedByApp: false,
                                 "This video is no longer on YouTube (deleted in YouTube Studio or removed by YouTube).");
                             post.LastError = "Video was removed from YouTube. Publish it again (to any channel) or delete this card.";
