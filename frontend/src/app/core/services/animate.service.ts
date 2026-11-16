@@ -7,13 +7,16 @@ import { ApiResponse } from '../models/api.models';
 
 export type AnimateFormat = 'landscape' | 'vertical' | 'square';
 export type ProceduralResolution = '720p' | '1080p';
+export type ProceduralRenderEngine = 'Auto' | 'WebGl3D' | 'CpuFast';
+export type ProceduralVfxStyle = 'Auto' | 'DivineAura' | 'ComedyBurst' | 'CinematicDrama' | 'CyberNeon';
 export type ProceduralSceneTheme =
   | 'Auto'
   | 'VedicTempleSunrise3D'
   | 'CosmosSacred3D'
   | 'HistoryChronicle3D'
   | 'NeonCyberGrid3D'
-  | 'SereneNatureGlow';
+  | 'SereneNatureGlow'
+  | 'ComedyStage3D';
 
 export interface ProceduralThemePreset {
   id: string;
@@ -37,6 +40,9 @@ export interface ProceduralVideoGenerationRequest {
   language: string;
   footerLabel?: string | null;
   saveAsRenderJob?: boolean;
+  renderEngine?: ProceduralRenderEngine;
+  vfxStyle?: ProceduralVfxStyle;
+  enableDynamicCamera?: boolean;
 }
 
 export interface ProceduralVideoResponse {

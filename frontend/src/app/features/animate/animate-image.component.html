@@ -92,10 +92,31 @@
                    [ngModel]="procDuration()" (ngModelChange)="setProceduralDuration($event)" />
           </label>
           <label class="an-field">
-            <span>Quality &amp; CPU Speed</span>
+            <span>Quality &amp; Resolution</span>
             <select class="an-input" [ngModel]="procResolution()" (ngModelChange)="procResolution.set($event)">
-              <option value="720p">720p HD (Fast CPU — Recommended)</option>
+              <option value="720p">720p HD (Fast — Recommended)</option>
               <option value="1080p">1080p Full HD</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="an-sliders">
+          <label class="an-field">
+            <span>3D Animation Engine (Zero Cloud Cost)</span>
+            <select class="an-input" [ngModel]="procEngine()" (ngModelChange)="procEngine.set($event)">
+              <option value="Auto">Auto (Real 3D WebGL + CPU Fallback)</option>
+              <option value="WebGl3D">Real 3D WebGL (Three.js + Shadows + Rig)</option>
+              <option value="CpuFast">Fast CPU 2D/3D</option>
+            </select>
+          </label>
+          <label class="an-field">
+            <span>3D VFX &amp; Particles</span>
+            <select class="an-input" [ngModel]="procVfxStyle()" (ngModelChange)="procVfxStyle.set($event)">
+              <option value="Auto">Auto-Match Emotion &amp; World</option>
+              <option value="DivineAura">Divine Aura, Petals &amp; God Rays</option>
+              <option value="ComedyBurst">Comedy Burst &amp; Sparkle Confetti</option>
+              <option value="CinematicDrama">Cinematic Embers &amp; Drama</option>
+              <option value="CyberNeon">Cyber Neon Rays &amp; Pulses</option>
             </select>
           </label>
         </div>
@@ -108,6 +129,7 @@
         </div>
 
         <div class="an-row wrap">
+          <label class="an-check"><input type="checkbox" [ngModel]="procDynamicCamera()" (ngModelChange)="procDynamicCamera.set($event)" /> Dynamic Speaker 3D Camera Cuts</label>
           <label class="an-check"><input type="checkbox" [ngModel]="procIncludeCaptions()" (ngModelChange)="procIncludeCaptions.set($event)" /> Burn Hindi/English Subtitles</label>
           <label class="an-check"><input type="checkbox" [ngModel]="procIncludeAudio()" (ngModelChange)="procIncludeAudio.set($event)" /> Generate Ambient Music</label>
           @if (isAuthenticated()) {

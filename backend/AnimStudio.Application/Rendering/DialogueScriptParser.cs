@@ -36,7 +36,8 @@ public sealed record ProceduralDialogueTurn(
     string Text,
     bool IsTitleHook,
     CharacterVisualRole? SpeakerRole = null,
-    string? SceneBackdropCue = null);
+    string? SceneBackdropCue = null,
+    string? Emotion = null);
 
 /// <param name="SupportingCast">Up to three extra characters shown in the back row; they step forward when they speak.</param>
 /// <param name="Scenes">The <c>[SCENE]</c> directions in script order (setting, time, image prompt).</param>
@@ -232,16 +233,18 @@ public static partial class DialogueScriptParser
                 speakerRole = slot == DialogueSpeakerSlot.Left ? leftProfile.Role : rightProfile.Role;
             }
 
+            var (cleanLineText, emotion) = ExtractInlineEmotion(lineText);
             resultTurns.Add(new ProceduralDialogueTurn(
                 i + 1,
                 Math.Round(start, 2),
                 Math.Round(end, 2),
                 slot,
                 speakerLabel,
-                Truncate(lineText, MaxSpokenLineChars),
+                Truncate(cleanLineText, MaxSpokenLineChars),
                 IsTitleHook: false,
                 SpeakerRole: speakerRole,
-                SceneBackdropCue: sceneCue));
+                SceneBackdropCue: sceneCue,
+                Emotion: emotion));
 
             start += step;
         }
@@ -483,6 +486,64 @@ public static partial class DialogueScriptParser
 
     private static string Truncate(string value, int maxLen) =>
         value.Length <= maxLen ? value : value[..(maxLen - 1)].TrimEnd() + "…";
+
+    private static (string CleanText, string Emotion) ExtractInlineEmotion(string text)
+    {
+        var raw = text ?? string.Empty;
+        string? explicitEmotion = null;
+        var match = LeadingEmotionRegex().Match(raw);
+        if (match.Success)
+        {
+            explicitEmotion = NormalizeEmotionTag(match.Groups[1].Value);
+            raw = Clean(raw[match.Length..]);
+            if (string.IsNullOrWhiteSpace(raw)) raw = text ?? string.Empty;
+        }
+        return (raw, explicitEmotion ?? InferEmotion(raw));
+    }
+
+    internal static string InferEmotion(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "calm";
+        var lower = text.ToLowerInvariant();
+        if (ContainsAnyToken(lower, "हाहा", "हँस", "हंस", "haha", "hehe", "lol", "laugh", "funny", "मज़ाक", "कमाल कर दिया"))
+            return "laughing";
+        if (ContainsAnyToken(lower, "अरे", "हैरान", "चौंक", "omg", "what!", "shocked", "surprised", "gasp", "असंभव", "सच में"))
+            return "surprised";
+        if (ContainsAnyToken(lower, "क्रोध", "गुस्सा", "खबरदार", "angry", "furious", "beware", "stop!"))
+            return "angry";
+        if (ContainsAnyToken(lower, "दुःख", "दुख", "क्षमा", "रो", "sad", "sorry", "tears", "worried", "चिंता"))
+            return "sad";
+        if (ContainsAnyToken(lower, "गर्व", "वरदान", "शाबाश", "ध्रुव तारा", "proud", "victory", "triumph", "bless", "आशीर्वाद"))
+            return "proud";
+        if (ContainsAnyToken(lower, "वाह", "धन्य", "जय", "नमस्ते", "प्रणाम", "शुभ", "बधाई", "happy", "congrats", "joy"))
+            return "happy";
+        if (lower.Contains('?'))
+            return "confused";
+        return "calm";
+    }
+
+    private static string? NormalizeEmotionTag(string rawTag)
+    {
+        var tag = rawTag.Trim().ToLowerInvariant();
+        return tag switch
+        {
+            "laugh" or "laughing" or "excited" => "laughing",
+            "surprised" or "shocked" or "gasp" => "surprised",
+            "angry" or "shouting" or "determined" => "angry",
+            "sad" or "worried" or "scared" => "sad",
+            "proud" or "dramatic" => "proud",
+            "happy" or "loving" or "hopeful" or "relieved" => "happy",
+            "confused" or "shy" => "confused",
+            "calm" or "whispering" or "neutral" => "calm",
+            _ => null
+        };
+    }
+
+    private static bool ContainsAnyToken(string haystack, params string[] tokens) =>
+        tokens.Any(haystack.Contains);
+
+    [GeneratedRegex(@"^\((happy|excited|laugh|laughing|sad|angry|scared|surprised|shocked|confused|shy|proud|sarcastic|whispering|shouting|worried|calm|hopeful|relieved|loving|determined|dramatic|gasp)\)\s*", RegexOptions.IgnoreCase)]
+    private static partial Regex LeadingEmotionRegex();
 
     [GeneratedRegex(@"^\[([^\[\]]{2,34})\]:\s*(.+)$")]
     private static partial Regex SpeakerPrefixRegex();

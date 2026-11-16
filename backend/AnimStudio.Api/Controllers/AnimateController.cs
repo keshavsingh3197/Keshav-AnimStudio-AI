@@ -227,24 +227,7 @@ public sealed class AnimateController(
             var saveJob = currentUser.IsAuthenticated && (request?.SaveAsRenderJob ?? false);
             result = await proceduralGenerator.GenerateAsync(
                 currentUser.IsAuthenticated ? currentUser.UserId : string.Empty,
-                new ProceduralVideoRequest
-                {
-                    Title = string.IsNullOrEmpty(title) ? (prompt ?? "AnimStudio 3D") : title,
-                    Prompt = prompt,
-                    Script = script,
-                    Theme = request?.Theme ?? ProceduralSceneTheme.Auto,
-                    Format = request?.Format ?? "vertical",
-                    Resolution = request?.Resolution ?? "720p",
-                    DurationSeconds = seconds,
-                    IncludeCaptions = request?.IncludeCaptions ?? true,
-                    IncludeAmbientAudio = request?.IncludeAmbientAudio ?? true,
-                    Language = string.IsNullOrWhiteSpace(request?.Language) ? "hi" : request.Language.Trim(),
-                    FooterLabel = request?.FooterLabel,
-                    ProjectId = request?.ProjectId,
-                    TopicId = request?.TopicId,
-                    SaveAsRenderJob = saveJob,
-                    ReturnInlineBytes = true
-                },
+                BuildProceduralRequest(request, title, prompt, script, seconds, saveAsJob: saveJob, returnInline: true),
                 ct);
         }
         finally
@@ -307,24 +290,7 @@ public sealed class AnimateController(
         {
             result = await proceduralGenerator.GenerateAsync(
                 currentUser.UserId,
-                new ProceduralVideoRequest
-                {
-                    Title = string.IsNullOrEmpty(title) ? (prompt ?? "AnimStudio 3D") : title,
-                    Prompt = prompt,
-                    Script = script,
-                    Theme = request?.Theme ?? ProceduralSceneTheme.Auto,
-                    Format = request?.Format ?? "vertical",
-                    Resolution = request?.Resolution ?? "720p",
-                    DurationSeconds = seconds,
-                    IncludeCaptions = request?.IncludeCaptions ?? true,
-                    IncludeAmbientAudio = request?.IncludeAmbientAudio ?? true,
-                    Language = string.IsNullOrWhiteSpace(request?.Language) ? "hi" : request.Language.Trim(),
-                    FooterLabel = request?.FooterLabel,
-                    ProjectId = request?.ProjectId,
-                    TopicId = request?.TopicId,
-                    SaveAsRenderJob = true,
-                    ReturnInlineBytes = false
-                },
+                BuildProceduralRequest(request, title, prompt, script, seconds, saveAsJob: true, returnInline: false),
                 ct);
         }
         finally
@@ -357,6 +323,35 @@ public sealed class AnimateController(
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && double.IsFinite(n)
             ? n
             : fallback;
+
+    private static ProceduralVideoRequest BuildProceduralRequest(
+        ProceduralVideoGenerationRequest? request,
+        string title,
+        string? prompt,
+        string? script,
+        int seconds,
+        bool saveAsJob,
+        bool returnInline) => new()
+    {
+        Title = string.IsNullOrEmpty(title) ? (prompt ?? "AnimStudio 3D") : title,
+        Prompt = prompt,
+        Script = script,
+        Theme = request?.Theme ?? ProceduralSceneTheme.Auto,
+        Format = request?.Format ?? "vertical",
+        Resolution = request?.Resolution ?? "720p",
+        DurationSeconds = seconds,
+        IncludeCaptions = request?.IncludeCaptions ?? true,
+        IncludeAmbientAudio = request?.IncludeAmbientAudio ?? true,
+        Language = string.IsNullOrWhiteSpace(request?.Language) ? "hi" : request.Language.Trim(),
+        FooterLabel = request?.FooterLabel,
+        ProjectId = request?.ProjectId,
+        TopicId = request?.TopicId,
+        SaveAsRenderJob = saveAsJob,
+        ReturnInlineBytes = returnInline,
+        RenderEngine = request?.RenderEngine ?? ProceduralRenderEngine.Auto,
+        VfxStyle = request?.VfxStyle ?? ProceduralVfxStyle.Auto,
+        EnableDynamicCamera = request?.EnableDynamicCamera ?? true
+    };
 
     private static AnimatePlanResponse ToResponse(ImageMotionPlan plan, string plannedBy, string? note) => new(
         plan.Motion, plan.Intensity, plan.FocusX, plan.FocusY, plan.Easing, plan.Look,
