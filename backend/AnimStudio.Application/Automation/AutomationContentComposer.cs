@@ -455,10 +455,14 @@ public static class AutomationContentComposer
         var thumbPrompt = $"Dramatic historical documentary thumbnail showing '{leadIncident.Year}: {leadIncident.Title}', vintage gold-sepia meets high-contrast cinematic teal, clean space for large date '{leadIncident.Year}'.";
 
         var tags = MergeTags(["On This Day", "Aaj Ka Itihaas", $"History {leadIncident.Year}", leadIncident.Category, "World History", "Indian History", "UPSC GK", "Shorts"], baseTags, baseHashtags);
+        var verificationNote = !string.IsNullOrWhiteSpace(leadIncident.SourceUrl)
+            ? $"\n\n✅ Verified Historical Source ({leadIncident.SourceName ?? "Historical Archive"}): {leadIncident.SourceUrl}"
+            : string.Empty;
         var description = BuildDescription(rule,
             $"🌍 आज का इतिहास / On This Day ({dateKey})\n" +
             bulletSummary +
-            (!string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? $"\n\n✨ महत्व: {leadIncident.CulturalSignificance}" : string.Empty),
+            (!string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? $"\n\n✨ महत्व: {leadIncident.CulturalSignificance}" : string.Empty) +
+            verificationNote,
             links, tags);
 
         var comment = rule.IncludePinnedComment

@@ -502,6 +502,24 @@ public sealed class AutomationController(
             : null;
     }
 
+    [HttpPost("queue/{id}/verify")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> VerifyPost(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.VerifyPostAsync(currentUser.UserId, id, ct)));
+    }
+
+    [HttpPost("queue/{id}/reverify-fix")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> ReverifyAndFixPost(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.ReverifyAndFixPostAsync(currentUser.UserId, id, ct)));
+    }
+
     [HttpPost("queue/{id}/publish")]
     public async Task<ActionResult<ApiResponse<AutomationPost>>> PublishPost(
         string id,

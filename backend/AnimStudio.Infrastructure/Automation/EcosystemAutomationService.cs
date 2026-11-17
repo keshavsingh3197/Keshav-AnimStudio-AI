@@ -248,6 +248,8 @@ public sealed partial class EcosystemAutomationService(
                 && !string.IsNullOrWhiteSpace(j.OutputStorageKey));
         }
 
+        await RefreshOverviewVerificationAsync(posts, signalsTask.Result, ct).ConfigureAwait(false);
+
         return new AutomationOverview(
             effectiveDate,
             settings,
@@ -616,7 +618,11 @@ public sealed partial class EcosystemAutomationService(
                     if (attached && post.AttachedHandoffId is not null) usedHandoffIds.Add(post.AttachedHandoffId);
                 }
 
+                ApplyPostVerification(post, ruleSignals);
+                var mismatchBlocked = string.Equals(post.VerificationStatus, AutomationFactVerifier.StatusMismatch, StringComparison.OrdinalIgnoreCase);
+
                 if (rule.Mode == AutomationPostMode.FullAutopilot
+                    && !mismatchBlocked
                     && settings.GlobalAutopilotEnabled
                     && !string.IsNullOrWhiteSpace(post.TargetChannelId)
                     && (!string.IsNullOrWhiteSpace(post.AttachedHandoffId) || !string.IsNullOrWhiteSpace(post.AttachedRenderJobId)))
@@ -649,9 +655,18 @@ public sealed partial class EcosystemAutomationService(
             await repository.UpsertRuleAsync(rule, ct).ConfigureAwait(false);
         }
 
-        IReadOnlyList<string> warnings = duplicatesRemoved > 0
-            ? [.. signals.Warnings, $"Removed {duplicatesRemoved} duplicate draft card(s) for the same pipeline and day."]
-            : signals.Warnings;
+        var touchedIds = touchedPosts.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var untouchedPosts = postsOnDate.Where(p => !touchedIds.Contains(p.Id)).ToList();
+        await RefreshOverviewVerificationAsync(untouchedPosts, signals, ct).ConfigureAwait(false);
+
+        var prepareWarnings = new List<string>(signals.Warnings);
+        if (duplicatesRemoved > 0)
+            prepareWarnings.Add($"Removed {duplicatesRemoved} duplicate draft card(s) for the same pipeline and day.");
+        foreach (var flagged in postsOnDate.Where(p => string.Equals(p.VerificationStatus, AutomationFactVerifier.StatusMismatch, StringComparison.OrdinalIgnoreCase)))
+        {
+            prepareWarnings.Add($"Fact/date alert on '{flagged.Title}': {flagged.VerificationSummary}");
+        }
+        IReadOnlyList<string> warnings = prepareWarnings;
         return new AutomationPrepareResult(
             effectiveDate,
             selectedRules.Count,
@@ -1816,6 +1831,8 @@ public sealed partial class EcosystemAutomationService(
         if (connection.RevokedAt is not null)
             throw EditingException.Invalid("channel-reconnect", "That YouTube connection expired. Reconnect it before posting.");
 
+        await EnsurePostFactVerifiedForPublishAsync(post, ct).ConfigureAwait(false);
+
         if (!publishNow && scheduledAtUtc is { } future && future > UtcNow.AddMinutes(1))
         {
             post.ScheduledAtUtc = future;
@@ -2155,7 +2172,20 @@ public sealed partial class EcosystemAutomationService(
             post.UpdatedAtUtc = UtcNow;
 
             var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
+            EcosystemSignalsSnapshot? verifySignals = null;
+            if (post.SourceType is AutomationSourceType.AajKaItihaas
+                or AutomationSourceType.HinduPanchang
+                or AutomationSourceType.HinduFestival)
+            {
+                try { verifySignals = await FetchSignalsForPostAsync(post, rule, settings, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogDebug(ex, "Live verification skipped after StoryRun completed for post {PostId}", post.Id);
+                }
+            }
+            ApplyPostVerification(post, verifySignals);
             if (rule?.Mode == AutomationPostMode.FullAutopilot
+                && !string.Equals(post.VerificationStatus, AutomationFactVerifier.StatusMismatch, StringComparison.OrdinalIgnoreCase)
                 && settings.GlobalAutopilotEnabled
                 && !string.IsNullOrWhiteSpace(post.TargetChannelId))
             {

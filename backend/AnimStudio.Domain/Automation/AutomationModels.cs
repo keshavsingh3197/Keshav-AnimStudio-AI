@@ -293,6 +293,23 @@ public sealed class AutomationPost
     /// <summary>Timestamp when a published video was synced to sister HinduPanchang / ecosystem video hub.</summary>
     public DateTime? SyncedToEcosystemAtUtc { get; set; }
 
+    /// <summary>Date/fact verification result: Verified, NeedsReview, Mismatch, or Unverified.</summary>
+    public string VerificationStatus { get; set; } = "Verified";
+
+    /// <summary>Human-readable summary of fact &amp; date verification or mismatch explanation.</summary>
+    public string? VerificationSummary { get; set; }
+
+    /// <summary>Authoritative source label (e.g. Wikipedia On This Day, Lahiri Chitrapaksha Ephemeris).</summary>
+    public string? VerificationSourceName { get; set; }
+
+    /// <summary>Direct clickable source URL or search verification URL for double-checking facts.</summary>
+    public string? VerificationSourceUrl { get; set; }
+
+    /// <summary>Detailed list of detected date or fact warnings/mismatches for this post.</summary>
+    public List<string> VerificationIssues { get; set; } = [];
+
+    public DateTime? VerifiedAtUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
     public DateTime? PublishedAtUtc { get; set; }

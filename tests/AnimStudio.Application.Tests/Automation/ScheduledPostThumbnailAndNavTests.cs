@@ -336,6 +336,269 @@ public sealed class ScheduledPostThumbnailAndNavTests
         Assert.False(string.IsNullOrWhiteSpace(filled.ThumbnailSource));
     }
 
+    [Fact]
+    public async Task EcosystemSignalsClient_rejects_wrong_date_upstream_history_and_returns_verified_Nov18_facts()
+    {
+        var ct = CancellationToken.None;
+        var requestedUrls = new List<string>();
+        HttpResponseMessage Responder(HttpRequestMessage req)
+        {
+            var url = req.RequestUri?.ToString() ?? string.Empty;
+            requestedUrls.Add(url);
+            if (url.Contains("/api/panchang/daily", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonOk(new
+                {
+                    date = "2026-11-18T00:00:00",
+                    location = "New Delhi, India",
+                    tithi = "Shukla Navami",
+                    nakshatra = "Shatabhisha",
+                    yoga = "Vriddhi",
+                    karana = "Balava",
+                    vaara = "Budhawar",
+                    sunrise = "06:46 AM",
+                    sunset = "05:27 PM",
+                    rahuKaal = "12:07 PM - 01:27 PM",
+                    abhijitMuhurat = "11:46 AM - 12:27 PM",
+                    brahmaMuhurat = "05:10 AM - 05:58 AM",
+                    hinduMonthAmanta = "Kartika",
+                    vikramSamvat = "2083 Raudra"
+                });
+            }
+            if (url.Contains("/api/festivals/upcoming", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonOk(new[]
+                {
+                    new
+                    {
+                        id = "dev-deepawali",
+                        nameEnglish = "Dev Deepawali",
+                        nameHindi = "देव दीपावली",
+                        date = "2026-11-24T00:00:00",
+                        description = "Kartik Purnima festival",
+                        daysUntil = 6,
+                        category = "Major",
+                        importance = "Kartik Purnima festival",
+                        deity = "Lord Shiva"
+                    }
+                });
+            }
+            if (url.Contains("/api/culturalhistory/aaj-ka-itihaas", StringComparison.OrdinalIgnoreCase))
+            {
+                // Reproduce exact bug: old Render endpoint ignoring requested Nov 18 and falling back to Nov 19 Rani Lakshmibai
+                return JsonOk(new[]
+                {
+                    new
+                    {
+                        id = "lakshmi-11-19",
+                        dateKey = "11-19",
+                        year = 1828,
+                        title = "Birth Celebration of Rani Lakshmibai",
+                        category = "Indian History",
+                        description = "Rani Lakshmibai was born on 19 November 1828.",
+                        culturalSignificance = "Symbol of courage",
+                        isExactDateMatch = false
+                    }
+                });
+            }
+            if (url.Contains("api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all/11/18", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonOk(new
+                {
+                    events = new[]
+                    {
+                        new
+                        {
+                            year = 1910,
+                            text = "Indian revolutionary freedom fighter Batukeshwar Dutt was born.",
+                            pages = new[]
+                            {
+                                new
+                                {
+                                    normalizedtitle = "Batukeshwar Dutt",
+                                    extract = "Batukeshwar Dutt was an Indian socialist revolutionary.",
+                                    content_urls = new { desktop = new { page = "https://en.wikipedia.org/wiki/Batukeshwar_Dutt" } }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        using var harness = BuildHarness(
+            new FakeAutomationRepository(),
+            new FakeYouTubeConnectionRepository(),
+            new FakePublishQueueRepository(),
+            new FakeRenderJobRepository(),
+            new FakeProjectRepository(),
+            new InMemoryObjectStore(),
+            httpResponder: Responder,
+            useRealSignalsClient: true);
+
+        var client = harness.Provider.GetRequiredService<IEcosystemSignalsClient>();
+        var snapshot = await client.FetchAsync("2026-11-18", "New Delhi, India", ct: ct);
+
+        Assert.Contains(requestedUrls, u => u.Contains("/api/festivals/upcoming?date=2026-11-18"));
+        Assert.NotNull(snapshot.Panchang);
+        Assert.Equal("2026-11-18", snapshot.Panchang!.DateKey);
+        Assert.Equal("Shukla Navami", snapshot.Panchang.Tithi);
+        Assert.Single(snapshot.UpcomingFestivals);
+        Assert.Equal("2026-11-24", snapshot.UpcomingFestivals[0].DateKey);
+
+        Assert.DoesNotContain(snapshot.HistoricalIncidents, h => h.Title.Contains("Lakshmibai", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(snapshot.HistoricalIncidents, h => h.DateKey == "11-18" && h.IsVerified);
+        Assert.Contains(snapshot.Warnings, w => w.Contains("Lakshmibai", StringComparison.OrdinalIgnoreCase) || w.Contains("11-19", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(snapshot.Verification);
+        Assert.Equal(AutomationFactVerifier.StatusVerified, snapshot.Verification!.OverallStatus);
+    }
+
+    [Fact]
+    public async Task Overview_flags_wrong_date_card_as_Mismatch_Publish_blocks_and_ReverifyAndFix_repairs()
+    {
+        var ct = CancellationToken.None;
+        const string userId = "user-verify-1";
+        var repo = new FakeAutomationRepository();
+        var connRepo = new FakeYouTubeConnectionRepository();
+        var queueRepo = new FakePublishQueueRepository();
+        var renderRepo = new FakeRenderJobRepository();
+        var projectRepo = new FakeProjectRepository();
+        var store = new InMemoryObjectStore();
+
+        var verifiedNov18Snapshot = new EcosystemSignalsSnapshot(
+            DateKey: "2026-11-18",
+            Location: "New Delhi, India",
+            Panchang: new EcosystemPanchangSignal(
+                DateKey: "2026-11-18",
+                Location: "New Delhi, India",
+                Tithi: "Shukla Navami",
+                TithiEndTime: "07:12 PM",
+                Nakshatra: "Shatabhisha",
+                NakshatraEndTime: "09:15 PM",
+                Yoga: "Vriddhi",
+                Karana: "Balava",
+                Vaara: "Budhawar",
+                Paksha: "Shukla Paksha",
+                MonthPurnimanta: "Kartika",
+                VikramSamvat: "2083 Raudra",
+                Sunrise: "06:46 AM",
+                Sunset: "05:27 PM",
+                AbhijitMuhurat: "11:46 AM - 12:27 PM",
+                BrahmaMuhurat: "05:10 AM - 05:58 AM",
+                AmritKaal: "02:15 PM - 03:50 PM",
+                RahuKaal: "12:07 PM - 01:27 PM",
+                DailySanskritSutra: "सत्यमेव जयते",
+                DailySutraMeaning: "Truth alone triumphs"),
+            UpcomingFestivals: [],
+            DailyKatha: null,
+            HistoricalIncidents:
+            [
+                new EcosystemHistoricalSignal(
+                    "jaipur-1727", "11-18", 1727, "Foundation of Jaipur (Pink City) by Maharaja Sawai Jai Singh II",
+                    "Indian Heritage", "Maharaja Sawai Jai Singh II founded the planned city of Jaipur on 18 November 1727.",
+                    "Icon of classical Indian urban planning and Vastu architecture.",
+                    IsExactDateMatch: true, IsVerified: true, SourceName: "Wikipedia", SourceUrl: "https://en.wikipedia.org/wiki/Jaipur"),
+                new EcosystemHistoricalSignal(
+                    "dutt-1910", "11-18", 1910, "Birth Anniversary of Revolutionary Batukeshwar Dutt",
+                    "Freedom Struggle", "Revolutionary freedom fighter Batukeshwar Dutt was born on 18 November 1910.",
+                    "Hero of India's independence struggle alongside Bhagat Singh.",
+                    IsExactDateMatch: true, IsVerified: true, SourceName: "Wikipedia", SourceUrl: "https://en.wikipedia.org/wiki/Batukeshwar_Dutt")
+            ],
+            Competitions: [],
+            FunnelCampaigns: [],
+            Warnings: [],
+            FetchedAtUtc: DateTimeOffset.UtcNow);
+
+        verifiedNov18Snapshot = verifiedNov18Snapshot with
+        {
+            Verification = AutomationFactVerifier.VerifySignals("2026-11-18", verifiedNov18Snapshot)
+        };
+
+        using var harness = BuildHarness(
+            repo, connRepo, queueRepo, renderRepo, projectRepo, store,
+            signalsClient: new StaticSignalsClient(verifiedNov18Snapshot));
+        await SeedChannelAndRenderAsync(harness.Provider, userId, "UC4234567890123456789012", "proj-4", "job-4", store, renderRepo);
+
+        await repo.UpsertRuleAsync(new AutomationRule
+        {
+            Id = "rule-itihaas",
+            UserId = userId,
+            Name = "Aaj Ka Itihaas",
+            SourceType = AutomationSourceType.AajKaItihaas,
+            TargetChannelId = "UC4234567890123456789012",
+            Language = "hi",
+            PreferredPublishTime = "15:00",
+            TimeZoneId = "Asia/Kolkata"
+        }, ct);
+
+        var staleWrongPost = new AutomationPost
+        {
+            Id = "ap_wrong_nov18",
+            UserId = userId,
+            RuleId = "rule-itihaas",
+            RuleName = "Aaj Ka Itihaas",
+            SourceType = AutomationSourceType.AajKaItihaas,
+            DateKey = "2026-11-18",
+            Fingerprint = "2026-11-18:rule-itihaas:stale",
+            SourceItemKey = "stale",
+            SourceTitle = "1828 — Birth Celebration of Rani Lakshmibai",
+            Title = "आज का इतिहास (18 नवंबर): वीरांगना रानी लक्ष्मीबाई जयंती और ऐतिहासिक धरोहर",
+            Script = "[सूत्रधार]: 18 नवंबर 1828 को रानी लक्ष्मीबाई का जन्म हुआ।",
+            Description = "Rani Lakshmibai Nov 18",
+            Tags = ["Itihaas"],
+            CategoryId = "27",
+            Privacy = "public",
+            TargetChannelId = "UC4234567890123456789012",
+            AttachedRenderJobId = "job-4",
+            Status = AutomationPostStatus.Approved,
+            ScheduledAtUtc = DateTime.UtcNow.AddHours(2),
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+        await repo.UpsertPostAsync(staleWrongPost, ct);
+
+        var svc = harness.Provider.GetRequiredService<EcosystemAutomationService>();
+
+        // 1. Overview immediately detects wrong Nov 19 Rani Lakshmibai claim under 2026-11-18
+        var overview = await svc.GetOverviewAsync(userId, "2026-11-18", ct);
+        var loaded = Assert.Single(overview.Posts);
+        Assert.Equal(AutomationFactVerifier.StatusMismatch, loaded.VerificationStatus);
+        Assert.Contains("19", loaded.VerificationSummary ?? string.Empty);
+
+        // 2. Attempting to publish or approve-schedule a mismatched card is blocked cleanly
+        var blockedEx = await Assert.ThrowsAsync<EditingException>(
+            () => svc.ApproveAndPublishAsync(userId, staleWrongPost.Id, publishNow: true, scheduledAtUtc: null, ct));
+        Assert.Equal("fact-verification-mismatch", blockedEx.Code);
+
+        // 3. Re-Verify & Fix re-composes strictly from verified Nov 18 facts and preserves channel/video/schedule
+        var fixedPost = await svc.ReverifyAndFixPostAsync(userId, staleWrongPost.Id, ct);
+        Assert.Equal(AutomationFactVerifier.StatusVerified, fixedPost.VerificationStatus);
+        Assert.DoesNotContain("लक्ष्मीबाई", fixedPost.Title);
+        Assert.DoesNotContain("Lakshmibai", fixedPost.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Jaipur", fixedPost.Script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("1727", fixedPost.Script);
+        Assert.Equal("UC4234567890123456789012", fixedPost.TargetChannelId);
+        Assert.Equal("job-4", fixedPost.AttachedRenderJobId);
+        Assert.NotNull(fixedPost.ScheduledAtUtc);
+
+        // 4. Now publishing succeeds cleanly
+        var published = await svc.ApproveAndPublishAsync(userId, fixedPost.Id, publishNow: true, scheduledAtUtc: null, ct);
+        Assert.False(string.IsNullOrWhiteSpace(published.QueueItemId));
+    }
+
+    private static HttpResponseMessage JsonOk(object payload) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json")
+        };
+
+    private sealed class StaticSignalsClient(EcosystemSignalsSnapshot snapshot) : IEcosystemSignalsClient
+    {
+        public Task<EcosystemSignalsSnapshot> FetchAsync(string dateKey, string? location = null, string? panchangOverrideUrl = null, string? socialOverrideUrl = null, string? pratiyogitaOverrideUrl = null, CancellationToken ct = default) =>
+            Task.FromResult(snapshot);
+    }
+
     private static async Task SeedChannelAndRenderAsync(
         IServiceProvider provider,
         string userId,
@@ -385,7 +648,10 @@ public sealed class ScheduledPostThumbnailAndNavTests
         IPublishQueueRepository queueRepo,
         IRenderJobRepository renderRepo,
         IProjectRepository projectRepo,
-        IObjectStore store)
+        IObjectStore store,
+        Func<HttpRequestMessage, HttpResponseMessage>? httpResponder = null,
+        bool useRealSignalsClient = false,
+        IEcosystemSignalsClient? signalsClient = null)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "animstudio-sched-tests-" + Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(tempRoot);
@@ -423,12 +689,15 @@ public sealed class ScheduledPostThumbnailAndNavTests
         services.AddSingleton<IYouTubePublicationRepository, FakePublicationRepository>();
         services.AddSingleton<IPhoneHandoffRepository, FakePhoneHandoffRepository>();
         services.AddSingleton<IContentTopicRepository, FakeContentTopicRepository>();
-        services.AddSingleton<IEcosystemSignalsClient, EmptySignalsClient>();
+        if (signalsClient is not null)
+            services.AddSingleton(signalsClient);
+        else if (!useRealSignalsClient)
+            services.AddSingleton<IEcosystemSignalsClient, EmptySignalsClient>();
         services.AddSingleton<IEcosystemConfigProvider, FakeEcosystemConfigProvider>();
         services.AddSingleton<IAiExecutor, DisabledAiExecutor>();
         services.AddSingleton<IProceduralVideoGenerator, FakeProceduralVideoGenerator>();
         services.AddSingleton<IFfmpegRunner, FakeFfmpegRunner>();
-        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(_ => new HttpResponseMessage(HttpStatusCode.OK)));
+        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(httpResponder ?? (_ => new HttpResponseMessage(HttpStatusCode.OK))));
 
         return new TestHarness(services.BuildServiceProvider(), tempRoot);
     }

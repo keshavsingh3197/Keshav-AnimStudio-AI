@@ -153,6 +153,28 @@ export interface EcosystemHistoricalSignal {
   category: string;
   description: string;
   culturalSignificance?: string | null;
+  isVerified?: boolean;
+  sourceName?: string | null;
+  sourceUrl?: string | null;
+  verificationNote?: string | null;
+  isExactDateMatch?: boolean | null;
+}
+
+export interface SignalVerificationCheck {
+  category: string;
+  status: string;
+  message: string;
+  sourceName?: string | null;
+  sourceUrl?: string | null;
+  verifySearchUrl?: string | null;
+}
+
+export interface SignalVerificationReport {
+  overallStatus: string;
+  summary: string;
+  checks: SignalVerificationCheck[];
+  mismatchesCount: number;
+  warningsCount: number;
 }
 
 export interface EcosystemCompetitionSignal {
@@ -185,6 +207,7 @@ export interface EcosystemSignalsSnapshot {
   funnelCampaigns: EcosystemFunnelCampaignSignal[];
   warnings: string[];
   fetchedAtUtc: string;
+  verification?: SignalVerificationReport | null;
 }
 
 export interface AutomationWebsiteLink {
@@ -404,6 +427,12 @@ export interface AutomationPost {
   storyStageSummary?: string | null;
   storyProgressPercent?: number | null;
   syncedToEcosystemAtUtc?: string | null;
+  verificationStatus?: string | null;
+  verificationSummary?: string | null;
+  verificationSourceName?: string | null;
+  verificationSourceUrl?: string | null;
+  verificationIssues?: string[] | null;
+  verifiedAtUtc?: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
   publishedAtUtc?: string | null;
@@ -784,6 +813,18 @@ export class AutomationService {
       this.http.delete<ApiResponse<AutomationPost>>(
         `${this.base}/queue/${encodeURIComponent(postId)}/sync-panchang`
       )
+    );
+  }
+
+  verifyPost(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/verify`, {})
+    );
+  }
+
+  reverifyAndFixPost(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/reverify-fix`, {})
     );
   }
 

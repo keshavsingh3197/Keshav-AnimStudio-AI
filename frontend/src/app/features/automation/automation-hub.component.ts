@@ -232,6 +232,38 @@ const FULL_VIDEO_MAX_SECONDS = 600;
       }
 
       @if (overview(); as ov) {
+        <!-- Live Fact & Date Verification Banner -->
+        @if (ov.signals.verification; as ver) {
+          <section class="verify-ribbon" [class.has-mismatch]="ver.overallStatus === 'Mismatch'" [class.has-warn]="ver.overallStatus === 'NeedsReview'" aria-label="Live date and fact verification">
+            <div class="verify-ribbon-head">
+              <strong>
+                {{ ver.overallStatus === 'Mismatch' ? '🚫 Fact &amp; Date Verification Alert' : ver.overallStatus === 'NeedsReview' ? '⚠ Fact Verification Notes' : '✓ Live Date &amp; Fact Verification Passed' }}
+              </strong>
+              <span class="pill" [class.ok]="ver.overallStatus === 'Verified'" [class.err]="ver.overallStatus === 'Mismatch'" [class.warn]="ver.overallStatus !== 'Verified' && ver.overallStatus !== 'Mismatch'">
+                {{ ver.summary }}
+              </span>
+            </div>
+            <div class="verify-checks-grid">
+              @for (chk of ver.checks; track chk.category) {
+                <div class="verify-check-pill" [class.err]="chk.status === 'Mismatch'" [class.warn]="chk.status === 'NeedsReview' || chk.status === 'Unverified'">
+                  <div class="vcp-top">
+                    <span class="vcp-cat">{{ chk.status === 'Verified' ? '✓' : chk.status === 'Mismatch' ? '🚫' : '⚠' }} {{ chk.category }}</span>
+                    <div class="vcp-links">
+                      @if (chk.sourceUrl) {
+                        <a class="verify-ext-link" [href]="chk.sourceUrl" target="_blank" rel="noopener">{{ chk.sourceName || 'Source' }} ↗</a>
+                      }
+                      @if (chk.verifySearchUrl) {
+                        <a class="verify-ext-link" [href]="chk.verifySearchUrl" target="_blank" rel="noopener">Google Check ↗</a>
+                      }
+                    </div>
+                  </div>
+                  <small class="vcp-msg">{{ chk.message }}</small>
+                </div>
+              }
+            </div>
+          </section>
+        }
+
         <!-- Live Signals Ribbon -->
         <section class="signals-ribbon" aria-label="Live ecosystem signals">
           <div class="sig-card">
@@ -434,8 +466,39 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                   </div>
 
+                  @if (post.verificationStatus === 'Mismatch') {
+                    <div class="err-note verify-alert-card" (click)="$event.stopPropagation()">
+                      <div><strong>Date / Fact Mismatch:</strong> {{ post.verificationSummary }}</div>
+                      <div class="verify-card-actions">
+                        @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                          <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="reverifyAndFixPost(post)">
+                            {{ busyAction() === 'fix:' + post.id ? 'Fixing…' : '🔄 Fix Verified Data' }}
+                          </button>
+                        }
+                        <a class="verify-ext-link"
+                           [href]="post.verificationSourceUrl || googleVerifyUrl(post.sourceTitle + ' ' + post.dateKey)"
+                           target="_blank" rel="noopener">
+                          Verify Source ↗
+                        </a>
+                      </div>
+                    </div>
+                  }
+
                   @if (post.format !== 'CommunityPost' && post.status !== 'Published') {
                     <div class="card-readiness-row">
+                      @if (post.verificationStatus === 'Mismatch') {
+                        <span class="mini-chip err" [title]="post.verificationSummary || 'Date/fact mismatch'">
+                          🚫 Fact/Date Mismatch
+                        </span>
+                      } @else if (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified') {
+                        <span class="mini-chip warn" [title]="post.verificationSummary || 'Needs review'">
+                          ⚠ Fact Check
+                        </span>
+                      } @else {
+                        <span class="mini-chip ok" [title]="post.verificationSummary || 'Facts & date verified'">
+                          ✓ Verified
+                        </span>
+                      }
                       @if (post.scheduledAtUtc) {
                         <span class="mini-chip info" [title]="'UTC: ' + post.scheduledAtUtc">
                           🕒 {{ formatLocalSchedule(post.scheduledAtUtc) }}
@@ -484,8 +547,8 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                     @if (post.status !== 'Published' && post.status !== 'Publishing' && post.format !== 'CommunityPost') {
                       <button type="button" class="btn tiny ok"
-                              [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
-                              [title]="!post.targetChannelId ? 'Assign a YouTube channel in Details first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Generate or attach a video first' : 'Publish to YouTube now')"
+                              [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                              [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix Verified Data first' : (!post.targetChannelId ? 'Assign a YouTube channel in Details first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Generate or attach a video first' : 'Publish to YouTube now'))"
                               (click)="publishNow(post)">
                         Publish
                       </button>
@@ -946,6 +1009,51 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                         }
                       </div>
 
+                      <div class="verify-detail-box"
+                           [class.is-mismatch]="post.verificationStatus === 'Mismatch'"
+                           [class.is-warn]="post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified'">
+                        <div class="verify-detail-head">
+                          <div class="verify-detail-title">
+                            <strong>Fact &amp; Date Verification</strong>
+                            <span class="pill"
+                                  [ngClass]="post.verificationStatus === 'Mismatch' ? 'tone-err' : (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified' ? 'tone-warn' : 'tone-ok')">
+                              {{ post.verificationStatus === 'Mismatch' ? '🚫 Date/Fact Mismatch' : (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified' ? '⚠ Review Recommended' : '✓ Verified Accurate') }}
+                            </span>
+                          </div>
+                          @if (post.status !== 'Publishing') {
+                            <div class="readiness-head-actions">
+                              <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="verifyPostFacts(post)">
+                                {{ busyAction() === 'verify:' + post.id ? 'Checking…' : '↻ Verify Now' }}
+                              </button>
+                              @if (post.status !== 'Published') {
+                                <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="reverifyAndFixPost(post)"
+                                        title="Re-compose script, title and description strictly from live verified facts for this date">
+                                  {{ busyAction() === 'fix:' + post.id ? 'Fixing…' : '🔄 Fix with Verified Data' }}
+                                </button>
+                              }
+                            </div>
+                          }
+                        </div>
+                        <p class="verify-detail-msg">{{ post.verificationSummary || 'Click Verify Now to cross-check live sources.' }}</p>
+                        @if (post.verificationIssues?.length) {
+                          <ul class="verify-issues-list">
+                            @for (issue of post.verificationIssues; track issue) {
+                              <li>{{ issue }}</li>
+                            }
+                          </ul>
+                        }
+                        <div class="verify-links-bar">
+                          @if (post.verificationSourceUrl) {
+                            <a class="verify-ext-link" [href]="post.verificationSourceUrl" target="_blank" rel="noopener">
+                              📚 Source: {{ post.verificationSourceName || 'Verified Reference' }} ↗
+                            </a>
+                          }
+                          <a class="verify-ext-link" [href]="googleVerifyUrl((post.sourceTitle || post.title) + ' ' + post.dateKey)" target="_blank" rel="noopener">
+                            🔍 Google Double-Check ↗
+                          </a>
+                        </div>
+                      </div>
+
                       <div class="thumb-studio-box">
                         <div class="thumb-preview-slot">
                           @if (hasPostThumbnail(post)) {
@@ -1088,14 +1196,15 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     @if (post.status !== 'Published' && post.status !== 'Publishing') {
                       @if (post.format !== 'CommunityPost') {
                         <button type="button" class="btn ok"
-                                [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
-                                [title]="!post.targetChannelId ? 'Assign a YouTube channel in Edit or Rule first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Attach or generate a video first' : 'Publish to YouTube now')"
+                                [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix with Verified Data first' : (!post.targetChannelId ? 'Assign a YouTube channel in Edit or Rule first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Attach or generate a video first' : 'Publish to YouTube now'))"
                                 (click)="publishNow(post)">
                           Publish to YouTube
                         </button>
                         @if (post.scheduledAtUtc) {
                           <button type="button" class="btn ghost"
-                                  [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                  [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                  [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix with Verified Data first' : 'Approve & Schedule'"
                                   (click)="scheduleForRuleTime(post)">
                             Approve Schedule
                           </button>
@@ -2448,6 +2557,40 @@ const FULL_VIDEO_MAX_SECONDS = 600;
     .check-pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); }
     .check-pill.ok { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
     .check-pill.warn { background: var(--warn-dim); border-color: var(--warn); color: var(--warn); }
+    .mini-chip.err, .pill.err, .pill.tone-err { background: var(--err-dim); border-color: var(--err); color: var(--c-red); }
+    .verify-ribbon {
+      display: flex; flex-direction: column; gap: 8px; padding: 11px 14px;
+      border-radius: var(--radius); background: var(--surface); border: 1px solid var(--ok);
+    }
+    .verify-ribbon.has-mismatch { border-color: var(--err); background: rgba(239, 68, 68, 0.08); }
+    .verify-ribbon.has-warn { border-color: var(--warn); background: rgba(245, 158, 11, 0.07); }
+    .verify-ribbon-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+    .verify-checks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+    .verify-check-pill {
+      display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+      border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border);
+    }
+    .verify-check-pill.err { border-color: var(--err); background: var(--err-dim); }
+    .verify-check-pill.warn { border-color: var(--warn); background: var(--warn-dim); }
+    .vcp-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; }
+    .vcp-cat { font-size: 11.5px; font-weight: 800; color: var(--text); }
+    .vcp-links { display: flex; flex-wrap: wrap; gap: 8px; }
+    .vcp-msg { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+    .verify-ext-link { font-size: 11.5px; font-weight: 700; color: var(--brand-bright); text-decoration: none; }
+    .verify-ext-link:hover { text-decoration: underline; }
+    .verify-alert-card { display: flex; flex-direction: column; gap: 7px; border: 1px solid var(--err); }
+    .verify-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .verify-detail-box {
+      display: flex; flex-direction: column; gap: 7px; padding: 10px 12px;
+      border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--ok);
+    }
+    .verify-detail-box.is-mismatch { border-color: var(--err); background: var(--err-dim); }
+    .verify-detail-box.is-warn { border-color: var(--warn); background: var(--warn-dim); }
+    .verify-detail-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+    .verify-detail-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+    .verify-detail-msg { margin: 0; font-size: 12.5px; color: var(--text); line-height: 1.45; }
+    .verify-issues-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--c-red); display: flex; flex-direction: column; gap: 3px; }
+    .verify-links-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
     .thumb-studio-box {
       display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 10px 12px;
       border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border);
@@ -4022,6 +4165,32 @@ export class AutomationHubComponent implements OnInit {
       this.status.showNotice(`Auto-filled missing metadata, tags & thumbnail check for "${updated.title}".`);
       await this.loadOverview(true);
     });
+  }
+
+  async verifyPostFacts(post: AutomationPost): Promise<void> {
+    await this.runAction(`verify:${post.id}`, async () => {
+      const updated = await firstValueFrom(this.api.verifyPost(post.id));
+      this.syncUpdatedPostState(updated, true);
+      if (updated.verificationStatus === 'Mismatch') {
+        this.status.showError(updated.verificationSummary || 'Date/fact mismatch detected.');
+      } else {
+        this.status.showNotice(updated.verificationSummary || `Facts verified for "${updated.title}".`);
+      }
+      await this.loadOverview(true);
+    });
+  }
+
+  async reverifyAndFixPost(post: AutomationPost): Promise<void> {
+    await this.runAction(`fix:${post.id}`, async () => {
+      const updated = await firstValueFrom(this.api.reverifyAndFixPost(post.id));
+      this.syncUpdatedPostState(updated, true);
+      this.status.showNotice(`Refreshed "${updated.title}" with live verified facts for ${updated.dateKey}.`);
+      await this.loadOverview(true);
+    });
+  }
+
+  googleVerifyUrl(query: string): string {
+    return `https://www.google.com/search?q=${encodeURIComponent(query || '')}`;
   }
 
   async openVideoPicker(post: AutomationPost): Promise<void> {
