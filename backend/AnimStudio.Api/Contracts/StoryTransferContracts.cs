@@ -93,6 +93,9 @@ public static class StoryTransfer
             PackId = run.Brief.PackId,
             GenreId = run.Brief.GenreId,
             TextEngine = run.Brief.TextEngine,
+            BrandChannelId = run.Brief.BrandChannelId,
+            ComedyStyle = run.Brief.ComedyStyle,
+            AutoInsertMemes = run.Brief.AutoInsertMemes,
             Options = StoryBuildOptionsRequest.From(run.Options)
         },
         run.Script is null ? null : Export(run.Script));

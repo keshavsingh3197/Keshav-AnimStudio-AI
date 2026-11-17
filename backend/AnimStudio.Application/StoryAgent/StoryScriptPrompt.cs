@@ -1,6 +1,8 @@
 using System.Text;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Ai;
+using AnimStudio.Domain.Effects;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Stories;
 
 namespace AnimStudio.Application.StoryAgent;
@@ -41,10 +43,17 @@ public static class StoryScriptPrompt
     /// one - with the genre's style guide as data - for the rest. A story told only by its characters has its own
     /// version of each, written without a narrator.
     /// </summary>
-    public static (string TemplateKey, IReadOnlyDictionary<string, string?> Variables) For(StoryRun run)
+    public static (string TemplateKey, IReadOnlyDictionary<string, string?> Variables) For(StoryRun run) =>
+        For(run, null, null);
+
+    public static (string TemplateKey, IReadOnlyDictionary<string, string?> Variables) For(
+        StoryRun run,
+        IReadOnlyList<EffectClip>? libraryClips,
+        BrandChannel? channel = null)
     {
         var charactersOnly = run.Brief.Voicing == StoryVoicing.CharactersOnly;
-        if (run.Brief.Mode != StoryGenreMode.Creative)
+        var isComedyChannel = channel is not null && ComedyCraftGuide.IsComedyContext(run.Brief.GenreId, run.Genre?.Category, channel);
+        if (run.Brief.Mode != StoryGenreMode.Creative && !isComedyChannel)
         {
             var variables = new Dictionary<string, string?>(Variables(run.Brief, run.Research), StringComparer.Ordinal)
             {
@@ -53,14 +62,16 @@ public static class StoryScriptPrompt
             return (charactersOnly ? BuiltInPrompts.StoryScriptDialogue : BuiltInPrompts.StoryScript, variables);
         }
 
-        var genre = StoryGenres.Of(run);
+        var genre = isComedyChannel && string.IsNullOrWhiteSpace(run.Brief.GenreId)
+            ? StoryGenres.Funny()
+            : StoryGenres.Of(run);
         return (charactersOnly ? BuiltInPrompts.StoryScriptCreativeDialogue : BuiltInPrompts.StoryScriptCreative, new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["title"] = run.Brief.Title,
             ["language"] = LanguageName(run.Brief.Language),
             ["sceneCount"] = SceneCount(run.Brief.TargetSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["notes"] = NotesFor(run),
-            ["genre"] = GenreBlock(genre),
+            ["genre"] = GenreBlock(genre, run, libraryClips, channel),
             ["research"] = IdeasBlock(run.Research)
         });
     }
@@ -92,13 +103,34 @@ public static class StoryScriptPrompt
     }
 
     /// <summary>The genre as the writer reads it: its name, who it is for, the style guide and the moods.</summary>
-    public static string GenreBlock(StoryGenre genre)
+    public static string GenreBlock(StoryGenre genre) => GenreBlock(genre, null, null, null);
+
+    public static string GenreBlock(
+        StoryGenre genre,
+        StoryRun? run,
+        IReadOnlyList<EffectClip>? libraryClips = null,
+        BrandChannel? channel = null)
     {
         var builder = new StringBuilder();
         builder.Append("Genre: ").Append(genre.Name).Append('\n');
         if (genre.MadeForKids) builder.Append("Audience: children\n");
         if (genre.StyleGuide.Length > 0) builder.Append(genre.StyleGuide.Trim()).Append('\n');
         if (genre.Moods.Count > 0) builder.Append("Moods: ").Append(string.Join(", ", genre.Moods)).Append('\n');
+
+        var isComedy = run is not null
+            ? ComedyCraftGuide.IsComedyRun(run, channel)
+            : ComedyCraftGuide.IsComedyContext(genre.Id, genre.Category, channel);
+        if (isComedy)
+        {
+            var effectiveTone = run is not null
+                ? ComedyCraftGuide.EffectiveToneForRun(run, channel)
+                : (channel?.ComedyStyle ?? ComedyToneStyle.Auto);
+            var includeMemes = run?.Brief.AutoInsertMemes ?? channel?.AutoInsertMidMemes ?? true;
+            var lang = run?.Brief.Language ?? genre.DefaultLanguage;
+            var seconds = run?.Brief.TargetSeconds ?? genre.DefaultTargetSeconds;
+            builder.Append('\n').Append(ComedyCraftGuide.BuildPromptGuidance(
+                effectiveTone, lang, seconds, libraryClips, includeMemes, isProceduralFormat: false)).Append('\n');
+        }
         return builder.ToString().TrimEnd();
     }
 

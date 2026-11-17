@@ -48,6 +48,8 @@ export type AutomationVisualEngine =
 
 export type AutomationNarrativeMode = 'Auto' | 'ShortReel' | 'FullStory';
 
+export type ComedyToneStyle = 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+
 export type SubtitleMotionPreset = 'event-glow' | 'karaoke-pulse' | 'classic-clean';
 
 export interface AutomationStorageImageItem {
@@ -231,6 +233,8 @@ export interface AutomationRule {
   visualEngine?: AutomationVisualEngine;
   narrativeMode?: AutomationNarrativeMode;
   attachedAssetIds?: string[];
+  comedyStyle?: ComedyToneStyle;
+  autoInsertMemes?: boolean;
   sortOrder: number;
   lastPreparedDateKey?: string | null;
   createdAtUtc?: string;

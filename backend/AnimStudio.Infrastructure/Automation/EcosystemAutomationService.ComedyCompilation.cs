@@ -56,10 +56,7 @@ public sealed partial class EcosystemAutomationService
     {
         var connected = await connections.ListAsync(userId, ct).ConfigureAwait(false);
         var matched = connected.FirstOrDefault(c =>
-            (!string.IsNullOrWhiteSpace(c.ChannelHandle) && c.ChannelHandle.Contains("keshav-anim-ff", StringComparison.OrdinalIgnoreCase))
-            || (!string.IsNullOrWhiteSpace(c.ChannelTitle) &&
-                (c.ChannelTitle.Contains("keshav-anim-ff", StringComparison.OrdinalIgnoreCase)
-                 || c.ChannelTitle.Contains("funny", StringComparison.OrdinalIgnoreCase))));
+            AnimStudio.Domain.Stories.ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle));
         var comedyChannel = matched is not null
             ? (matched.ChannelId, matched.ChannelTitle, matched.ChannelHandle)
             : fallbackChannel;
@@ -68,7 +65,7 @@ public sealed partial class EcosystemAutomationService
             userId,
             sortOrder,
             "Funny 3D Comedy Shorts (@KESHAV-ANIM-FF)",
-            "10s-30s relatable Indian chai-tapri & everyday comedy punchline loops with expressive 3D dialogue characters.",
+            "Fast YouTube-tuned Khadi Bhasha & Tu-Tadak Indian comedy skits with mid-video reaction memes and twist punchlines.",
             AutomationSourceType.FunnyComedy,
             comedyChannel,
             null,
@@ -78,12 +75,15 @@ public sealed partial class EcosystemAutomationService
             "23",
             now);
 
-        rule.TargetSeconds = 15;
+        rule.TargetSeconds = 25;
         rule.Language = "hi";
         rule.EnableCharacterDialogue = true;
         rule.SpeakerAName = "पप्पू भैया";
         rule.SpeakerBName = "बबलू यार";
         rule.NarrativeMode = AutomationNarrativeMode.ShortReel;
+        rule.SubtitlePreset = "karaoke-pulse";
+        rule.ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
+        rule.AutoInsertMemes = true;
         return rule;
     }
 

@@ -709,23 +709,38 @@ public static class AutomationContentComposer
         bool isHindi)
     {
         var customSeed = string.IsNullOrWhiteSpace(rule.CustomTopicPrompt) ? null : rule.CustomTopicPrompt.Trim();
+        var effectiveTone = rule.ComedyStyle;
+        var isKhadi = effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha;
+        var isClean = effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.FamilyClean;
         var (speakerA, speakerB) = ResolveSpeakerPair(rule, customSeed ?? "Comedy Chai Tapri", null, isHindi);
-        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode(dateKey)) % 4;
+        var byStander = isHindi ? "टपरी भैया" : "Chai Guy";
+        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode(dateKey)) % 5;
         var isFull = IsFullStoryMode(rule);
+        var includeMemes = rule.AutoInsertMemes;
 
-        var topicTitleHi = customSeed ?? slot switch
+        var topicTitleHi = customSeed ?? (isKhadi ? slot switch
         {
-            0 => "चाय की टपरी पर दो दोस्तों का बिल लॉजिक 😂",
-            1 => "सुबह 5 बजे का अलार्म बनाम अखंड आलस 😂",
-            2 => "मम्मी के सामने 'ऑनलाइन क्लास' का सच 😂",
-            _ => "जब दोस्त बोले 'भाई मैं बस 2 मिनट में पहुँच रहा हूँ' 😂"
-        };
+            0 => "ताऊ का खड़ी भाषा देसी जुगाड़ 😂 टपरी पर उधार कांड",
+            1 => "सुबह 5 बजे का अलार्म और छोले-भटूरे का सपना 😂",
+            2 => "भाई के 2 मिनट मतलब पूरा एक युग 😂 देसी रोस्ट",
+            3 => "मम्मी का फ्लाइंग चप्पल रडार बनाम पप्पू 😂",
+            _ => "शादी के बुफ़े में पनीर लूटने की खुफ़िया प्लानिंग 😂"
+        } : slot switch
+        {
+            0 => "टपरी पर फ्री की चाय और दोस्त का 'वॉलेट घर पे' स्कैम 😂",
+            1 => "सुबह 5 बजे जिम का जोश और 11 बजे तक खर्राटे 😂",
+            2 => "'अबे 2 मिनट में आया' बोलकर चप्पल ढूँढता दोस्त 😂",
+            3 => "फ्री वाई-फ़ाई पासवर्ड के लिए दोस्त की भयानक बेइज़्ज़ती 😂",
+            _ => "शादी के बुफ़े में पनीर बचाने की सीक्रेट प्लानिंग 😂"
+        });
+
         var topicTitleEn = customSeed ?? slot switch
         {
-            0 => "Tea Stall Bill Math Gone Wrong 😂",
-            1 => "The 5 AM Alarm vs. Pure Laziness 😂",
-            2 => "When Your Friend Says 'I'm 2 Minutes Away' 😂",
-            _ => "Free Wi-Fi Password Negotiation 😂"
+            0 => "Friend Shows Up Broke to Free Chai Tapri 😂",
+            1 => "The 5 AM Gym Plan vs. Chole Bhature 😂",
+            2 => "When '2 Minutes Away' Means Still In Bed 😂",
+            3 => "Free Wi-Fi Password Negotiation Gone Wrong 😂",
+            _ => "Wedding Buffet Paneer Strategy Exposed 😂"
         };
 
         var title = Truncate(
@@ -733,104 +748,25 @@ public static class AutomationContentComposer
             MaxTitleLength);
 
         var script = isHindi
-            ? (rule.EnableCharacterDialogue
-                ? (isFull
-                    ? slot switch
-                    {
-                        0 => $"""
-                            [SCENE]: chai stall
-                            [{speakerB}]: भाई {speakerA}, आज तो दो समोसे और चार चाय का बिल तू ही देगा ना? मेरी तो जेब में सिर्फ़ हवा भरी है!
-                            [{speakerA}]: अरे बिल्कुल बबलू! दोस्ती में हिसाब नहीं होता... बस देख सामने उधार खाता किसके नाम खुलता है।
-                            [{speakerB}]: अबे टपरी वाले भैया तो पहले से तेरा आधार कार्ड दीवार पर चिपकाए बैठे हैं!
-                            [{speakerA}]: चुप कर! वही तो मेरी पक्की VIP मेंबरशिप है — बिना पैसे दिए रोज़ चाय मिलती है!
-                            [सूत्रधार]: ऐसे ही देसी कॉमेडी शॉर्ट्स के लिए सब्सक्राइब करें — और बताइए आपका सबसे कंजूस दोस्त कौन है!
-                            """,
-                        1 => $"""
-                            [SCENE]: comedy stage
-                            [{speakerB}]: {speakerA}, कल रात तुमने कहा था आज सुबह 5 बजे उठकर जिम और पढ़ाई दोनों करोगे, अभी 11 बज रहे हैं!
-                            [{speakerA}]: भाई 5 बजे अलार्म बजा तो था, पर सपने में एक संत आए और बोले — 'बेटा अभी और सो, ब्रह्मांड को तेरे आराम की ज़रूरत है!'
-                            [{speakerB}]: गजब बहाना है! और कल परीक्षा में भी यही संत उत्तर लिखने आएंगे?
-                            [{speakerA}]: नहीं भाई, कल तो चाय की टपरी पर ही ग्रुप स्टडी होगी!
-                            [सूत्रधार]: हँसते रहिए और चैनल को अभी सब्सक्राइब कीजिए!
-                            """,
-                        2 => $"""
-                            [SCENE]: chai stall
-                            [{speakerB}]: {speakerA}, सुबह से दस बार फ़ोन कर चुका हूँ — 'बस दो मिनट में पहुँच रहा हूँ' बोलकर अभी तक घर से नहीं निकला!
-                            [{speakerA}]: अरे यार, मैंने तो घड़ी में टाइम भी चेक नहीं किया... मेरे हिसाब से इंडिया में 'दो मिनट' का मतलब कम से कम आधा घंटा होता है!
-                            [{speakerB}]: अच्छा? तो तेरी शादी की बारात भी 'दो मिनट' बोलकर अगले दिन पहुँचेगी क्या?
-                            [{speakerA}]: कम से कम तब तक तू चाय पीकर दो बार बिल दे चुका होगा!
-                            [सूत्रधार]: अपना '2 मिनट वाला दोस्त' कमेंट में टैग करो!
-                            """,
-                        _ => $"""
-                            [SCENE]: comedy stage
-                            [{speakerB}]: भाई {speakerA}, आज बिना पैसे के नया बिज़नेस आइडिया बता ना — करोड़पति बनना है!
-                            [{speakerA}]: एकदम आसान है! चाय की टपरी खोलो और फ्री वाई-फ़ाई लिख दो... पासवर्ड सिर्फ़ दूसरी चाय ऑर्डर करने पर बताओ!
-                            [{speakerB}]: पर कोई पहली चाय ही न पिए तो?
-                            [{speakerA}]: तो बोर्ड लगा दो — 'यहाँ बैठकर रील्स देखने का भी किराया लगेगा!'
-                            [सूत्रधार]: पसंद आए तो लाइक और शेयर ज़रूर करें!
-                            """
-                    }
-                    : slot switch
-                    {
-                        0 => $"""
-                            [SCENE]: chai stall
-                            [{speakerB}]: भाई आज टपरी का बिल तू देगा?
-                            [{speakerA}]: हाँ बिल्कुल... बस तेरे नाम पर उधार लिखवा दूँगा!
-                            [{speakerB}]: अरे मेरा तो पहले से पक्का उधार खाता चल रहा है यहाँ!
-                            [{speakerA}]: इसीलिए तो दोस्ती पक्की है — चल एक और चाय बोल!
-                            """,
-                        1 => $"""
-                            [SCENE]: comedy stage
-                            [{speakerB}]: सुबह 5 बजे का अलार्म लगाया था ना? फिर भी 11 बजे उठे?
-                            [{speakerA}]: अरे 5 बजे उठा था भाई... बस स्नूज़ बटन को प्यार हो गया मुझसे!
-                            [{speakerB}]: और अब अगले साल फिर 5 बजे का संकल्प लोगे?
-                            [{speakerA}]: बिल्कुल! कल से पक्का!
-                            """,
-                        2 => $"""
-                            [SCENE]: chai stall
-                            [{speakerB}]: 30 मिनट पहले बोला था 'बस 2 मिनट में आया'! अभी तक टपरी पे नहीं पहुँचा?
-                            [{speakerA}]: अरे भाई, मैं रास्ते में नहीं... अभी तो चप्पल ढूँढ रहा हूँ!
-                            [{speakerB}]: गजब टाइम मैनेजमेंट है यार तेरा!
-                            """,
-                        _ => $"""
-                            [SCENE]: comedy stage
-                            [{speakerB}]: मम्मी के सामने 'ऑनलाइन क्लास' बोलकर गेम खेल रहा था ना?
-                            [{speakerA}]: अरे वह 'ब्रेन एक्सरसाइज' लेक्चर चल रहा था!
-                            [{speakerB}]: अच्छा! और मम्मी की चप्पल को क्या बोलेगा — 'फ़िज़िकल टेस्ट'?
-                            """
-                    })
-                : $"""
-                    [SCENE]: chai stall
-                    [HOOK 0-3s] जब दोस्त कहे 'भाई आज टपरी पर बिल मैं दूँगा'...
-                    [BODY 3-12s] और जेब में हाथ डालकर बोले — 'अरे यार, वॉलेट तो घर पर ही रह गया!'
-                    [PUNCHLINE] बस यहीं से असली दोस्ती की परीक्षा शुरू होती है — चाय पीयो और कमेंट में दोस्त को टैग करो!
-                    """)
-            : (rule.EnableCharacterDialogue
-                ? $"""
-                    [SCENE]: chai stall
-                    [{speakerB}]: Wait — you texted 'two minutes away' forty minutes ago!
-                    [{speakerA}]: Technically my spirit arrived two minutes ago, only my slippers are still buffering!
-                    [{speakerB}]: Next time bring two cups of chai as interest!
-                    [{speakerA}]: Deal — put both on your tab!
-                    """
-                : $"""
-                    [SCENE]: comedy stage
-                    [HOOK 0-3s] Me setting five alarms for 5 AM to change my entire life...
-                    [BODY 3-12s] Only to wake up at 11 AM feeling proud that I turned all five off in my sleep!
-                    [PUNCHLINE] Subscribe and tag your snooze-champion friend!
-                    """);
+            ? BuildHindiComedyScript(speakerA, speakerB, byStander, slot, effectiveTone, isFull, includeMemes, rule.EnableCharacterDialogue)
+            : BuildEnglishComedyScript(speakerA, speakerB, byStander, slot, isFull, includeMemes, rule.EnableCharacterDialogue);
 
-        var summaryText = isHindi ? $"{topicTitleHi} — मज़ेदार 3D कॉमेडी शॉर्ट" : $"{topicTitleEn} — 3D animated comedy loop";
+        var summaryText = isHindi
+            ? $"{topicTitleHi} — {effectiveTone} देसी कॉमेडी शॉर्ट"
+            : $"{topicTitleEn} — 3D animated comedy skit";
         var prompt = ApplyPromptOverride(rule,
-            $"Expressive colorful 3D comedy animation in {ratioLabel} at a lively Indian chai tapri / comedy stage: " +
-            $"warm tangerine spotlights, exaggerated cartoon expressions, punchline bounce, crisp comedic timing on '{topicTitleHi}'.");
-        var thumbPrompt = $"Bright expressive 3D cartoon comedy thumbnail for '{title}', punchy yellow/orange contrast, shock/laugh faces.";
-        var tags = MergeTags(["Comedy Shorts", "Funny 3D Animation", "Desi Comedy", "KESHAV-ANIM-FF", "Shorts"], baseTags, baseHashtags);
+            $"Expressive colorful 3D comedy animation in {ratioLabel} across an Indian chai tapri and comedy spot stage: " +
+            $"warm tangerine lighting, exaggerated wide-eyed cartoon reactions, rapid banter cuts on '{topicTitleHi}'.");
+        var thumbPrompt = $"Bright expressive 3D cartoon comedy thumbnail for '{title}', shocked and laughing faces, bold orange/gold contrast, no text.";
+        var tags = MergeTags(
+            ["Comedy Shorts", "Desi Comedy", isKhadi ? "Khadi Bhasha Comedy" : "Tu Tadak Comedy", "Hindi Funny Animation", "KESHAV-ANIM-FF", "Shorts"],
+            baseTags,
+            baseHashtags);
         var description = BuildDescription(rule,
-            $"{summaryText}\n😂 Subscribe for daily 10s-30s 3D comedy skits & relatable punchlines!",
+            $"{summaryText}\n😂 {(isClean ? "सबके साथ बैठकर देखें!" : "असली यारों वाला देसी रोस्ट!")} रोज़ ऐसे ही मज़ेदार 3D कॉमेडी वीडियो के लिए सब्सक्राइब करें!",
             links, tags);
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"😂 आपको कौन-सा पंच सबसे मज़ेदार लगा? कमेंट में बताएं 👇\n🔗 {primaryLink}", links)
+            ? BuildPinnedComment($"😂 ऐसा दोस्त किसके ग्रुप में है? नाम लिख के बेइज़्ज़ती करो 👇\n🔗 {primaryLink}", links)
             : null;
 
         return new ComposedAutomationContent(
@@ -838,6 +774,149 @@ public static class AutomationContentComposer
             summaryText,
             topicTitleEn,
             title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
+    }
+
+    private static string BuildHindiComedyScript(
+        string speakerA,
+        string speakerB,
+        string bystander,
+        int slot,
+        AnimStudio.Domain.Stories.ComedyToneStyle tone,
+        bool isFull,
+        bool includeMemes,
+        bool dialogueEnabled)
+    {
+        if (!dialogueEnabled)
+        {
+            return $"""
+                [SCENE]: chai stall | day | playful
+                जब यार कहे आज टपरी का बिल मैं दूँगा, और जेब से सिर्फ़ खाली रसीद निकले!
+                {(includeMemes ? "[MEME]: shocked_face | भाई का वॉलेट गायब!\n" : string.Empty)}बस यहीं से असली दोस्ती और खड़ी भाषा की बेइज़्ज़ती शुरू होती है — अपना ऐसा दोस्त कमेंट में टैग करो!
+                """;
+        }
+
+        string memeMid(string key, string caption) => includeMemes ? $"[MEME]: {key} | {caption}\n" : string.Empty;
+
+        if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha)
+        {
+            return slot switch
+            {
+                0 => $"""
+                    [CAST]: {speakerA} | scholar | bright orange hoodie, tousled hair, cheeky grin
+                    [CAST]: {speakerB} | child | mustard kurta, funky scarf, mischievous look
+                    [CAST]: {bystander} | villager | white apron, towel on shoulder, deadpan stare
+                    [SCENE]: chai stall | day | playful | IMAGE: lively North Indian roadside chai tapri, steaming brass kettle, wooden bench, sunlit village market backdrop, 3D cartoon background plate, no people
+                    [{speakerA}]: (proud) {bystander}, दो बढ़िया अदरक की चाय और गरम समोसे ठोक दे — इब म्हारा भाई बिल देगा!
+                    [{speakerB}]: (confused) अरे बावले, तेरी जेब फटी पड़ी सै और नाम म्हारा लगावै?
+                    [{speakerA}]: (mischievous) इब देख तमाशा! पहले समोसा अंदर कर, पैसे का जुगाड़ तो टैम पे देख्या जावैगा!
+                    {memeMid("shocked_face", "अरे बावले, यो के बोल दिया!")}[SCENE]: comedy stage | sunset | excited | IMAGE: humorous bright village square tapri corner, warm dusk spotlights, exaggerated props, 3D cartoon style, no people
+                    [{bystander}]: (sarcastic) यारा, थारा पिछला चार सौ रुपया का उधार खाता दीवार पे टँगा सै — किसे मूर्ख बनावै सै!
+                    [{speakerB}]: (laughing) ले इब कर ले जुगाड़ — बर्तन मांजने की ड्यूटी पक्की तेरी!
+                    {(isFull ? $"[{speakerA}]: (surprised) अबे बबलू रुक! मेरी चप्पल तो उठा ले, दौड़ने का टैम आ गया!" : string.Empty)}
+                    {memeMid("khatam_tata_bye", "इब बोल... मोये मोये हो गया!")}
+                    """,
+                _ => $"""
+                    [CAST]: {speakerA} | scholar | yellow sweater, messy hair, oversized specs
+                    [CAST]: {speakerB} | child | teal jacket, backwards cap, smug smile
+                    [SCENE]: village | dawn | playful | IMAGE: colorful Indian village courtyard at morning mist, neem tree and charpai cot, bright sunlit 3D cartoon background, no people
+                    [{speakerB}]: (sarcastic) ताऊ की कसम खा के बोला था पाँच बजे जिम फोड़ूँगा — इब ग्यारह बज गए बावले!
+                    [{speakerA}]: (proud) पांच बजे आंख तो खुली थी, पर दिमाग़ ने बोल्या टैम खोटा मत कर — आज छोले-भटूरे का मुहूर्त सै!
+                    {memeMid("confused_math", "ताऊ का अलार्म फेल हो गया!")}[SCENE]: chai stall | day | laughing | IMAGE: vibrant Indian street breakfast stall with steaming karahi, warm comic sunlight, 3D cartoon background, no people
+                    [{speakerB}]: (laughing) यो के जुगाड़ सै? बॉडी बनानी थी और पेट का गुंबद खड़ा कर लिया!
+                    [{speakerA}]: (mischievous) चुपचाप प्लेट पकड़ — डंबल से भारी तो अपना यह भटूरा सै!
+                    {memeMid("run_comedy", "बॉडी नहीं, भटूरा चैंपियन!")}
+                    """
+            };
+        }
+
+        if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.FamilyClean)
+        {
+            return $"""
+                [CAST]: {speakerA} | scholar | sky blue shirt, neat hair, cheerful expression
+                [CAST]: {speakerB} | child | sunny yellow vest, bright smile, curious eyes
+                [SCENE]: chai stall | day | playful | IMAGE: cozy clean Indian tea corner courtyard with colorful bunting and clay cups, cheerful daylight, 3D cartoon background, no people
+                [{speakerB}]: (excited) अरे वाह भैया, आज पूरे मोहल्ले को चाय पिलाने का इरादा है क्या?
+                [{speakerA}]: (proud) बिल्कुल बबलू! आज अपनी नई लॉटरी निकलने ही वाली थी बस...
+                {memeMid("surprised_kid", "अरे यह क्या गड़बड़ हो गई!")}[SCENE]: comedy stage | sunset | joyful | IMAGE: lively bright cartoon park bench scene, festive lamps, playful sunset light, no people
+                [{speakerB}]: (surprised) भैया नंबर तो ठीक से पढ़ो — वह लॉटरी का नहीं, किराने का उधार बिल है!
+                [{speakerA}]: (confused) अरे बाप रे! चलो कोई बात नहीं, अगले हफ़्ते चाय पक्की!
+                {memeMid("laugh_clean", "सपना टूटा पर हँसी छूटी!")}
+                """;
+        }
+
+        // Tu-Tadak / Auto / Roast & Twist desi Hindi buddy banter
+        return slot switch
+        {
+            0 => $"""
+                [CAST]: {speakerA} | scholar | vibrant orange jacket, wild spiky hair, smug shades
+                [CAST]: {speakerB} | child | lime hoodie, raised eyebrow, cheeky smile
+                [CAST]: {bystander} | villager | white apron, steaming tea kettle prop, stern look
+                [SCENE]: chai stall | day | playful | IMAGE: lively colorful Indian chai tapri, brass boiler steaming, wooden stools, crisp daylight, 3D cartoon background, no people
+                [{speakerB}]: (angry) अबे सुन पप्पू, सुबह से दस बार फ़ोन कर चुका — दो मिनट बोल के घर पे ही सो रहा क्या?
+                [{speakerA}]: (proud) अबे तू चुप बैठ! इंडिया में 'दो मिनट' का मतलब आधा घंटा होता है — तेरा दिमाग़ घुटनों में है क्या?
+                {memeMid("dimag_hang", "भाई का टाइम ज़ोन ही अलग है!")}[SCENE]: comedy stage | sunset | excited | IMAGE: funny urban street tea corner under glowing street lamps, exaggerated shadows, vibrant 3D cartoon background, no people
+                [{bystander}]: (sarcastic) तेरे इसी दो मिनट के चक्कर में इसकी चार चाय ठंडी हो गई — आज बिल तेरे नाम!
+                [{speakerB}]: (laughing) अबे निकल ले चुपचाप! बड़ा आया घड़ी का मालिक — अब समोसा भी खिला!
+                {(isFull ? $"[{speakerA}]: (surprised) अरे ठहर यार, मेरा यूपीआई नेटवर्क सिर्फ़ तब काम करता है जब सामने वाला बिल दे!" : string.Empty)}
+                {memeMid("khatam_tata_bye", "ख़त्म... टाटा... बाय-बाय!")}
+                """,
+            1 => $"""
+                [CAST]: {speakerA} | scholar | red tracksuit, headband, dramatic pose
+                [CAST]: {speakerB} | child | blue casual tee, coffee mug, deadpan face
+                [SCENE]: modern city | dawn | tense | IMAGE: sunny Indian rooftop terrace apartment morning view with yoga mat, bright 3D cartoon background, no people
+                [{speakerA}]: (proud) अबे बबलू, आज से सुबह पाँच बजे जिम और सीधा सिक्स-पैक एब्स — तेरे से ना हो पाएगा!
+                [{speakerB}]: (sarcastic) अच्छा? पर अभी साढ़े ग्यारह बज रहे हैं और हाथ में समोसा क्यों दबा रखा है भाई?
+                {memeMid("overconfidence", "सपने सिक्स-पैक के, हाथ में समोसा!")}[SCENE]: comedy stage | day | laughing | IMAGE: vibrant living room sofa with snacks table, comic morning light, 3D cartoon background, no people
+                [{speakerA}]: (mischievous) अबे यह प्री-वर्कआउट कार्ब लोडिंग है! कल से पक्का पसीना बहाऊँगा!
+                [{speakerB}]: (laughing) हाँ पिछले तीन साल से तेरा 'कल' सोमवार को ही अटका है!
+                {memeMid("emotional_damage", "दोस्त ने सरेआम धो दिया!")}
+                """,
+            _ => $"""
+                [CAST]: {speakerA} | scholar | purple blazer, shiny watch, overconfident grin
+                [CAST]: {speakerB} | child | teal shirt, phone in hand, suspicious look
+                [SCENE]: chai stall | sunset | mischievous | IMAGE: bustling evening Indian street food corner with glowing stall signboards, bright comic atmosphere, 3D cartoon frame, no people
+                [{speakerA}]: (proud) अबे सुन! तेरा भाई आज करोड़पति बिज़नेस आइडिया लाया है — फ्री वाई-फ़ाई वाली टपरी!
+                [{speakerB}]: (confused) फ्री में वाई-फ़ाई बाँटेगा तो कमाई कहाँ से करेगा, मेरे दिमाग़ के बंद ताले?
+                {memeMid("wait_what", "अरे भाई ये कौन सा बिज़नेस है!")}[SCENE]: comedy stage | night | excited | IMAGE: neon-lit bustling chai counter at night with funny signboard glow, vibrant 3D cartoon frame, no people
+                [{speakerA}]: (laughing) पासवर्ड बोर्ड पे लिख दूँगा — 'पहले दो स्पेशल चाय पियो, वरना हॉटस्पॉट ऑफ़!'
+                [{speakerB}]: (surprised) तेरा तो दिमाग़ चाचा चौधरी से भी तेज़ भाग गया बे!
+                {memeMid("mind_blown", "असली जुगाड़ गुरु मिल गया!")}
+                """
+        };
+    }
+
+    private static string BuildEnglishComedyScript(
+        string speakerA,
+        string speakerB,
+        string bystander,
+        int slot,
+        bool isFull,
+        bool includeMemes,
+        bool dialogueEnabled)
+    {
+        if (!dialogueEnabled)
+        {
+            return $"""
+                [SCENE]: comedy stage | day | playful
+                Me setting five alarms for 5 AM thinking I will become a morning legend...
+                {(includeMemes ? "[MEME]: shocked_face | Brain went straight back into airplane mode!\n" : string.Empty)}Only to wake up at 11 AM feeling proud that I turned all five off in my sleep!
+                """;
+        }
+
+        string memeMid(string key, string caption) => includeMemes ? $"[MEME]: {key} | {caption}\n" : string.Empty;
+        return $"""
+            [CAST]: {speakerA} | scholar | orange hoodie, messy hair, smug sunglasses
+            [CAST]: {speakerB} | child | blue jacket, raised eyebrow, deadpan grin
+            [CAST]: {bystander} | villager | cafe apron, holding tea tray, unimpressed look
+            [SCENE]: chai stall | day | playful | IMAGE: bright cartoon corner cafe tapri, steaming cups, warm sunlit comedy backdrop, no people
+            [{speakerB}]: (angry) Bro, you texted 'two minutes away' forty minutes ago — why are you still wearing slippers at home?
+            [{speakerA}]: (proud) Relax, my spirit arrived on time — my slippers just got stuck buffering on the couch!
+            {memeMid("brain_buffering", "Excuse level: 999+!")}[SCENE]: comedy stage | sunset | laughing | IMAGE: colorful animated street cafe table under glowing evening lamps, comic shadows, no people
+            [{bystander}]: (sarcastic) That is hilarious — anyway your friend ordered four samosas on your tab while waiting!
+            [{speakerA}]: (surprised) Wait... my UPI app suddenly lost signal right outside the door!
+            {(isFull ? $"[{speakerB}]: (laughing) Nice try, I brought my hotspot — pay up right now!" : string.Empty)}
+            {memeMid("emotional_damage", "Caught red-handed with zero signal!")}
+            """;
     }
 
     private static IReadOnlyList<AutomationWebsiteLink> BuildTrackedLinks(
@@ -1261,6 +1340,9 @@ public static class AutomationContentComposer
             AutomationSourceType.Pratiyogita => isHindi
                 ? new[] { "क्विज़ में हिस्सा ले लिया 🏆", "आज ही प्रैक्टिस करूंगा ✍️", "रैंक और रिजल्ट लिंक देखें 🔗" }
                 : new[] { "Already joined today's challenge 🏆", "Practicing right now ✍️", "View live leaderboard 🔗" },
+            AutomationSourceType.FunnyComedy => isHindi
+                ? new[] { "हाहा! आखिरी पंच ने लुटिया डुबो दी 😂", "पप्पू भैया और बबलू जैसा दोस्त सबको मिले 🤣", "अगला देसी रोस्ट किस टॉपिक पर लाएँ? 🔥" }
+                : new[] { "That plot twist caught me off guard 😂", "Tag your friend who acts just like this 🤣", "Drop next comedy skit topic below! 🔥" },
             _ => isHindi
                 ? new[] { "बहुत उपयोगी जानकारी 🚀", "प्रतिदिन उपयोग के लिए सेव किया ⭐", "सभी टूल्स व लिंक देखें 🔗" }
                 : new[] { "Excited to try this tool 🚀", "Saving for daily workflow ⭐", "Visit full ecosystem links 🔗" }

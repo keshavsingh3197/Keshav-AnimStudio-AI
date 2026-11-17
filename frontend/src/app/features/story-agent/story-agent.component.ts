@@ -22,7 +22,7 @@ import { StoryAgentService } from '../../core/services/story-agent.service';
 import { StoryImportDialogComponent } from './story-import-dialog.component';
 import { StoryOptionsComponent } from './story-options.component';
 import { STATUS_LABEL, saveStoryFile, statusTone, timeAgo } from './story-agent.utils';
-import { COMEDY_TEMPLATES, ComedyTemplateId, comedyNotes } from './comedy-templates';
+import { COMEDY_TEMPLATES, COMEDY_TONE_OPTIONS, ComedyTemplateId, ComedyToneStyle, comedyNotes } from './comedy-templates';
 
 /** The page's two halves: the stories already started, and a new one. */
 export type StoryAgentView = 'stories' | 'new';
@@ -102,10 +102,13 @@ export class StoryAgentComponent {
   readonly title = signal('');
   readonly notes = signal('');
   readonly comedyTemplate = signal<ComedyTemplateId>('none');
+  readonly comedyTone = signal<ComedyToneStyle>('Auto');
+  readonly autoInsertMemes = signal(true);
   readonly comedyCount = signal(3);
   readonly comedyTemplates = COMEDY_TEMPLATES;
+  readonly comedyToneOptions = COMEDY_TONE_OPTIONS;
   readonly preparedNotes = computed(() => this.genre()?.id === 'funny' && this.writer() !== 'BuiltIn'
-    ? comedyNotes(this.comedyTemplate(), this.comedyCount(), this.notes())
+    ? comedyNotes(this.comedyTemplate(), this.comedyCount(), this.notes(), this.comedyTone(), this.autoInsertMemes())
     : this.notes().trim());
   readonly notesTooLong = computed(() => this.preparedNotes().length > 2000);
   readonly language = signal<'hi' | 'en'>('hi');
@@ -343,6 +346,16 @@ export class StoryAgentComponent {
   pickChannel(id: string): void {
     this.channelId.set(id);
     this.startError.set(null);
+    const ch = this.channels().find((c) => c.id === id);
+    if (ch?.isComedyChannel) {
+      const funny = this.genres().find((g) => g.id === 'funny');
+      if (funny && this.genre()?.id !== 'funny') this.setGenre(funny);
+      this.comedyTone.set(ch.comedyStyle ?? 'Auto');
+      this.autoInsertMemes.set(ch.autoInsertMidMemes ?? true);
+      if (this.comedyTemplate() === 'none') {
+        this.comedyTemplate.set(ch.comedyStyle === 'KhadiBhasha' ? 'khadi-bhasha-tapri' : 'tu-tadak-roast');
+      }
+    }
   }
 
   // ------------------------------------------------------------------------------------------------ the list
@@ -429,6 +442,11 @@ export class StoryAgentComponent {
     if (template) this.comedyTemplate.set(template.id);
   }
 
+  setComedyTone(value: string): void {
+    const tone = this.comedyToneOptions.find((item) => item.id === value);
+    if (tone) this.comedyTone.set(tone.id);
+  }
+
   async start(): Promise<void> {
     if (this.starting()) return;
     if (this.missing()) {
@@ -450,6 +468,8 @@ export class StoryAgentComponent {
       genreId: this.genre()?.id,
       textEngine: this.writer() !== 'BuiltIn' && this.textEngine() ? this.textEngine() : undefined,
       brandChannelId: this.channel() && this.channel()!.id !== DEFAULT_BRAND_CHANNEL ? this.channel()!.id : undefined,
+      comedyStyle: this.genre()?.id === 'funny' || this.channel()?.isComedyChannel ? this.comedyTone() : undefined,
+      autoInsertMemes: this.genre()?.id === 'funny' || this.channel()?.isComedyChannel ? this.autoInsertMemes() : undefined,
       options: this.options() ?? undefined,
     };
 

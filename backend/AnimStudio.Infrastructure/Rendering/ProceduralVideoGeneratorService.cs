@@ -7,6 +7,9 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Rendering;
+using AnimStudio.Application.StoryAgent;
+using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Errors;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
@@ -40,12 +43,14 @@ public sealed class ProceduralVideoGeneratorService(
     IAiExecutor? ai = null,
     IAiProviderRegistry? aiRegistry = null,
     ProceduralBgmCacheService? bgmCache = null,
-    IConfiguration? configuration = null) : IProceduralVideoGenerator
+    IConfiguration? configuration = null,
+    IEffectClipRepository? effects = null) : IProceduralVideoGenerator
 {
     private const string DefaultProjectName = "Procedural 3D Studio Renders";
     private const string TopCategoryStyleCharId = "top-category";
     private const string TopTitleStyleCharId = "top-header-title";
     private const string TitleStyleCharId = "title-hook";
+    private const string MemePopStyleCharId = "meme-pop";
     private const string SpeakerAStyleCharId = "speaker-a";
     private const string SpeakerBStyleCharId = "speaker-b";
     private const string BodyStyleCharId = "beat-body";
@@ -183,6 +188,15 @@ public sealed class ProceduralVideoGeneratorService(
             }
         }
 
+        var ffmpegExe = ffmpegOptions.Value.FfmpegPath;
+        if (string.IsNullOrWhiteSpace(ffmpegExe)) ffmpegExe = "ffmpeg";
+
+        // 2.5 Optional mid-video & climax reaction meme cutaways from creator's Effects library
+        var (effectiveMemeCues, memeOverlays) = await ResolveMemeCutawaysAsync(
+            userId, request, dialoguePlan, workspace, ffmpegExe, width, height, durationSeconds, ct).ConfigureAwait(false);
+        if (effectiveMemeCues.Count > 0 && dialoguePlan.Memes.Count == 0)
+            dialoguePlan = dialoguePlan with { MemeCues = effectiveMemeCues };
+
         // 3. Optional beat-synchronized ASS subtitle + top-header overlay (reuses ScriptFonts Devanagari resolution)
         var hasSubtitles = false;
         if (request.IncludeCaptions && capabilities.Supports(RenderFeature.BurnedSubtitles))
@@ -195,8 +209,6 @@ public sealed class ProceduralVideoGeneratorService(
         }
 
         // 4. Stream pure C# 3D procedural frames directly into FFmpeg stdin -> H.264 MP4
-        var ffmpegExe = ffmpegOptions.Value.FfmpegPath;
-        if (string.IsNullOrWhiteSpace(ffmpegExe)) ffmpegExe = "ffmpeg";
 
         if (request.BackgroundImagePaths is { Count: > 0 })
             progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Backdrops, "Loading backdrop images"));
@@ -268,7 +280,7 @@ public sealed class ProceduralVideoGeneratorService(
             CreateNoWindow = true
         };
 
-        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles))
+        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles, memeOverlays))
             startInfo.ArgumentList.Add(arg);
 
         using var process = new Process { StartInfo = startInfo };
@@ -587,6 +599,23 @@ public sealed class ProceduralVideoGeneratorService(
             }
         }
 
+        foreach (var cue in dialoguePlan.Memes)
+        {
+            var memeLabel = !string.IsNullOrWhiteSpace(cue.Caption) ? cue.Caption!.Trim() : cue.Name.Trim();
+            if (string.IsNullOrWhiteSpace(memeLabel)) continue;
+            var startFrame = Math.Max(1, (int)Math.Round(cue.StartSeconds * fps));
+            var cueEndFrame = Math.Clamp((int)Math.Round((cue.StartSeconds + cue.Seconds) * fps), startFrame + 1, Math.Max(startFrame + 1, endFrame));
+            lines.Add(new DialogueLine
+            {
+                Index = index++,
+                SpeakerLabel = "MemePop",
+                SpeakerCharacterId = MemePopStyleCharId,
+                Text = WrapLinesForAss($"😂 {memeLabel}", isPortrait ? 24 : 38, maxLines: 2),
+                RelativeStartFrame = startFrame,
+                RelativeEndFrame = cueEndFrame
+            });
+        }
+
         if (!string.IsNullOrWhiteSpace(request.FooterLabel))
         {
             lines.Add(new DialogueLine
@@ -626,6 +655,7 @@ public sealed class ProceduralVideoGeneratorService(
             [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: isPortrait ? 54 : 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 40, MarginR: 40),
             [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? 70 : 76, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 38, MarginR: 38),
             [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? 82 : 90, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait ? captionMarginR : captionMarginL),
+            [MemePopStyleCharId] = new("MemePop", "#FEF08A", Bold: true, Alignment: 8, MarginV: isPortrait ? Math.Max(290, (int)Math.Round(height * 0.23)) : Math.Max(140, (int)Math.Round(height * 0.19)), FontScalePercent: isPortrait ? 92 : 96, OutlineColorHex: "#7C2D12", SecondaryColorHex: "#F97316", MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: 48, MarginR: 48),
             [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
             [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
             [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
@@ -676,6 +706,8 @@ public sealed class ProceduralVideoGeneratorService(
         return string.Join('\n', wrapped);
     }
 
+    internal sealed record ResolvedMemeOverlay(string RelativePath, double StartSeconds, double EndSeconds);
+
     internal static List<string> BuildFfmpegArguments(
         int width,
         int height,
@@ -683,7 +715,8 @@ public sealed class ProceduralVideoGeneratorService(
         int durationSeconds,
         bool hasSpeech,
         bool hasBgm,
-        bool hasSubtitles)
+        bool hasSubtitles,
+        IReadOnlyList<ResolvedMemeOverlay>? memeOverlays = null)
     {
         var args = new List<string>
         {
@@ -697,56 +730,117 @@ public sealed class ProceduralVideoGeneratorService(
 
         var fadeOutStart = Math.Max(0.2, durationSeconds - 0.65).ToString("0.00", CultureInfo.InvariantCulture);
         var durStr = durationSeconds.ToString(CultureInfo.InvariantCulture);
+        var nextInput = 1;
+        var speechIdx = -1;
+        var bgmIdx = -1;
 
         if (hasSpeech)
         {
+            speechIdx = nextInput++;
             args.Add("-i");
             args.Add("in/speech.wav");
         }
 
         if (hasBgm)
         {
+            bgmIdx = nextInput++;
             args.AddRange(["-stream_loop", "-1", "-t", durStr, "-i", "in/ambient.wav"]);
         }
 
-        if (hasSpeech && hasBgm)
+        var overlays = memeOverlays?.Where(o => !string.IsNullOrWhiteSpace(o.RelativePath)).ToList() ?? [];
+        var overlayInputs = new List<(int InputIndex, ResolvedMemeOverlay Overlay)>(overlays.Count);
+        foreach (var ov in overlays)
         {
-            // Loudness-normalize speech to -16 LUFS, resample back from loudnorm's 192kHz to 48kHz stereo, then duck loopable BGM cleanly.
-            var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
-            var audioFilter = string.Create(CultureInfo.InvariantCulture,
-                $"[1:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[2:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+            overlayInputs.Add((nextInput++, ov));
+            args.Add("-i");
+            args.Add(ov.RelativePath);
+        }
 
-            args.AddRange([
-                "-filter_complex", videoFilter + audioFilter,
-                "-map", hasSubtitles ? "[vout]" : "0:v",
-                "-map", "[aout]"
-            ]);
-        }
-        else if (hasSpeech)
+        if (overlays.Count == 0)
         {
-            args.AddRange([
-                "-map", "0:v",
-                "-map", "1:a",
-                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo")
-            ]);
-            if (hasSubtitles)
-                args.AddRange(["-vf", "ass=in/subs.ass"]);
-        }
-        else if (hasBgm)
-        {
-            args.AddRange([
-                "-map", "0:v",
-                "-map", "1:a",
-                "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
-            ]);
-            if (hasSubtitles)
-                args.AddRange(["-vf", "ass=in/subs.ass"]);
+            if (hasSpeech && hasBgm)
+            {
+                // Loudness-normalize speech to -16 LUFS, resample back from loudnorm's 192kHz to 48kHz stereo, then duck loopable BGM cleanly.
+                var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
+                var audioFilter = string.Create(CultureInfo.InvariantCulture,
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+
+                args.AddRange([
+                    "-filter_complex", videoFilter + audioFilter,
+                    "-map", hasSubtitles ? "[vout]" : "0:v",
+                    "-map", "[aout]"
+                ]);
+            }
+            else if (hasSpeech)
+            {
+                args.AddRange([
+                    "-map", "0:v",
+                    "-map", $"{speechIdx}:a",
+                    "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo")
+                ]);
+                if (hasSubtitles)
+                    args.AddRange(["-vf", "ass=in/subs.ass"]);
+            }
+            else if (hasBgm)
+            {
+                args.AddRange([
+                    "-map", "0:v",
+                    "-map", $"{bgmIdx}:a",
+                    "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
+                ]);
+                if (hasSubtitles)
+                    args.AddRange(["-vf", "ass=in/subs.ass"]);
+            }
+            else
+            {
+                args.AddRange(["-map", "0:v"]);
+                if (hasSubtitles)
+                    args.AddRange(["-vf", "ass=in/subs.ass"]);
+            }
         }
         else
         {
-            args.AddRange(["-map", "0:v"]);
+            var fc = new StringBuilder();
+            var currentVideo = "0:v";
+            var overlayYExpr = height >= width ? "H*0.16" : "H*0.19";
+            for (var i = 0; i < overlayInputs.Count; i++)
+            {
+                var (idx, ov) = overlayInputs[i];
+                var nextLabel = i == overlayInputs.Count - 1 && !hasSubtitles ? "vout" : $"vm{i}";
+                var s = ov.StartSeconds.ToString("0.00", CultureInfo.InvariantCulture);
+                var e = ov.EndSeconds.ToString("0.00", CultureInfo.InvariantCulture);
+                fc.Append(CultureInfo.InvariantCulture,
+                    $"[{currentVideo}][{idx}:v]overlay=(W-w)/2:{overlayYExpr}:eof_action=repeat:enable='between(t,{s},{e})'[{nextLabel}];");
+                currentVideo = nextLabel;
+            }
             if (hasSubtitles)
-                args.AddRange(["-vf", "ass=in/subs.ass"]);
+            {
+                fc.Append(CultureInfo.InvariantCulture, $"[{currentVideo}]ass=in/subs.ass[vout];");
+                currentVideo = "vout";
+            }
+
+            string? audioMap = null;
+            if (hasSpeech && hasBgm)
+            {
+                fc.Append(CultureInfo.InvariantCulture,
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+                audioMap = "[aout]";
+            }
+            else if (hasSpeech)
+            {
+                fc.Append(CultureInfo.InvariantCulture,
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]");
+                audioMap = "[aout]";
+            }
+            else if (hasBgm)
+            {
+                fc.Append(CultureInfo.InvariantCulture,
+                    $"[{bgmIdx}:a]aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+                audioMap = "[aout]";
+            }
+
+            args.AddRange(["-filter_complex", fc.ToString().TrimEnd(';'), "-map", $"[{currentVideo}]"]);
+            if (audioMap is not null) args.AddRange(["-map", audioMap]);
         }
 
         args.AddRange(
@@ -769,6 +863,138 @@ public sealed class ProceduralVideoGeneratorService(
 
         args.Add("out/video.mp4");
         return args;
+    }
+
+    private async Task<(List<ProceduralMemeCue> Cues, List<ResolvedMemeOverlay> Overlays)> ResolveMemeCutawaysAsync(
+        string userId,
+        ProceduralVideoRequest request,
+        ProceduralDialoguePlan dialoguePlan,
+        IRenderWorkspace workspace,
+        string ffmpegExe,
+        int width,
+        int height,
+        int durationSeconds,
+        CancellationToken ct)
+    {
+        var cues = dialoguePlan.Memes.ToList();
+        var isComedy = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
+            || request.Theme == ProceduralSceneTheme.ComedyStage3D;
+
+        List<EffectClip> playables = [];
+        if (effects is not null && !string.IsNullOrWhiteSpace(userId) && (cues.Count > 0 || isComedy))
+        {
+            try
+            {
+                var all = await effects.ListByUserAsync(userId, 200, ct).ConfigureAwait(false);
+                playables = ComedyCraftGuide.RankReactionMemes(all)
+                    .Where(c => c.Kind is AssetKind.Image or AssetKind.Video && !string.IsNullOrWhiteSpace(c.StorageKey))
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Could not list user effects for procedural meme cutaways.");
+            }
+        }
+
+        // Auto-inject one mid-video meme reaction for FunnyComedy when library memes exist and script didn't include [MEME].
+        if (cues.Count == 0 && isComedy && playables.Count > 0 && dialoguePlan.Turns.Count >= 4)
+        {
+            var midTurnIdx = Math.Clamp(dialoguePlan.Turns.Count / 2, 1, dialoguePlan.Turns.Count - 2);
+            var anchor = Math.Max(1.0, dialoguePlan.Turns[midTurnIdx].EndSeconds - 0.15);
+            cues.Add(new ProceduralMemeCue(midTurnIdx, playables[0].Name, playables[0].Name, 1.6, Math.Round(anchor, 2)));
+        }
+
+        if (cues.Count == 0 || playables.Count == 0)
+            return (cues, []);
+
+        var overlays = new List<ResolvedMemeOverlay>();
+        var boxW = Math.Clamp((int)Math.Round(width * 0.48), 240, 560);
+        var boxH = Math.Clamp((int)Math.Round(boxW * 0.72), 180, 420);
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < cues.Count && i < DialogueScriptParser.MaxMemeCues; i++)
+        {
+            var cue = cues[i];
+            var matched = ComedyCraftGuide.MatchLibraryMeme(cue.Name, playables)
+                ?? playables.FirstOrDefault(p => !usedIds.Contains(p.Id))
+                ?? playables[0];
+            usedIds.Add(matched.Id);
+
+            try
+            {
+                await using var stream = await objectStore.OpenAsync(matched.StorageKey!, ct).ConfigureAwait(false);
+                if (stream is null) continue;
+
+                var ext = matched.Kind == AssetKind.Video ? ".mp4" : ".img";
+                var srcRel = $"in/meme_src_{i}{ext}";
+                var srcAbs = workspace.Resolve(srcRel);
+                Directory.CreateDirectory(Path.GetDirectoryName(srcAbs)!);
+                await using (var fs = File.Create(srcAbs))
+                {
+                    await stream.CopyToAsync(fs, ct).ConfigureAwait(false);
+                }
+
+                var pngRel = $"in/meme_{i}.png";
+                var pngAbs = workspace.Resolve(pngRel);
+                if (await RenderMemeOverlayPngAsync(ffmpegExe, srcAbs, pngAbs, boxW, boxH, matched.Kind == AssetKind.Video, ct).ConfigureAwait(false))
+                {
+                    var start = Math.Clamp(cue.StartSeconds, 0.4, Math.Max(0.5, durationSeconds - 0.8));
+                    var end = Math.Clamp(start + cue.Seconds, start + 0.5, Math.Max(start + 0.5, durationSeconds - 0.1));
+                    overlays.Add(new ResolvedMemeOverlay(pngRel, start, end));
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Skipping meme cutaway '{Name}' during procedural render.", cue.Name);
+            }
+        }
+
+        return (cues, overlays);
+    }
+
+    private static async Task<bool> RenderMemeOverlayPngAsync(
+        string ffmpegExe,
+        string srcPath,
+        string outPngPath,
+        int boxW,
+        int boxH,
+        bool isVideo,
+        CancellationToken ct)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegExe,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-hide_banner");
+        startInfo.ArgumentList.Add("-loglevel");
+        startInfo.ArgumentList.Add("error");
+        startInfo.ArgumentList.Add("-y");
+        if (isVideo)
+        {
+            startInfo.ArgumentList.Add("-ss");
+            startInfo.ArgumentList.Add("0.4");
+        }
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(srcPath);
+        startInfo.ArgumentList.Add("-vf");
+        startInfo.ArgumentList.Add($"scale={boxW - 12}:{boxH - 12}:force_original_aspect_ratio=decrease,pad={boxW}:{boxH}:(ow-iw)/2:(oh-ih)/2:color=#F97316@0.92,format=rgba");
+        startInfo.ArgumentList.Add("-frames:v");
+        startInfo.ArgumentList.Add("1");
+        startInfo.ArgumentList.Add(outPngPath);
+
+        using var proc = Process.Start(startInfo);
+        if (proc is null) return false;
+        proc.StandardInput.Close();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+        _ = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
+        await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+        return proc.ExitCode == 0 && File.Exists(outPngPath);
     }
 
     private async Task<string> EnsureTargetProjectAsync(

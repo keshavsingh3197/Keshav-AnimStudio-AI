@@ -1,4 +1,5 @@
 using AnimStudio.Application.Abstractions.Ai;
+using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.StoryAgent;
 using AnimStudio.Application.Ai;
 using AnimStudio.Domain.Stories;
@@ -18,7 +19,9 @@ public sealed class ScriptStage(
     IAiExecutor ai,
     IPromptLibrary prompts,
     TimeProvider clock,
-    ILogger<ScriptStage> logger) : IStoryStage
+    ILogger<ScriptStage> logger,
+    IEffectClipRepository? effects = null,
+    IAiSettingsRepository? aiSettings = null) : IStoryStage
 {
     private const int Attempts = 2;
 
@@ -28,7 +31,7 @@ public sealed class ScriptStage(
     {
         var run = context.Run;
         if (run.Script is not null) return StoryStageOutcome.Completed("The script is already written.");
-        if (run.ImportedScript is not null) return ReadImported(run);
+        if (run.ImportedScript is not null) return await ReadImportedAsync(run, ct).ConfigureAwait(false);
 
         return run.Brief.Writer switch
         {
@@ -60,7 +63,7 @@ public sealed class ScriptStage(
     /// The script an imported story file brought, read like a pasted reply - so its citations are checked against this
     /// run's research. A file that cannot be read leaves the story waiting for a script, with the reason beside it.
     /// </summary>
-    private StoryStageOutcome ReadImported(StoryRun run)
+    private async Task<StoryStageOutcome> ReadImportedAsync(StoryRun run, CancellationToken ct)
     {
         var imported = run.ImportedScript;
         run.ImportedScript = null;
@@ -68,6 +71,12 @@ public sealed class ScriptStage(
         {
             var result = StoryScriptParser.Parse(imported, run.Brief, run.Research, "imported story file",
                 clock.GetUtcNow().UtcDateTime, tolerant: true);
+            var (channel, memes, isComedy) = await ComedyCraftGuide.LoadContextAsync(run, effects, aiSettings, ct).ConfigureAwait(false);
+            if (isComedy)
+            {
+                ComedyCraftGuide.AutoAssignMidAndEndMemes(
+                    result.Script, memes, run.Brief.AutoInsertMemes, ComedyCraftGuide.EffectiveToneForRun(run, channel));
+            }
             Keep(run, result);
             return StoryStageOutcome.Completed("The script was read from the imported story file.");
         }
@@ -82,7 +91,8 @@ public sealed class ScriptStage(
     {
         var run = context.Run;
 
-        var (templateKey, variables) = StoryScriptPrompt.For(run);
+        var (channel, memes, isComedy) = await ComedyCraftGuide.LoadContextAsync(run, effects, aiSettings, ct).ConfigureAwait(false);
+        var (templateKey, variables) = StoryScriptPrompt.For(run, memes, channel);
         RenderedPrompt rendered;
         try
         {
@@ -117,6 +127,11 @@ public sealed class ScriptStage(
             {
                 var written = StoryScriptParser.Parse(outcome.Value!.Text, run.Brief, run.Research,
                     outcome.Value.Provenance.ProviderId, clock.GetUtcNow().UtcDateTime, tolerant: true);
+                if (isComedy)
+                {
+                    ComedyCraftGuide.AutoAssignMidAndEndMemes(
+                        written.Script, memes, run.Brief.AutoInsertMemes, ComedyCraftGuide.EffectiveToneForRun(run, channel));
+                }
                 Keep(run, written);
                 return StoryStageOutcome.Completed($"The script was written by {outcome.Value.Provenance.ProviderId}.");
             }

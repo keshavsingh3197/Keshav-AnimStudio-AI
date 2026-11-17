@@ -48,6 +48,9 @@ public sealed record CreateStoryRunRequest
     [StringLength(64)]
     public string? BrandChannelId { get; init; }
 
+    public ComedyToneStyle ComedyStyle { get; init; } = ComedyToneStyle.Auto;
+    public bool AutoInsertMemes { get; init; } = true;
+
     public StoryBuildOptionsRequest? Options { get; init; }
 }
 
@@ -567,7 +570,8 @@ public sealed record StoryKitResponse(
 public sealed record StoryBriefResponse(
     string Title, string? Notes, string Language, int TargetSeconds, StoryFormat Format, StoryWriterMode Writer, string? PackId,
     string GenreId = StoryGenres.DefaultId, string? GenreName = null, StoryGenreMode Mode = StoryGenreMode.Scripture,
-    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null, string? BrandChannelId = null);
+    StoryVoicing Voicing = StoryVoicing.Narrated, string? TextEngine = null, string? BrandChannelId = null,
+    ComedyToneStyle ComedyStyle = ComedyToneStyle.Auto, bool AutoInsertMemes = true);
 
 public sealed record StoryOptionsResponse(
     StoryNarrationMode Narration, string? VoiceProfileId, string? VoiceId, string? SpeechEngine, double SpeechRate, bool ClosestToMyVoice,
@@ -781,7 +785,7 @@ public static class StoryAgentMapper
         run.Title,
         new StoryBriefResponse(run.Brief.Title, run.Brief.Notes, run.Brief.Language, run.Brief.TargetSeconds, run.Brief.Format, run.Brief.Writer, run.Brief.PackId,
             run.Brief.GenreId ?? StoryGenres.DefaultId, StoryGenres.Of(run).Name, run.Brief.Mode, run.Brief.Voicing, run.Brief.TextEngine,
-            run.Brief.BrandChannelId ?? BrandChannel.DefaultId),
+            run.Brief.BrandChannelId ?? BrandChannel.DefaultId, run.Brief.ComedyStyle, run.Brief.AutoInsertMemes),
         ToResponse(run.Options),
         run.Status,
         run.IsWorking,

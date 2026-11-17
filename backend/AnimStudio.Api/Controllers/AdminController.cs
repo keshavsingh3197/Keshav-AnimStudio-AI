@@ -569,6 +569,7 @@ public sealed class AdminController(
             return BadRequest(ApiResponse<EmptyPayload>.Fail(taken, new ApiError("channel-name-taken", taken)));
         }
 
+        var isComedy = request.IsComedyChannel || AnimStudio.Domain.Stories.ComedyChannelMatcher.IsComedyChannelHint(name);
         var channel = new BrandChannel
         {
             Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
@@ -577,6 +578,9 @@ public sealed class AdminController(
             Outro = Copy(source?.Outro ?? stored.DefaultOutro) ?? new OutroSettings(),
             // Visibility, tags and footer carry over; the YouTube channel link does not.
             Publishing = (source is null ? stored.DefaultPublishing : source.Publishing)?.CopyDefaults(),
+            IsComedyChannel = isComedy,
+            ComedyStyle = request.ComedyStyle,
+            AutoInsertMidMemes = request.AutoInsertMidMemes
         };
         stored.Channels.Add(channel);
         await aiSettingsRepo.SaveAsync(stored, ct);
@@ -613,6 +617,28 @@ public sealed class AdminController(
 
         await audit.RecordAsync("branding.channel-renamed", ChannelAuditTarget(channelId),
             before, name, RemoteAddress(), ct);
+
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    [HttpPut("branding/channels/{channelId}/comedy")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> UpdateChannelComedy(
+        string channelId, [FromBody] UpdateBrandChannelComedyRequest request, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channelId, out var channel)) return ChannelNotFound();
+        if (channel is null)
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(
+                "Create or pick a dedicated channel (separate from Default) to configure comedy auto-rules.",
+                new ApiError("channel-comedy-default", "Create a dedicated channel first to configure comedy auto-rules.")));
+
+        channel.IsComedyChannel = request.IsComedyChannel;
+        channel.ComedyStyle = request.ComedyStyle;
+        channel.AutoInsertMidMemes = request.AutoInsertMidMemes;
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync("branding.channel-comedy-updated", ChannelAuditTarget(channelId),
+            null, $"{channel.IsComedyChannel}:{channel.ComedyStyle}", RemoteAddress(), ct);
 
         return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
     }

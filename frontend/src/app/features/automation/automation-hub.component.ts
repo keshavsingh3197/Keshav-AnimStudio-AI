@@ -25,6 +25,7 @@ import {
   AutomationVisualEngine,
   AutomationWorkspaceConfig,
   AutomationYouTubeRemoval,
+  ComedyToneStyle,
   SubtitleMotionPreset,
 } from '../../core/services/automation.service';
 import { StatusService } from '../../core/services/status.service';
@@ -536,6 +537,9 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                   <div><span class="lbl">Drive Topic:</span> {{ rule.topicName || 'Any Topic' }}</div>
                   <div><span class="lbl">Video Strategy:</span> {{ strategyLabel(rule.videoStrategy) }}</div>
                   <div><span class="lbl">Visual Engine &amp; Length:</span> {{ visualEngineLabel(rule.visualEngine) }} • {{ narrativeModeLabel(rule.narrativeMode) }} ({{ rule.targetSeconds }}s)</div>
+                  @if (rule.sourceType === 'FunnyComedy') {
+                    <div><span class="lbl">Comedy Auto-Config:</span> {{ comedyToneLabel(rule.comedyStyle) }} • {{ rule.autoInsertMemes !== false ? 'Mid Memes Auto On' : 'Memes Off' }}</div>
+                  }
                   <div><span class="lbl">Storage Images:</span> {{ rule.attachedAssetIds?.length ?? 0 }} selected</div>
                   <div><span class="lbl">Websites Linked:</span> {{ rule.funnelWebsiteKeys.length ? rule.funnelWebsiteKeys.join(', ') : 'Auto-matched' }}</div>
                 </div>
@@ -1753,7 +1757,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 </label>
                 <label class="field">
                   <span>Signal Source Type</span>
-                  <select [(ngModel)]="rDraft.sourceType">
+                  <select [ngModel]="rDraft.sourceType" (ngModelChange)="onRuleSourceTypeChange(rDraft, $event)">
                     @for (st of sourceTypes; track st) {
                       <option [ngValue]="st">{{ sourceInfo(st).label }}</option>
                     }
@@ -1930,6 +1934,35 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                   </select>
                 </label>
+              }
+
+              @if (rDraft.sourceType === 'FunnyComedy') {
+                <div class="field-group" style="border: 1px solid rgba(249, 115, 22, 0.35); border-radius: 10px; padding: 12px; background: rgba(249, 115, 22, 0.06);">
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                    <span class="group-label" style="margin: 0;">😂 Funnier Channel Auto-Configuration (Kept Separate From Devotional)</span>
+                    <button type="button" class="btn tiny secondary" (click)="applyFunnyRuleAutoConfig(rDraft)">
+                      ⚡ Auto-Configure For Comedy Channel
+                    </button>
+                  </div>
+                  <div class="form-2col">
+                    <label class="field">
+                      <span>Spoken Comedy Tone / Dialect</span>
+                      <select [(ngModel)]="rDraft.comedyStyle">
+                        @for (ct of comedyToneOptions; track ct.value) {
+                          <option [ngValue]="ct.value">{{ ct.label }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label class="toggle-inline" style="align-self: end;">
+                      <input type="checkbox" [(ngModel)]="rDraft.autoInsertMemes" />
+                      <span>Auto-insert in-app Reaction Memes mid-video &amp; at punchline</span>
+                    </label>
+                  </div>
+                  <label class="field" style="margin-top: 8px;">
+                    <span>Optional Comedy Topic Seed / Twist (leave blank for rotating tapri/roast skits)</span>
+                    <input type="text" [(ngModel)]="rDraft.customTopicPrompt" placeholder="e.g. पप्पू भैया का खड़ी भाषा जिम चैलेंज और छोले-भटूरे" />
+                  </label>
+                </div>
               }
 
               @if (rDraft.sourceType === 'CustomPrompt') {
@@ -2341,6 +2374,13 @@ export class AutomationHubComponent implements OnInit {
   readonly subtitlePresets = SUBTITLE_PRESETS;
   readonly visualEngineOptions = VISUAL_ENGINE_OPTIONS;
   readonly narrativeModeOptions = NARRATIVE_MODE_OPTIONS;
+  readonly comedyToneOptions: { value: ComedyToneStyle; label: string }[] = [
+    { value: 'Auto', label: 'YouTube Auto (Khadi Bhasha + Tu Tadak)' },
+    { value: 'KhadiBhasha', label: 'Khadi Bhasha / Desi Tapri Dialect' },
+    { value: 'TuTadak', label: 'Tu Tadak Buddy Roast Banter' },
+    { value: 'RoastAndTwist', label: 'Deadpan Roast + Twist Ending' },
+    { value: 'FamilyClean', label: 'Family Clean Slapstick' },
+  ];
   readonly sourceTypes: AutomationSourceType[] = [
     'HinduPanchang',
     'HinduFestival',
@@ -3768,6 +3808,8 @@ export class AutomationHubComponent implements OnInit {
       visualEngine: 'Auto',
       narrativeMode: 'Auto',
       attachedAssetIds: [],
+      comedyStyle: 'Auto',
+      autoInsertMemes: true,
       sortOrder: (ov?.rules.length ?? 0) + 1,
     });
   }
@@ -3780,8 +3822,51 @@ export class AutomationHubComponent implements OnInit {
       funnelWebsiteKeys: [...rule.funnelWebsiteKeys],
       visualEngine: rule.visualEngine ?? 'Auto',
       narrativeMode: rule.narrativeMode ?? 'Auto',
+      comedyStyle: rule.comedyStyle ?? 'Auto',
+      autoInsertMemes: rule.autoInsertMemes ?? true,
       attachedAssetIds: [...(rule.attachedAssetIds ?? [])],
     });
+  }
+
+  comedyToneLabel(style?: ComedyToneStyle | null): string {
+    return this.comedyToneOptions.find((x) => x.value === (style ?? 'Auto'))?.label ?? 'YouTube Auto';
+  }
+
+  onRuleSourceTypeChange(rule: AutomationRule, nextType: AutomationSourceType): void {
+    rule.sourceType = nextType;
+    if (nextType === 'FunnyComedy' && this.editingRuleIsNew()) {
+      this.applyFunnyRuleAutoConfig(rule);
+    }
+  }
+
+  applyFunnyRuleAutoConfig(rule: AutomationRule): void {
+    const comedyHints = ['keshav-anim-ff', 'funny', 'comedy', 'meme', 'roast', 'hasya', 'tapri'];
+    const isComedyHint = (s?: string | null) => {
+      const lower = (s ?? '').toLowerCase();
+      return !!lower && !lower.includes('panchang') && !lower.includes('bhakti') && comedyHints.some((h) => lower.includes(h));
+    };
+    const comedyChannel = (this.overview()?.connectedChannels ?? []).find(
+      (c) => isComedyHint(c.channelHandle) || isComedyHint(c.channelTitle),
+    );
+    if (comedyChannel) {
+      rule.targetChannelId = comedyChannel.channelId;
+      rule.targetChannelHandle = comedyChannel.channelHandle ?? null;
+      rule.targetChannelTitle = comedyChannel.channelTitle;
+    }
+    if (!rule.name.trim() || rule.name === 'New Daily Pipeline') {
+      rule.name = 'Funny 3D Comedy Shorts';
+    }
+    rule.language = 'hi';
+    rule.categoryId = '23';
+    rule.narrativeMode = 'ShortReel';
+    rule.targetSeconds = 25;
+    rule.enableCharacterDialogue = true;
+    rule.speakerAName = rule.speakerAName?.trim() || 'पप्पू भैया';
+    rule.speakerBName = rule.speakerBName?.trim() || 'बबलू यार';
+    rule.subtitlePreset = 'karaoke-pulse';
+    rule.comedyStyle = rule.comedyStyle ?? 'Auto';
+    rule.autoInsertMemes = true;
+    this.status.showNotice('Applied separate Funnier Channel auto-config (Khadi Bhasha + Tu-Tadak + Auto Memes).');
   }
 
   onRuleNarrativeChange(rule: AutomationRule, mode: AutomationNarrativeMode): void {

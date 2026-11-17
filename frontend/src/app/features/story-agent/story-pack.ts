@@ -49,7 +49,8 @@ export interface PackMeme {
   tags?: string[];
 }
 
-export type FunnyEndingRule = 'every-scene' | 'episode-end' | 'ai-decides' | 'none';
+export type FunnyEndingRule = 'mid-and-end' | 'every-scene' | 'episode-end' | 'ai-decides' | 'none';
+export type PackComedyStyle = 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
 
 export interface PackSettings {
   title: string;
@@ -65,6 +66,7 @@ export interface PackSettings {
   funnyEndings: FunnyEndingRule;
   /** UploadsOnly spends no image credits: the build uses uploaded pictures or a plain placeholder. */
   visuals: 'UploadsOnly' | 'Auto';
+  comedyStyle?: PackComedyStyle;
 }
 
 export interface StoryPack {
@@ -81,11 +83,15 @@ export interface StoryPack {
 function episodeTemplate(settings: PackSettings, characters: PackCharacter[], memes: PackMeme[], number: number): StoryExportFile {
   const [first, second] = characters.length > 0 ? characters : [{ name: 'CHARACTER_1' }, { name: 'CHARACTER_2' }];
   const other = second ?? first;
-  const meme = memes[0]?.name ?? 'SHORT_REACTION_NAME';
-  const ending = (last: boolean) => settings.funnyEndings === 'none' || (settings.funnyEndings === 'episode-end' && !last)
-    ? null
-    : { meme, caption: 'SHORT FUNNY CAPTION OR null', seconds: 2 };
-  const scene = (n: number, last: boolean) => ({
+  const memeAt = (idx: number) => (memes[idx] ?? memes[0])?.name ?? 'SHORT_REACTION_NAME';
+  const totalPlaceholderScenes = settings.funnyEndings === 'mid-and-end' ? 3 : 2;
+  const ending = (idx: number, last: boolean) => {
+    if (settings.funnyEndings === 'none') return null;
+    if (settings.funnyEndings === 'episode-end' && !last) return null;
+    if (settings.funnyEndings === 'mid-and-end' && idx === 0 && !last) return null;
+    return { meme: memeAt(idx), caption: 'SHORT FUNNY CAPTION OR null', seconds: 1.6 };
+  };
+  const scene = (n: number, idx: number, last: boolean) => ({
     number: n,
     headline: `SCENE ${n} HEADLINE (2-5 words)`,
     narration: 'ALL SPOKEN WORDS OF THIS SCENE, EXACTLY THE LINES BELOW JOINED IN ORDER',
@@ -106,7 +112,7 @@ function episodeTemplate(settings: PackSettings, characters: PackCharacter[], me
     imageKeywords: ['KEYWORD'],
     basis: 'reflection',
     sources: [],
-    funnyEnding: ending(last),
+    funnyEnding: ending(idx, last),
   });
 
   return {
@@ -122,6 +128,8 @@ function episodeTemplate(settings: PackSettings, characters: PackCharacter[], me
       writer: 'Manual',
       voicing: settings.voicing,
       genreId: settings.genreId,
+      comedyStyle: settings.comedyStyle ?? 'Auto',
+      autoInsertMemes: settings.funnyEndings !== 'none',
       options: {
         artStyle: settings.style === '2D' ? 'Cartoon' : 'Cartoon3D',
         narration: 'Stock',
@@ -141,7 +149,8 @@ function episodeTemplate(settings: PackSettings, characters: PackCharacter[], me
       musicQuery: 'playful comedy',
       reviewNotes: [],
       cast: characters.map(c => ({ name: c.name, gender: c.gender ?? null, age: c.age ?? null, look: c.look ?? null })),
-      scenes: [scene(1, false), scene(2, true)],
+      scenes: Array.from({ length: totalPlaceholderScenes }, (_, idx) =>
+        scene(idx + 1, idx, idx === totalPlaceholderScenes - 1)),
     },
   };
 }
@@ -161,11 +170,35 @@ export function buildPackTemplate(settings: PackSettings, characters: PackCharac
 
 function endingRule(rule: FunnyEndingRule): string {
   switch (rule) {
+    case 'mid-and-end': return 'Put a "funnyEnding" meme cutaway on 1-2 MIDDLE reaction scenes (around the midpoint, after an exaggerated boast/roast) AND on the LAST scene of each episode; set null elsewhere.';
     case 'every-scene': return 'Give EVERY scene a "funnyEnding" (the punchline right after it).';
     case 'episode-end': return 'Give only the LAST scene of each episode a "funnyEnding"; set it to null elsewhere.';
-    case 'ai-decides': return 'Add a "funnyEnding" after scenes where a joke lands (at least one per episode); null elsewhere.';
+    case 'ai-decides': return 'Add a "funnyEnding" after scenes where a joke lands (at least one in the middle and one at the end); null elsewhere.';
     default: return 'Set every "funnyEnding" to null.';
   }
+}
+
+function comedyVoiceInstruction(settings: PackSettings): string {
+  if (settings.genreId !== 'funny') return '';
+  const tone = settings.comedyStyle ?? 'Auto';
+  if (settings.language !== 'hi') {
+    const styleLine = tone === 'FamilyClean'
+      ? 'Keep humor clean, warm, and all-ages situational slapstick.'
+      : tone === 'KhadiBhasha'
+        ? 'Give the dialogue cheeky desi-flavoured street energy with snappy comebacks.'
+        : 'Use fast best-friend roast banter, 2-second conflict cold-open hooks (no boring greetings), Rule-of-Three escalation, and a sudden plot-twist closer.';
+    return `12. COMEDY CRAFT (${tone}): ${styleLine}\n`;
+  }
+  const hiLine = tone === 'KhadiBhasha'
+    ? 'Use authentic earthy Khadi Bhasha / Haryana-UP tapri dialect in Devanagari ("अरे बावले", "इब देख तमाशा", "टैम खोटा मत कर", "म्हारा भैया सीधा सादा"). ZERO stiff formal Hindi ("आप/महोदय").'
+    : tone === 'TuTadak'
+      ? 'Use raw, playful Tu-Tadak friend banter in Devanagari ("अबे सुन", "तू रहने दे भाई", "तेरे से ना हो पाएगा", "दिमाग़ घुटनों में है क्या") — clean friendly roasting without slurs or abuse.'
+      : tone === 'FamilyClean'
+        ? 'Use lively clean all-ages situational Hindi comedy suitable for families and kids.'
+        : tone === 'RoastAndTwist'
+          ? 'Start with overconfident boasting, puncture it with a deadpan 6-word roast, and flip everything on the last line.'
+          : 'Use YouTube Hindi comedy blend (Khadi Bhasha + Tu-Tadak buddy banter: "अबे सुन", "इब के करैगो", "अरे बावले", "तू रहने दे भाई"). Open straight into conflict in line 1, use 6-15 word snappy dialogue turns, ZERO "कथा की सीख / नमस्कार दोस्तों" preaching.';
+  return `12. COMEDY CRAFT (${tone}): ${hiLine}\n`;
 }
 
 /** The whole prompt to paste into ChatGPT or any other tool: the rules, the allowed values and the skeleton to fill. */
@@ -200,6 +233,7 @@ export function buildPackPrompt(settings: PackSettings, characters: PackCharacte
     `9. ${endingRule(settings.funnyEndings)} ${memes.length ? '"funnyEnding.meme" must be one of the meme names below, exactly' : '"funnyEnding.caption" is the punchline shown on screen'}; "seconds" is 1 to 4.`,
     '10. Leave "imagePrompt" null unless you want to override the picture; the app builds it from background, characters and action.',
     '11. Keep every key. Do not change "kind", "version", "story.options", "writer" or "genreId". Reply with the ONE JSON object only, no commentary.',
+    ...(comedyVoiceInstruction(settings) ? [comedyVoiceInstruction(settings).trimEnd()] : []),
     '',
     'CHARACTERS (reuse these names and looks; add new ones only if the story needs them, each with a "look"):',
     cast,

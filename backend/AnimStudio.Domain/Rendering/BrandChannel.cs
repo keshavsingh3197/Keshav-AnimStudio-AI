@@ -31,6 +31,15 @@ public sealed class BrandChannel
     /// <summary>Where and how this channel's videos are published to YouTube. Null until set up.</summary>
     public ChannelPublishSettings? Publishing { get; set; }
 
+    /// <summary>True when this channel runs as a separate funnier/comedy channel (auto-enables comedy tones &amp; memes).</summary>
+    public bool IsComedyChannel { get; set; }
+
+    /// <summary>Default spoken comedy dialect/tone when generating scripts for this comedy channel.</summary>
+    public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; set; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
+
+    /// <summary>Automatically insert matching in-app Reaction Memes into the middle buildup and payoff of comedy videos.</summary>
+    public bool AutoInsertMidMemes { get; set; } = true;
+
     /// <summary>Null, blank and "default" all mean the built-in channel.</summary>
     public static bool IsDefault(string? id) =>
         string.IsNullOrWhiteSpace(id) || string.Equals(id, DefaultId, StringComparison.OrdinalIgnoreCase);

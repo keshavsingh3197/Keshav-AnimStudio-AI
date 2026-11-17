@@ -367,6 +367,8 @@ export interface StoryBrief {
   textEngine?: string | null;
   /** The brand channel the story is made for; 'default' for the default one. */
   brandChannelId?: string | null;
+  comedyStyle?: 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+  autoInsertMemes?: boolean;
 }
 
 export type StoryMusicSource = 'Auto' | 'Generate' | 'Search';
@@ -658,6 +660,8 @@ export interface CreateStoryRunBody {
   textEngine?: string;
   /** The brand channel the story is made for; its project publishes under it. Left out is the default channel. */
   brandChannelId?: string;
+  comedyStyle?: 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+  autoInsertMemes?: boolean;
   options?: StoryBuildOptionsBody;
 }
 

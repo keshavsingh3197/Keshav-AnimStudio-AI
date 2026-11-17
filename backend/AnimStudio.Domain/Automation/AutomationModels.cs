@@ -158,6 +158,8 @@ public sealed class AutomationRule
     public AutomationVisualEngine VisualEngine { get; set; } = AutomationVisualEngine.Auto;
     public AutomationNarrativeMode NarrativeMode { get; set; } = AutomationNarrativeMode.Auto;
     public List<string> AttachedAssetIds { get; set; } = [];
+    public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; set; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
+    public bool AutoInsertMemes { get; set; } = true;
 
     public int SortOrder { get; set; }
     public string? LastPreparedDateKey { get; set; }
@@ -269,6 +271,8 @@ public sealed class AutomationPost
     public AutomationNarrativeMode NarrativeMode { get; set; } = AutomationNarrativeMode.Auto;
     public int? TargetSeconds { get; set; }
     public List<string> AttachedAssetIds { get; set; } = [];
+    public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; set; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
+    public bool AutoInsertMemes { get; set; } = true;
 
     /// <summary>Enhanced 3D stage choices for this post: background template, character spots, music and voice pacing.</summary>
     public AutomationStageSettings? Stage { get; set; }

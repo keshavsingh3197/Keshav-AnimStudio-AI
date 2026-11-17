@@ -25,6 +25,7 @@ const { comedyStoryTemplate } = load('src/app/features/story-agent/comedy-story-
 const { parseComedyStory, readComedyStoryUpload } = load('src/app/features/story-agent/comedy-story-file.ts');
 const { reviewComedyStory } = load('src/app/features/story-agent/comedy-review.ts');
 const { STORY_FILE_MAX_BYTES, clipPrompts } = load('src/app/features/story-agent/story-agent.utils.ts');
+const { buildPackTemplate, buildPackPrompt } = load('src/app/features/story-agent/story-pack.ts');
 
 async function main() {
   for (const language of ['hi', 'en']) {
@@ -75,6 +76,31 @@ async function main() {
   assert.match(clipPrompts('Story', null, scene, null, true, true), /expressive character actions/);
   assert.doesNotMatch(clipPrompts('Story', null, scene, null, true, true), /Slow, calm motion/);
   assert.match(clipPrompts('Story', null, scene, null, true), /Slow, calm motion/);
+  const packSettings = {
+    title: 'Tapri Comedy Pack',
+    idea: 'Two friends argue over chai bill.',
+    genreId: 'funny',
+    language: 'hi',
+    style: '3D',
+    format: 'Vertical',
+    voicing: 'CharactersOnly',
+    episodes: 1,
+    scenesPerEpisode: 4,
+    secondsPerEpisode: 30,
+    funnyEndings: 'mid-and-end',
+    visuals: 'UploadsOnly',
+    comedyStyle: 'KhadiBhasha',
+  };
+  const packMemes = [{ id: 'm1', name: 'Shocked Reaction' }, { id: 'm2', name: 'Khatam Tata' }];
+  const pack = buildPackTemplate(packSettings, [{ name: 'Pappu' }, { name: 'Bablu' }], packMemes);
+  assert.equal(pack.episodes[0].script.scenes.length, 3);
+  assert.equal(pack.episodes[0].script.scenes[0].funnyEnding, null);
+  assert.ok(pack.episodes[0].script.scenes[1].funnyEnding);
+  assert.ok(pack.episodes[0].script.scenes[2].funnyEnding);
+  const packPrompt = buildPackPrompt(packSettings, [{ name: 'Pappu' }, { name: 'Bablu' }], packMemes);
+  assert.match(packPrompt, /Khadi Bhasha/);
+  assert.match(packPrompt, /MIDDLE reaction scenes/);
+  assert.match(packPrompt, /Shocked Reaction/);
   console.log('Passed: comedy templates, fenced JSON, upload, Unicode, preservation and invalid/oversized input.');
 }
 

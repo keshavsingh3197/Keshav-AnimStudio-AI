@@ -78,6 +78,10 @@ export interface BrandChannel {
   /** As YouTube last reported them; a linked brand's name follows the YouTube channel's title. */
   youTubeChannelHandle?: string | null;
   youTubeThumbnailUrl?: string | null;
+  /** Separate funnier/comedy channel auto-configuration. */
+  isComedyChannel?: boolean;
+  comedyStyle?: 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+  autoInsertMidMemes?: boolean;
 }
 
 /** What "Sync from YouTube" did, and the channel list after it. */

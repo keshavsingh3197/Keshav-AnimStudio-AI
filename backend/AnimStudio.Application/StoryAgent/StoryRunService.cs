@@ -130,7 +130,9 @@ public sealed partial class StoryRunService(
     IOptionsMonitor<StoryAgentOptions> options,
     TimeProvider clock,
     ILogger<StoryRunService> logger,
-    IStoryGenreCatalog? genres = null)
+    IStoryGenreCatalog? genres = null,
+    IEffectClipRepository? effects = null,
+    IAiSettingsRepository? aiSettings = null)
 {
     public const int MinTitleChars = 3;
     public const int MaxTitleChars = 160;
@@ -195,8 +197,18 @@ public sealed partial class StoryRunService(
         var settings = options.CurrentValue;
         if (!settings.Enabled) throw new StoryRunException(StoryRunErrorKind.NotFound, "story-agent-off", "The Story Agent is switched off on this server.");
 
-        var genre = await GenreAsync(brief.GenreId, ct).ConfigureAwait(false);
-        var checkedBrief = CheckBrief(brief, genre);
+        BrandChannel? channel = null;
+        if (aiSettings is not null && !string.IsNullOrWhiteSpace(brief.BrandChannelId) && !BrandChannel.IsDefault(brief.BrandChannelId))
+        {
+            var storedSettings = await aiSettings.GetAsync(ct).ConfigureAwait(false);
+            channel = storedSettings?.FindChannel(brief.BrandChannelId);
+        }
+
+        var effectiveGenreId = string.IsNullOrWhiteSpace(brief.GenreId) && channel is not null && ComedyCraftGuide.IsComedyContext(null, null, channel)
+            ? StoryGenres.FunnyId
+            : brief.GenreId;
+        var genre = await GenreAsync(effectiveGenreId, ct).ConfigureAwait(false);
+        var checkedBrief = CheckBrief(brief, genre, channel);
         var checkedOptions = await CheckOptionsAsync(userId, WithGenreDefaults(build ?? new StoryBuildOptions(), genre), ct).ConfigureAwait(false);
 
         var working = await runs.CountWorkingByUserAsync(userId, ct).ConfigureAwait(false);
@@ -275,7 +287,8 @@ public sealed partial class StoryRunService(
         if (run.Research is null)
             throw new StoryRunException(StoryRunErrorKind.Conflict, "research-not-ready", "The search of the Granths is still running. The prompt is ready when it finishes.");
 
-        var (templateKey, variables) = StoryScriptPrompt.For(run);
+        var (channel, memes, _) = await ComedyCraftGuide.LoadContextAsync(run, effects, aiSettings, ct).ConfigureAwait(false);
+        var (templateKey, variables) = StoryScriptPrompt.For(run, memes, channel);
         RenderedPrompt rendered;
         try
         {
@@ -311,6 +324,13 @@ public sealed partial class StoryRunService(
         catch (StoryScriptException ex)
         {
             throw new StoryRunException(StoryRunErrorKind.Invalid, ex.Code, ex.Message, "reply");
+        }
+
+        var (channel, memes, isComedy) = await ComedyCraftGuide.LoadContextAsync(run, effects, aiSettings, ct).ConfigureAwait(false);
+        if (isComedy)
+        {
+            ComedyCraftGuide.AutoAssignMidAndEndMemes(
+                result.Script, memes, run.Brief.AutoInsertMemes, ComedyCraftGuide.EffectiveToneForRun(run, channel));
         }
 
         await DeleteScriptFilesAsync(run, ct).ConfigureAwait(false);
@@ -1163,7 +1183,7 @@ public sealed partial class StoryRunService(
         return o;
     }
 
-    private StoryBrief CheckBrief(StoryBrief brief, StoryGenre genre)
+    private StoryBrief CheckBrief(StoryBrief brief, StoryGenre genre, BrandChannel? channel = null)
     {
         var pack = brief.Writer == StoryWriterMode.BuiltIn
             ? StoryPacks.Find(brief.PackId) is { } found && string.Equals(found.GenreId, genre.Id, StringComparison.Ordinal)
@@ -1186,6 +1206,12 @@ public sealed partial class StoryRunService(
             ? genre.DefaultLanguage
             : string.Equals(brief.Language, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi");
         var seconds = pack?.TargetSeconds ?? Math.Clamp(brief.TargetSeconds <= 0 ? 150 : brief.TargetSeconds, MinTargetSeconds, MaxTargetSeconds);
+        var comedyStyle = Enum.IsDefined(brief.ComedyStyle)
+            ? (brief.ComedyStyle != ComedyToneStyle.Auto ? brief.ComedyStyle : channel?.ComedyStyle ?? ComedyToneStyle.Auto)
+            : ComedyToneStyle.Auto;
+        var autoInsertMemes = channel is not null && ComedyCraftGuide.IsComedyContext(genre.Id, genre.Category, channel)
+            ? brief.AutoInsertMemes && channel.AutoInsertMidMemes
+            : brief.AutoInsertMemes;
 
         return new StoryBrief
         {
@@ -1202,7 +1228,9 @@ public sealed partial class StoryRunService(
             Mode = genre.Mode,
             TextEngine = CheckTextEngine(brief.TextEngine),
             // Checked by the caller against who may use it; a channel deleted since falls back to the default at the build.
-            BrandChannelId = string.IsNullOrWhiteSpace(brief.BrandChannelId) ? null : brief.BrandChannelId.Trim()
+            BrandChannelId = string.IsNullOrWhiteSpace(brief.BrandChannelId) ? null : brief.BrandChannelId.Trim(),
+            ComedyStyle = comedyStyle,
+            AutoInsertMemes = autoInsertMemes
         };
     }
 

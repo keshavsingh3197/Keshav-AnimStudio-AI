@@ -36,9 +36,13 @@ public sealed record SceneDirective(SceneSetting Setting, SceneTimeOfDay TimeOfD
 /// <summary>One <c>[CAST]</c> directive: a named character with an archetype and an outfit colour.</summary>
 public sealed record CastDirective(string Name, CharacterVisualRole Role, string? RobeHex, string? Look);
 
+/// <summary>One <c>[MEME]</c> directive: a reaction meme overlay or freeze-frame punchline dropped after a comic line.</summary>
+public sealed record MemeDirective(string Name, string? Caption, double Seconds = 1.6);
+
 /// <summary>
 /// Parses the stage directions a 3D script may carry next to its dialogue lines:
-/// <c>[SCENE]: forest ashram | dawn | calm | IMAGE: ...</c> and <c>[CAST]: Dhruv | child | saffron dhoti, gold crown</c>.
+/// <c>[SCENE]: forest ashram | dawn | calm | IMAGE: ...</c>, <c>[CAST]: Dhruv | child | saffron dhoti, gold crown</c>,
+/// and <c>[MEME]: shocked_face | अरे बावले!</c>.
 /// Directions are never spoken. Every value is matched against fixed allowlists, so pasted text only ever selects
 /// one of the built-in settings, roles and colours.
 /// </summary>
@@ -46,6 +50,7 @@ public static partial class SceneDirectives
 {
     public static readonly string[] SceneTags = ["scene", "दृश्य", "setting", "location", "स्थान"];
     public static readonly string[] CastTags = ["cast", "पात्र", "character", "characters"];
+    public static readonly string[] MemeTags = ["meme", "मीम", "reaction", "रिएक्शन"];
 
     private static readonly (SceneSetting Setting, string[] Tokens)[] SettingTokens =
     [
@@ -97,6 +102,28 @@ public static partial class SceneDirectives
 
     /// <summary>True when the bracket tag names a stage direction rather than a speaker.</summary>
     public static bool IsDirectiveTag(string tag) => IsSceneTag(tag) || IsCastTag(tag);
+
+    public static bool IsMemeTag(string? tag) =>
+        !string.IsNullOrWhiteSpace(tag) && MemeTags.Any(t => string.Equals(tag.Trim(), t, StringComparison.OrdinalIgnoreCase));
+
+    public static MemeDirective? ParseMeme(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        var parts = body.Split('|', StringSplitOptions.TrimEntries);
+        var rawName = parts.Length > 0 ? parts[0] : string.Empty;
+        var caption = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]) ? parts[1] : null;
+        var seconds = 1.6;
+        if (parts.Length > 2 && double.TryParse(parts[2], System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            seconds = Math.Clamp(parsed, 0.8, 3.0);
+
+        var name = rawName.Trim();
+        if (name.Length == 0 && caption is null) return null;
+        if (name.Length > 64) name = name[..64].TrimEnd();
+        if (caption is { Length: > 100 }) caption = caption[..100].TrimEnd();
+        if (caption is null && name.Contains(' ') && name.Any(c => c is >= '\u0900' and <= '\u097F'))
+            caption = name;
+        return new MemeDirective(name.Length > 0 ? name : "reaction", caption, seconds);
+    }
 
     public static bool IsSceneTag(string tag) =>
         SceneTags.Contains(tag.Trim(), StringComparer.OrdinalIgnoreCase);

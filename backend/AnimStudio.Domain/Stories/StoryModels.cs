@@ -91,6 +91,12 @@ public sealed class StoryBrief
     /// default channel - and a channel deleted since is too, when the project is built.
     /// </summary>
     public string? BrandChannelId { get; set; }
+
+    /// <summary>Preferred spoken comedy tone when the genre or channel is comedy (<c>Auto</c> uses Khadi Bhasha + Tu-Tadak in Hindi).</summary>
+    public ComedyToneStyle ComedyStyle { get; set; } = ComedyToneStyle.Auto;
+
+    /// <summary>Automatically weave user Reaction Memes into mid-video buildup punchlines as well as the climax.</summary>
+    public bool AutoInsertMemes { get; set; } = true;
 }
 
 /// <summary>How the video is made once the script is approved.</summary>
