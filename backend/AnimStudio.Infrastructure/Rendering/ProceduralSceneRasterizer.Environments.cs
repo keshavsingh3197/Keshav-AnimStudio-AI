@@ -18,7 +18,7 @@ public sealed partial class ProceduralSceneRasterizer
         double LocalProgress,
         float CutDip);
 
-    private readonly record struct SceneRun(double Start, double End, SceneSetting Setting, SceneTimeOfDay Time, int Index);
+    internal readonly record struct SceneRun(double Start, double End, SceneSetting Setting, SceneTimeOfDay Time, int Index);
 
     private const double CutDipSeconds = 0.32;
 
@@ -51,17 +51,17 @@ public sealed partial class ProceduralSceneRasterizer
         for (var i = 0; i < _stars.Length; i++)
             _stars[i] = ((float)rng.NextDouble(), (float)(rng.NextDouble() * 0.5), 0.6f + (float)rng.NextDouble() * 1.6f, (float)(rng.NextDouble() * Math.PI * 2));
 
-        _sceneRuns = BuildSceneRuns();
+        _sceneRuns = BuildSceneRuns(_dialoguePlan);
     }
 
     /// <summary>Contiguous turns sharing a cue become one run; the first run starts at 0 and the last ends at +∞.</summary>
-    private SceneRun[] BuildSceneRuns()
+    internal static SceneRun[] BuildSceneRuns(ProceduralDialoguePlan? plan)
     {
-        if (_dialoguePlan is null) return [];
-        var turns = _dialoguePlan.Turns.Where(t => !string.IsNullOrWhiteSpace(t.SceneBackdropCue)).OrderBy(t => t.StartSeconds).ToList();
+        if (plan is null) return [];
+        var turns = plan.Turns.Where(t => !string.IsNullOrWhiteSpace(t.SceneBackdropCue)).OrderBy(t => t.StartSeconds).ToList();
         if (turns.Count == 0) return [];
 
-        var order = _dialoguePlan.SceneCueOrder;
+        var order = plan.SceneCueOrder;
         var runs = new List<SceneRun>();
         foreach (var turn in turns)
         {

@@ -7,9 +7,11 @@ import {
   AnimateFormat,
   AnimatePlan,
   AnimateService,
+  ProceduralRenderEngine,
   ProceduralResolution,
   ProceduralSceneTheme,
   ProceduralThemePreset,
+  ProceduralVfxStyle,
 } from '../../core/services/animate.service';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -22,6 +24,7 @@ const DEFAULT_PROCEDURAL_THEMES: readonly ProceduralThemePreset[] = [
   { id: 'history-chronicle', theme: 'HistoryChronicle3D', name: 'History Chronicle 3D', bestFor: 'Aaj Ka Itihaas & Events', accentHex: '#D97706', description: 'Rotating 3D meridian wireframe globe, radar sweeps & archival lighting.' },
   { id: 'neon-cyber', theme: 'NeonCyberGrid3D', name: 'Neon Cyber Grid 3D', bestFor: 'Pratiyogita, Tech & Analytics', accentHex: '#06B6D4', description: 'Scrolling 3D perspective synthwave grid, floating polyhedra & reactive pulses.' },
   { id: 'serene-nature', theme: 'SereneNatureGlow', name: 'Serene Aurora Nature', bestFor: 'Wisdom, Quotes & Peace', accentHex: '#10B981', description: 'Layered parallax mountains, glowing aurora ribbons & golden fireflies.' },
+  { id: 'comedy-stage', theme: 'ComedyStage3D', name: 'Comedy Stage & Chai Tapri 3D', bestFor: 'Funny Shorts & Skits (@KESHAV-ANIM-FF)', accentHex: '#F97316', description: '3D theatre/tapri set, standing articulated comedy banter, sparkles & dynamic camera cuts.' },
 ];
 
 const PROCEDURAL_IDEAS: readonly { label: string; title: string; prompt: string; script: string; theme: ProceduralSceneTheme }[] = [
@@ -31,6 +34,13 @@ const PROCEDURAL_IDEAS: readonly { label: string; title: string; prompt: string;
     prompt: 'Sacred 3D Vedic sunrise over golden temple spires, rotating Sri Yantra geometry, warm diya particles',
     script: 'हर हर महादेव! आइए जानते हैं आज का शुभ मुहूर्त, तिथि, नक्षत्र और राहुकाल। अभिजीत मुहूर्त में आज के सभी शुभ कार्य संपन्न करें।',
     theme: 'CosmosSacred3D',
+  },
+  {
+    label: '🎭 Comedy Skit (@KESHAV-ANIM-FF)',
+    title: 'पप्पू भैया की चाय टपरी पर गजब कॉमेडी',
+    prompt: 'Chai tapri comedy stage with glowing spots, two standing characters joking, comic star bursts',
+    script: '[पप्पू भैया]: (confused) बबलू यार, बिना चीनी की चाय कितने की दोगे?\n[बबलू यार]: (laughing) पैसे पूरे लगेंगे भैया, शुगर फ्री का टैलेंट फ्री नहीं आता!',
+    theme: 'ComedyStage3D',
   },
   {
     label: '🌍 Aaj Ka Itihaas Reel',
@@ -123,6 +133,9 @@ export class AnimateImageComponent implements OnInit {
   readonly procTheme = signal<ProceduralSceneTheme>('Auto');
   readonly procFormat = signal<AnimateFormat>('vertical');
   readonly procResolution = signal<ProceduralResolution>('720p');
+  readonly procEngine = signal<ProceduralRenderEngine>('Auto');
+  readonly procVfxStyle = signal<ProceduralVfxStyle>('Auto');
+  readonly procDynamicCamera = signal(true);
   readonly procDuration = signal(15);
   readonly procIncludeCaptions = signal(true);
   readonly procIncludeAudio = signal(true);
@@ -348,6 +361,9 @@ export class AnimateImageComponent implements OnInit {
       language: this.procLanguage(),
       footerLabel: this.procFooter().trim() || null,
       saveAsRenderJob: this.isAuthenticated() && this.procSaveToLibrary(),
+      renderEngine: this.procEngine(),
+      vfxStyle: this.procVfxStyle(),
+      enableDynamicCamera: this.procDynamicCamera(),
     };
 
     if (this.isAuthenticated() && this.procSaveToLibrary()) {

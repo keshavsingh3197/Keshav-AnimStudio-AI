@@ -259,6 +259,80 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
     }
 
     [FfmpegFact]
+    public async Task Generates_cpu_fast_fallback_and_webgl_3d_dialogue_videos()
+    {
+        var store = new InMemoryObjectStore();
+        var service = new ProceduralVideoGeneratorService(
+            Options.Create(new FfmpegOptions
+            {
+                FfmpegPath = FfmpegLocator.FfmpegPath,
+                FfprobePath = FfmpegLocator.FfprobePath
+            }),
+            new FfmpegCapabilities
+            {
+                IsAvailable = true,
+                HasLibass = true,
+                HasLibx264 = true,
+                HasAac = true,
+                Major = FfmpegLocator.MajorVersion
+            },
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            new InMemoryRenderJobRepo(),
+            new InMemoryProjectRepo(),
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        var cpuResult = await service.GenerateAsync(string.Empty, new ProceduralVideoRequest
+        {
+            Title = "Chai Comedy Fast",
+            Script = "[Pappu]: (laughing) बिना चीनी की चाय!\n[Bablu]: (surprised) वाह!",
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            RenderEngine = ProceduralRenderEngine.CpuFast,
+            VfxStyle = ProceduralVfxStyle.ComedyBurst,
+            EnableCharacterDialogue = true,
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 5,
+            Fps = 24,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.Contains("engine=cpu-fast", cpuResult.Summary);
+        Assert.NotNull(cpuResult.InlineMp4Bytes);
+        Assert.True(cpuResult.SizeBytes > 5_000);
+
+        if (WebGlVideoFrameRenderer.IsAvailable())
+        {
+            var webGlResult = await service.GenerateAsync(string.Empty, new ProceduralVideoRequest
+            {
+                Title = "Bhakta Dhruva Real 3D",
+                EventType = "DailyKatha",
+                Script = "[Bhakta Dhruva]: (happy) ओ देवर्षि नारद!\n[Devarshi Narada]: (proud) शुभ वरदान प्राप्त हो।",
+                Theme = ProceduralSceneTheme.VedicTempleSunrise3D,
+                RenderEngine = ProceduralRenderEngine.WebGl3D,
+                VfxStyle = ProceduralVfxStyle.DivineAura,
+                EnableCharacterDialogue = true,
+                Format = "vertical",
+                Resolution = "720p",
+                DurationSeconds = 5,
+                Fps = 24,
+                SaveAsRenderJob = false,
+                ReturnInlineBytes = true
+            }, CancellationToken.None);
+
+            Assert.Contains("engine=webgl-3d", webGlResult.Summary);
+            Assert.NotNull(webGlResult.InlineMp4Bytes);
+            var webGlPath = Path.Combine(_root, "verified-webgl-3d.mp4");
+            await File.WriteAllBytesAsync(webGlPath, webGlResult.InlineMp4Bytes!);
+            Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
+                $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{webGlPath}\""));
+        }
+    }
+
+    [FfmpegFact]
     public async Task ProceduralBgmCacheService_resamples_existing_192kHz_cached_preset_to_48kHz_without_losing_source()
     {
         var bgmRoot = Path.Combine(_root, "bgm-upgrade-test");

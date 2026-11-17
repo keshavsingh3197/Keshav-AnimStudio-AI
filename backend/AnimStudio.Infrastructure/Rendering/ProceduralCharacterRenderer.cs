@@ -114,11 +114,13 @@ internal static class ProceduralCharacterRenderer
 
         DrawCharacterFigure(canvas, leftX, leftY, leftScale, facingRight: leftFacesRight, timeSeconds,
             activeLeftName, activeLeftRole, leftSpeaking, leftColor, seedOffset: 0.0,
-            robeHex: string.Equals(activeLeftName, plan.LeftCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.LeftCharacter.RobeHex : null);
+            robeHex: string.Equals(activeLeftName, plan.LeftCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.LeftCharacter.RobeHex : null,
+            emotion: leftSpeaking ? activeTurn?.Emotion : null);
 
         DrawCharacterFigure(canvas, rightX, rightY, rightScale, facingRight: !leftFacesRight, timeSeconds,
             activeRightName, activeRightRole, rightSpeaking, rightColor, seedOffset: 1.7,
-            robeHex: string.Equals(activeRightName, plan.RightCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.RightCharacter.RobeHex : null);
+            robeHex: string.Equals(activeRightName, plan.RightCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.RightCharacter.RobeHex : null,
+            emotion: rightSpeaking ? activeTurn?.Emotion : null);
     }
 
     private static int IndexOfName(IReadOnlyList<ProceduralCharacterProfile> cast, string? name)
@@ -177,7 +179,8 @@ internal static class ProceduralCharacterRenderer
         RgbColor accent,
         double seedOffset,
         string? robeHex = null,
-        float depthDim = 0f)
+        float depthDim = 0f,
+        string? emotion = null)
     {
         var dir = facingRight ? 1f : -1f;
         var t = timeSeconds + seedOffset;
@@ -406,18 +409,22 @@ internal static class ProceduralCharacterRenderer
         var blinkWindow = (t % 3.8) > 3.66;
         var eyeX = headCenterX + dir * scale * 0.068f;
         var eyeY = headCenterY - scale * 0.016f;
-        var browLift = isSpeaking ? scale * 0.010f : 0f;
+        var emo = (emotion ?? "calm").ToLowerInvariant();
+        var browLift = emo is "surprised" or "laughing" ? scale * 0.020f : (isSpeaking ? scale * 0.010f : 0f);
+        var browSlant = emo == "angry" ? scale * 0.014f : (emo is "sad" or "confused" ? -scale * 0.010f : -scale * 0.004f);
         canvas.DrawGlowLine(eyeX - scale * 0.028f, eyeY - scale * 0.040f - browLift,
-            eyeX + scale * 0.028f, eyeY - scale * 0.044f - browLift, 1.4f, 44, 30, 28, 0.85f);
+            eyeX + scale * 0.028f, eyeY - scale * 0.040f - browLift + browSlant * dir, 1.5f, 44, 30, 28, 0.85f);
 
-        if (!blinkWindow)
+        if (!blinkWindow && emo != "laughing")
         {
-            canvas.FillEllipse(eyeX, eyeY, scale * 0.025f, scale * 0.020f, 28, 22, 32, 0.96f);
+            var eyeRy = emo == "surprised" ? scale * 0.028f : scale * 0.020f;
+            canvas.FillEllipse(eyeX, eyeY, scale * 0.025f, eyeRy, 28, 22, 32, 0.96f);
             canvas.FillEllipse(eyeX + dir * scale * 0.006f, eyeY - scale * 0.004f, scale * 0.008f, scale * 0.008f, 255, 255, 255, 0.92f);
         }
         else
         {
-            canvas.DrawGlowLine(eyeX - scale * 0.022f, eyeY, eyeX + scale * 0.022f, eyeY, 1.5f, 40, 28, 30, 0.9f);
+            canvas.DrawGlowLine(eyeX - scale * 0.022f, eyeY, eyeX + scale * 0.022f, eyeY - (emo == "laughing" ? scale * 0.009f : 0f),
+                1.6f, 40, 28, 30, 0.9f);
         }
 
         // Animated mouth: strictly tracks real synthesized audio energy when present so silence never flaps mouth!

@@ -40,7 +40,10 @@ public sealed record ProceduralVideoGenerationRequest(
     string? FooterLabel = null,
     string? ProjectId = null,
     string? TopicId = null,
-    bool SaveAsRenderJob = true);
+    bool SaveAsRenderJob = true,
+    ProceduralRenderEngine RenderEngine = ProceduralRenderEngine.Auto,
+    ProceduralVfxStyle VfxStyle = ProceduralVfxStyle.Auto,
+    bool EnableDynamicCamera = true);
 
 public sealed record ProceduralVideoResponse(
     string? RenderJobId,

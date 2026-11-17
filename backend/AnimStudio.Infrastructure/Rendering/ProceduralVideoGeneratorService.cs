@@ -14,16 +14,18 @@ using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Subtitles;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AnimStudio.Infrastructure.Rendering;
 
 /// <summary>
-/// Renders free, deterministic 2D/3D procedural animated MP4 videos directly on CPU by streaming
-/// synthesized RGBA frames into FFmpeg alongside spoken multi-character/narrator TTS voices,
-/// one-time cached clean BGM audio with sidechain ducking, and UTF-8 ASS subtitles, then
-/// persists the finished video into <see cref="IObjectStore"/> and <see cref="IRenderJobRepository"/>.
+/// Renders free, deterministic 3D animated MP4 videos — preferring hardware/WebGL2 Three.js 3D
+/// (characters, soft shadows, shaders, particle VFX, dynamic speaker cameras) via headless Edge/Chrome
+/// when available and falling back seamlessly to pure-C# <see cref="ProceduralSceneRasterizer"/> —
+/// streaming synthesized RGBA frames into FFmpeg alongside multi-character/narrator TTS voices,
+/// one-time cached BGM audio with sidechain ducking, and UTF-8 ASS subtitles.
 /// </summary>
 public sealed class ProceduralVideoGeneratorService(
     IOptions<FfmpegOptions> ffmpegOptions,
@@ -37,7 +39,8 @@ public sealed class ProceduralVideoGeneratorService(
     ILogger<ProceduralVideoGeneratorService> logger,
     IAiExecutor? ai = null,
     IAiProviderRegistry? aiRegistry = null,
-    ProceduralBgmCacheService? bgmCache = null) : IProceduralVideoGenerator
+    ProceduralBgmCacheService? bgmCache = null,
+    IConfiguration? configuration = null) : IProceduralVideoGenerator
 {
     private const string DefaultProjectName = "Procedural 3D Studio Renders";
     private const string TopCategoryStyleCharId = "top-category";
@@ -204,6 +207,56 @@ public sealed class ProceduralVideoGeneratorService(
             height,
             ct).ConfigureAwait(false);
 
+        var totalFrames = durationSeconds * fps;
+        var swPrep = Stopwatch.StartNew();
+        var frameBytes = width * height * 4;
+        byte[][] handOff = [new byte[frameBytes], new byte[frameBytes]];
+
+        // Prefer real-time Three.js WebGL2 3D rendering when Node + Edge/Chrome are available; verify frame 0
+        // BEFORE starting FFmpeg so Auto mode can fall back seamlessly to the C# CPU rasterizer.
+        WebGlFrameSession? webGlSession = null;
+        var hasFirstWebGlFrame = false;
+        if (request.RenderEngine != ProceduralRenderEngine.CpuFast)
+        {
+            webGlSession = await WebGlVideoFrameRenderer.TryStartSessionAsync(
+                workspace.Resolve("webgl3d"),
+                width, height, fps, durationSeconds, totalFrames, seed,
+                resolvedTheme, request, palette, dialoguePlan, speechEnvelope, backdropFrames,
+                configuration, logger, ct).ConfigureAwait(false);
+
+            if (webGlSession is not null)
+            {
+                hasFirstWebGlFrame = await webGlSession.ReadNextFrameAsync(handOff[0], ct).ConfigureAwait(false);
+                if (!hasFirstWebGlFrame)
+                {
+                    var webGlErr = await webGlSession.GetStderrAsync().ConfigureAwait(false);
+                    await webGlSession.DisposeAsync().ConfigureAwait(false);
+                    webGlSession = null;
+                    if (request.RenderEngine == ProceduralRenderEngine.WebGl3D)
+                    {
+                        throw new RenderException(
+                            RenderErrorCode.RendererUnavailable,
+                            "WebGL 3D engine could not start on this machine.",
+                            webGlErr);
+                    }
+                    logger.LogWarning("WebGL 3D frame 0 unavailable ({Err}); falling back to CPU rasterizer.", webGlErr);
+                }
+            }
+            else if (request.RenderEngine == ProceduralRenderEngine.WebGl3D)
+            {
+                throw new RenderException(
+                    RenderErrorCode.RendererUnavailable,
+                    "WebGL 3D engine requires Node.js and Microsoft Edge or Chrome installed on this machine.");
+            }
+        }
+
+        var useWebGl = webGlSession is not null && hasFirstWebGlFrame;
+        var engineLabel = useWebGl ? "webgl-3d" : "cpu-fast";
+        var rasterizer = useWebGl
+            ? null
+            : new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames,
+                request.StageLayout);
+
         var startInfo = new ProcessStartInfo
         {
             FileName = ffmpegExe,
@@ -226,6 +279,8 @@ public sealed class ProceduralVideoGeneratorService(
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
         {
+            if (webGlSession is not null)
+                await webGlSession.DisposeAsync().ConfigureAwait(false);
             throw new RenderException(
                 RenderErrorCode.RendererUnavailable,
                 "FFmpeg could not be launched on this machine.",
@@ -241,19 +296,10 @@ public sealed class ProceduralVideoGeneratorService(
         var stdoutTask = DrainAsync(process.StandardOutput, watchdog, renderCt);
         var stderrTask = DrainAsync(process.StandardError, watchdog, renderCt);
 
-        var totalFrames = durationSeconds * fps;
-        var swPrep = Stopwatch.StartNew();
-        var rasterizer = new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames,
-            request.StageLayout);
-
         try
         {
             await using (var stdin = process.StandardInput.BaseStream)
             {
-                // Two hand-off buffers: FFmpeg reads frame N from one while frame N+1 is drawn and copied into the
-                // other, so drawing and encoding overlap instead of taking turns.
-                var frameBytes = rasterizer.Buffer.Length;
-                byte[][] handOff = [new byte[frameBytes], new byte[frameBytes]];
                 var pendingWrite = Task.CompletedTask;
                 var lastReportedPercent = -1;
                 for (var frameIndex = 0; frameIndex < totalFrames; frameIndex++)
@@ -266,13 +312,33 @@ public sealed class ProceduralVideoGeneratorService(
                         {
                             lastReportedPercent = pct;
                             progress.Report(new ProceduralRenderProgress(pct,
-                                $"Animating 3D frames ({frameIndex / fps}s of {durationSeconds}s)"));
+                                useWebGl
+                                    ? $"Rendering Real 3D WebGL ({frameIndex / fps}s of {durationSeconds}s)"
+                                    : $"Animating 3D frames ({frameIndex / fps}s of {durationSeconds}s)"));
                         }
                     }
 
-                    var timeSeconds = (double)frameIndex / fps;
                     var buffer = handOff[frameIndex & 1];
-                    rasterizer.RenderFrame(timeSeconds, durationSeconds).CopyTo(buffer);
+                    if (useWebGl)
+                    {
+                        if (frameIndex > 0)
+                        {
+                            var gotFrame = await webGlSession!.ReadNextFrameAsync(buffer, renderCt).ConfigureAwait(false);
+                            if (!gotFrame)
+                            {
+                                var errTail = await webGlSession.GetStderrAsync().ConfigureAwait(false);
+                                throw new RenderException(
+                                    RenderErrorCode.FfmpegError,
+                                    $"WebGL 3D renderer stopped early at frame {frameIndex} of {totalFrames}.",
+                                    errTail);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var timeSeconds = (double)frameIndex / fps;
+                        rasterizer!.RenderFrame(timeSeconds, durationSeconds).CopyTo(buffer);
+                    }
 
                     await pendingWrite.ConfigureAwait(false);
                     watchdog.Touch();
@@ -305,6 +371,11 @@ public sealed class ProceduralVideoGeneratorService(
         {
             TryKill(process);
             throw;
+        }
+        finally
+        {
+            if (webGlSession is not null)
+                await webGlSession.DisposeAsync().ConfigureAwait(false);
         }
 
         if (!process.HasExited) await process.WaitForExitAsync(ct).ConfigureAwait(false);
@@ -351,7 +422,7 @@ public sealed class ProceduralVideoGeneratorService(
                 TopicId = string.IsNullOrWhiteSpace(request.TopicId) ? null : request.TopicId.Trim(),
                 Status = RenderJobStatus.Completed,
                 Progress = 100,
-                Message = $"3D Animated ({preset.Name})",
+                Message = useWebGl ? $"Real 3D WebGL ({preset.Name})" : $"3D Animated ({preset.Name})",
                 CurrentStage = Domain.Rendering.RenderStage.Completed,
                 ScenesTotal = 1,
                 ScenesDone = 1,
@@ -380,8 +451,8 @@ public sealed class ProceduralVideoGeneratorService(
         }
 
         logger.LogInformation(
-            "Generated {Theme} 3D animated video ({Width}x{Height}, {Duration}s, {Bytes} bytes) in {Elapsed}ms for user {UserId}.",
-            resolvedTheme, width, height, durationSeconds, mp4Bytes.Length, swTotal.ElapsedMilliseconds, userId);
+            "Generated {Theme} 3D animated video via {Engine} ({Width}x{Height}, {Duration}s, {Bytes} bytes) in {Elapsed}ms for user {UserId}.",
+            resolvedTheme, engineLabel, width, height, durationSeconds, mp4Bytes.Length, swTotal.ElapsedMilliseconds, userId);
 
         var summaryVoice = string.IsNullOrWhiteSpace(voiceSummary) ? string.Empty : $", voice={voiceSummary}";
         return new ProceduralVideoResult(
@@ -395,7 +466,7 @@ public sealed class ProceduralVideoGeneratorService(
             mp4Bytes.Length,
             storageKey,
             request.ReturnInlineBytes ? mp4Bytes : null,
-            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
+            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}, engine={engineLabel}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
     }
 
     private string BuildAssSubtitles(

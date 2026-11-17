@@ -38,6 +38,10 @@
   <ItemGroup>
     <!-- Written next to each AI voice job and run with Seed-VC's own Python. -->
     <EmbeddedResource Include="Voices\seedvc_convert.py" LogicalName="AnimStudio.Voices.seedvc_convert.py" />
+    <!-- Self-contained hardware WebGL2 Three.js 3D frame renderer (bundled into a single JS file). -->
+    <EmbeddedResource Include="Rendering\WebGl3D\index.html" LogicalName="AnimStudio.WebGl3D.index.html" />
+    <EmbeddedResource Include="Rendering\WebGl3D\render-3d-frames.mjs" LogicalName="AnimStudio.WebGl3D.render-3d-frames.mjs" />
+    <EmbeddedResource Include="Rendering\WebGl3D\scene-3d.bundle.js" LogicalName="AnimStudio.WebGl3D.scene-3d.bundle.js" />
   </ItemGroup>
 
   <ItemGroup>

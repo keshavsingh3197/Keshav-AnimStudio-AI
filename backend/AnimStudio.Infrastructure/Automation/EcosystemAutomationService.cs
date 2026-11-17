@@ -2571,6 +2571,14 @@ public sealed partial class EcosystemAutomationService(
                 Prompt = post.AiVideoPrompt,
                 Script = renderScript,
                 Theme = theme,
+                VfxStyle = post.SourceType switch
+                {
+                    AutomationSourceType.FunnyComedy => ProceduralVfxStyle.ComedyBurst,
+                    AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival => ProceduralVfxStyle.DivineAura,
+                    AutomationSourceType.Pratiyogita => ProceduralVfxStyle.CyberNeon,
+                    AutomationSourceType.AajKaItihaas => ProceduralVfxStyle.CinematicDrama,
+                    _ => ProceduralVfxStyle.Auto
+                },
                 Format = formatArg,
                 Resolution = string.IsNullOrWhiteSpace(resolution) ? "720p" : resolution.Trim(),
                 DurationSeconds = duration,

@@ -14,6 +14,22 @@ public enum ProceduralSceneTheme
     ComedyStage3D = 6
 }
 
+public enum ProceduralRenderEngine
+{
+    Auto = 0,
+    WebGl3D = 1,
+    CpuFast = 2
+}
+
+public enum ProceduralVfxStyle
+{
+    Auto = 0,
+    DivineAura = 1,
+    ComedyBurst = 2,
+    CinematicDrama = 3,
+    CyberNeon = 4
+}
+
 public sealed record ProceduralThemePreset(
     string Id,
     ProceduralSceneTheme Theme,
@@ -106,6 +122,15 @@ public sealed class ProceduralVideoRequest
 
     public bool SaveAsRenderJob { get; init; } = true;
     public bool ReturnInlineBytes { get; init; }
+
+    /// <summary>Rendering engine: <see cref="ProceduralRenderEngine.Auto"/> prefers hardware/WebGL 3D when available and falls back safely to CPU.</summary>
+    public ProceduralRenderEngine RenderEngine { get; init; } = ProceduralRenderEngine.Auto;
+
+    /// <summary>Atmospheric &amp; reaction 3D VFX preset (<see cref="ProceduralVfxStyle.Auto"/> adapts to theme and line emotions).</summary>
+    public ProceduralVfxStyle VfxStyle { get; init; } = ProceduralVfxStyle.Auto;
+
+    /// <summary>When true, gently shifts and frames 3D camera cuts toward the active speaker unless a custom template layout locks positions.</summary>
+    public bool EnableDynamicCamera { get; init; } = true;
 
     /// <summary>Optional live progress sink (stage text + 0-99 percent) while the render runs. Called inline from the render thread.</summary>
     public IProgress<ProceduralRenderProgress>? Progress { get; init; }
