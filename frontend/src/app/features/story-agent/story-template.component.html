@@ -29,10 +29,19 @@
       placeholder="Paste your story, plot points, jokes or a full script. Several stories are fine: they become episodes."></textarea>
     <div class="st-row">
       <label>Genre
-        <select [ngModel]="genreId()" (ngModelChange)="genreId.set($event)">
+        <select [ngModel]="genreId()" (ngModelChange)="onGenreChange($event)">
           @for (genre of genres; track genre.id) { <option [value]="genre.id">{{ genre.label }}</option> }
         </select>
       </label>
+      @if (genreId() === 'funny') {
+        <label>Comedy style / dialect
+          <select [ngModel]="comedyStyle()" (ngModelChange)="comedyStyle.set($event)">
+            @for (tone of comedyToneOptions; track tone.id) {
+              <option [value]="tone.id">{{ tone.label }}</option>
+            }
+          </select>
+        </label>
+      }
       <label>Language
         <select [ngModel]="language()" (ngModelChange)="language.set($event)">
           <option value="hi">Hindi</option><option value="en">English</option>
@@ -69,8 +78,9 @@
           <option [ngValue]="120">About 2 minutes</option><option [ngValue]="300">About 5 minutes</option>
         </select>
       </label>
-      <label>Funny endings (memes)
+      <label>Funny endings &amp; mid-video memes
         <select [ngModel]="funnyEndings()" (ngModelChange)="funnyEndings.set($event)">
+          <option value="mid-and-end">Mid-video reaction + climax ending (YouTube comedy)</option>
           <option value="episode-end">At the end of each episode</option>
           <option value="every-scene">After every scene</option>
           <option value="ai-decides">Where a joke lands (AI decides)</option>
@@ -153,10 +163,13 @@
 
   <!-- 3. memes -->
   <section class="card st-section">
-    <h2>3. Memes for funny endings</h2>
-    <p class="muted">Pick the memes the AI tool may use. After the scene, the build plays the meme right from your library.
+    <h2>3. Memes for mid-video &amp; funny endings</h2>
+    <p class="muted">Pick the memes the AI tool may use (for Comedy stories, matching Reaction Memes from your library are pre-selected automatically so they trigger in mid-video buildup punchlines as well as the climax).
       Only MP4 clips and pictures can be played. A meme name your library does not have (matched by name or tag) holds the scene's last picture as a freeze-frame under its caption instead.</p>
     @if (memeLibrary().length) {
+      <div class="st-actions" style="margin-bottom: 8px;">
+        <button type="button" class="secondary" (click)="autoPickComedyMemes()">⚡ Auto-pick reaction memes</button>
+      </div>
       <div class="st-chips" role="group" aria-label="Memes">
         @for (meme of memeLibrary(); track meme.id) {
           <button type="button" class="st-chip" [class.on]="memeIds().has(meme.id)" [attr.aria-pressed]="memeIds().has(meme.id)"

@@ -7,8 +7,11 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { ApiResponse } from '../../core/models/api.models';
+import { EffectClip } from '../../core/models/effects.models';
+import { EffectsService } from '../../core/services/effects.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
 import { StoryExportFile } from '../../core/models/story-agent.models';
+import { COMEDY_TONE_OPTIONS, ComedyToneStyle } from './comedy-templates';
 import { ComedyReview, reviewComedyStory } from './comedy-review';
 import { parseComedyStory, readComedyStoryUpload } from './comedy-story-file';
 import { comedyStoryTemplate } from './comedy-story-template';
@@ -23,6 +26,7 @@ import { saveBlob, saveStoryFile } from './story-agent.utils';
 export class ComedyWorkspaceComponent {
   private readonly http = inject(HttpClient);
   private readonly stories = inject(StoryAgentService);
+  private readonly effects = inject(EffectsService);
   private readonly router = inject(Router);
 
   readonly title = signal('');
@@ -32,6 +36,11 @@ export class ComedyWorkspaceComponent {
   readonly style = signal<'2D' | '3D'>('3D');
   readonly targetSeconds = signal(30);
   readonly voicing = signal<'CharactersOnly' | 'Narrated'>('CharactersOnly');
+  readonly comedyStyle = signal<ComedyToneStyle>('Auto');
+  readonly includeMidMemes = signal(true);
+  readonly memeLibrary = signal<EffectClip[]>([]);
+  readonly selectedMemeNames = signal<string[]>([]);
+  readonly comedyToneOptions = COMEDY_TONE_OPTIONS;
   readonly prompt = signal('');
   readonly reply = signal('');
   readonly review = signal<ComedyReview | null>(null);
@@ -42,10 +51,50 @@ export class ComedyWorkspaceComponent {
   readonly ready = computed(() => this.title().trim().length >= 3 && this.material().trim().length >= 3
     && this.title().length <= 160 && this.material().length <= 20000 && this.reference().length <= 1000);
 
+  constructor() {
+    this.effects.list().subscribe({
+      next: (list) => {
+        const sorted = [...list].sort((a, b) => Number(b.category === 'Reaction') - Number(a.category === 'Reaction'));
+        this.memeLibrary.set(sorted);
+        const autoPick = sorted
+          .filter((c) => c.category === 'Reaction')
+          .slice(0, 6)
+          .map((c) => c.name);
+        if (autoPick.length) this.selectedMemeNames.set(autoPick);
+      },
+      error: () => { /* library optional */ },
+    });
+  }
+
+  toggleMemeName(name: string): void {
+    const cur = this.selectedMemeNames();
+    this.selectedMemeNames.set(cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]);
+  }
+
+  applyAutoComedyPreset(): void {
+    this.language.set('hi');
+    this.style.set('3D');
+    this.targetSeconds.set(30);
+    this.voicing.set('CharactersOnly');
+    this.comedyStyle.set('Auto');
+    this.includeMidMemes.set(true);
+    if (!this.title().trim()) this.title.set('टपरी पर दोस्ती और उधार कांड 😂');
+    if (!this.material().trim()) {
+      this.material.set(
+        'पप्पू भैया पूरे कॉन्फिडेंस के साथ बबलू यार को चाय-समोसे की पार्टी देने टपरी पर ले जाते हैं, बबलू उन्हें खड़ी भाषा में चिढ़ाता है, बीच में उधार वाली पुरानी डायरी खुल जाती है और दोनों में से किसी के पास पैसे नहीं निकलते!'
+      );
+    }
+    const autoPick = this.memeLibrary().slice(0, 6).map((c) => c.name);
+    if (autoPick.length) this.selectedMemeNames.set(autoPick);
+    this.notice.set('Applied YouTube comedy preset (Khadi Bhasha + Tu-Tadak banter + auto mid-video memes).');
+  }
+
   private body() {
     return {
       title: this.title().trim(), material: this.material().trim(), reference: this.reference().trim() || null,
       language: this.language(), style: this.style(), targetSeconds: this.targetSeconds(), voicing: this.voicing(),
+      comedyStyle: this.comedyStyle(), includeMidMemes: this.includeMidMemes(),
+      memeNames: this.includeMidMemes() ? this.selectedMemeNames() : [],
     };
   }
 

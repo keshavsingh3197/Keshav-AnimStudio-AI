@@ -79,6 +79,8 @@ public static class BrandChannelYouTubeSync
             publishing.YouTubeChannelId = identity.ChannelId;
             Stamp(publishing, identity);
 
+            var isComedy = AnimStudio.Domain.Stories.ComedyChannelMatcher.IsComedyChannelHint(
+                identity.Title, identity.Handle);
             var brand = new BrandChannel
             {
                 Id = newId(),
@@ -86,6 +88,9 @@ public static class BrandChannelYouTubeSync
                 Watermark = settings.DefaultWatermark?.Clone() ?? new WatermarkSettings(),
                 Outro = settings.DefaultOutro?.Clone() ?? new OutroSettings(),
                 Publishing = publishing,
+                IsComedyChannel = isComedy,
+                ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.Auto,
+                AutoInsertMidMemes = true
             };
             settings.Channels.Add(brand);
             created.Add(brand);

@@ -39,17 +39,28 @@ public sealed record ProceduralDialogueTurn(
     string? SceneBackdropCue = null,
     string? Emotion = null);
 
+/// <param name="AfterTurnIndex">The 0-based index in <see cref="ProceduralDialoguePlan.Turns"/> that this meme punctuates.</param>
+public sealed record ProceduralMemeCue(
+    int AfterTurnIndex,
+    string Name,
+    string? Caption,
+    double Seconds,
+    double StartSeconds);
+
 /// <param name="SupportingCast">Up to three extra characters shown in the back row; they step forward when they speak.</param>
 /// <param name="Scenes">The <c>[SCENE]</c> directions in script order (setting, time, image prompt).</param>
+/// <param name="MemeCues">Mid-video and climax reaction meme cues anchored to dialogue turns.</param>
 public sealed record ProceduralDialoguePlan(
     bool HasCharacters,
     ProceduralCharacterProfile? LeftCharacter,
     ProceduralCharacterProfile? RightCharacter,
     IReadOnlyList<ProceduralDialogueTurn> Turns,
     IReadOnlyList<ProceduralCharacterProfile>? SupportingCast = null,
-    IReadOnlyList<SceneDirective>? Scenes = null)
+    IReadOnlyList<SceneDirective>? Scenes = null,
+    IReadOnlyList<ProceduralMemeCue>? MemeCues = null)
 {
     public IReadOnlyList<ProceduralCharacterProfile> Supporting => SupportingCast ?? [];
+    public IReadOnlyList<ProceduralMemeCue> Memes => MemeCues ?? [];
 
     /// <summary>The distinct scene cues in order of first appearance (drives per-scene backdrop photos).</summary>
     public IReadOnlyList<string> SceneCueOrder =>
@@ -110,7 +121,7 @@ public static partial class DialogueScriptParser
         }
 
         var rawBody = !string.IsNullOrWhiteSpace(script) ? script : prompt ?? string.Empty;
-        var (parsedLines, castDirectives, sceneDirectives) = ExtractDialogueSegments(rawBody, preferredSpeakerA, preferredSpeakerB, cleanTitle, eventType);
+        var (parsedLines, castDirectives, sceneDirectives, rawMemes) = ExtractDialogueSegments(rawBody, preferredSpeakerA, preferredSpeakerB, cleanTitle, eventType);
 
         if (parsedLines.Count == 0)
             parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null));
@@ -253,10 +264,12 @@ public static partial class DialogueScriptParser
         if (resultTurns.Count > 1 && resultTurns[1].SceneBackdropCue is { } firstCue)
             resultTurns[0] = resultTurns[0] with { SceneBackdropCue = firstCue };
 
-        return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns, supporting, sceneDirectives);
+        var memeCues = MapMemeCues(rawMemes, parsedLines.Count, resultTurns);
+        return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns, supporting, sceneDirectives, memeCues);
     }
 
     public const int MaxSupportingCast = 3;
+    public const int MaxMemeCues = 4;
 
     /// <summary>A spoken line is kept whole up to this length (about 120 words); captions split it into readable chunks.</summary>
     public const int MaxSpokenLineChars = 800;
@@ -306,11 +319,22 @@ public static partial class DialogueScriptParser
         return text;
     }
 
-    /// <summary>Rebuilds the dialogue plan turns using measured real-audio timings while preserving characters.</summary>
+    /// <summary>Rebuilds the dialogue plan turns using measured real-audio timings while preserving characters and syncing meme cues.</summary>
     public static ProceduralDialoguePlan WithMeasuredTurns(
         ProceduralDialoguePlan plan,
-        IReadOnlyList<ProceduralDialogueTurn> updatedTurns) =>
-        plan with { Turns = updatedTurns };
+        IReadOnlyList<ProceduralDialogueTurn> updatedTurns)
+    {
+        if (plan.MemeCues is null || plan.MemeCues.Count == 0 || updatedTurns.Count == 0)
+            return plan with { Turns = updatedTurns };
+
+        var synced = plan.MemeCues.Select(m =>
+        {
+            var idx = Math.Clamp(m.AfterTurnIndex, 0, updatedTurns.Count - 1);
+            var anchor = Math.Max(0.25, updatedTurns[idx].EndSeconds - Math.Min(0.25, m.Seconds * 0.15));
+            return m with { StartSeconds = Math.Round(anchor, 2) };
+        }).ToList();
+        return plan with { Turns = updatedTurns, MemeCues = synced };
+    }
 
     public static CharacterVisualRole InferRole(string speakerName)
     {
@@ -359,7 +383,26 @@ public static partial class DialogueScriptParser
         };
     }
 
-    private static (List<(string? Speaker, string Text, string? Cue)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes) ExtractDialogueSegments(
+    private static List<ProceduralMemeCue> MapMemeCues(
+        List<(int AfterLineIndex, MemeDirective Directive)> rawMemes,
+        int parsedLineCount,
+        List<ProceduralDialogueTurn> resultTurns)
+    {
+        if (rawMemes.Count == 0 || resultTurns.Count <= 1) return [];
+        var spokenTurnCount = resultTurns.Count - 1;
+        var ratio = parsedLineCount > 0 ? (double)spokenTurnCount / parsedLineCount : 1.0;
+        var cues = new List<ProceduralMemeCue>(rawMemes.Count);
+        foreach (var (afterLineIdx, directive) in rawMemes)
+        {
+            var mappedSpokenIdx = Math.Clamp((int)Math.Floor(afterLineIdx * ratio), 0, spokenTurnCount - 1);
+            var turnIndex = 1 + mappedSpokenIdx;
+            var anchor = Math.Max(0.25, resultTurns[turnIndex].EndSeconds - Math.Min(0.25, directive.Seconds * 0.15));
+            cues.Add(new ProceduralMemeCue(turnIndex, directive.Name, directive.Caption, directive.Seconds, Math.Round(anchor, 2)));
+        }
+        return cues;
+    }
+
+    private static (List<(string? Speaker, string Text, string? Cue)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes, List<(int AfterLineIndex, MemeDirective Directive)> Memes) ExtractDialogueSegments(
         string raw,
         string? preferredA,
         string? preferredB,
@@ -369,6 +412,7 @@ public static partial class DialogueScriptParser
         var list = new List<(string? Speaker, string Text, string? Cue)>();
         var cast = new List<CastDirective>();
         var scenes = new List<SceneDirective>();
+        var memes = new List<(int AfterLineIndex, MemeDirective Directive)>();
         var rawLines = raw.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
 
         // Explicit [SCENE] directions win; without any, a spoken line that names a place moves the stage there.
@@ -401,6 +445,12 @@ public static partial class DialogueScriptParser
             {
                 if (SceneDirectives.ParseCast(speakerMatch.Groups[2].Value) is { } member && cast.Count < 8)
                     cast.Add(member);
+                continue;
+            }
+            if (speakerMatch.Success && SceneDirectives.IsMemeTag(speakerMatch.Groups[1].Value))
+            {
+                if (SceneDirectives.ParseMeme(speakerMatch.Groups[2].Value) is { } meme && memes.Count < MaxMemeCues)
+                    memes.Add((Math.Max(0, list.Count - 1), meme));
                 continue;
             }
 
@@ -448,7 +498,7 @@ public static partial class DialogueScriptParser
             }
         }
 
-        return (list, cast, scenes);
+        return (list, cast, scenes, memes);
     }
 
     public const int MaxScenes = 12;

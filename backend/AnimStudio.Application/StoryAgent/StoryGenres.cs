@@ -109,7 +109,11 @@ public static class StoryGenres
             Topic("office", "Office life", "ऑफ़िस की बातें", ["office", "boss", "meeting", "work from home", "ऑफ़िस", "बॉस", "मीटिंग"],
                 "Meetings that never end and the colleague who is always on mute.", "quirky comedy"),
             Topic("animals", "Clever animals", "चतुर जानवर", ["dog", "cat", "monkey", "parrot", "कुत्ता", "बिल्ली", "बंदर", "तोता"],
-                "Pets and animals who are smarter than their owners.", "playful cartoon")
+                "Pets and animals who are smarter than their owners.", "playful cartoon"),
+            Topic("tapri", "Chai tapri & dost banter", "टपरी और दोस्ती का मज़ाक", ["chai", "tapri", "dost", "khadi bhasha", "tu tadak", "टपरी", "दोस्त", "उधार"],
+                "Two best friends roasting each other at a roadside tea stall with Tu-Tadak and Khadi Bhasha timing.", "playful comedy"),
+            Topic("shaadi-buffet", "Desi wedding buffet", "शादी का बुफ़े जुगाड़", ["shaadi", "wedding", "buffet", "paneer", "शादी", "दावत", "पनीर"],
+                "Overconfident friends plotting to maximize free wedding food before relatives spot them.", "upbeat comedy")
         ]
     };
 

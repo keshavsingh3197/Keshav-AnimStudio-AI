@@ -25,7 +25,7 @@ const { TRANSITIONS } = load('src/app/core/models/api.models.ts');
 const { STORY_TRANSITIONS, STORY_LOOK_STYLES } = load('src/app/core/models/story-agent.models.ts');
 const { transitionPreviewFrame } = load('src/app/features/clips/services/transition-preview.ts');
 const { effectCutTime, planEffectPlacement, DEFAULT_CHROMA_KEY } = load('src/app/features/effects/effect-placement.ts');
-const { COMEDY_TEMPLATES, comedyNotes } = load('src/app/features/story-agent/comedy-templates.ts');
+const { COMEDY_TEMPLATES, COMEDY_TONE_OPTIONS, comedyNotes } = load('src/app/features/story-agent/comedy-templates.ts');
 
 assert.deepEqual(STORY_TRANSITIONS, TRANSITIONS);
 assert.ok(STORY_LOOK_STYLES.some((style) => style.id === 'MusicVideo'));
@@ -84,6 +84,13 @@ assert.match(comedyNotes('levels', 4, 'My idea'), /4 distinct numbered situation
 assert.match(comedyNotes('levels', 4, 'My idea'), /My idea$/);
 assert.ok(COMEDY_TEMPLATES.some((template) => template.id === 'challenge'));
 assert.ok(COMEDY_TEMPLATES.some((template) => template.id === 'misunderstanding'));
+assert.ok(COMEDY_TEMPLATES.some((template) => template.id === 'tu-tadak-roast'));
+assert.ok(COMEDY_TEMPLATES.some((template) => template.id === 'khadi-bhasha-tapri'));
+assert.ok(COMEDY_TONE_OPTIONS.some((tone) => tone.id === 'KhadiBhasha'));
+assert.ok(COMEDY_TONE_OPTIONS.some((tone) => tone.id === 'TuTadak'));
+const khadiNotes = comedyNotes('khadi-bhasha-tapri', 3, 'Tapri roast', 'KhadiBhasha', true);
+assert.match(khadiNotes, /Khadi Bhasha/);
+assert.match(khadiNotes, /middle buildup scene/);
 assert.throws(() => place(stinger, 'cut'), /Select a cut/);
 assert.throws(() => place(stinger, 'cut', NaN), /Select a cut/);
 console.log(`Passed: ${TRANSITIONS.length} transition previews, shared catalog, music-video option and custom cut placement.`);

@@ -52,7 +52,10 @@ public sealed record BrandChannelResponse(
     // The YouTube channel this brand publishes to (Settings → YouTube publishing): an id, not a secret.
     string? YouTubeChannelId = null, string? YouTubeChannelTitle = null,
     // As YouTube last reported them. When the brand publishes to a YouTube channel, its Name follows that channel's title.
-    string? YouTubeChannelHandle = null, string? YouTubeThumbnailUrl = null);
+    string? YouTubeChannelHandle = null, string? YouTubeThumbnailUrl = null,
+    bool IsComedyChannel = false,
+    AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.Auto,
+    bool AutoInsertMidMemes = true);
 
 /// <summary>What "Sync from YouTube" did, and the channel list after it.</summary>
 public sealed record BrandChannelSyncResponse(

@@ -86,6 +86,16 @@ public sealed record CreateBrandChannelRequest
     public string Name { get; init; } = string.Empty;
 
     [StringLength(64)] public string? CopyFromChannelId { get; init; }
+    public bool IsComedyChannel { get; init; }
+    public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; init; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
+    public bool AutoInsertMidMemes { get; init; } = true;
+}
+
+public sealed record UpdateBrandChannelComedyRequest
+{
+    public bool IsComedyChannel { get; init; }
+    public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; init; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
+    public bool AutoInsertMidMemes { get; init; } = true;
 }
 
 public sealed record RenameBrandChannelRequest

@@ -284,6 +284,14 @@
 
                 @if (genre()?.id === 'funny' && writer() !== 'BuiltIn') {
                   <div class="sa-field">
+                    <label for="sa-comedy-tone">Spoken comedy style</label>
+                    <select id="sa-comedy-tone" [value]="comedyTone()" (change)="setComedyTone(text($event))">
+                      @for (tone of comedyToneOptions; track tone.id) {
+                        <option [value]="tone.id" [selected]="tone.id === comedyTone()">{{ tone.label }}</option>
+                      }
+                    </select>
+                    <p class="sa-help">Keeps funnier channels spicy with Khadi Bhasha / Tu-Tadak banter (separate from devotional stories).</p>
+
                     <label for="sa-comedy-template">Comedy format</label>
                     <select id="sa-comedy-template" [value]="comedyTemplate()" (change)="setComedyTemplate(text($event))">
                       @for (template of comedyTemplates; track template.id) {
@@ -299,8 +307,11 @@
                       </select>
                       <p class="sa-help">The writer is asked for this many situations; check and edit its script. Situations are not necessarily separate scenes.</p>
                     }
-                    <p class="sa-help">Templates guide the script; they do not automatically add numbered graphics or reactions.
-                      <a routerLink="/memes">Manage your memes and reactions</a>.
+                    <label class="sa-check" style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+                      <input type="checkbox" [checked]="autoInsertMemes()" (change)="autoInsertMemes.set($any($event.target).checked)" />
+                      <span>Auto-insert my in-app Reaction Memes in mid-video &amp; climax beats</span>
+                    </label>
+                    <p class="sa-help">Picks matching memes from <a routerLink="/memes">your Memes &amp; Reactions library</a> automatically (or holds a comic zoom freeze-frame).
                     </p>
                   </div>
                 }

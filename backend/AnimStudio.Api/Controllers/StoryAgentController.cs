@@ -106,7 +106,9 @@ public sealed class StoryAgentController(
             PackId = request.PackId,
             GenreId = request.GenreId,
             TextEngine = request.TextEngine,
-            BrandChannelId = BrandChannel.IsDefault(request.BrandChannelId) ? null : request.BrandChannelId!.Trim()
+            BrandChannelId = BrandChannel.IsDefault(request.BrandChannelId) ? null : request.BrandChannelId!.Trim(),
+            ComedyStyle = request.ComedyStyle,
+            AutoInsertMemes = request.AutoInsertMemes
         };
 
         var run = await stories.CreateAsync(currentUser.UserId, brief, request.Options?.ToOptions(), ct);
@@ -148,7 +150,10 @@ public sealed class StoryAgentController(
             Voicing = story.Voicing,
             PackId = story.PackId,
             GenreId = story.GenreId,
-            TextEngine = story.TextEngine
+            TextEngine = story.TextEngine,
+            BrandChannelId = BrandChannel.IsDefault(story.BrandChannelId) ? null : story.BrandChannelId!.Trim(),
+            ComedyStyle = story.ComedyStyle,
+            AutoInsertMemes = story.AutoInsertMemes
         };
 
         var run = await stories.ImportAsync(currentUser.UserId, brief, story.Options?.ToOptions(), request.Script?.GetRawText(), ct);

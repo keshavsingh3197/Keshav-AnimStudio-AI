@@ -50,11 +50,17 @@ public static class Mappings
             BrandChannel.DefaultId, s?.DefaultChannelName ?? "Default", true,
             s?.DefaultWatermark.ToResponse(), s?.DefaultOutro.ToResponse(),
             s?.DefaultPublishing?.YouTubeChannelId, s?.DefaultPublishing?.YouTubeChannelTitle,
-            s?.DefaultPublishing?.YouTubeChannelHandle, s?.DefaultPublishing?.YouTubeThumbnailUrl),
+            s?.DefaultPublishing?.YouTubeChannelHandle, s?.DefaultPublishing?.YouTubeThumbnailUrl,
+            AnimStudio.Domain.Stories.ComedyChannelMatcher.IsComedyChannelHint(
+                s?.DefaultChannelName, s?.DefaultPublishing?.YouTubeChannelHandle, s?.DefaultPublishing?.YouTubeChannelTitle)),
         .. (s?.Channels ?? []).Select(c => new BrandChannelResponse(
             c.Id, c.Name, false, c.Watermark.ToResponse(), c.Outro.ToResponse(),
             c.Publishing?.YouTubeChannelId, c.Publishing?.YouTubeChannelTitle,
-            c.Publishing?.YouTubeChannelHandle, c.Publishing?.YouTubeThumbnailUrl)),
+            c.Publishing?.YouTubeChannelHandle, c.Publishing?.YouTubeThumbnailUrl,
+            c.IsComedyChannel || AnimStudio.Domain.Stories.ComedyChannelMatcher.IsComedyChannelHint(
+                c.Name, c.Publishing?.YouTubeChannelHandle, c.Publishing?.YouTubeChannelTitle),
+            c.ComedyStyle,
+            c.AutoInsertMidMemes)),
     ];
 
     public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>

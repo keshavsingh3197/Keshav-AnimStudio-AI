@@ -36,6 +36,13 @@
           <option value="hi">Hindi</option><option value="en">English</option>
         </select>
       </label>
+      <label>Comedy tone / dialect
+        <select [ngModel]="comedyStyle()" (ngModelChange)="comedyStyle.set($event)">
+          @for (tone of comedyToneOptions; track tone.id) {
+            <option [value]="tone.id">{{ tone.label }}</option>
+          }
+        </select>
+      </label>
       <label>Target length
         <select [ngModel]="targetSeconds()" (ngModelChange)="targetSeconds.set($event)">
           <option [ngValue]="30">About 30 seconds</option><option [ngValue]="60">About 60 seconds</option>
@@ -53,7 +60,25 @@
         </select>
       </label>
     </div>
+    <div style="margin: 10px 0;">
+      <label style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+        <input type="checkbox" [ngModel]="includeMidMemes()" (ngModelChange)="includeMidMemes.set($event)" />
+        <span>Use in-app Reaction Memes right in the middle punchlines &amp; ending</span>
+      </label>
+      @if (includeMidMemes() && memeLibrary().length > 0) {
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
+          @for (meme of memeLibrary().slice(0, 12); track meme.id) {
+            <button type="button" class="secondary"
+                    [style.opacity]="selectedMemeNames().includes(meme.name) ? '1' : '0.55'"
+                    (click)="toggleMemeName(meme.name)">
+              {{ selectedMemeNames().includes(meme.name) ? '✓' : '+' }} {{ meme.name }}
+            </button>
+          }
+        </div>
+      }
+    </div>
     <div class="cw-actions">
+      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset()">⚡ Auto Comedy Preset</button>
       <button type="button" [disabled]="!ready() || busy()" (click)="convert()">
         @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> Working… } @else { Convert with configured AI }
       </button>

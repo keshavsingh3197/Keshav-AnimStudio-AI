@@ -133,7 +133,9 @@ public sealed partial class EcosystemAutomationService(
     Microsoft.Extensions.Options.IOptions<AnimStudio.Infrastructure.Ffmpeg.FfmpegOptions>? ffmpegOptions = null,
     AnimStudio.Infrastructure.Ecosystem.CentralChannelVideoWriter? catalogWriter = null,
     IAiProviderRegistry? aiRegistry = null,
-    IAiUsageRepository? aiUsage = null)
+    IAiUsageRepository? aiUsage = null,
+    IEffectClipRepository? effects = null,
+    IAiSettingsRepository? aiSettingsRepo = null)
 {
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
@@ -316,6 +318,10 @@ public sealed partial class EcosystemAutomationService(
         rule.SubtitlePreset = NormalizeSubtitlePreset(draft.SubtitlePreset);
         rule.VisualEngine = draft.VisualEngine;
         rule.NarrativeMode = draft.NarrativeMode;
+        rule.ComedyStyle = draft.ComedyStyle;
+        rule.AutoInsertMemes = draft.AutoInsertMemes;
+        if (rule.SourceType == AutomationSourceType.FunnyComedy && string.Equals(rule.CategoryId, "22", StringComparison.Ordinal))
+            rule.CategoryId = "23";
         if (rule.NarrativeMode == AutomationNarrativeMode.FullStory && rule.TargetSeconds < 95)
             rule.TargetSeconds = 165;
         else if (rule.NarrativeMode == AutomationNarrativeMode.ShortReel && rule.TargetSeconds > 60)
@@ -558,6 +564,8 @@ public sealed partial class EcosystemAutomationService(
                 post.SubtitlePreset = NormalizeSubtitlePreset(rule.SubtitlePreset);
                 post.VisualEngine = rule.VisualEngine;
                 post.NarrativeMode = rule.NarrativeMode;
+                post.ComedyStyle = rule.ComedyStyle;
+                post.AutoInsertMemes = rule.AutoInsertMemes;
                 if (post.NarrativeMode == AutomationNarrativeMode.FullStory && post.TargetSeconds is null or < 95)
                     post.TargetSeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, MaxSecondsFor(rule.VideoFormat));
                 else if (post.NarrativeMode == AutomationNarrativeMode.ShortReel)
@@ -1241,8 +1249,11 @@ public sealed partial class EcosystemAutomationService(
         if (engine == AutomationVisualEngine.Procedural3D)
         {
             var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
+            var userMemes = effects is not null && IsComedyAutomationPost(post, rule)
+                ? await effects.ListByUserAsync(userId, 200, ct).ConfigureAwait(false)
+                : [];
             return new AutomationScriptTemplate("dialogue", true,
-                BuildDialogueTemplatePrompt(post, rule, targetSeconds ?? 0), null);
+                BuildDialogueTemplatePrompt(post, rule, targetSeconds ?? 0, userMemes), null);
         }
 
         if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId))
@@ -1357,9 +1368,21 @@ public sealed partial class EcosystemAutomationService(
         return (minScenes, maxScenes, minLines, maxLines, words);
     }
 
-    internal static string BuildDialogueTemplatePrompt(AutomationPost post, AutomationRule? rule, int explicitSeconds = 0)
+    private static bool IsComedyAutomationPost(AutomationPost post, AutomationRule? rule = null) =>
+        post.SourceType == AutomationSourceType.FunnyComedy
+        || rule?.SourceType == AutomationSourceType.FunnyComedy
+        || ComedyChannelMatcher.IsComedyChannelHint(
+            post.TargetChannelHandle, post.TargetChannelTitle,
+            rule?.TargetChannelHandle, rule?.TargetChannelTitle);
+
+    internal static string BuildDialogueTemplatePrompt(
+        AutomationPost post,
+        AutomationRule? rule,
+        int explicitSeconds = 0,
+        IReadOnlyList<AnimStudio.Domain.Effects.EffectClip>? userMemes = null)
     {
         var isEnglish = string.Equals(post.Language, "en", StringComparison.OrdinalIgnoreCase);
+        var isComedy = IsComedyAutomationPost(post, rule);
         var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
             ? post.NarrativeMode
             : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
@@ -1369,16 +1392,28 @@ public sealed partial class EcosystemAutomationService(
         var runtime = $"{seconds / 60}:{seconds % 60:00}";
         var turns = $"{budget.MinLines} to {budget.MaxLines}";
         var scenes = $"{budget.MinScenes} to {budget.MaxScenes}";
-        var kind = isLong ? "complete story" : "short story";
+        var kind = isComedy ? (isLong ? "comedy skit compilation" : "viral comedy skit") : (isLong ? "complete story" : "short story");
         var narrator = isEnglish ? "Narrator" : "सूत्रधार";
-        var speakers = !string.IsNullOrWhiteSpace(post.SpeakerAName) && !string.IsNullOrWhiteSpace(post.SpeakerBName)
-            ? $"Main characters: [{post.SpeakerAName!.Trim()}] and [{post.SpeakerBName!.Trim()}]. Add 1 to 3 supporting characters (sub-characters) if the story has them - a mother, a king, a guard, a villager, a god appearing."
-            : "Choose 2 main characters who carry the story, plus 1 to 3 supporting characters (sub-characters) who really belong in it - family, king, sage, guard, villager, a deity appearing.";
+        var comedyTone = post.ComedyStyle != ComedyToneStyle.Auto ? post.ComedyStyle : (rule?.ComedyStyle ?? ComedyToneStyle.Auto);
+        var includeMemes = post.AutoInsertMemes && (rule?.AutoInsertMemes ?? true);
+        var speakers = isComedy
+            ? (!string.IsNullOrWhiteSpace(post.SpeakerAName) && !string.IsNullOrWhiteSpace(post.SpeakerBName)
+                ? $"Main comedy duo: [{post.SpeakerAName!.Trim()}] and [{post.SpeakerBName!.Trim()}]. Optionally add 1 funny supporting character (e.g. [चायवाला] or [पड़ोसी])."
+                : "Choose 2 sharp-tongued main buddies plus 1 funny bystander ([चायवाला], [पड़ोसी], or [दुकानदार]).")
+            : (!string.IsNullOrWhiteSpace(post.SpeakerAName) && !string.IsNullOrWhiteSpace(post.SpeakerBName)
+                ? $"Main characters: [{post.SpeakerAName!.Trim()}] and [{post.SpeakerBName!.Trim()}]. Add 1 to 3 supporting characters (sub-characters) if the story has them - a mother, a king, a guard, a villager, a god appearing."
+                : "Choose 2 main characters who carry the story, plus 1 to 3 supporting characters (sub-characters) who really belong in it - family, king, sage, guard, villager, a deity appearing.");
         var language = isEnglish
             ? "Natural spoken English."
-            : "Pure spoken Hindi in Devanagari script. Keep only website URLs and exact times in their original form. Scene and cast lines may be in English.";
-        var settings = "temple, forest ashram, river ghat, himalaya, palace court, cosmos, village, battlefield, archive/library, modern city";
-        var roles = "king, queen/mother, sage, divine/god, child, warrior, scholar, villager";
+            : (isComedy
+                ? "Colloquial spicy Hindi in Devanagari script matching the comedy tone below (NEVER stiff textbook Hindi or 'आप/महोदय'). Keep only URLs in Latin; scene and cast tags stay English."
+                : "Pure spoken Hindi in Devanagari script. Keep only website URLs and exact times in their original form. Scene and cast lines may be in English.");
+        var settings = isComedy
+            ? "chai stall, comedy stage, village, modern city"
+            : "temple, forest ashram, river ghat, himalaya, palace court, cosmos, village, battlefield, archive/library, modern city";
+        var roles = isComedy
+            ? "scholar, child, warrior, queen/mother, villager"
+            : "king, queen/mother, sage, divine/god, child, warrior, scholar, villager";
         var stage = post.Stage;
         var location = AutomationStageScript.CleanLocation(stage?.LocationPrompt);
         var hasTemplate = !string.IsNullOrWhiteSpace(stage?.BackgroundTemplateAssetId);
@@ -1389,6 +1424,45 @@ public sealed partial class EcosystemAutomationService(
             (false, { } loc) => $"{Environment.NewLine}- PLACE: the story happens at: {loc}. The first [SCENE] line must describe this place.",
             _ => string.Empty
         };
+
+        if (isComedy)
+        {
+            var craftBlock = ComedyCraftGuide.BuildPromptGuidance(
+                comedyTone, post.Language, seconds, userMemes, includeMemes, isProceduralFormat: true);
+            return $"""
+                Write the complete script for a {seconds}-second ({runtime} min) {kind} as an animated 3D YouTube {(post.Format == AutomationVideoFormat.Wide ? "video (16:9)" : "Short (9:16)")}: a cast list, scene directions, spoken comedy banter, and mid-video reaction [MEME] beats.
+                TARGET LENGTH: {seconds} seconds of rapid comic dialogue, about {budget.Words} spoken words total.
+
+                TOPIC: {post.Title}
+                SOURCE / CONTEXT: {post.SourceTitle}
+                {(string.IsNullOrWhiteSpace(post.SourceSummary) ? string.Empty : $"FACTS: {post.SourceSummary}")}
+
+                CURRENT DRAFT:
+                {post.Script}
+
+                {craftBlock}
+
+                SCRIPT RULES
+                - Language: {language}
+                - {speakers}{placeRule}
+                - CAST block first: one [CAST] line per character. Role is one of: {roles}. Look = comic outfit colours/props, e.g. "bright orange hoodie, messy hair, funky glasses".
+                - Split into {scenes} brisk scenes using [SCENE]: setting | time of day | mood | IMAGE: background picture prompt (setting: {settings}; time: dawn, day, sunset, night). No people, no faces, no text in IMAGE prompt.
+                - Write {turns} snappy dialogue lines (about 6-15 words each, ~{budget.Words} words altogether) with inline emotion tags like `(sarcastic)` or `(surprised)` at the start of lines when helpful.
+                - Do NOT start with "नमस्कार" and do NOT end with a moral lecture!
+
+                OUTPUT FORMAT - return ONLY lines like these (no markdown fences, no commentary):
+                [CAST]: {(string.IsNullOrWhiteSpace(post.SpeakerAName) ? "पप्पू भैया" : post.SpeakerAName)} | scholar | orange jacket, messy hair, oversized shades
+                [CAST]: {(string.IsNullOrWhiteSpace(post.SpeakerBName) ? "बबलू यार" : post.SpeakerBName)} | child | yellow kurta, muffler, mischievous grin
+                [SCENE]: chai stall | day | playful | IMAGE: lively Indian roadside chai tapri with steaming brass kettle, plastic stools, bright morning light, photorealistic 3D cartoon background, no people
+                [पप्पू भैया]: (proud) ...
+                [बबलू यार]: (sarcastic) ...
+                [MEME]: {(userMemes is { Count: > 0 } ? userMemes[0].Name : "shocked_face")} | अरे बावले, यो के बोल दिया!
+                [SCENE]: comedy stage | sunset | excited | IMAGE: colorful Indian comedy spot stage with warm tangerine spotlights, microphone stand, vertical 9:16, no people
+                [बबलू यार]: (laughing) ...
+                [पप्पू भैया]: (surprised) ...
+                [MEME]: {(userMemes is { Count: > 1 } ? userMemes[1].Name : "khatam_tata_bye")} | ख़त्म... टाटा... बाय-बाय!
+                """;
+        }
 
         return $"""
             Write the complete script for a {seconds}-second ({runtime} min) {kind} as an animated 3D YouTube {(post.Format == AutomationVideoFormat.Wide ? "video (16:9)" : "Short (9:16)")}: a cast list, scene directions with realistic background images, and spoken dialogue.
@@ -1445,16 +1519,24 @@ public sealed partial class EcosystemAutomationService(
             if (!match.Success) continue;
 
             var speaker = AiOutputSanitizer.ToSafeLine(match.Groups[1].Value, 34);
+            if (string.IsNullOrWhiteSpace(speaker)) continue;
             // Scene lines carry a full picture prompt after the setting, time and mood.
             var text = AiOutputSanitizer.ToSafeLine(match.Groups[2].Value, SceneDirectives.IsDirectiveTag(speaker) ? 600 : 400);
-            if (string.IsNullOrWhiteSpace(speaker) || string.IsNullOrWhiteSpace(text)) continue;
+            if (string.IsNullOrWhiteSpace(text)) continue;
 
-            // [CAST] and [SCENE] stage directions are kept (never spoken); they don't count as dialogue.
-            if (SceneDirectives.IsDirectiveTag(speaker))
+            // [CAST], [SCENE], and [MEME] stage directions are kept (never spoken); they don't count as dialogue.
+            if (SceneDirectives.IsDirectiveTag(speaker!))
             {
                 if (directives >= MaxPastedDirectives) continue;
                 directives++;
-                kept.Add($"[{(SceneDirectives.IsSceneTag(speaker) ? "SCENE" : "CAST")}]: {text}");
+                kept.Add($"[{(SceneDirectives.IsSceneTag(speaker!) ? "SCENE" : "CAST")}]: {text}");
+                continue;
+            }
+            if (SceneDirectives.IsMemeTag(speaker))
+            {
+                if (directives >= MaxPastedDirectives + DialogueScriptParser.MaxMemeCues) continue;
+                directives++;
+                kept.Add($"[MEME]: {text}");
                 continue;
             }
 
@@ -2866,18 +2948,29 @@ public sealed partial class EcosystemAutomationService(
             attachedAssetIds = [.. catalog.Images.Take(16).Select(i => i.Id)];
         }
 
+        var brandChannel = aiSettingsRepo is not null && !string.IsNullOrWhiteSpace(rule?.BrandChannelId)
+            ? (await aiSettingsRepo.GetAsync(ct).ConfigureAwait(false))?.FindChannel(rule.BrandChannelId)
+            : null;
+        var isComedy = IsComedyAutomationPost(post, rule) || brandChannel?.IsComedyChannel == true;
         var isFullStory = targetSeconds >= 95 || effectiveNarrativeMode == AutomationNarrativeMode.FullStory;
+        var effectiveComedyStyle = post.ComedyStyle != ComedyToneStyle.Auto
+            ? post.ComedyStyle
+            : (rule?.ComedyStyle != ComedyToneStyle.Auto ? rule!.ComedyStyle : brandChannel?.ComedyStyle ?? ComedyToneStyle.Auto);
+        var includeMemes = post.AutoInsertMemes && (rule?.AutoInsertMemes ?? true) && (brandChannel?.AutoInsertMidMemes ?? true);
         // The brief's notes are capped at StoryRunService.MaxNotesChars, so the rules stay short and the rest of the budget
         // goes to the source facts and draft script (trimmed from their end, never the rules).
-        var structureRules = isFullStory
-            ? "STORY (<3 min): 1) [सूत्रधार]/Narrator context hook: who, where, why. 2) Chronological scenes across changing locations (court -> forest -> ashram -> climax). 3) Every speaking character in `cast` with a detailed English `look`. 4) Narrator states the moral, then the CTA."
-            : "STORY (<=60s): 1) Narrator hook: who and why. 2) Chronological dialogue scenes with changing locations and consistent `cast` looks. 3) Moral, then CTA.";
+        var structureRules = isComedy
+            ? $"COMEDY PLAYBOOK ({effectiveComedyStyle}): 1) Instant cold-open conflict hook on line 1 (zero formal intro). 2) Fast back-and-forth {ComedyCraftGuide.DescribeTone(effectiveComedyStyle, post.Language)} 3) Rule-of-three escalation + mid-video meme reaction beat + unexpected twist payoff (NO moral sermon)."
+            : (isFullStory
+                ? "STORY (<3 min): 1) [सूत्रधार]/Narrator context hook: who, where, why. 2) Chronological scenes across changing locations (court -> forest -> ashram -> climax). 3) Every speaking character in `cast` with a detailed English `look`. 4) Narrator states the moral, then the CTA."
+                : "STORY (<=60s): 1) Narrator hook: who and why. 2) Chronological dialogue scenes with changing locations and consistent `cast` looks. 3) Moral, then CTA.");
         // Retention on YouTube is decided by the pictures as much as the words: a scene that sits on one image too long,
         // or a character whose face changes between scenes, is where viewers leave.
-        var visualRules =
-            $"VISUALS: new picture every {(isFullStory ? "8-12" : "5-8")}s, each scene its own location, time of day and framing (wide -> medium -> close-up). " +
-            "imagePrompt in English as a film still: subject, action, setting, era-accurate costume/props, lighting, lens. No text in pictures. " +
-            "Same face/age/clothes for a character in every scene. Striking hook frame in the first 3s.";
+        var visualRules = isComedy
+            ? $"VISUALS: fast cut every 3-6s, exaggerated expressive cartoon faces, reaction close-ups, no text in generated pictures. Consistent character faces/clothes across scenes."
+            : $"VISUALS: new picture every {(isFullStory ? "8-12" : "5-8")}s, each scene its own location, time of day and framing (wide -> medium -> close-up). " +
+              "imagePrompt in English as a film still: subject, action, setting, era-accurate costume/props, lighting, lens. No text in pictures. " +
+              "Same face/age/clothes for a character in every scene. Striking hook frame in the first 3s.";
         var rulesBlock = $"{structureRules}\n{visualRules}\n";
         var sourceBlock = $"Source: {post.SourceTitle}\n\n{post.Script}\n\nVisual style guide: {post.AiVideoPrompt}";
         var sourceBudget = Math.Max(0, StoryRunService.MaxNotesChars - rulesBlock.Length);
@@ -2894,11 +2987,14 @@ public sealed partial class EcosystemAutomationService(
             // seconds, camera, image prompts) ready to copy into any outside AI; the pasted reply is parsed and checked
             // by the same StoryScriptParser as a model's own reply, then AutoApprove carries it straight to the render.
             Writer = manualScript ? StoryWriterMode.Manual : StoryWriterMode.Auto,
+            GenreId = isComedy ? StoryGenres.FunnyId : null,
             Mode = post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha
                 ? StoryGenreMode.Scripture
                 : StoryGenreMode.Creative,
-            Voicing = StoryVoicing.Narrated,
-            BrandChannelId = rule?.BrandChannelId
+            Voicing = isComedy ? StoryVoicing.CharactersOnly : StoryVoicing.Narrated,
+            BrandChannelId = rule?.BrandChannelId,
+            ComedyStyle = effectiveComedyStyle,
+            AutoInsertMemes = includeMemes
         };
 
         var build = new StoryBuildOptions
@@ -2935,15 +3031,44 @@ public sealed partial class EcosystemAutomationService(
         ComposedAutomationContent draft,
         CancellationToken ct)
     {
+        var isComedy = rule.SourceType == AutomationSourceType.FunnyComedy
+            || ComedyChannelMatcher.IsComedyChannelHint(rule.TargetChannelHandle, rule.TargetChannelTitle);
         var isEnglish = string.Equals(rule.Language, "en", StringComparison.OrdinalIgnoreCase);
         var isFullStory = rule.NarrativeMode == AutomationNarrativeMode.FullStory
             || (rule.NarrativeMode != AutomationNarrativeMode.ShortReel
                 && (rule.VideoFormat == AutomationVideoFormat.Wide || rule.TargetSeconds >= 95));
         // A full story fills the rule's length: up to 3 minutes for a Short, up to 10 for a full 16:9 video.
-        var storySeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, MaxSecondsFor(rule.VideoFormat));
+        var storySeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : (isComedy ? Math.Max(15, rule.TargetSeconds) : 165), isComedy ? 15 : 95, MaxSecondsFor(rule.VideoFormat));
         var storyBudget = DialogueBudget(storySeconds);
-        var dialogueEnabled = rule.EnableCharacterDialogue
+        var dialogueEnabled = rule.EnableCharacterDialogue || isComedy
             || rule.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang or AutomationSourceType.AajKaItihaas;
+        IReadOnlyList<AnimStudio.Domain.Effects.EffectClip> userMemes = isComedy && effects is not null && rule.AutoInsertMemes
+            ? await effects.ListByUserAsync(userId, 200, ct).ConfigureAwait(false)
+            : [];
+
+        string prompt;
+        if (isComedy)
+        {
+            var comedyGuidance = ComedyCraftGuide.BuildPromptGuidance(
+                rule.ComedyStyle, rule.Language, storySeconds, userMemes, rule.AutoInsertMemes, isProceduralFormat: true);
+            prompt = $"""
+                You write viral, genuinely funny YouTube {(isFullStory ? "full-length" : "Shorts")} animated 3D comedy scripts.
+                Target Language: {(isEnglish ? "Casual spoken English" : "Authentic colloquial Hindi in Devanagari (NO stiff formal 'आप/महोदय')")}
+                {comedyGuidance}
+                Characters: [{(string.IsNullOrWhiteSpace(rule.SpeakerAName) ? "पप्पू भैया" : rule.SpeakerAName.Trim())}] and [{(string.IsNullOrWhiteSpace(rule.SpeakerBName) ? "बबलू यार" : rule.SpeakerBName.Trim())}] (keep `[Character Name]: line` format, optionally add `[MEME]: <name> | <caption>` mid-video and climax).
+                Return ONLY raw JSON (no markdown code fences) with exact keys: "title", "script", "aiVideoPrompt", "pinnedComment".
+                Draft Title: {draft.Title}
+                Draft Script:
+                {draft.Script}
+                Draft AI Prompt:
+                {draft.AiVideoPrompt}
+                Draft Pinned Comment:
+                {draft.PinnedComment}
+                Keep all website URLs verbatim. Title max 95 chars (complete readable title, never cut mid-word with '...').
+                """;
+        }
+        else
+        {
         var speakerHint = !string.IsNullOrWhiteSpace(rule.SpeakerAName) && !string.IsNullOrWhiteSpace(rule.SpeakerBName)
             ? $"Include primary characters [{rule.SpeakerAName.Trim()}] and [{rule.SpeakerBName.Trim()}], alongside [सूत्रधार] (or [Narrator]) and supporting characters where appropriate."
             : "Use [सूत्रधार] (or [Narrator] in English) for the brief opening context & ending moral, plus authentic characters suited to the story (e.g. [रानी सुनीति], [बालक ध्रुव], [देवर्षि नारद मुनि], [भगवान श्रीहरि विष्णु] for Dhruva; [राजा हरिश्चंद्र] & [महर्षि विश्वामित्र]; [आचार्य] & [जिज्ञासु]; [इतिहासकार] & [विद्यार्थी]).";
@@ -2963,7 +3088,7 @@ public sealed partial class EcosystemAutomationService(
             ? "English (clear natural spoken English)"
             : "Pure Hindi in Devanagari script ONLY (translate ALL English story summaries, titles, headings, and labels like 'Focus:' / 'Moral:' completely into natural spoken Hindi; preserve ONLY website URLs and exact Panchang clock times/Tithi terms where needed).";
 
-        var prompt = $"""
+        prompt = $"""
             You refine YouTube {(isFullStory ? "full-length" : "Shorts")} animated video scripts without removing ANY facts, numbers, Tithi/Muhurat times, or website links.
             Target Language: {languageGuidance}
             {dialogueGuidance}
@@ -2977,6 +3102,7 @@ public sealed partial class EcosystemAutomationService(
             {draft.PinnedComment}
             Keep all website URLs verbatim. Title max 95 chars (complete readable title, never cut mid-word with '...').
             """;
+        }
 
         var outcome = await ai.TextAsync(
             new AiTextRequest { Prompt = prompt, MaxOutputTokens = 3200, Temperature = 0.4 },

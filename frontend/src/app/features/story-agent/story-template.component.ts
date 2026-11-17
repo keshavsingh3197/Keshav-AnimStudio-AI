@@ -9,6 +9,7 @@ import { EffectClip } from '../../core/models/effects.models';
 import { ApiService } from '../../core/services/api.service';
 import { EffectsService } from '../../core/services/effects.service';
 import { StoryAgentService } from '../../core/services/story-agent.service';
+import { COMEDY_TONE_OPTIONS, ComedyToneStyle } from './comedy-templates';
 import {
   FunnyEndingRule, PackAge, PackCharacter, PackGender, PackLibrary, PackMeme, PackSettings, STORY_PACK_GENRES,
   STORY_PACK_MAX_EPISODES, StoryPack, autoFixStoryPack, backgroundPrompts, buildPackPrompt, buildPackTemplate,
@@ -52,7 +53,9 @@ export class StoryTemplateComponent implements OnInit, OnDestroy {
   readonly episodes = signal(3);
   readonly scenesPerEpisode = signal(6);
   readonly secondsPerEpisode = signal(60);
-  readonly funnyEndings = signal<FunnyEndingRule>('episode-end');
+  readonly funnyEndings = signal<FunnyEndingRule>('mid-and-end');
+  readonly comedyStyle = signal<ComedyToneStyle>('Auto');
+  readonly comedyToneOptions = COMEDY_TONE_OPTIONS;
   readonly visuals = signal<'UploadsOnly' | 'Auto'>('UploadsOnly');
 
   // --- characters and memes
@@ -88,6 +91,7 @@ export class StoryTemplateComponent implements OnInit, OnDestroy {
     title: this.title(), idea: this.idea(), genreId: this.genreId(), language: this.language(), style: this.style(),
     format: this.format(), voicing: this.voicing(), episodes: this.episodes(), scenesPerEpisode: this.scenesPerEpisode(),
     secondsPerEpisode: this.secondsPerEpisode(), funnyEndings: this.funnyEndings(), visuals: this.visuals(),
+    comedyStyle: this.comedyStyle(),
   }));
 
   /** The prompt, rebuilt as every choice above changes, so what is copied is always what is shown. */
@@ -122,6 +126,9 @@ export class StoryTemplateComponent implements OnInit, OnDestroy {
       this.memeLibrary.set(effects
         .filter(e => e.kind !== 'Audio')
         .sort((a, b) => Number(b.category === 'Reaction') - Number(a.category === 'Reaction') || a.name.localeCompare(b.name)));
+      if (this.genreId() === 'funny' && this.memeIds().size === 0) {
+        this.autoPickComedyMemes();
+      }
     } catch (failure: unknown) {
       this.error.set(this.message(failure, 'Your projects and memes could not be loaded.'));
     } finally {
@@ -177,6 +184,24 @@ export class StoryTemplateComponent implements OnInit, OnDestroy {
   }
 
   // ------------------------------------------------------------------------------ memes
+
+  onGenreChange(genreId: string): void {
+    this.genreId.set(genreId);
+    if (genreId === 'funny') {
+      if (this.funnyEndings() === 'episode-end') this.funnyEndings.set('mid-and-end');
+      if (this.memeIds().size === 0) this.autoPickComedyMemes();
+    } else if (this.funnyEndings() === 'mid-and-end') {
+      this.funnyEndings.set('episode-end');
+    }
+  }
+
+  autoPickComedyMemes(): void {
+    const reactions = this.memeLibrary()
+      .filter(m => m.category === 'Reaction' || m.tags?.length)
+      .slice(0, 8);
+    const picked = reactions.length ? reactions : this.memeLibrary().slice(0, 8);
+    if (picked.length) this.memeIds.set(new Set(picked.map(m => m.id)));
+  }
 
   toggleMeme(id: string): void {
     this.memeIds.update(ids => {
