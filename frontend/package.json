@@ -12,7 +12,8 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "test:transitions": "node scripts/test-transitions.cjs",
-    "test:comedy-story": "node scripts/test-comedy-story.cjs"
+    "test:comedy-story": "node scripts/test-comedy-story.cjs",
+    "test:scene-batch": "node scripts/test-scene-batch-media.cjs"
   },
   "dependencies": {
     "@angular/common": "^22.1.1",
