@@ -46,7 +46,8 @@ public sealed class YouTubeChannelAnalysisService(
     IAiExecutor ai,
     IPromptLibrary prompts,
     TimeProvider clock,
-    ILogger<YouTubeChannelAnalysisService> logger)
+    ILogger<YouTubeChannelAnalysisService> logger,
+    IYouTubePublicationRepository? publications = null)
 {
     /// <summary>The numbers are not read again sooner than this, however often refresh is pressed.</summary>
     public static readonly TimeSpan MinRefresh = TimeSpan.FromMinutes(30);
@@ -134,6 +135,33 @@ public sealed class YouTubeChannelAnalysisService(
             })];
             analysis.FetchedAtUtc = now;
             analysis.FetchError = null;
+
+            var appUploadedIds = publications is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : (await publications.ListByVideoIdsAsync(userId, [.. uploads.Select(u => u.VideoId)], ct).ConfigureAwait(false))
+                    .Select(p => p.VideoId)
+                    .ToHashSet(StringComparer.Ordinal);
+
+            analysis.PolicyAudit = YouTubeMonetizationPolicyAudit.Analyze(
+                [.. uploads.Select(u =>
+                {
+                    numbers.TryGetValue(u.VideoId, out var n);
+                    var isShort = u.DurationSeconds is > 0 and <= YouTubeChannelAnalyzer.ShortMaxSeconds;
+                    return new YouTubePolicyVideoInput(
+                        u.VideoId,
+                        u.Title,
+                        u.Description,
+                        u.Tags,
+                        u.CategoryId,
+                        u.MadeForKids,
+                        isShort,
+                        u.ScheduledAt is { } at && at > now ? null : u.PublishedAt,
+                        n?.Views,
+                        u.ScheduledAt is { } later && later > now ? "private" : u.PrivacyStatus,
+                        InPlaylist: null,
+                        UploadedByApp: appUploadedIds.Contains(u.VideoId),
+                        ContainsSyntheticMedia: u.ContainsSyntheticMedia);
+                })]);
 
             if (channel.CanReadAnalytics)
                 await ReadAnalyticsAsync(analysis, token, now, ct).ConfigureAwait(false);

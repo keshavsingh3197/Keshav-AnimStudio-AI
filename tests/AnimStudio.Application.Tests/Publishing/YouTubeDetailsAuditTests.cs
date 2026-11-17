@@ -74,4 +74,25 @@ public class YouTubeDetailsAuditTests
     [InlineData("jay ho kathu syam ji Maharaj #omkr")]
     [InlineData("Short story of Shyam baba")]
     public void A_real_title_is_not_flagged(string title) => Assert.False(YouTubeDetailsAudit.LooksLikeFileName(title));
+
+    [Fact]
+    public void Hashtag_stuffing_over_15_and_description_keyword_dumps_are_flagged()
+    {
+        var tagsDump = "Morning aradhana.\nTags: bhakti, shiv, shiva, om, puja, temple, mantra";
+        Assert.Contains("description-tag-stuffing", Codes(Complete() with { Description = tagsDump }));
+
+        var tooManyHashtags = "A full authentic story explanation of today's festival rituals and traditions. " +
+            string.Join(" ", Enumerable.Range(1, 16).Select(i => $"#tag{i}"));
+        Assert.Contains("hashtag-stuffing", Codes(Complete() with { Description = tooManyHashtags }));
+    }
+
+    [Fact]
+    public void Unedited_reupload_title_clue_and_overlong_title_are_flagged()
+    {
+        var longTitle = "This title goes well past seventy characters so mobile YouTube home feed cuts off the payoff";
+        Assert.Contains("title-too-long", Codes(Complete() with { Title = longTitle }));
+
+        var reused = Complete() with { Title = "New WhatsApp status video", Description = "Subscribe please #shorts" };
+        Assert.Contains("reused-clue", Codes(reused));
+    }
 }

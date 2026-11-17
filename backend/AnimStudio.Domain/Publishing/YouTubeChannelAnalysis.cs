@@ -43,6 +43,9 @@ public sealed class YouTubeChannelAnalysis
     /// <summary>Videos looked up by link, newest lookup first, at most a few dozen. Any channel's video can be looked up.</summary>
     public List<YouTubeVideoLookup> Lookups { get; set; } = [];
 
+    /// <summary>Cached YouTube channel monetization &amp; originality policy audit built from the latest upload metadata.</summary>
+    public YouTubeMonetizationAuditReport? PolicyAudit { get; set; }
+
     public DateTime UpdatedAtUtc { get; set; }
 }
 
@@ -176,3 +179,27 @@ public sealed class YouTubeVideoIdea
     /// <summary><c>short</c> or <c>long</c>.</summary>
     public string Format { get; set; } = "long";
 }
+
+/// <summary>
+/// One policy check result based on YouTube's channel monetization policies (answer/1311392).
+/// <c>Verdict</c> is <c>good</c>, <c>wrong</c>, or <c>verify</c> (checks APIs cannot observe automatically).
+/// </summary>
+public sealed record YouTubePolicyFinding(
+    string Id,
+    string Verdict,
+    string Category,
+    string Title,
+    string Detail,
+    IReadOnlyList<string> Steps,
+    string? IssueCode = null,
+    IReadOnlyList<string>? AffectedVideoIds = null);
+
+/// <summary>Channel-wide summary and itemised breakdown for YouTube Partner Program &amp; algorithm compliance.</summary>
+public sealed record YouTubeMonetizationAuditReport(
+    string PolicyUrl,
+    string OverallStatus,
+    int ScoreOutOf100,
+    int VideosEvaluated,
+    int AppUploadedCount,
+    int MobileOrExternalCount,
+    IReadOnlyList<YouTubePolicyFinding> Items);

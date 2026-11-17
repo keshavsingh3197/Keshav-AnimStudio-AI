@@ -254,6 +254,8 @@
         <p class="ck-playlist-notice">⚠️ Note: {{ c.playlistError }}</p>
       }
 
+      <app-youtube-policy-audit [audit]="c.policyAudit" [showFilterAction]="true" (filterIssue)="setFilter($event)" />
+
       <!-- AI Writing Settings Accordion -->
       <details class="ck-ai-card">
         <summary class="ck-ai-summary">
@@ -827,6 +829,11 @@
                     <a [routerLink]="['/projects', v.projectId, 'render']" class="ck-project-badge">
                       📁 AnimStudio Project
                     </a>
+                  } @else if (v.uploadedByApp === false) {
+                    <span class="ck-pill" title="Uploaded outside AnimStudio (e.g. phone or YouTube Studio); verify audio/visual originality in Studio">📱 External / Mobile upload</span>
+                  }
+                  @if (v.containsSyntheticMedia) {
+                    <span class="ck-pill" title="Altered or synthetic media disclosure enabled on YouTube">🤖 Altered media</span>
                   }
                   @for (p of v.playlistIds; track p) {
                     <span class="ck-pill ck-playlist-badge">▤ {{ playlistTitle(p) }}</span>

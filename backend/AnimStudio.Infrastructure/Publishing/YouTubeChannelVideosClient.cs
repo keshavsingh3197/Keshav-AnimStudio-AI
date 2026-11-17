@@ -37,7 +37,8 @@ public sealed record YouTubeVideoFullDetails(
     double? DurationSeconds,
     string? ThumbnailUrl,
     DateTime? ScheduledAt = null,
-    bool? LicensedContent = null);
+    bool? LicensedContent = null,
+    bool? ContainsSyntheticMedia = null);
 
 public sealed record YouTubePlaylist(string Id, string Title, int ItemCount);
 
@@ -471,7 +472,8 @@ public sealed partial class YouTubeChannelVideosClient : IDisposable
         return new YouTubeVideoFullDetails(basic.VideoId, ReadString(snippet, "channelId") ?? string.Empty, basic.Title,
             description.Length <= 5000 ? description : description[..5000], tags, ReadString(snippet, "categoryId"),
             basic.PrivacyStatus, kids, basic.PublishedAt, basic.DurationSeconds, basic.ThumbnailUrl, basic.ScheduledAt,
-            ReadBool(details, "licensedContent"));
+            ReadBool(details, "licensedContent"),
+            ReadBool(status, "containsSyntheticMedia"));
     }
 
     private static bool? ReadBool(JsonElement element, string name) =>

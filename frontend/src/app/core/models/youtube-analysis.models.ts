@@ -1,3 +1,6 @@
+import type { YouTubeMonetizationAuditReport } from './youtube.models';
+export type { YouTubeMonetizationAuditReport, YouTubePolicyFinding } from './youtube.models';
+
 /** One upload as the analysis sees it, with how it has done for its age. */
 export interface AnalyzedVideo {
   videoId: string;
@@ -167,4 +170,6 @@ export interface ChannelAnalysis {
   daily: DailyPoint[];
   /** Videos looked up by link, newest first. */
   lookups: VideoLookup[];
+  /** Cached YPP monetization & originality policy audit from the latest channel refresh. */
+  policyAudit?: YouTubeMonetizationAuditReport | null;
 }
