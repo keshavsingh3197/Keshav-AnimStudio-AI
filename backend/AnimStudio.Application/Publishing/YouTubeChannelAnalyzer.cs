@@ -288,6 +288,19 @@ public static class YouTubeChannelAnalyzer
         if (longTitles >= 3)
             found.Add(new("info", $"{longTitles} titles are over 70 characters and get cut off on phones. Put the hook in the first 40."));
 
+        if (analysis.PolicyAudit is { } policy)
+        {
+            var wrong = policy.Items.Where(item => item.Verdict == "wrong").ToList();
+            if (wrong.Count > 0)
+            {
+                found.Add(new("warn", $"Monetization policy check ({policy.ScoreOutOf100}/100): fix {string.Join("; ", wrong.Take(3).Select(w => w.Title))}. See {YouTubeMonetizationPolicyAudit.OfficialPolicyUrl}"));
+            }
+            else
+            {
+                found.Add(new("good", $"Metadata passes core YPP checks ({policy.ScoreOutOf100}/100). If any videos were uploaded from mobile/Studio, verify visual & audio originality manually."));
+            }
+        }
+
         return found;
     }
 
@@ -342,6 +355,10 @@ public static class YouTubeChannelAnalyzer
         {
             b.Append("\nAlready noticed:\n");
             foreach (var f in i.Findings) b.Append("- ").Append(f.Text).Append('\n');
+        }
+        if (analysis.PolicyAudit is { } audit)
+        {
+            b.Append('\n').Append(YouTubeMonetizationPolicyAudit.ToPromptSummary(audit)).Append('\n');
         }
         return b.ToString().TrimEnd();
     }
@@ -449,12 +466,38 @@ public static class YouTubeChannelAnalyzer
                 ? $"{analysis.ChannelTitle} has no public videos with numbers yet."
                 : $"{analysis.ChannelTitle}: {i.PublicVideos} public videos analysed. A typical video gets about {N(i.MedianViewsPerDay)} views a day."
                   + (i.Top.Count > 0 ? $" The strongest recently is \"{i.Top[0].Video.Title}\"." : string.Empty),
-            WhatWorks = [.. i.Findings.Where(f => f.Kind == "good").Select(f => f.Text)],
-            WhatToFix = [.. i.Findings.Where(f => f.Kind == "warn").Select(f => f.Text)],
+            WhatWorks = [.. i.Findings.Where(f => f.Kind == "good").Select(f => f.Text)
+                .Concat(analysis.PolicyAudit?.Items.Where(p => p.Verdict == "good").Select(p => $"{p.Category}: {p.Title} — {p.Detail}") ?? [])
+                .Distinct(StringComparer.Ordinal).Take(6)],
+            WhatToFix = [.. i.Findings.Where(f => f.Kind == "warn").Select(f => f.Text)
+                .Concat(analysis.PolicyAudit?.Items.Where(p => p.Verdict == "wrong").Select(p => $"{p.Category}: {p.Title} — {string.Join(" ", p.Steps)}") ?? [])
+                .Distinct(StringComparer.Ordinal).Take(6)],
             Goal = goal,
             By = "built-in",
             CreatedAtUtc = now
         };
+
+        if (analysis.PolicyAudit is { } policyAudit)
+        {
+            if (policyAudit.MobileOrExternalCount > 0)
+            {
+                report.Suggestions.Add(new()
+                {
+                    Title = $"Verify {policyAudit.MobileOrExternalCount} mobile / external upload(s) against YPP originality rules",
+                    Priority = "high",
+                    Detail = $"Apps can inspect metadata on mobile/Studio uploads, not video frames or audio. Check Reused Content, Inauthentic Content & Altered Content disclosure in YouTube Studio ({YouTubeMonetizationPolicyAudit.OfficialPolicyUrl})."
+                });
+            }
+            foreach (var wrong in policyAudit.Items.Where(p => p.Verdict == "wrong").Take(2))
+            {
+                report.Suggestions.Add(new()
+                {
+                    Title = $"Fix {wrong.Category}: {wrong.Title}",
+                    Priority = "high",
+                    Detail = $"{wrong.Detail} Steps: {string.Join(" ", wrong.Steps)}"
+                });
+            }
+        }
 
         if (i.Top.Count > 0)
         {

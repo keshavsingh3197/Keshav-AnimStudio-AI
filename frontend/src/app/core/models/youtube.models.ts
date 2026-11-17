@@ -488,6 +488,31 @@ export interface YouTubeCheckupVideo {
   projectId: string | null;
   /** When a private video goes public by itself (ISO, UTC); null when it isn't scheduled. */
   scheduledAt?: string | null;
+  /** True when uploaded via AnimStudio; false when uploaded from mobile / YouTube Studio directly. */
+  uploadedByApp?: boolean;
+  /** Whether YouTube reports the Altered / Synthetic Media label enabled on this upload. */
+  containsSyntheticMedia?: boolean | null;
+}
+
+export interface YouTubePolicyFinding {
+  id: string;
+  verdict: 'good' | 'wrong' | 'verify';
+  category: string;
+  title: string;
+  detail: string;
+  steps: string[];
+  issueCode?: string | null;
+  affectedVideoIds?: string[] | null;
+}
+
+export interface YouTubeMonetizationAuditReport {
+  policyUrl: string;
+  overallStatus: 'Strong' | 'NeedsAttention' | 'AtRisk';
+  scoreOutOf100: number;
+  videosEvaluated: number;
+  appUploadedCount: number;
+  mobileOrExternalCount: number;
+  items: YouTubePolicyFinding[];
 }
 
 export interface YouTubeCheckup {
@@ -500,6 +525,8 @@ export interface YouTubeCheckup {
   checkedAt: string;
   /** What imported details get from the brand channel publishing here; null when none does. */
   brand?: YouTubeCheckupBrand | null;
+  /** YPP monetization, originality & mobile-upload policy audit based on YouTube guidelines. */
+  policyAudit?: YouTubeMonetizationAuditReport | null;
 }
 
 /** The brand channel's exact credits, links, tags and upload defaults, added to every imported video. */

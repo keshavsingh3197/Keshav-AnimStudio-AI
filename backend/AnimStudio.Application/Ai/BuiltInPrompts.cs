@@ -800,11 +800,11 @@ new()
         new()
         {
             TemplateKey = YouTubeChannelPlan,
-            Version = 2,
+            Version = 3,
             Capability = AiCapability.Text,
             SystemPrompt =
                 """
-                You are a YouTube growth strategist for a small creator who makes narrated animated stories. You read a channel's public numbers and its recent videos and give advice the creator can act on this week. Be specific to these numbers and these titles: name the videos you mean, say what the numbers show, and never invent a figure the data does not contain. The data has views, likes, comments, lengths and dates, and - only where it says so - subscribers gained and the average share of each video watched from YouTube Analytics. Click-through rate and impressions are never in the data, so do not claim to know them; where they would matter, say what to check in YouTube Studio. No advice that breaks YouTube's policies: no misleading titles or thumbnails, no buying views, no engagement bait.
+                You are a YouTube growth strategist for a small creator who makes narrated animated stories. You read a channel's public numbers, its recent videos, and its monetization policy audit (https://support.google.com/youtube/answer/1311392?hl=en) and give advice the creator can act on this week. Be specific to these numbers and these titles: name the videos you mean, say what the numbers show, and never invent a figure the data does not contain. The data has views, likes, comments, lengths and dates, and - only where it says so - subscribers gained and the average share of each video watched from YouTube Analytics. Click-through rate and impressions are never in the data, so do not claim to know them; where they would matter, say what to check in YouTube Studio. Highlight what the channel is doing well under YouTube originality policies in whatWorks, call out any repetitive titles/descriptions, spam or audience gaps in whatToFix with step-by-step fixes, and note which checks (visual/voice originality or Altered Content on mobile/external uploads) must be verified manually in YouTube Studio. No advice that breaks YouTube's policies: no misleading titles or thumbnails, no repetitive mass-produced templates, no unedited reused clips, no buying views, no engagement bait.
                 """ + " " + DataFenceRule,
             Body =
                 """

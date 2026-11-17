@@ -83,10 +83,27 @@ public sealed partial class YouTubePublishController
                 playlistsKnown,
                 linked.GetValueOrDefault(v.VideoId))).ToList();
 
+            var policyAudit = YouTubeMonetizationPolicyAudit.Analyze(
+                [.. videos.Select(v => new YouTubePolicyVideoInput(
+                    v.VideoId,
+                    v.Title,
+                    v.Description,
+                    v.Tags,
+                    v.CategoryId,
+                    v.MadeForKids,
+                    v.DurationSeconds is > 0 and <= ShortMaxSeconds,
+                    v.PublishedAt,
+                    Views: null,
+                    v.PrivacyStatus,
+                    InPlaylist: playlistsKnown ? (membership.TryGetValue(v.VideoId, out var list) && list.Count > 0) : null,
+                    UploadedByApp: linked.ContainsKey(v.VideoId),
+                    ContainsSyntheticMedia: v.ContainsSyntheticMedia))],
+                playlistsKnown);
+
             return Ok(ApiResponse<YouTubeCheckupResponse>.Ok(new YouTubeCheckupResponse(
                 connection.ChannelId, connection.ChannelTitle,
                 [.. playlists.Select(p => new YouTubeCheckupPlaylist(p.Id, p.Title, p.ItemCount))],
-                rows, playlistError, DateTime.UtcNow, await CheckupBrandAsync(connection.ChannelId, ct))));
+                rows, playlistError, DateTime.UtcNow, await CheckupBrandAsync(connection.ChannelId, ct), policyAudit)));
         }
         catch (YouTubePublishException ex)
         {
@@ -651,7 +668,9 @@ public sealed partial class YouTubePublishController
             isShort ? $"https://youtube.com/shorts/{v.VideoId}" : $"https://youtu.be/{v.VideoId}",
             $"https://studio.youtube.com/video/{v.VideoId}/edit",
             projectId,
-            v.PrivacyStatus == "private" ? v.ScheduledAt : null);
+            v.PrivacyStatus == "private" ? v.ScheduledAt : null,
+            UploadedByApp: projectId is not null,
+            ContainsSyntheticMedia: v.ContainsSyntheticMedia);
     }
 }
 
@@ -676,7 +695,10 @@ public sealed record YouTubeCheckupVideo(
     /// <summary>The AnimStudio project it was published from, if any.</summary>
     string? ProjectId,
     /// <summary>When a private video is set to go public by itself (UTC); null when it isn't scheduled.</summary>
-    DateTime? ScheduledAt = null);
+    DateTime? ScheduledAt = null,
+    /// <summary>True when published directly from AnimStudio; false when uploaded via mobile/YouTube Studio.</summary>
+    bool UploadedByApp = false,
+    bool? ContainsSyntheticMedia = null);
 
 public sealed record YouTubeCheckupResponse(
     string ChannelId,
@@ -686,7 +708,8 @@ public sealed record YouTubeCheckupResponse(
     string? PlaylistError,
     DateTime CheckedAt,
     /// <summary>The brand channel's finishing touches for imported details; null when no brand channel publishes here.</summary>
-    YouTubeCheckupBrand? Brand = null);
+    YouTubeCheckupBrand? Brand = null,
+    YouTubeMonetizationAuditReport? PolicyAudit = null);
 
 /// <summary>What the checkup adds to every imported video's details, so they carry the channel's exact credits and links.</summary>
 /// <param name="ChannelName">The channel's current name (never a retired one).</param>

@@ -224,7 +224,8 @@ public sealed partial class YouTubeAnalysisController(
             a?.AnalyticsError,
             a is null ? [] : [.. a.Daily.Select(ToResponse)],
             // The list carries each lookup without its day-by-day numbers; opening one reads them.
-            a is null ? [] : [.. a.Lookups.Select(l => ToResponse(l, now, withDaily: false))]);
+            a is null ? [] : [.. a.Lookups.Select(l => ToResponse(l, now, withDaily: false))],
+            a?.PolicyAudit);
     }
 
     private static YouTubeAnalyzedVideoResponse ToResponse(YouTubeVideoScore s) => new(
@@ -302,7 +303,8 @@ public sealed record YouTubeChannelAnalysisResponse(
     DateTime? AnalyticsFetchedAtUtc,
     string? AnalyticsError,
     IReadOnlyList<YouTubeDailyPointResponse> Daily,
-    IReadOnlyList<YouTubeVideoLookupResponse> Lookups);
+    IReadOnlyList<YouTubeVideoLookupResponse> Lookups,
+    YouTubeMonetizationAuditReport? PolicyAudit = null);
 
 /// <param name="Day">yyyy-MM-dd.</param>
 public sealed record YouTubeDailyPointResponse(string Day, long Views, double WatchMinutes, long SubscribersGained, long SubscribersLost);

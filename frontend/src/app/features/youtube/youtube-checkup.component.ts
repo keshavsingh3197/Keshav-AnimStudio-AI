@@ -24,6 +24,7 @@ import {
 import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
 import { csvCell } from './csv';
 import { YtNavComponent } from './yt-nav.component';
+import { YouTubePolicyAuditComponent } from './youtube-policy-audit.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 /** The issues the page counts and filters by, in the order they're shown. */
@@ -32,9 +33,13 @@ const ISSUE_LABELS: readonly { code: string; label: string }[] = [
   { code: 'description-short', label: 'Short description' },
   { code: 'tags-missing', label: 'No tags' },
   { code: 'hashtags-missing', label: 'No hashtags' },
+  { code: 'hashtag-stuffing', label: '15+ hashtags' },
+  { code: 'description-tag-stuffing', label: 'Keyword dump' },
   { code: 'playlist-missing', label: 'No playlist' },
   { code: 'audience-unset', label: 'Audience not set' },
   { code: 'title-default', label: 'File-name title' },
+  { code: 'title-too-long', label: 'Long title (>70)' },
+  { code: 'reused-clue', label: 'Reused-clip title' },
   { code: 'channel-link-old', label: 'Old channel link' },
 ];
 
@@ -143,7 +148,7 @@ function loadViewMode(): ViewMode {
  */
 @Component({
   selector: 'app-youtube-checkup',
-  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent, YtNavComponent, LoadingStateComponent],
+  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent, YtNavComponent, YouTubePolicyAuditComponent, LoadingStateComponent],
   templateUrl: './youtube-checkup.component.html',
   styleUrl: './youtube-checkup.component.css',
 })

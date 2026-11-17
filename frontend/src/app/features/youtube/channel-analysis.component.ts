@@ -10,6 +10,7 @@ import { StoryAgentService } from '../../core/services/story-agent.service';
 import { YouTubeAnalysisService } from '../../core/services/youtube-analysis.service';
 import { csvCell } from './csv';
 import { YtNavComponent } from './yt-nav.component';
+import { YouTubePolicyAuditComponent } from './youtube-policy-audit.component';
 
 type Busy = 'refresh' | 'plan' | 'fresh';
 type VideoFilter = 'all' | 'short' | 'long';
@@ -52,7 +53,7 @@ function localDay(at: Date): string {
  */
 @Component({
   selector: 'app-channel-analysis',
-  imports: [RouterLink, DatePipe, DecimalPipe, YtNavComponent],
+  imports: [RouterLink, DatePipe, DecimalPipe, YtNavComponent, YouTubePolicyAuditComponent],
   templateUrl: './channel-analysis.component.html',
   styleUrls: ['./channel-analysis.component.css'],
 })
