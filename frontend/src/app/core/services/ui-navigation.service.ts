@@ -10,6 +10,7 @@ import { AuthService } from './auth.service';
 export const DEFAULT_UI_NAVIGATION_TABS: UiNavigationItemConfig[] = [
   { id: 'projects', label: 'Projects', path: '/projects', icon: 'projects', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Personal video projects and timeline workspace' },
   { id: 'story-agent', label: 'Story Agent', path: '/story-agent', icon: 'story-agent', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Give a title; get a researched, narrated video and its YouTube details' },
+  { id: 'comedy', label: 'Comedy', path: '/comedy', icon: 'comedy', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Comedy story converter, funny Khadi-Bhasha / Tu-Tadak creator and short video scripts with memes' },
   { id: 'shorts', label: 'Shorts', path: '/shorts', icon: 'shorts', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Vertical video clips and batch shorts generator' },
   { id: 'calendar', label: 'Calendar', path: '/calendar', icon: 'calendar', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: false, enabled: true, description: 'Social media scheduling and release planning' },
   { id: 'effects', label: 'Effects', path: '/effects', icon: 'effects', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Stingers, overlays, sound effects and visual elements' },
@@ -17,10 +18,8 @@ export const DEFAULT_UI_NAVIGATION_TABS: UiNavigationItemConfig[] = [
   { id: 'tools', label: 'Media Studio', path: '/tools', icon: 'media-studio', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Audio/video chunking, extraction, and format conversions' },
   { id: 'release', label: 'Music Release', path: '/release', icon: 'music-release', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Music master distribution and visualizer publishing' },
   { id: 'songs', label: 'Songs', path: '/songs', icon: 'songs', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: false, enabled: true, description: 'Write lyrics with AI and compose songs with Google Lyria' },
-  { id: 'youtube', label: 'YouTube', path: '/youtube', icon: 'youtube', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Direct YouTube channel integration and video analytics' },
-  { id: 'queue', label: 'Publishing', path: '/youtube/queue', icon: 'queue', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Publishing board: videos queued for YouTube and when they go out' },
+  { id: 'youtube', label: 'YouTube', path: '/youtube', icon: 'youtube', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'Direct YouTube channel integration, publishing board, analytics and SEO tools' },
   { id: 'automation', label: 'Auto Post', path: '/automation', icon: 'sparkles', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: false, enabled: true, description: 'Daily Panchang, History & Ecosystem Auto-Post pipeline and website funnel studio' },
-  { id: 'details', label: 'Video Details', path: '/youtube/details', icon: 'details', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'SEO audit and video metadata generator' },
   { id: 'live', label: 'Go Live', path: '/live', icon: 'live', visibleToAnonymous: false, visibleToMembers: true, requiresAuth: true, isSensitive: true, enabled: true, description: 'YouTube live stream broadcaster' },
   { id: 'camera', label: 'Camera Studio', path: '/live/camera', icon: 'camera', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Local camera feed capture and background removal' },
   { id: 'motion-copy', label: 'Motion Copy', path: '/motion-copy', icon: 'motion-copy', visibleToAnonymous: true, visibleToMembers: true, requiresAuth: false, isSensitive: false, enabled: true, description: 'Pose estimation and motion transfer to avatars' },
@@ -83,21 +82,42 @@ export class UiNavigationService {
     return this.http
       .get<ApiResponse<UiNavigationSettings>>(`${this.base}/api/system/ui-navigation`)
       .pipe(
-        map((r) => r.data ?? { enforceGuestRestrictions: true, tabs: DEFAULT_UI_NAVIGATION_TABS }),
+        map((r) => r.data ?? { enforceGuestRestrictions: true, schemaVersion: 2, tabs: DEFAULT_UI_NAVIGATION_TABS }),
         tap((cfg) => {
           if (cfg && cfg.tabs && cfg.tabs.length > 0) {
-            const seen = new Set(cfg.tabs.map((t) => t.id));
-            const merged = [...cfg.tabs];
+            const needsV2Cleanup = (cfg.schemaVersion ?? 0) < 2;
+            const retiredTopIds = new Set(['queue', 'details']);
+            const baseTabs = needsV2Cleanup
+              ? cfg.tabs.filter((t) => !retiredTopIds.has(t.id))
+              : [...cfg.tabs];
+
+            // Avoid duplicate "songs" if already present in DEFAULT_UI_NAVIGATION_TABS
+            const merged: UiNavigationItemConfig[] = [];
+            const seen = new Set<string>();
+            for (const t of baseTabs) {
+              if (!seen.has(t.id)) {
+                seen.add(t.id);
+                merged.push(t);
+              }
+            }
             for (const def of DEFAULT_UI_NAVIGATION_TABS) {
               if (!seen.has(def.id)) {
+                seen.add(def.id);
+                if (def.id === 'comedy') {
+                  const saIdx = merged.findIndex((x) => x.id === 'story-agent');
+                  if (saIdx >= 0) {
+                    merged.splice(saIdx + 1, 0, def);
+                    continue;
+                  }
+                }
                 merged.push(def);
               }
             }
-            this.settings.set({ ...cfg, tabs: merged });
+            this.settings.set({ ...cfg, schemaVersion: 2, tabs: merged });
           }
         }),
         catchError(() => {
-          return of({ enforceGuestRestrictions: true, tabs: DEFAULT_UI_NAVIGATION_TABS });
+          return of({ enforceGuestRestrictions: true, schemaVersion: 2, tabs: DEFAULT_UI_NAVIGATION_TABS });
         })
       );
   }
@@ -109,8 +129,15 @@ export class UiNavigationService {
     if (isAdmin) return true;
 
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    if (normalizedPath === '/youtube/details' || normalizedPath.startsWith('/youtube/details?')) {
+      return true;
+    }
+
     const tabs = this.settings()?.tabs || DEFAULT_UI_NAVIGATION_TABS;
-    const item = tabs.find((t) => normalizedPath.startsWith(t.path));
+    // Longest matching path wins so /live/camera isn't shadowed by /live, etc.
+    const item = [...tabs]
+      .filter((t) => normalizedPath === t.path || normalizedPath.startsWith(t.path + '/'))
+      .sort((a, b) => b.path.length - a.path.length)[0];
 
     if (!item) return true;
 

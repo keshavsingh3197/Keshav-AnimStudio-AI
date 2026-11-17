@@ -370,6 +370,9 @@ export interface AutomationPost {
   attachedRenderJobId?: string | null;
   attachedStoryRunId?: string | null;
   attachedVideoSourceLabel?: string | null;
+  thumbnailStorageKey?: string | null;
+  thumbnailFrameAtSeconds?: number | null;
+  thumbnailSource?: string | null;
   status: AutomationPostStatus;
   scheduledAtUtc?: string | null;
   queueItemId?: string | null;
@@ -542,6 +545,42 @@ export class AutomationService {
     return this.unwrap(
       this.http.delete<ApiResponse<unknown>>(`${this.base}/queue/${encodeURIComponent(id)}`)
     ).pipe(map(() => undefined));
+  }
+
+  postThumbnailUrl(postId: string, versionKey?: string | null): string {
+    const suffix = versionKey ? `?v=${encodeURIComponent(versionKey)}` : '';
+    return this.media.sign(`${this.base}/queue/${encodeURIComponent(postId)}/thumbnail${suffix}`);
+  }
+
+  setPostThumbnail(
+    postId: string,
+    body: { imageBase64?: string | null; frameAtSeconds?: number | null; storageAssetId?: string | null }
+  ): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/thumbnail`, body)
+    );
+  }
+
+  generateAiThumbnail(postId: string, prompt?: string | null): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(
+        `${this.base}/queue/${encodeURIComponent(postId)}/thumbnail/generate`,
+        { prompt: prompt ?? null },
+        { context: silentHttpContext() }
+      )
+    );
+  }
+
+  deletePostThumbnail(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.delete<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/thumbnail`)
+    );
+  }
+
+  autoFillDetails(postId: string): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/autofill-details`, {})
+    );
   }
 
   getStorageMediaCatalog(): Observable<AutomationStorageCatalog> {

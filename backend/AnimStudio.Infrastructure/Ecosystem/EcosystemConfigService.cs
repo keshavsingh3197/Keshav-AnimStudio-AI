@@ -78,14 +78,11 @@ public sealed class EcosystemConfigService(
                         {
                             if (nav.Tabs is { Count: > 0 })
                             {
-                                var knownIds = nav.Tabs.Select(t => t.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                                foreach (var fallbackTab in UiNavigationSettings.CreateDefault().Tabs)
-                                {
-                                    if (!knownIds.Contains(fallbackTab.Id)) nav.Tabs.Add(fallbackTab);
-                                }
+                                UiNavigationSettings.Reconcile(nav);
                                 adminOptions.CurrentValue.UiNavigation.Tabs = nav.Tabs;
                             }
                             uiNavigationState.Set(nav);
+                            adminOptions.CurrentValue.UiNavigation.SchemaVersion = nav.SchemaVersion;
                             adminOptions.CurrentValue.UiNavigation.EnforceGuestRestrictions = nav.EnforceGuestRestrictions;
                         }
                     }

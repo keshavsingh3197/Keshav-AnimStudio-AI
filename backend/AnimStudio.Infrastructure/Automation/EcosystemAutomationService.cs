@@ -135,7 +135,8 @@ public sealed partial class EcosystemAutomationService(
     IAiProviderRegistry? aiRegistry = null,
     IAiUsageRepository? aiUsage = null,
     IEffectClipRepository? effects = null,
-    IAiSettingsRepository? aiSettingsRepo = null)
+    IAiSettingsRepository? aiSettingsRepo = null,
+    YouTubeThumbnailService? thumbnailService = null)
 {
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
@@ -763,17 +764,38 @@ public sealed partial class EcosystemAutomationService(
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
             throw EditingException.Conflict("post-locked", "Cannot edit a post while uploading or after it is published.");
 
-        if (!string.IsNullOrWhiteSpace(update.Title)) post.Title = update.Title.Trim();
+        if (!string.IsNullOrWhiteSpace(update.Title))
+        {
+            var nextTitle = update.Title.Trim();
+            if (!string.Equals(nextTitle, post.Title, StringComparison.Ordinal) && nextTitle.Length > YouTubePublishValidator.MaxTitleLength)
+                throw EditingException.Invalid("youtube-title-too-long", $"Title must be {YouTubePublishValidator.MaxTitleLength} characters or fewer.");
+            post.Title = nextTitle;
+        }
         if (update.Script is not null) post.Script = update.Script.Trim();
         if (update.AiVideoPrompt is not null) post.AiVideoPrompt = update.AiVideoPrompt.Trim();
         if (update.AiThumbnailPrompt is not null) post.AiThumbnailPrompt = update.AiThumbnailPrompt.Trim();
         if (update.Description is not null) post.Description = update.Description.Trim();
         post.PinnedComment = string.IsNullOrWhiteSpace(update.PinnedComment) ? null : update.PinnedComment.Trim();
-        if (update.Tags.Count > 0) post.Tags = [.. update.Tags.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim())];
+        if (update.Tags is not null)
+        {
+            var cleanTags = update.Tags
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (cleanTags.Count > YouTubePublishValidator.MaxTagCount)
+                throw EditingException.Invalid("tags-too-many", $"Use at most {YouTubePublishValidator.MaxTagCount} tags.");
+            if (cleanTags.Count > 0
+                && !cleanTags.SequenceEqual(post.Tags, StringComparer.Ordinal)
+                && YouTubePublishValidator.TagsLength(cleanTags) > YouTubePublishValidator.MaxTagsLength)
+                throw EditingException.Invalid("tags-too-long", $"Tags combined must be {YouTubePublishValidator.MaxTagsLength} characters or fewer.");
+            post.Tags = cleanTags;
+        }
         if (!string.IsNullOrWhiteSpace(update.Privacy) && YouTubePublishValidator.Privacies.Contains(update.Privacy, StringComparer.OrdinalIgnoreCase))
             post.Privacy = update.Privacy.ToLowerInvariant();
         if (!string.IsNullOrWhiteSpace(update.CategoryId) && YouTubePublishValidator.Categories.ContainsKey(update.CategoryId))
             post.CategoryId = update.CategoryId;
+        post.MadeForKids = update.MadeForKids;
         if (update.TargetChannelId is not null)
         {
             post.TargetChannelId = string.IsNullOrWhiteSpace(update.TargetChannelId) ? null : update.TargetChannelId.Trim();
@@ -812,9 +834,19 @@ public sealed partial class EcosystemAutomationService(
         if (update.Status == AutomationPostStatus.Skipped)
             post.Status = AutomationPostStatus.Skipped;
         post.Notes = string.IsNullOrWhiteSpace(update.Notes) ? null : update.Notes.Trim();
+        if (post.ScheduledAtUtc is { } scheduledAt)
+        {
+            post.ScheduledAtUtc = scheduledAt.Kind switch
+            {
+                DateTimeKind.Utc => scheduledAt,
+                DateTimeKind.Local => scheduledAt.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(scheduledAt, DateTimeKind.Utc)
+            };
+        }
         post.UpdatedAtUtc = UtcNow;
 
         await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        await SyncQueuedItemAsync(userId, post, includeSchedule: true, ct).ConfigureAwait(false);
         return post;
     }
 
@@ -1840,13 +1872,14 @@ public sealed partial class EcosystemAutomationService(
             };
                 // Added held, so the board's scheduler can't start it on its own while we start it here: that race
                 // made PublishNow fail, left the card "Approved", and the next worker tick queued yet another copy.
+                var thumbnailChoice = await BuildPostThumbnailChoiceAsync(post, ct).ConfigureAwait(false);
                 var queued = await publishQueue.AddAsync(userId, new PublishQueueDraft(
                     renderJob.Id,
                     connection.ChannelId,
                     metadata,
                     null,
                     post.PinnedComment,
-                    null,
+                    thumbnailChoice,
                     null,
                     null,
                     PublishQueueMode.UploadAtTime,
@@ -1956,6 +1989,7 @@ public sealed partial class EcosystemAutomationService(
                 await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
                 try
                 {
+                    await SyncQueuedItemAsync(userId, post, includeSchedule: false, ct).ConfigureAwait(false);
                     await publishQueue.PublishNowAsync(userId, view.Id, ct).ConfigureAwait(false);
                 }
                 catch (EditingException ex) when (ex.Code == "queue-item-locked")
@@ -2047,6 +2081,7 @@ public sealed partial class EcosystemAutomationService(
             if (comment is not null && !YouTubeOAuthClient.AllowsComments(connection.Scopes))
                 comment = null;
 
+            var thumbnailJpeg = await BuildThumbnailJpegForLocalVideoAsync(post, localFile, ct).ConfigureAwait(false);
             var uploadStatus = uploadManager.Start(new YouTubeUploadRequest(
                 userId,
                 handoff.JobId,
@@ -2057,7 +2092,8 @@ public sealed partial class EcosystemAutomationService(
                 validation.Normalized,
                 ProjectId: handoff.ProjectId,
                 FirstComment: comment,
-                LocalFilePath: localFile));
+                LocalFilePath: localFile,
+                ThumbnailJpeg: thumbnailJpeg));
 
             // The upload is under way: record it first, so nothing after this can put the card back to be uploaded again.
             post.UploadId = uploadStatus.UploadId;

@@ -153,6 +153,7 @@ public sealed class UiNavigationState
                 : new UiNavigationSettings
                 {
                     EnforceGuestRestrictions = settings.EnforceGuestRestrictions,
+                    SchemaVersion = settings.SchemaVersion,
                     Tabs = [.. settings.Tabs.Select(t => new UiNavigationItemConfig
                     {
                         Id = t.Id,

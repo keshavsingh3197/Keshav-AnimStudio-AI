@@ -56,6 +56,13 @@ public sealed record PublishAutomationPostRequest(
     bool PublishNow = true,
     DateTime? ScheduledAtUtc = null);
 
+public sealed record SetAutomationThumbnailRequest(
+    string? ImageBase64 = null,
+    double? FrameAtSeconds = null,
+    string? StorageAssetId = null);
+
+public sealed record GenerateAutomationThumbnailRequest(string? Prompt = null);
+
 /// <summary>
 /// Manages ecosystem-driven automated daily content generation (Hindu Panchang, Hindu Festivals,
 /// Daily Vedic Katha, Aaj Ka Itihaas, Pratiyogita/Ecosystem Spotlights), preview queues,
@@ -390,6 +397,70 @@ public sealed class AutomationController(
         var bytes = await automation.GetCommunityCardBytesAsync(currentUser.UserId, id, ct);
         if (bytes is null) return NotFound();
         return File(bytes, "image/png", $"promo-card-{id}.png");
+    }
+
+    [AllowMediaTicket]
+    [HttpGet("queue/{id}/thumbnail")]
+    [HttpHead("queue/{id}/thumbnail")]
+    public async Task<IActionResult> GetThumbnail(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (!currentUser.IsAuthenticated) return Forbid();
+        var result = await automation.GetPostThumbnailBytesAsync(currentUser.UserId, id, ct);
+        if (result is null) return NotFound();
+        var ext = result.Value.ContentType == "image/png" ? "png" : "jpg";
+        return File(result.Value.Bytes, result.Value.ContentType, $"thumbnail-{id}.{ext}");
+    }
+
+    [HttpPost("queue/{id}/thumbnail")]
+    [RequestSizeLimit(4 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> SetThumbnail(
+        string id,
+        [FromBody] SetAutomationThumbnailRequest request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.SetPostThumbnailAsync(
+            currentUser.UserId,
+            id,
+            request.ImageBase64,
+            request.FrameAtSeconds,
+            request.StorageAssetId,
+            ct)));
+    }
+
+    [HttpPost("queue/{id}/thumbnail/generate")]
+    [RequestSizeLimit(16 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> GenerateThumbnail(
+        string id,
+        [FromBody] GenerateAutomationThumbnailRequest? request = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.GenerateAiPostThumbnailAsync(
+            currentUser.UserId,
+            id,
+            request?.Prompt,
+            ct)));
+    }
+
+    [HttpDelete("queue/{id}/thumbnail")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> DeleteThumbnail(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.DeletePostThumbnailAsync(currentUser.UserId, id, ct)));
+    }
+
+    [HttpPost("queue/{id}/autofill-details")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> AutoFillDetails(
+        string id,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(await automation.AutoFillMissingDetailsAsync(currentUser.UserId, id, ct)));
     }
 
     [HttpPost("queue/{id}/mark-community-posted")]

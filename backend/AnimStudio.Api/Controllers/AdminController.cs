@@ -1241,6 +1241,7 @@ public sealed class AdminController(
             var effectiveNav = new AnimStudio.Application.Options.UiNavigationSettings
             {
                 EnforceGuestRestrictions = adminOpts.CurrentValue.UiNavigation.EnforceGuestRestrictions,
+                SchemaVersion = AnimStudio.Application.Options.UiNavigationSettings.CurrentSchemaVersion,
                 Tabs = adminOpts.CurrentValue.UiNavigation.Tabs,
             };
             uiNavState.Set(effectiveNav);
