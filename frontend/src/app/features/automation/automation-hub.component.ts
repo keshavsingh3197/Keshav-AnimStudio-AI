@@ -31,6 +31,14 @@ import { StatusService } from '../../core/services/status.service';
 import { ApiService } from '../../core/services/api.service';
 import { Song, SongsService } from '../../core/services/songs.service';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
+import { FileDropDirective } from '../../shared/file-drop.directive';
+import {
+  formatSceneBatchPrompt,
+  planScenePictureUploads,
+  ScenePictureMatchReason,
+  suggestedSceneFileName,
+  summarizeSceneUploadPlan,
+} from '../../shared/scene-batch-media';
 
 type HubTab = 'queue' | 'rules' | 'settings';
 type QueueStatusFilter = 'all' | 'pending' | 'ready' | 'generating' | 'published' | 'failed';
@@ -89,6 +97,10 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 type WizardEngine = Exclude<AutomationVisualEngine, 'Auto'>;
 type WizardStep = 'engine' | 'source' | 'background' | 'audio' | 'template';
 type StageSide = 'left' | 'right';
+interface ScenePicMeta {
+  name: string;
+  reasonText: string;
+}
 interface GenerateWizardState {
   postId: string;
   engine: WizardEngine;
@@ -179,7 +191,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
 @Component({
   selector: 'app-automation-hub',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, LoadingStateComponent],
+  imports: [CommonModule, FormsModule, RouterLink, LoadingStateComponent, FileDropDirective],
   host: { '(document:keydown.escape)': 'onEscape()' },
   template: `
     <div class="auto-page">
@@ -1256,7 +1268,11 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       </div>
 
                       @if (showScenePictures() && templateReply().trim().length >= 20) {
-                        <div class="tpl-step scene-pics">
+                        <div class="tpl-step scene-pics scene-pics-drop"
+                             [appFileDrop]="'image/png,image/jpeg,image/webp'"
+                             [fileDropMultiple]="true"
+                             [fileDropDisabled]="sceneBusy() !== null || busy()"
+                             (filesDropped)="uploadSceneFileBatch($event)">
                           <div class="snip-label">
                             <span>Step C (optional): a real picture for every scene</span>
                             @if (scenePlanLoading()) { <span class="btn-spin" aria-hidden="true"></span> }
@@ -1266,23 +1282,30 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                               <small class="muted-note">This answer has no [SCENE] lines, so the animated 3D stage is used. Ask your AI tool to follow the template's format to get one picture per scene.</small>
                             } @else {
                               <small class="muted-note">
-                                Your script has {{ plan.scenes.length }} scenes. Copy all picture prompts into Gemini, ChatGPT or any image tool to make the whole set at once
-                                ({{ plan.aspectRatio }}, {{ plan.width }}×{{ plan.height }}), then upload them together in order.
-                                Picture 1 is shown during scene 1, picture 2 during scene 2, and so on, with a slow camera move and a cut between scenes.
-                                Leave every slot empty to keep the animated 3D stage.
+                                Your script has {{ plan.scenes.length }} scenes. Copy all picture prompts at once into Gemini, ChatGPT or any image tool to make the whole set
+                                ({{ plan.aspectRatio }}, {{ plan.width }}×{{ plan.height }}), then upload or drop them all together.
+                                Pictures match automatically by filename (<span class="mono">01.png</span>, <span class="mono">scene-2.jpg</span>, <span class="mono">river_ghat.png</span>)
+                                or in upload order (<span class="mono">1, 2 … 10</span>). Leave every slot empty to keep the animated 3D stage.
                               </small>
                               <div class="bg-pick-row">
-                                <button type="button" class="copy-btn" (click)="copyText(plan.batchPrompt, 'All ' + plan.scenes.length + ' picture prompts copied! Paste them into your image tool.')">
-                                  Copy all {{ plan.scenes.length }} picture prompts
+                                <button type="button" class="copy-btn" [class.copied]="copiedKey() === 'batch'"
+                                        (click)="copyBatchPrompts(plan)"
+                                        title="Copies all scene picture prompts together with framing, naming convention and avoid rules">
+                                  @if (copiedKey() === 'batch') { ✓ Copied all {{ plan.scenes.length }} prompts }
+                                  @else { Copy all {{ plan.scenes.length }} picture prompts }
                                 </button>
-                                <button type="button" class="link-btn" (click)="copyText(plan.negativePrompt, 'Negative prompt copied!')">Copy negative prompt</button>
+                                <button type="button" class="link-btn"
+                                        (click)="copyWithFlash('neg', plan.negativePrompt, 'Negative prompt copied!')">
+                                  {{ copiedKey() === 'neg' ? '✓ Copied negative' : 'Copy negative prompt' }}
+                                </button>
                                 <a class="funnel-chip" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">↗ Gemini</a>
                                 <a class="funnel-chip" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">↗ ChatGPT</a>
                               </div>
                               <div class="bg-pick-row">
-                                <label class="btn ghost file-btn" [class.disabled]="sceneBusy() !== null || busy()">
-                                  @if (sceneBusy() === -1) { <span class="btn-spin" aria-hidden="true"></span> Uploading… }
-                                  @else { ⬆ Upload pictures in order }
+                                <label class="btn ghost file-btn" [class.disabled]="sceneBusy() !== null || busy()"
+                                       title="Select multiple pictures at once. Named files (01.png, scene-2.jpg, temple.png) match their scene automatically; unnamed files fill in order.">
+                                  @if (sceneBusy() !== null) { <span class="btn-spin" aria-hidden="true"></span> Uploading… }
+                                  @else { ⬆ Upload all pictures (name or order) }
                                   <input type="file" multiple accept="image/png,image/jpeg,image/webp" (change)="uploadScenePictures($event)"
                                          [disabled]="sceneBusy() !== null || busy()" hidden />
                                 </label>
@@ -1291,12 +1314,16 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                                 @if (scenePicsFilled() > 0) {
                                   <button type="button" class="link-btn" [disabled]="sceneBusy() !== null" (click)="clearAllScenePics()">Clear all</button>
                                 }
-                                <small class="muted-note">{{ scenePicsFilled() }} of {{ plan.scenes.length }} scenes have a picture. Files are sorted by name (1, 2 … 10), so number them before uploading.</small>
+                                <small class="muted-note">{{ scenePicsFilled() }} of {{ plan.scenes.length }} scenes have a picture. Drop files here or pick multiple — matches 01 / scene-2 / setting name, else file order.</small>
                               </div>
                               <ol class="scene-pic-list">
                                 @for (scene of plan.scenes; track scene.number; let i = $index) {
                                   @let picId = scenePics()[i];
-                                  <li class="scene-pic">
+                                  @let picMeta = scenePicMeta()[i];
+                                  <li class="scene-pic"
+                                      [appFileDrop]="'image/png,image/jpeg,image/webp'"
+                                      [fileDropDisabled]="sceneBusy() !== null || busy()"
+                                      (filesDropped)="uploadSceneFile(i, $event[0])">
                                     <div class="scene-pic-thumb" [class.wide]="wp.format === 'Wide'">
                                       @if (sceneBusy() === i) {
                                         <span class="btn-spin" aria-hidden="true"></span>
@@ -1307,10 +1334,19 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                                       }
                                     </div>
                                     <div class="scene-pic-body">
-                                      <strong>Scene {{ scene.number }} · {{ sceneLabel(scene.setting, scene.timeOfDay) }}@if (scene.mood) { · {{ scene.mood }} }</strong>
+                                      <div class="scene-pic-head">
+                                        <strong>Scene {{ scene.number }} · {{ sceneLabel(scene.setting, scene.timeOfDay) }}@if (scene.mood) { · {{ scene.mood }} }</strong>
+                                        <span class="mono scene-file-chip" title="Suggested file name when saving for batch upload">{{ suggestedFileLabel(scene, plan.scenes.length) }}</span>
+                                        @if (picId && picMeta) {
+                                          <span class="scene-match-chip" [title]="picMeta.name + ' (' + picMeta.reasonText + ')'">✓ {{ picMeta.name }} · {{ picMeta.reasonText }}</span>
+                                        }
+                                      </div>
                                       <small class="scene-pic-prompt">{{ scene.prompt }}</small>
                                       <div class="scene-pic-actions">
-                                        <button type="button" class="link-btn" (click)="copyText(scene.prompt, 'Scene ' + scene.number + ' prompt copied!')">Copy prompt</button>
+                                        <button type="button" class="link-btn"
+                                                (click)="copyWithFlash('scene-' + i, scene.prompt, 'Scene ' + scene.number + ' prompt copied!')">
+                                          {{ copiedKey() === 'scene-' + i ? '✓ Copied' : 'Copy prompt' }}
+                                        </button>
                                         <label class="link-btn" [class.disabled]="sceneBusy() !== null">
                                           {{ picId ? 'Replace' : 'Upload' }}
                                           <input type="file" accept="image/png,image/jpeg,image/webp" (change)="uploadScenePicture(i, $event)" [disabled]="sceneBusy() !== null" hidden />
@@ -2122,6 +2158,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
     .bg-thumb { padding: 0; border: 2px solid var(--border); border-radius: 8px; overflow: hidden; background: none; cursor: pointer; aspect-ratio: 1; }
     .bg-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .bg-thumb.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-subtle); }
+    .scene-pics-drop { border-radius: 10px; padding: 2px; }
     .scene-pic-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; max-height: 420px; overflow-y: auto; }
     .scene-pic { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
     .scene-pic-thumb { flex: 0 0 56px; aspect-ratio: 9 / 16; border-radius: 6px; overflow: hidden; border: 1px dashed var(--border);
@@ -2129,7 +2166,12 @@ const FULL_VIDEO_MAX_SECONDS = 600;
     .scene-pic-thumb.wide { flex-basis: 96px; aspect-ratio: 16 / 9; }
     .scene-pic-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .scene-pic-empty { font-weight: 700; color: var(--muted); }
-    .scene-pic-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .scene-pic-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .scene-pic-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+    .scene-file-chip { font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--sunk-1); border: 1px solid var(--border); color: var(--text-dim); }
+    .scene-match-chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.45); color: var(--ok); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mono { font-family: ui-monospace, monospace; }
+    .copy-btn.copied { border-color: var(--ok); color: var(--ok); }
     .scene-pic-prompt { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
     .scene-pic-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
     .scene-pic-actions label.disabled { opacity: 0.5; pointer-events: none; }
@@ -2256,6 +2298,9 @@ export class AutomationHubComponent implements OnInit {
   readonly scenePlan = signal<AutomationScenePicturePlan | null>(null);
   readonly scenePlanLoading = signal(false);
   readonly scenePics = signal<(string | null)[]>([]);
+  readonly scenePicMeta = signal<(ScenePicMeta | null)[]>([]);
+  readonly copiedKey = signal<string | null>(null);
+  private copiedTimer: ReturnType<typeof setTimeout> | null = null;
   /** Slot being uploaded or generated (-1 for a batch upload), null when idle. */
   readonly sceneBusy = signal<number | null>(null);
   private scenePlanTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2970,7 +3015,11 @@ export class AutomationHubComponent implements OnInit {
     this.scenePlanTimer = null;
     this.scenePlan.set(null);
     this.scenePics.set([]);
+    this.scenePicMeta.set([]);
     this.sceneBusy.set(null);
+    if (this.copiedTimer) clearTimeout(this.copiedTimer);
+    this.copiedTimer = null;
+    this.copiedKey.set(null);
   }
 
   // ---------------------------------------------------------------- scene pictures (template path, Enhanced 3D)
@@ -3006,7 +3055,10 @@ export class AutomationHubComponent implements OnInit {
       this.scenePlan.set(plan);
       // Keep pictures already chosen; the slot count follows the script.
       const current = this.scenePics();
-      this.scenePics.set(plan.scenes.map((_, i) => current[i] ?? wz.stage.sceneBackgroundAssetIds?.[i] ?? null));
+      const currentMeta = this.scenePicMeta();
+      const nextPics = plan.scenes.map((_, i) => current[i] ?? wz.stage.sceneBackgroundAssetIds?.[i] ?? null);
+      this.scenePics.set(nextPics);
+      this.scenePicMeta.set(plan.scenes.map((_, i) => (nextPics[i] ? currentMeta[i] ?? null : null)));
     } catch (err: unknown) {
       this.scenePlan.set(null);
       this.status.showError(this.readErr(err, 'Could not read the scenes of this script.'));
@@ -3015,16 +3067,18 @@ export class AutomationHubComponent implements OnInit {
     }
   }
 
-  private setScenePic(index: number, assetId: string | null): void {
+  private setScenePic(index: number, assetId: string | null, meta: ScenePicMeta | null = null): void {
     this.scenePics.update((list) => list.map((id, i) => (i === index ? assetId : id)));
+    this.scenePicMeta.update((list) => list.map((m, i) => (i === index ? meta : m)));
   }
 
   clearScenePic(index: number): void {
-    this.setScenePic(index, null);
+    this.setScenePic(index, null, null);
   }
 
   clearAllScenePics(): void {
     this.scenePics.update((list) => list.map(() => null));
+    this.scenePicMeta.update((list) => list.map(() => null));
   }
 
   moveScenePic(index: number, delta: -1 | 1): void {
@@ -3035,50 +3089,114 @@ export class AutomationHubComponent implements OnInit {
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
+    this.scenePicMeta.update((list) => {
+      if (target < 0 || target >= list.length) return list;
+      const next = [...list];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
   }
 
   private checkPictureFile(file: File): string | null {
     // Quick checks for a clear message; the server validates the real file type and size again.
-    if (!TEMPLATE_TYPES.includes(file.type)) return `${file.name}: pick a PNG, JPG or WebP picture.`;
+    if (!TEMPLATE_TYPES.includes(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name)) {
+      return `${file.name}: pick a PNG, JPG or WebP picture.`;
+    }
     if (file.size > MAX_TEMPLATE_BYTES) return `${file.name} is larger than 25 MB.`;
     return null;
   }
 
+  suggestedFileLabel(scene: { number: number; setting: string }, count: number): string {
+    return suggestedSceneFileName(scene.number, count, scene.setting);
+  }
+
+  copyWithFlash(key: string, text: string, label: string): void {
+    this.copyText(text, label);
+    this.copiedKey.set(key);
+    if (this.copiedTimer) clearTimeout(this.copiedTimer);
+    this.copiedTimer = setTimeout(() => {
+      this.copiedTimer = null;
+      this.copiedKey.update((cur) => (cur === key ? null : cur));
+    }, 1800);
+  }
+
+  copyBatchPrompts(plan: AutomationScenePicturePlan): void {
+    const text = formatSceneBatchPrompt(plan, true);
+    if (!text) return;
+    this.copyWithFlash(
+      'batch',
+      text,
+      `All ${plan.scenes.length} picture prompts copied (with filenames & avoid rules)! Paste into your AI image tool.`,
+    );
+  }
+
+  private matchReasonLabel(reason: ScenePictureMatchReason): string {
+    switch (reason) {
+      case 'number': return 'by number';
+      case 'setting': return 'by setting';
+      default: return 'by order';
+    }
+  }
+
+  private async uploadSceneSlotAsset(
+    projectId: string,
+    postId: string,
+    index: number,
+    file: File,
+    meta: ScenePicMeta,
+  ): Promise<boolean> {
+    const asset = await firstValueFrom(this.studioApi.uploadAsset(projectId, file));
+    if (this.wizard()?.postId !== postId) return false;
+    this.setScenePic(index, asset.id, meta);
+    return true;
+  }
+
   /**
-   * Uploads several pictures at once, in file-name order (1.png, 2.png … 10.png), into the empty slots from the top;
-   * when every slot is filled they replace the set from scene 1.
+   * Uploads several pictures at once — via file picker or drag-and-drop — matching each file
+   * by filename convention (01.png, scene-2.jpg, river_ghat.png) or browser-safe order (1, 2 … 10).
    */
   async uploadScenePictures(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     input.value = '';
+    await this.uploadSceneFileBatch(files);
+  }
+
+  async uploadSceneFileBatch(files: File[]): Promise<void> {
     const wz = this.wizard();
-    if (!wz || files.length === 0) return;
+    const plan = this.scenePlan();
+    if (!wz || !plan || files.length === 0) return;
+
     const bad = files.map((f) => this.checkPictureFile(f)).find((m) => m);
     if (bad) {
       this.status.showError(bad);
       return;
     }
-    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
-    const slots = this.scenePics();
-    let targets = slots.map((id, i) => (id ? -1 : i)).filter((i) => i >= 0);
-    if (targets.length === 0) targets = slots.map((_, i) => i);
-    const count = Math.min(files.length, targets.length);
+    const matchPlan = planScenePictureUploads(files, plan.scenes, this.scenePics());
+    if (matchPlan.assignments.length === 0) {
+      const detail = matchPlan.skipped[0]?.reason ? ` (${matchPlan.skipped[0].reason})` : '';
+      this.status.showError(`${summarizeSceneUploadPlan([], matchPlan.skipped.length)}${detail}`);
+      return;
+    }
 
     this.sceneBusy.set(-1);
+    const completed: typeof matchPlan.assignments = [];
     try {
       const { projectId } = await firstValueFrom(this.api.backgroundTemplateProject());
-      for (let k = 0; k < count; k++) {
-        const asset = await firstValueFrom(this.studioApi.uploadAsset(projectId, files[k]));
-        if (this.wizard()?.postId !== wz.postId) return;
-        this.setScenePic(targets[k], asset.id);
+      for (const item of matchPlan.assignments) {
+        this.sceneBusy.set(item.sceneIndex);
+        const ok = await this.uploadSceneSlotAsset(projectId, wz.postId, item.sceneIndex, item.file, {
+          name: item.file.name,
+          reasonText: this.matchReasonLabel(item.reason),
+        });
+        if (!ok) return;
+        completed.push(item);
       }
       this.storageCatalog.set(null);
-      const extra = files.length - count;
-      this.status.showNotice(extra > 0
-        ? `Uploaded ${count} pictures in order. ${extra} more than the script has scenes were skipped.`
-        : `Uploaded ${count} picture${count === 1 ? '' : 's'} in order. Check each scene below.`);
+      const summary = summarizeSceneUploadPlan(completed, matchPlan.skipped.length);
+      const skipNote = matchPlan.skipped[0]?.reason ? ` First skipped: ${matchPlan.skipped[0].file.name} (${matchPlan.skipped[0].reason})` : '';
+      this.status.showNotice(`${summary}${skipNote}`);
     } catch (err: unknown) {
       this.status.showError(this.readErr(err, 'A picture could not be uploaded. The ones before it are kept.'));
     } finally {
@@ -3090,6 +3208,10 @@ export class AutomationHubComponent implements OnInit {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
+    await this.uploadSceneFile(index, file);
+  }
+
+  async uploadSceneFile(index: number, file: File | undefined): Promise<void> {
     const wz = this.wizard();
     if (!wz || !file) return;
     const bad = this.checkPictureFile(file);
@@ -3100,8 +3222,10 @@ export class AutomationHubComponent implements OnInit {
     this.sceneBusy.set(index);
     try {
       const { projectId } = await firstValueFrom(this.api.backgroundTemplateProject());
-      const asset = await firstValueFrom(this.studioApi.uploadAsset(projectId, file));
-      if (this.wizard()?.postId === wz.postId) this.setScenePic(index, asset.id);
+      await this.uploadSceneSlotAsset(projectId, wz.postId, index, file, {
+        name: file.name,
+        reasonText: 'picked for scene',
+      });
       this.storageCatalog.set(null);
     } catch (err: unknown) {
       this.status.showError(this.readErr(err, 'Could not upload that picture.'));
@@ -3119,7 +3243,7 @@ export class AutomationHubComponent implements OnInit {
     try {
       const made = await firstValueFrom(this.api.generateBackgroundPicture(wz.postId, wz.stage, scene.prompt));
       if (this.wizard()?.postId !== wz.postId) return false;
-      this.setScenePic(index, made.assetId);
+      this.setScenePic(index, made.assetId, { name: `AI (${made.provider})`, reasonText: 'generated' });
       this.storageCatalog.set(null);
       return true;
     } catch (err: unknown) {

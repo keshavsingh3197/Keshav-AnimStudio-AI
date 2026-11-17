@@ -179,6 +179,9 @@ public sealed class SceneDirectiveTemplateTests
         Assert.Equal(3, plan.Scenes.Count);
         Assert.StartsWith("same royal court, guards blocking", plan.Scenes[1].Prompt);
         Assert.Contains("Create 3 separate images", plan.BatchPrompt);
+        Assert.Contains("01_palace_court.png", plan.BatchPrompt);
+        Assert.Contains("03_forest_ashram.png", plan.BatchPrompt);
+        Assert.Contains("Avoid (negative prompt):", plan.BatchPrompt);
         Assert.Contains("2. same royal court", plan.BatchPrompt);
         Assert.Contains("3. hermitage clearing", plan.BatchPrompt);
 

@@ -80,7 +80,8 @@ public sealed partial class EcosystemAutomationService
 
     /// <summary>
     /// One prompt for the whole set, for tools that make several pictures in a row (Gemini, ChatGPT...). It asks for
-    /// the exact order and a consistent look, so the pictures can be uploaded straight back in that order.
+    /// the exact order, a consistent look, naming convention examples, and the avoid list so the pictures can be
+    /// uploaded straight back by name or in order.
     /// </summary>
     internal static string BuildBatchPicturePrompt(IReadOnlyList<AutomationScenePicture> scenes, int width, int height, string ratio)
     {
@@ -91,14 +92,37 @@ public sealed partial class EcosystemAutomationService
             "1:1" => "square",
             _ => "tall vertical"
         };
+        var pad = Math.Max(2, scenes.Count.ToString().Length);
+        var examples = string.Join(", ", scenes.Select(s => $"{s.Number.ToString().PadLeft(pad, '0')}_{SlugifySetting(s.Setting)}.png".Replace("_.png", ".png")));
+
         var sb = new StringBuilder();
-        sb.AppendLine($"Create {scenes.Count} separate images, one for each numbered prompt below, in exactly this order (1 to {scenes.Count}).");
+        sb.AppendLine($"Create {scenes.Count} separate images, one for each numbered prompt below, in exact order (1 to {scenes.Count}).");
         sb.AppendLine($"Every image: {orientation} {ratio} frame ({width}x{height}), photorealistic cinematic background plate, the same art style, colour grade and lighting quality across the whole set.");
         sb.AppendLine("Empty scenes only: no people, no faces, no hands, no text, no letters, no watermark. Animated characters are added on top later, so keep open ground in the lower middle of the frame.");
-        sb.AppendLine("Label each image with its number so the order is kept. Make one image per prompt; do not merge prompts into one picture.");
+        sb.AppendLine("Make one image per prompt; do not merge prompts into one picture.");
+        sb.AppendLine($"Save each file with its scene number (for example: {examples} — or 01.png, 02.png ... or scene-1.png) so AnimStudio matches them automatically when uploaded together.");
+        sb.AppendLine($"Avoid (negative prompt): {ScenePictureNegativePrompt}.");
         sb.AppendLine();
         foreach (var scene in scenes)
             sb.AppendLine($"{scene.Number}. {scene.Prompt}");
         return sb.ToString().TrimEnd();
+    }
+
+    private static string SlugifySetting(string? setting)
+    {
+        if (string.IsNullOrWhiteSpace(setting) || string.Equals(setting, "Auto", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+        var sb = new StringBuilder(setting.Length);
+        for (var i = 0; i < setting.Length; i++)
+        {
+            var c = setting[i];
+            if (char.IsUpper(c) && i > 0 && sb.Length > 0 && sb[^1] != '_')
+                sb.Append('_');
+            if (char.IsLetterOrDigit(c))
+                sb.Append(char.ToLowerInvariant(c));
+            else if (sb.Length > 0 && sb[^1] != '_')
+                sb.Append('_');
+        }
+        return sb.ToString().Trim('_');
     }
 }

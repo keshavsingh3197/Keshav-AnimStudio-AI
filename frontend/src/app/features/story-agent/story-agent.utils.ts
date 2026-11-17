@@ -10,6 +10,11 @@ import {
   StoryStageId,
   StoryStageStatus,
 } from '../../core/models/story-agent.models';
+import {
+  comparePictureFileNames,
+  detectBrowserDuplicateSet,
+  parseSceneNumberFromFileName,
+} from '../../shared/scene-batch-media';
 
 /** How a status reads as a colour: the same classes every pill in the studio uses. */
 export type Tone = 'ok' | 'warn' | 'err' | 'brand' | '';
@@ -309,21 +314,20 @@ export function picturePrompts(
 
 /** The scene number a picture's file name gives - "01.png", "scene-7.jpg", "Flow 03 final.png" - or null when it has none. */
 export function sceneNumberOf(fileName: string): number | null {
-  const stem = fileName.replace(/\.[^.]*$/, '');
-  const match = /\d+/.exec(stem);
-  if (!match) return null;
-  const number = Number.parseInt(match[0], 10);
-  return Number.isSafeInteger(number) ? number : null;
+  return parseSceneNumberFromFileName(fileName);
 }
 
 /**
  * Which scene each picture goes to: by the number in its file name when every file has a different one that fits the
- * story (so 03.png lands on scene 3 whatever order the files were picked in), otherwise in file-name order.
+ * story (so 03.png lands on scene 3 whatever order the files were picked in), otherwise in browser-safe natural order.
  * Returns scene positions (0-based), one per file, or -1 for a file there is no scene left for.
  */
 export function matchPictures(names: readonly string[], sceneCount: number): { byNumber: boolean; slots: number[] } {
-  const numbers = names.map(sceneNumberOf);
-  const fits = numbers.every((n) => n !== null && n >= 1 && n <= sceneCount) && new Set(numbers).size === numbers.length;
+  const browserDuplicates = detectBrowserDuplicateSet(names);
+  const numbers = names.map((name) => parseSceneNumberFromFileName(name, { browserDuplicates }));
+  const fits = numbers.length > 0
+    && numbers.every((n) => n !== null && n >= 1 && n <= sceneCount)
+    && new Set(numbers).size === numbers.length;
   if (fits) return { byNumber: true, slots: numbers.map((n) => n! - 1) };
 
   const order = names.map((name, at) => ({ name, at })).sort((a, b) => naturalCompare(a.name, b.name));
@@ -332,9 +336,9 @@ export function matchPictures(names: readonly string[], sceneCount: number): { b
   return { byNumber: false, slots };
 }
 
-/** Sorts "Flow (2).png" before "Flow (10).png", as a person would. */
+/** Sorts "Flow.png" before "Flow (2).png" before "Flow (10).png", as a person would. */
 export function naturalCompare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  return comparePictureFileNames(a, b);
 }
 
 /** Puts text on the clipboard; false when the browser would not allow it (no permission, or an insecure page). */
