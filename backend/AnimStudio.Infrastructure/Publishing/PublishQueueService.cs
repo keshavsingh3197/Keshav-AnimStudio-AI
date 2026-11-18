@@ -42,7 +42,8 @@ public sealed record PublishQueueChange(
     DateTime? ScheduledAt = null,
     PublishQueueMode? Mode = null,
     string? Notes = null,
-    bool RemoveThumbnail = false);
+    bool RemoveThumbnail = false,
+    YouTubeThumbnailChoice? Thumbnail = null);
 
 /// <summary>An item as the board shows it.</summary>
 public sealed record PublishQueueItemView(
@@ -342,6 +343,7 @@ public sealed class PublishQueueService(
         if (change.Notes is not null) item.Notes = CleanNotes(change.Notes);
         if (change.ScheduledAt is not null) item.ScheduledAt = CheckTime(change.ScheduledAt, now);
         if (change.RemoveThumbnail) await DropThumbnailAsync(item, ct).ConfigureAwait(false);
+        else if (change.Thumbnail is not null) await SetThumbnailAsync(item, change.Thumbnail, job, ct).ConfigureAwait(false);
 
         // A failed or cancelled video that is edited goes back on the board, paused until it is scheduled again.
         if (item.State is PublishQueueState.Failed or PublishQueueState.Cancelled)
@@ -839,6 +841,7 @@ public sealed class PublishQueueService(
     {
         var (source, frameAt, image, error) = YouTubeThumbnailRules.Check(choice, job.Diagnostics?.OutputDurationSeconds);
         if (error is not null) throw EditingException.Invalid(error.Code, error.Message);
+        if (source != YouTubeThumbnailSource.None) await DropThumbnailAsync(item, ct).ConfigureAwait(false);
 
         switch (source)
         {

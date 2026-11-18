@@ -25,6 +25,7 @@ export interface UiNavigationItemConfig {
 
 export interface UiNavigationSettings {
   enforceGuestRestrictions: boolean;
+  schemaVersion?: number;
   tabs: UiNavigationItemConfig[];
 }
 

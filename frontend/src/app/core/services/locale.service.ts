@@ -54,6 +54,7 @@ const STORAGE_KEY = 'studio_locale';
 const BUILTIN_EN: Record<string, string> = {
   'studio.nav.projects': 'Projects',
   'studio.nav.story-agent': 'Story Agent',
+  'studio.nav.comedy': 'Comedy',
   'studio.nav.shorts': 'Shorts',
   'studio.nav.calendar': 'Calendar',
   'studio.nav.effects': 'Effects',
@@ -87,6 +88,7 @@ const BUILTIN_EN: Record<string, string> = {
 const BUILTIN_HI: Record<string, string> = {
   'studio.nav.projects': 'प्रोजेक्ट्स',
   'studio.nav.story-agent': 'स्टोरी एजेंट',
+  'studio.nav.comedy': 'कॉमेडी',
   'studio.nav.shorts': 'शॉर्ट्स',
   'studio.nav.calendar': 'कैलेंडर',
   'studio.nav.effects': 'इफेक्ट्स',

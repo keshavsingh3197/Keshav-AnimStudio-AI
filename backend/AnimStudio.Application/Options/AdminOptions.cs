@@ -101,26 +101,65 @@ public sealed class UiNavigationItemConfig
 
 public sealed class UiNavigationSettings
 {
+    public const int CurrentSchemaVersion = 2;
+
     public bool EnforceGuestRestrictions { get; set; } = true;
+    public int SchemaVersion { get; set; }
     public List<UiNavigationItemConfig> Tabs { get; set; } = new();
+
+    public static void Reconcile(UiNavigationSettings nav)
+    {
+        ArgumentNullException.ThrowIfNull(nav);
+        var defaults = CreateDefault().Tabs;
+
+        if (nav.SchemaVersion < CurrentSchemaVersion)
+        {
+            // Publishing (/youtube/queue) and Video Details (/youtube/details) now live inside the YouTube tab bar.
+            nav.Tabs.RemoveAll(t => string.Equals(t.Id, "queue", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(t.Id, "details", StringComparison.OrdinalIgnoreCase));
+        }
+
+        var existing = nav.Tabs.Select(t => t.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < defaults.Count; i++)
+        {
+            var def = defaults[i];
+            if (!existing.Add(def.Id)) continue;
+
+            // Keep newly introduced tabs like "comedy" next to their natural neighbor.
+            if (i > 0)
+            {
+                var prevId = defaults[i - 1].Id;
+                var prevIdx = nav.Tabs.FindIndex(t => string.Equals(t.Id, prevId, StringComparison.OrdinalIgnoreCase));
+                if (prevIdx >= 0)
+                {
+                    nav.Tabs.Insert(prevIdx + 1, def);
+                    continue;
+                }
+            }
+            nav.Tabs.Add(def);
+        }
+
+        nav.SchemaVersion = CurrentSchemaVersion;
+    }
 
     public static UiNavigationSettings CreateDefault() => new()
     {
         EnforceGuestRestrictions = true,
+        SchemaVersion = CurrentSchemaVersion,
         Tabs = new List<UiNavigationItemConfig>
         {
             new() { Id = "projects", Label = "Projects", Path = "/projects", Icon = "folder", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Personal video projects and timeline workspace" },
             new() { Id = "story-agent", Label = "Story Agent", Path = "/story-agent", Icon = "book", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Give a title; get a researched, narrated video and its YouTube details" },
+            new() { Id = "comedy", Label = "Comedy", Path = "/comedy", Icon = "comedy", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Comedy story converter, funny Khadi-Bhasha / Tu-Tadak creator and short video scripts with memes" },
             new() { Id = "shorts", Label = "Shorts", Path = "/shorts", Icon = "video", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Vertical video clips and batch shorts generator" },
             new() { Id = "calendar", Label = "Calendar", Path = "/calendar", Icon = "calendar", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = false, Description = "Social media scheduling and release planning" },
             new() { Id = "effects", Label = "Effects", Path = "/effects", Icon = "sparkles", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Stingers, overlays, sound effects and visual elements" },
             new() { Id = "clips", Label = "Video Editor", Path = "/projects", Icon = "film", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Scene sequence and clip editor" },
             new() { Id = "tools", Label = "Media Studio", Path = "/tools", Icon = "sliders", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Audio/video chunking, extraction, and format conversions" },
             new() { Id = "release", Label = "Music Release", Path = "/release", Icon = "music", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "Music master distribution and visualizer publishing" },
-            new() { Id = "youtube", Label = "YouTube", Path = "/youtube", Icon = "youtube", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "Direct YouTube channel integration and video analytics" },
-            new() { Id = "queue", Label = "Publishing", Path = "/youtube/queue", Icon = "calendar-clock", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "Publishing board: videos queued for YouTube and when they go out" },
+            new() { Id = "songs", Label = "Songs", Path = "/songs", Icon = "music", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = false, Description = "Lyrics and original AI song studio" },
+            new() { Id = "youtube", Label = "YouTube", Path = "/youtube", Icon = "youtube", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "Direct YouTube channel integration, publishing board, analytics and SEO tools" },
             new() { Id = "automation", Label = "Auto Post", Path = "/automation", Icon = "sparkles", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = false, Description = "Daily Panchang, History & Ecosystem Auto-Post pipeline and website funnel studio" },
-            new() { Id = "details", Label = "Video Details", Path = "/youtube/details", Icon = "search", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "SEO audit and video metadata generator" },
             new() { Id = "live", Label = "Go Live", Path = "/live", Icon = "radio", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "YouTube live stream broadcaster" },
             new() { Id = "camera", Label = "Camera Studio", Path = "/live/camera", Icon = "camera", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Local camera feed capture and background removal" },
             new() { Id = "motion-copy", Label = "Motion Copy", Path = "/motion-copy", Icon = "user", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Pose estimation and motion transfer to avatars" },

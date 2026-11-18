@@ -78,26 +78,39 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           <span>{{ mobileNavOpen() ? 'Close' : 'Menu' }}</span>
         </button>
 
-        <nav
-          id="studio-navigation"
-          class="topbar-nav"
-          [class.mobile-open]="mobileNavOpen()"
-          [class.nav-dense]="uiNav.visibleNavItems().length > 9"
-          (click)="closeMobileNav()"
-          aria-label="Main Studio Navigation">
-          @for (tab of uiNav.visibleNavItems(); track tab.id) {
-            @if (tab.id === 'clips') {
-              <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
-                <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-                <span class="topbar-label">{{ locale.tabLabel(tab.id, tab.label) }}</span>
-              </button>
-            } @else if (tab.id !== 'admin') {
-              <a [routerLink]="tab.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: tab.path === '/live' }" class="topbar-navlink" [title]="tab.description || tab.label">
-                @switch (tab.id) {
-                  @case ('projects') {
-                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                  }
-                  @case ('shorts') {
+        <div class="topbar-nav-wrap">
+          @if (canScrollNavLeft()) {
+            <button type="button" class="topbar-scroll-btn" (click)="scrollNavBy(-260)"
+                    aria-label="Scroll studio tabs left" title="Scroll tabs left">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.4" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          }
+
+          <nav
+            #studioNav
+            id="studio-navigation"
+            class="topbar-nav"
+            [class.mobile-open]="mobileNavOpen()"
+            [class.has-overflow]="navOverflowing()"
+            (scroll)="updateNavOverflow()"
+            (click)="closeMobileNav()"
+            aria-label="Main Studio Navigation">
+            @for (tab of uiNav.visibleNavItems(); track tab.id) {
+              @if (tab.id === 'clips') {
+                <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
+                  <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                  <span class="topbar-label">{{ locale.tabLabel(tab.id, tab.label) }}</span>
+                </button>
+              } @else if (tab.id !== 'admin') {
+                <a [routerLink]="tab.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: tab.path === '/live' }" class="topbar-navlink" [title]="tab.description || tab.label">
+                  @switch (tab.id) {
+                    @case ('projects') {
+                      <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    }
+                    @case ('comedy') {
+                      <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2.5 4 2.5 4-2.5 4-2.5"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                    }
+                    @case ('shorts') {
                     <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
                   }
                   @case ('story-agent') {
@@ -160,9 +173,65 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
                   <span class="topbar-badge">{{ status.logEntries().length }}</span>
                 }
               </a>
+              }
             }
+          </nav>
+
+          @if (canScrollNavRight()) {
+            <button type="button" class="topbar-scroll-btn" (click)="scrollNavBy(260)"
+                    aria-label="Scroll studio tabs right" title="Scroll tabs right">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.4" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
           }
-        </nav>
+
+          <div class="topbar-more-wrap">
+            <button type="button" class="topbar-navlink topbar-navbtn topbar-more-btn"
+                    [class.active]="allTabsMenuOpen()"
+                    (click)="toggleAllTabsMenu($event)"
+                    [attr.aria-expanded]="allTabsMenuOpen()"
+                    title="Browse all studio pages, Comedy, Shorts and YouTube tools">
+              <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              <span class="topbar-label">All Tabs</span>
+            </button>
+
+            @if (allTabsMenuOpen()) {
+              <div class="nav-popover-backdrop" (click)="allTabsMenuOpen.set(false)"></div>
+              <div class="nav-all-popover" role="menu" aria-label="All Studio Pages" (click)="$event.stopPropagation()">
+                <div class="nav-pop-head">
+                  <strong>Studio Workspace Switcher</strong>
+                  <button type="button" class="nav-pop-close" (click)="allTabsMenuOpen.set(false)" aria-label="Close">×</button>
+                </div>
+                <div class="nav-pop-grid">
+                  @for (tab of uiNav.visibleNavItems(); track tab.id) {
+                    @if (tab.id === 'clips') {
+                      <button type="button" class="nav-pop-item" (click)="allTabsMenuOpen.set(false); openVideoModal()">
+                        <strong>{{ locale.tabLabel(tab.id, tab.label) }}</strong>
+                        @if (tab.description) { <small>{{ tab.description }}</small> }
+                      </button>
+                    } @else if (tab.id !== 'admin') {
+                      <a [routerLink]="tab.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: tab.path === '/live' }"
+                         class="nav-pop-item" (click)="allTabsMenuOpen.set(false)">
+                        <strong>{{ locale.tabLabel(tab.id, tab.label) }}</strong>
+                        @if (tab.description) { <small>{{ tab.description }}</small> }
+                      </a>
+                    }
+                  }
+                </div>
+                <div class="nav-pop-sub">
+                  <span class="nav-pop-sub-lbl">Quick Tools:</span>
+                  <a routerLink="/comedy" class="nav-pop-chip" (click)="allTabsMenuOpen.set(false)">😂 Comedy Converter</a>
+                  <a routerLink="/memes" class="nav-pop-chip" (click)="allTabsMenuOpen.set(false)">🎭 Memes &amp; Reactions</a>
+                  <a routerLink="/story-template" class="nav-pop-chip" (click)="allTabsMenuOpen.set(false)">🧩 Story Template</a>
+                  @if (uiNav.canAccess('/youtube')) {
+                    <a routerLink="/youtube/queue" class="nav-pop-chip" (click)="allTabsMenuOpen.set(false)">📅 YT Publishing Board</a>
+                    <a routerLink="/youtube/analysis" class="nav-pop-chip" (click)="allTabsMenuOpen.set(false)">📊 YT Analysis</a>
+                  }
+                  <a routerLink="/youtube/details" class="nav-pop-chip" (click)="allTabsMenuOpen.set(false)">🔍 YT Video Details</a>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
 
         <div class="topbar-end">
           @if (locale.showPicker()) {
@@ -520,21 +589,188 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       max-width: min(98vw, 2400px);
     }
 
+    .topbar-nav-wrap {
+      display: flex;
+      align-items: center;
+      flex: 1 1 auto;
+      min-width: 0;
+      gap: 2px;
+      position: relative;
+    }
+
+    .topbar-scroll-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 30px;
+      padding: 0;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background .15s ease, border-color .15s ease;
+    }
+
+    .topbar-scroll-btn:hover {
+      background: var(--surface-3);
+      border-color: var(--brand);
+    }
+
+    .topbar-more-wrap {
+      position: relative;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .topbar-more-btn {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      padding: .34rem .55rem;
+      font-size: .78rem;
+    }
+
+    .nav-popover-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1090;
+    }
+
+    .nav-all-popover {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      width: min(680px, 90vw);
+      max-height: min(74vh, 560px);
+      overflow: auto;
+      z-index: 1100;
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .nav-pop-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: .88rem;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .nav-pop-close {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 1.2rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 2px 6px;
+    }
+
+    .nav-pop-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+      gap: 7px;
+    }
+
+    .nav-pop-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      text-decoration: none;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+
+    .nav-pop-item:hover,
+    .nav-pop-item.active {
+      border-color: var(--brand);
+      background: var(--brand-subtle);
+    }
+
+    .nav-pop-item strong {
+      font-size: .82rem;
+    }
+
+    .nav-pop-item small {
+      font-size: .71rem;
+      color: var(--muted);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .nav-pop-sub {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .nav-pop-sub-lbl {
+      font-size: .72rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .nav-pop-chip {
+      font-size: .75rem;
+      font-weight: 600;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--sunk-1);
+      color: var(--brand-bright);
+      text-decoration: none;
+    }
+
+    .nav-pop-chip:hover {
+      border-color: var(--brand);
+    }
+
     /*
       "safe center": plain center pushes overflowing tabs past the LEFT edge, where no
-      scrolling can reach them - Projects, Shorts, Calendar and Effects simply vanished.
-      Safe centring falls back to start-aligned once the tabs no longer fit.
+      scrolling can reach them. Safe centring falls back to start-aligned once the tabs overflow,
+      paired with scroll buttons + All Tabs switcher so no tab is ever hidden or unreachable.
     */
     .topbar-nav {
       display: flex;
       align-items: center;
-      gap: .22rem;
+      gap: .16rem;
       flex: 1 1 auto;
       min-width: 0;
       justify-content: safe center;
       overflow-x: auto;
+      scroll-behavior: smooth;
       scrollbar-width: none;
       padding: 2px 4px;
+    }
+
+    .topbar-nav.has-overflow {
+      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+      mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
     }
 
     .topbar-nav::-webkit-scrollbar {
@@ -557,13 +793,13 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     .topbar-navlink {
       display: inline-flex;
       align-items: center;
-      gap: .4rem;
-      padding: .38rem .72rem;
+      gap: .32rem;
+      padding: .34rem .56rem;
       border-radius: 8px;
       border: 1px solid transparent;
       text-decoration: none;
       color: var(--muted);
-      font-size: .83rem;
+      font-size: .8rem;
       font-weight: 600;
       white-space: nowrap;
       transition: color .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
@@ -915,32 +1151,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       list (guests see ~9 tabs) keeps its labels up to a smaller width than a long one.
     */
     @media (min-width: 901px) and (max-width: 1599px) {
-      .topbar-nav .topbar-navlink:not(.active) .topbar-label {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-      }
-
-      .topbar-nav .topbar-navlink:not(.active) {
-        padding: .42rem .5rem;
-      }
-    }
-
-    @media (min-width: 1600px) and (max-width: 2299px) {
-      .topbar-nav.nav-dense .topbar-navlink:not(.active) .topbar-label {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-      }
-
-      .topbar-nav.nav-dense .topbar-navlink:not(.active) {
-        padding: .42rem .5rem;
+      .topbar-navlink {
+        padding: .3rem .46rem;
+        font-size: .77rem;
+        gap: .28rem;
       }
     }
 
@@ -957,6 +1171,20 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     }
 
     @media (max-width: 900px) {
+      .topbar-nav-wrap {
+        display: contents;
+      }
+
+      .topbar-scroll-btn,
+      .topbar-more-wrap {
+        display: none;
+      }
+
+      .topbar-nav.has-overflow {
+        -webkit-mask-image: none;
+        mask-image: none;
+      }
+
       .topbar-inner {
         flex-wrap: wrap;
         gap: .45rem .65rem;
@@ -1117,6 +1345,11 @@ export class AppShellComponent {
 
   readonly showVideoModal = signal(false);
   readonly mobileNavOpen = signal(false);
+  readonly allTabsMenuOpen = signal(false);
+  readonly canScrollNavLeft = signal(false);
+  readonly canScrollNavRight = signal(false);
+  readonly navOverflowing = computed(() => this.canScrollNavLeft() || this.canScrollNavRight());
+  private readonly studioNav = viewChild<ElementRef<HTMLElement>>('studioNav');
   // Recreate the active route tree only when its data owner changes, not on token renewal.
   private readonly pageScope = computed(() => {
     const user = this.auth.user();
@@ -1177,7 +1410,66 @@ export class AppShellComponent {
     this.mobileNavOpen.set(false);
   }
 
+  toggleAllTabsMenu(ev?: Event): void {
+    ev?.stopPropagation();
+    this.allTabsMenuOpen.update((open) => !open);
+  }
+
+  scrollNavBy(delta: number): void {
+    const el = this.studioNav()?.nativeElement;
+    if (!el) return;
+    el.scrollBy({ left: delta, behavior: 'smooth' });
+  }
+
+  updateNavOverflow(): void {
+    const el = this.studioNav()?.nativeElement;
+    if (!el) return;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    if (maxScroll <= 4) {
+      this.canScrollNavLeft.set(false);
+      this.canScrollNavRight.set(false);
+      return;
+    }
+    this.canScrollNavLeft.set(el.scrollLeft > 4);
+    this.canScrollNavRight.set(el.scrollLeft < maxScroll - 4);
+  }
+
+  private scrollActiveNavIntoView(): void {
+    const el = this.studioNav()?.nativeElement;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      const active = el.querySelector('.topbar-navlink.active') as HTMLElement | null;
+      active?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      this.updateNavOverflow();
+    });
+  }
+
   constructor() {
+    effect((onCleanup) => {
+      const el = this.studioNav()?.nativeElement;
+      this.uiNav.visibleNavItems();
+      if (!el) return;
+
+      const refresh = () => this.updateNavOverflow();
+      const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(refresh) : null;
+      ro?.observe(el);
+      window.addEventListener('resize', refresh);
+      const timer = setTimeout(() => this.scrollActiveNavIntoView(), 60);
+
+      onCleanup(() => {
+        clearTimeout(timer);
+        ro?.disconnect();
+        window.removeEventListener('resize', refresh);
+      });
+    });
+
+    effect((onCleanup) => {
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && this.allTabsMenuOpen()) this.allTabsMenuOpen.set(false);
+      };
+      document.addEventListener('keydown', onKeyDown);
+      onCleanup(() => document.removeEventListener('keydown', onKeyDown));
+    });
     effect((onCleanup) => {
       this.pageScope();
       untracked(() => {
@@ -1236,6 +1528,8 @@ export class AppShellComponent {
     this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
       if (event instanceof NavigationStart) popstate = event.navigationTrigger === 'popstate';
       if (!(event instanceof NavigationEnd)) return;
+      this.allTabsMenuOpen.set(false);
+      this.scrollActiveNavIntoView();
       const next = event.urlAfterRedirects.split(/[?#]/)[0];
       if (next !== path && !popstate) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       path = next;

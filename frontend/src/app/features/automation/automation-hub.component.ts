@@ -232,6 +232,38 @@ const FULL_VIDEO_MAX_SECONDS = 600;
       }
 
       @if (overview(); as ov) {
+        <!-- Live Fact & Date Verification Banner -->
+        @if (ov.signals.verification; as ver) {
+          <section class="verify-ribbon" [class.has-mismatch]="ver.overallStatus === 'Mismatch'" [class.has-warn]="ver.overallStatus === 'NeedsReview'" aria-label="Live date and fact verification">
+            <div class="verify-ribbon-head">
+              <strong>
+                {{ ver.overallStatus === 'Mismatch' ? '🚫 Fact &amp; Date Verification Alert' : ver.overallStatus === 'NeedsReview' ? '⚠ Fact Verification Notes' : '✓ Live Date &amp; Fact Verification Passed' }}
+              </strong>
+              <span class="pill" [class.ok]="ver.overallStatus === 'Verified'" [class.err]="ver.overallStatus === 'Mismatch'" [class.warn]="ver.overallStatus !== 'Verified' && ver.overallStatus !== 'Mismatch'">
+                {{ ver.summary }}
+              </span>
+            </div>
+            <div class="verify-checks-grid">
+              @for (chk of ver.checks; track chk.category) {
+                <div class="verify-check-pill" [class.err]="chk.status === 'Mismatch'" [class.warn]="chk.status === 'NeedsReview' || chk.status === 'Unverified'">
+                  <div class="vcp-top">
+                    <span class="vcp-cat">{{ chk.status === 'Verified' ? '✓' : chk.status === 'Mismatch' ? '🚫' : '⚠' }} {{ chk.category }}</span>
+                    <div class="vcp-links">
+                      @if (chk.sourceUrl) {
+                        <a class="verify-ext-link" [href]="chk.sourceUrl" target="_blank" rel="noopener">{{ chk.sourceName || 'Source' }} ↗</a>
+                      }
+                      @if (chk.verifySearchUrl) {
+                        <a class="verify-ext-link" [href]="chk.verifySearchUrl" target="_blank" rel="noopener">Google Check ↗</a>
+                      }
+                    </div>
+                  </div>
+                  <small class="vcp-msg">{{ chk.message }}</small>
+                </div>
+              }
+            </div>
+          </section>
+        }
+
         <!-- Live Signals Ribbon -->
         <section class="signals-ribbon" aria-label="Live ecosystem signals">
           <div class="sig-card">
@@ -434,6 +466,63 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                   </div>
 
+                  @if (post.verificationStatus === 'Mismatch') {
+                    <div class="err-note verify-alert-card" (click)="$event.stopPropagation()">
+                      <div><strong>Date / Fact Mismatch:</strong> {{ post.verificationSummary }}</div>
+                      <div class="verify-card-actions">
+                        @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                          <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="reverifyAndFixPost(post)">
+                            {{ busyAction() === 'fix:' + post.id ? 'Fixing…' : '🔄 Fix Verified Data' }}
+                          </button>
+                        }
+                        <a class="verify-ext-link"
+                           [href]="post.verificationSourceUrl || googleVerifyUrl(post.sourceTitle + ' ' + post.dateKey)"
+                           target="_blank" rel="noopener">
+                          Verify Source ↗
+                        </a>
+                      </div>
+                    </div>
+                  }
+
+                  @if (post.format !== 'CommunityPost' && post.status !== 'Published') {
+                    <div class="card-readiness-row">
+                      @if (post.verificationStatus === 'Mismatch') {
+                        <span class="mini-chip err" [title]="post.verificationSummary || 'Date/fact mismatch'">
+                          🚫 Fact/Date Mismatch
+                        </span>
+                      } @else if (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified') {
+                        <span class="mini-chip warn" [title]="post.verificationSummary || 'Needs review'">
+                          ⚠ Fact Check
+                        </span>
+                      } @else {
+                        <span class="mini-chip ok" [title]="post.verificationSummary || 'Facts & date verified'">
+                          ✓ Verified
+                        </span>
+                      }
+                      @if (post.scheduledAtUtc) {
+                        <span class="mini-chip info" [title]="'UTC: ' + post.scheduledAtUtc">
+                          🕒 {{ formatLocalSchedule(post.scheduledAtUtc) }}
+                        </span>
+                      }
+                      @if (hasPostThumbnail(post)) {
+                        <span class="mini-chip ok" [title]="post.thumbnailSource || 'Thumbnail configured'">
+                          🖼 Thumb ✓
+                        </span>
+                      } @else {
+                        <span class="mini-chip warn" title="No YouTube thumbnail set yet — open Details to upload or AI generate">
+                          ⚠ No thumb
+                        </span>
+                      }
+                      @if (postReadiness(post).missingCount > 0) {
+                        <span class="mini-chip warn" [title]="postReadiness(post).summary">
+                          ⚠ {{ postReadiness(post).missingCount }} detail{{ postReadiness(post).missingCount > 1 ? 's' : '' }} needed
+                        </span>
+                      } @else {
+                        <span class="mini-chip ok">✓ Ready</span>
+                      }
+                    </div>
+                  }
+
                   @if (post.lastError) {
                     <div class="err-note clamp-2" [title]="post.lastError">{{ post.lastError }}</div>
                   }
@@ -458,8 +547,8 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                     @if (post.status !== 'Published' && post.status !== 'Publishing' && post.format !== 'CommunityPost') {
                       <button type="button" class="btn tiny ok"
-                              [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
-                              [title]="!post.targetChannelId ? 'Assign a YouTube channel in Details first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Generate or attach a video first' : 'Publish to YouTube now')"
+                              [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                              [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix Verified Data first' : (!post.targetChannelId ? 'Assign a YouTube channel in Details first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Generate or attach a video first' : 'Publish to YouTube now'))"
                               (click)="publishNow(post)">
                         Publish
                       </button>
@@ -657,6 +746,21 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       <span class="chan-missing">No YouTube channel assigned yet</span>
                     }
                   </div>
+                  @if (post.format !== 'CommunityPost') {
+                    <div class="meta-pills-row">
+                      <span class="pill subtle">📂 {{ categoryName(post.categoryId) }}</span>
+                      <span class="pill subtle">👁 {{ post.privacy }}</span>
+                      <span class="pill subtle">👶 Kids: {{ post.madeForKids ? 'Yes' : 'No' }}</span>
+                      <span class="pill subtle">🏷 {{ post.tags.length }} tags</span>
+                      @if (post.scheduledAtUtc) {
+                        <span class="pill tone-info" [title]="'UTC: ' + post.scheduledAtUtc">
+                          🕒 Scheduled: {{ formatLocalSchedule(post.scheduledAtUtc) }}
+                        </span>
+                      } @else {
+                        <span class="pill tone-warn">🕒 Not scheduled yet</span>
+                      }
+                    </div>
+                  }
 
                   @if (post.status !== 'Published' && post.status !== 'Publishing') {
                     <div class="format-strip">
@@ -873,6 +977,179 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     <div class="err-note">{{ post.lastError }}</div>
                   }
 
+                  @if (post.format !== 'CommunityPost') {
+                    <!-- Pre-Schedule Completeness Checklist + Thumbnail Studio -->
+                    <div class="readiness-panel">
+                      <div class="readiness-head">
+                        <div class="readiness-title-wrap">
+                          <strong>Pre-Upload Details &amp; Thumbnail Check</strong>
+                          <span class="pill" [ngClass]="postReadiness(post).missingCount === 0 ? 'tone-ok' : 'tone-warn'">
+                            {{ postReadiness(post).readyCount }} / {{ postReadiness(post).totalCount }} Complete
+                          </span>
+                        </div>
+                        @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                          <div class="readiness-head-actions">
+                            <button type="button" class="btn tiny primary" [disabled]="busy()"
+                                    title="Automatically populate missing tags, description, category, schedule time and default video frame thumbnail"
+                                    (click)="autoFillPostDetails(post)">
+                              {{ busyAction() === 'autofill:' + post.id ? 'Filling…' : '✨ Auto-Fill Missing' }}
+                            </button>
+                            <button type="button" class="btn tiny ghost" (click)="openPostEditor(post)">
+                              ✎ Edit Metadata &amp; Schedule
+                            </button>
+                          </div>
+                        }
+                      </div>
+
+                      <div class="readiness-chips">
+                        @for (chk of postReadiness(post).items; track chk.label) {
+                          <span class="check-pill" [class.ok]="chk.ok" [class.warn]="!chk.ok" [title]="chk.hint || chk.label">
+                            {{ chk.ok ? '✓' : '⚠' }} {{ chk.label }}
+                          </span>
+                        }
+                      </div>
+
+                      <div class="verify-detail-box"
+                           [class.is-mismatch]="post.verificationStatus === 'Mismatch'"
+                           [class.is-warn]="post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified'">
+                        <div class="verify-detail-head">
+                          <div class="verify-detail-title">
+                            <strong>Fact &amp; Date Verification</strong>
+                            <span class="pill"
+                                  [ngClass]="post.verificationStatus === 'Mismatch' ? 'tone-err' : (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified' ? 'tone-warn' : 'tone-ok')">
+                              {{ post.verificationStatus === 'Mismatch' ? '🚫 Date/Fact Mismatch' : (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified' ? '⚠ Review Recommended' : '✓ Verified Accurate') }}
+                            </span>
+                          </div>
+                          @if (post.status !== 'Publishing') {
+                            <div class="readiness-head-actions">
+                              <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="verifyPostFacts(post)">
+                                {{ busyAction() === 'verify:' + post.id ? 'Checking…' : '↻ Verify Now' }}
+                              </button>
+                              @if (post.status !== 'Published') {
+                                <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="reverifyAndFixPost(post)"
+                                        title="Re-compose script, title and description strictly from live verified facts for this date">
+                                  {{ busyAction() === 'fix:' + post.id ? 'Fixing…' : '🔄 Fix with Verified Data' }}
+                                </button>
+                              }
+                            </div>
+                          }
+                        </div>
+                        <p class="verify-detail-msg">{{ post.verificationSummary || 'Click Verify Now to cross-check live sources.' }}</p>
+                        @if (post.verificationIssues?.length) {
+                          <ul class="verify-issues-list">
+                            @for (issue of post.verificationIssues; track issue) {
+                              <li>{{ issue }}</li>
+                            }
+                          </ul>
+                        }
+                        <div class="verify-links-bar">
+                          @if (post.verificationSourceUrl) {
+                            <a class="verify-ext-link" [href]="post.verificationSourceUrl" target="_blank" rel="noopener">
+                              📚 Source: {{ post.verificationSourceName || 'Verified Reference' }} ↗
+                            </a>
+                          }
+                          <a class="verify-ext-link" [href]="googleVerifyUrl((post.sourceTitle || post.title) + ' ' + post.dateKey)" target="_blank" rel="noopener">
+                            🔍 Google Double-Check ↗
+                          </a>
+                        </div>
+                      </div>
+
+                      <div class="thumb-studio-box">
+                        <div class="thumb-preview-slot">
+                          @if (hasPostThumbnail(post)) {
+                            <img class="thumb-preview-img" [src]="postThumbnailUrl(post)" [alt]="post.title" />
+                          } @else {
+                            <div class="thumb-empty-slot">
+                              <span>🖼</span>
+                              <small>No thumbnail yet</small>
+                            </div>
+                          }
+                        </div>
+
+                        <div class="thumb-controls-col">
+                          <div class="thumb-status-line">
+                            <strong>YouTube Thumbnail:</strong>
+                            @if (hasPostThumbnail(post)) {
+                              <span class="pill tone-ok">{{ post.thumbnailSource || 'Custom Thumbnail Ready' }}</span>
+                            } @else {
+                              <span class="pill tone-warn">Missing — upload PNG/JPG, pick frame or AI-generate</span>
+                            }
+                          </div>
+
+                          @if (post.status !== 'Published' && post.status !== 'Publishing') {
+                            <div class="thumb-actions-row">
+                              <label class="btn tiny primary" [class.disabled]="busy() || thumbnailBusyId() === post.id">
+                                📤 Upload Image
+                                <input type="file" accept="image/png,image/jpeg" hidden
+                                       [disabled]="busy() || thumbnailBusyId() === post.id"
+                                       (change)="onPostThumbnailFile(post, $event)" />
+                              </label>
+                              <button type="button" class="btn tiny" [disabled]="busy() || thumbnailBusyId() === post.id"
+                                      (click)="generateAiPostThumbnail(post)">
+                                {{ thumbnailBusyId() === 'ai:' + post.id ? 'Generating…' : '✨ AI Generate' }}
+                              </button>
+                              <button type="button" class="btn tiny ghost" [disabled]="busy() || thumbnailBusyId() === post.id"
+                                      (click)="openStoragePicker({ kind: 'thumbnail', post })">
+                                🖼 Storage Image
+                              </button>
+                              @if (post.attachedRenderJobId || post.attachedHandoffId) {
+                                <div class="frame-pick-inline">
+                                  <input type="number" min="0" step="0.5" [ngModel]="post.thumbnailFrameAtSeconds ?? thumbFrameSeconds()"
+                                         (ngModelChange)="thumbFrameSeconds.set($event)" aria-label="Thumbnail frame seconds" />
+                                  <button type="button" class="btn tiny ghost" [disabled]="busy() || thumbnailBusyId() === post.id"
+                                          (click)="setFrameThumbnail(post)">
+                                    🎞 Use Frame (s)
+                                  </button>
+                                </div>
+                              }
+                              @if (hasPostThumbnail(post)) {
+                                <button type="button" class="btn tiny danger-ghost" [disabled]="busy() || thumbnailBusyId() === post.id"
+                                        (click)="clearPostThumbnail(post)">
+                                  × Clear
+                                </button>
+                              }
+                            </div>
+                          }
+
+                          @if (post.aiThumbnailPrompt) {
+                            <div class="thumb-prompt-line">
+                              <small class="clamp-2"><strong>Prompt:</strong> {{ post.aiThumbnailPrompt }}</small>
+                              <button type="button" class="copy-btn" (click)="copyText(post.aiThumbnailPrompt, 'Thumbnail prompt copied!')">Copy</button>
+                            </div>
+                          }
+                        </div>
+                      </div>
+
+                      <div class="meta-preview-grid">
+                        <div class="snip-block">
+                          <div class="snip-label">
+                            <span>YouTube Description ({{ (post.description || '').length }} chars)</span>
+                            <button type="button" class="copy-btn" (click)="copyText(post.description || '', 'Description copied!')">Copy</button>
+                          </div>
+                          <p>{{ post.description || 'Missing description — click Auto-Fill Missing or Edit Metadata.' }}</p>
+                        </div>
+                        <div class="snip-block">
+                          <div class="snip-label">
+                            <span>Tags ({{ post.tags.length }} • {{ youtubeTagsLength(post.tags) }}/500 chars)</span>
+                            <button type="button" class="copy-btn" (click)="copyText(post.tags.join(', '), 'Tags copied!')">Copy</button>
+                          </div>
+                          @if (post.tags.length > 0) {
+                            <div class="tags-chip-list">
+                              @for (tg of post.tags; track tg) {
+                                <span class="tag-chip">{{ tg }}</span>
+                              }
+                            </div>
+                          } @else {
+                            <p class="muted-note">No tags yet — click Auto-Fill Missing or Edit Metadata to add tags.</p>
+                          }
+                          @if (post.pinnedComment) {
+                            <div class="pinned-note"><small><strong>Pinned Comment:</strong> {{ post.pinnedComment }}</small></div>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  }
+
                   @if (post.publishedVideoUrl) {
                     <div class="published-bar">
                       Published{{ post.publishedChannelTitle ? ' on ' + post.publishedChannelTitle : '' }}:
@@ -919,14 +1196,15 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     @if (post.status !== 'Published' && post.status !== 'Publishing') {
                       @if (post.format !== 'CommunityPost') {
                         <button type="button" class="btn ok"
-                                [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
-                                [title]="!post.targetChannelId ? 'Assign a YouTube channel in Edit or Rule first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Attach or generate a video first' : 'Publish to YouTube now')"
+                                [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix with Verified Data first' : (!post.targetChannelId ? 'Assign a YouTube channel in Edit or Rule first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Attach or generate a video first' : 'Publish to YouTube now'))"
                                 (click)="publishNow(post)">
                           Publish to YouTube
                         </button>
                         @if (post.scheduledAtUtc) {
                           <button type="button" class="btn ghost"
-                                  [disabled]="busy() || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                  [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                                  [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix with Verified Data first' : 'Approve & Schedule'"
                                   (click)="scheduleForRuleTime(post)">
                             Approve Schedule
                           </button>
@@ -1423,7 +1701,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             <div class="modal-body">
               <div class="form-2col">
                 <label class="field">
-                  <span>YouTube Title (max 100 chars)</span>
+                  <span>YouTube Title ({{ (draft.title || '').length }}/100 chars)</span>
                   <input type="text" maxlength="100" [(ngModel)]="draft.title" />
                 </label>
                 <label class="field">
@@ -1436,6 +1714,21 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                   </select>
                 </label>
                 <label class="field">
+                  <span>Scheduled Upload Time (Local)</span>
+                  <div class="sched-input-row">
+                    <input type="datetime-local" [(ngModel)]="editingScheduledLocal" />
+                    <button type="button" class="btn tiny ghost" title="Clear schedule time" (click)="editingScheduledLocal = ''">Clear</button>
+                  </div>
+                </label>
+                <label class="field">
+                  <span>YouTube Category</span>
+                  <select [(ngModel)]="draft.categoryId">
+                    @for (cat of youtubeCategories; track cat.id) {
+                      <option [value]="cat.id">{{ cat.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
                   <span>Visibility</span>
                   <select [(ngModel)]="draft.privacy">
                     <option value="public">Public</option>
@@ -1444,8 +1737,15 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                   </select>
                 </label>
                 <label class="field">
-                  <span>Tags (comma separated)</span>
-                  <input type="text" [(ngModel)]="editingTagsCsv" />
+                  <span>Audience / Kids Setting (COPPA)</span>
+                  <label class="toggle-inline check-inline-box">
+                    <input type="checkbox" [(ngModel)]="draft.madeForKids" />
+                    <span>Yes, Made for Kids (unchecked = General audience)</span>
+                  </label>
+                </label>
+                <label class="field">
+                  <span>Tags (comma separated — {{ editingTagsLength() }}/500 chars • {{ editingTagsCount() }} tags)</span>
+                  <input type="text" [(ngModel)]="editingTagsCsv" placeholder="tag1, tag2, Shorts, Panchang" />
                 </label>
                 <label class="field">
                   <span>Post Format</span>
@@ -1518,6 +1818,61 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 <textarea rows="2" [(ngModel)]="draft.aiThumbnailPrompt"></textarea>
               </label>
 
+              @if (draft.format !== 'CommunityPost') {
+                <div class="thumb-studio-box">
+                  <div class="thumb-preview-slot">
+                    @if (hasPostThumbnail(draft)) {
+                      <img class="thumb-preview-img" [src]="postThumbnailUrl(draft)" [alt]="draft.title" />
+                    } @else {
+                      <div class="thumb-empty-slot">
+                        <span>🖼</span>
+                        <small>No thumbnail yet</small>
+                      </div>
+                    }
+                  </div>
+                  <div class="thumb-controls-col">
+                    <div class="thumb-status-line">
+                      <strong>Thumbnail for Scheduled / YouTube Upload:</strong>
+                      <span class="pill" [ngClass]="hasPostThumbnail(draft) ? 'tone-ok' : 'tone-warn'">
+                        {{ draft.thumbnailSource || (hasPostThumbnail(draft) ? 'Configured' : 'Not set') }}
+                      </span>
+                    </div>
+                    <div class="thumb-actions-row">
+                      <label class="btn tiny primary" [class.disabled]="busy() || thumbnailBusyId() === draft.id">
+                        📤 Upload Image
+                        <input type="file" accept="image/png,image/jpeg" hidden
+                               [disabled]="busy() || thumbnailBusyId() === draft.id"
+                               (change)="onPostThumbnailFile(draft, $event)" />
+                      </label>
+                      <button type="button" class="btn tiny" [disabled]="busy() || thumbnailBusyId() === draft.id"
+                              (click)="generateAiPostThumbnail(draft, draft.aiThumbnailPrompt)">
+                        {{ thumbnailBusyId() === 'ai:' + draft.id ? 'Generating…' : '✨ AI Generate' }}
+                      </button>
+                      <button type="button" class="btn tiny ghost" [disabled]="busy() || thumbnailBusyId() === draft.id"
+                              (click)="openStoragePicker({ kind: 'thumbnail', post: draft })">
+                        🖼 Storage Image
+                      </button>
+                      @if (draft.attachedRenderJobId || draft.attachedHandoffId) {
+                        <div class="frame-pick-inline">
+                          <input type="number" min="0" step="0.5" [ngModel]="draft.thumbnailFrameAtSeconds ?? thumbFrameSeconds()"
+                                 (ngModelChange)="thumbFrameSeconds.set($event)" aria-label="Thumbnail frame seconds" />
+                          <button type="button" class="btn tiny ghost" [disabled]="busy() || thumbnailBusyId() === draft.id"
+                                  (click)="setFrameThumbnail(draft)">
+                            🎞 Frame (s)
+                          </button>
+                        </div>
+                      }
+                      @if (hasPostThumbnail(draft)) {
+                        <button type="button" class="btn tiny danger-ghost" [disabled]="busy() || thumbnailBusyId() === draft.id"
+                                (click)="clearPostThumbnail(draft)">
+                          × Clear
+                        </button>
+                      }
+                    </div>
+                  </div>
+                </div>
+              }
+
               <label class="field">
                 <span>SEO Description (includes Website Funnel Links)</span>
                 <textarea rows="5" [(ngModel)]="draft.description"></textarea>
@@ -1535,6 +1890,11 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             </div>
 
             <div class="modal-foot">
+              @if (draft.format !== 'CommunityPost') {
+                <button type="button" class="btn ghost" [disabled]="busy()" (click)="autoFillPostDetails(draft)" style="margin-right: auto;">
+                  {{ busyAction() === 'autofill:' + draft.id ? 'Filling…' : '✨ Auto-Fill Missing' }}
+                </button>
+              }
               <button type="button" class="btn ghost" (click)="editingPost.set(null)">Cancel</button>
               <button type="button" class="btn primary" [disabled]="busy()" (click)="savePostEdits()">Save Edits</button>
             </div>
@@ -1679,15 +2039,19 @@ const FULL_VIDEO_MAX_SECONDS = 600;
           <div class="modal-card large" (click)="$event.stopPropagation()">
             <div class="modal-head">
               <h2>
-                Pick Storage Images for {{ spTarget.kind === 'post' ? spTarget.post.sourceTitle : spTarget.rule.name }}
+                {{ spTarget.kind === 'thumbnail' ? 'Pick Thumbnail Image for ' + spTarget.post.sourceTitle : 'Pick Storage Images for ' + (spTarget.kind === 'post' ? spTarget.post.sourceTitle : spTarget.rule.name) }}
               </h2>
               <button type="button" class="link-btn" (click)="storagePickerTarget.set(null)">Close ×</button>
             </div>
 
             <div class="modal-body">
               <p class="muted-note">
-                Selected images are animated scene-by-scene in Story Mode or crossfaded as backdrops in Enhanced 3D Mode.
-                ({{ storageSelectedIds().length }} selected)
+                @if (spTarget.kind === 'thumbnail') {
+                  Click an image from your Studio Storage library to use as the YouTube thumbnail for this post.
+                } @else {
+                  Selected images are animated scene-by-scene in Story Mode or crossfaded as backdrops in Enhanced 3D Mode.
+                  ({{ storageSelectedIds().length }} selected)
+                }
               </p>
 
               @if (loadingStorageCatalog()) {
@@ -1732,8 +2096,8 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             <div class="modal-foot">
               <button type="button" class="btn ghost" (click)="storageSelectedIds.set([])">Clear All</button>
               <button type="button" class="btn ghost" (click)="storagePickerTarget.set(null)">Cancel</button>
-              <button type="button" class="btn primary" [disabled]="busy()" (click)="applyStoragePicker()">
-                Use Selected ({{ storageSelectedIds().length }})
+              <button type="button" class="btn primary" [disabled]="busy() || (storagePickerTarget()?.kind === 'thumbnail' && storageSelectedIds().length === 0)" (click)="applyStoragePicker()">
+                {{ storagePickerTarget()?.kind === 'thumbnail' ? 'Use as Thumbnail' : 'Use Selected (' + storageSelectedIds().length + ')' }}
               </button>
             </div>
           </div>
@@ -2176,6 +2540,80 @@ const FULL_VIDEO_MAX_SECONDS = 600;
     .compact-video-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .detail-body { gap: 12px; }
     .detail-body .snip-block p { max-height: 220px; }
+    .card-readiness-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+    .mini-chip { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--sunk-1); color: var(--text-dim); }
+    .mini-chip.ok { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
+    .mini-chip.warn { background: var(--warn-dim); border-color: var(--warn); color: var(--warn); }
+    .mini-chip.info { background: var(--brand-subtle); border-color: var(--brand-dim); color: var(--brand-bright); }
+    .meta-pills-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .readiness-panel {
+      display: flex; flex-direction: column; gap: 11px; padding: 12px 14px;
+      border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--border-bright);
+    }
+    .readiness-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+    .readiness-title-wrap { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+    .readiness-head-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .readiness-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .check-pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); }
+    .check-pill.ok { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
+    .check-pill.warn { background: var(--warn-dim); border-color: var(--warn); color: var(--warn); }
+    .mini-chip.err, .pill.err, .pill.tone-err { background: var(--err-dim); border-color: var(--err); color: var(--c-red); }
+    .verify-ribbon {
+      display: flex; flex-direction: column; gap: 8px; padding: 11px 14px;
+      border-radius: var(--radius); background: var(--surface); border: 1px solid var(--ok);
+    }
+    .verify-ribbon.has-mismatch { border-color: var(--err); background: rgba(239, 68, 68, 0.08); }
+    .verify-ribbon.has-warn { border-color: var(--warn); background: rgba(245, 158, 11, 0.07); }
+    .verify-ribbon-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+    .verify-checks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+    .verify-check-pill {
+      display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+      border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border);
+    }
+    .verify-check-pill.err { border-color: var(--err); background: var(--err-dim); }
+    .verify-check-pill.warn { border-color: var(--warn); background: var(--warn-dim); }
+    .vcp-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; }
+    .vcp-cat { font-size: 11.5px; font-weight: 800; color: var(--text); }
+    .vcp-links { display: flex; flex-wrap: wrap; gap: 8px; }
+    .vcp-msg { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+    .verify-ext-link { font-size: 11.5px; font-weight: 700; color: var(--brand-bright); text-decoration: none; }
+    .verify-ext-link:hover { text-decoration: underline; }
+    .verify-alert-card { display: flex; flex-direction: column; gap: 7px; border: 1px solid var(--err); }
+    .verify-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .verify-detail-box {
+      display: flex; flex-direction: column; gap: 7px; padding: 10px 12px;
+      border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--ok);
+    }
+    .verify-detail-box.is-mismatch { border-color: var(--err); background: var(--err-dim); }
+    .verify-detail-box.is-warn { border-color: var(--warn); background: var(--warn-dim); }
+    .verify-detail-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+    .verify-detail-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+    .verify-detail-msg { margin: 0; font-size: 12.5px; color: var(--text); line-height: 1.45; }
+    .verify-issues-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--c-red); display: flex; flex-direction: column; gap: 3px; }
+    .verify-links-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .thumb-studio-box {
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 10px 12px;
+      border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border);
+    }
+    .thumb-preview-slot { width: 176px; flex: 0 0 auto; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #090b12; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+    .thumb-preview-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb-empty-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; text-align: center; padding: 6px; }
+    .thumb-empty-slot span { font-size: 20px; line-height: 1; }
+    .thumb-controls-col { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .thumb-status-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; }
+    .thumb-actions-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .thumb-actions-row label.btn { cursor: pointer; margin: 0; }
+    .thumb-actions-row label.btn.disabled { opacity: .48; pointer-events: none; }
+    .frame-pick-inline { display: inline-flex; align-items: center; gap: 4px; }
+    .frame-pick-inline input { width: 64px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 12px; }
+    .thumb-prompt-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-dim); }
+    .meta-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .tags-chip-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+    .tag-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+    .pinned-note { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border-subtle); color: var(--text-dim); word-break: break-word; }
+    .sched-input-row { display: flex; gap: 6px; align-items: center; }
+    .sched-input-row input { flex: 1 1 auto; }
+    .check-inline-box { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--sunk-2); border: 1px solid var(--border); min-height: 38px; }
     .wiz-steps { display: flex; gap: 6px; list-style: none; margin: 0; padding: 10px 20px 0; flex-wrap: wrap; }
     .wiz-steps li { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
     .wiz-steps li.active { border-color: var(--brand); color: var(--brand-bright); background: var(--brand-subtle); }
@@ -2293,6 +2731,9 @@ export class AutomationHubComponent implements OnInit {
   readonly settingsForm = signal<AutomationWorkspaceConfig | null>(null);
   readonly editingPost = signal<AutomationPost | null>(null);
   editingTagsCsv = '';
+  editingScheduledLocal = '';
+  readonly thumbFrameSeconds = signal<number>(2);
+  readonly thumbnailBusyId = signal<string | null>(null);
 
   readonly previewingPost = signal<AutomationPost | null>(null);
   readonly removalPost = signal<AutomationPost | null>(null);
@@ -2313,6 +2754,7 @@ export class AutomationHubComponent implements OnInit {
   readonly storagePickerTarget = signal<
     | { kind: 'post'; post: AutomationPost }
     | { kind: 'rule'; rule: AutomationRule }
+    | { kind: 'thumbnail'; post: AutomationPost }
     | null
   >(null);
   readonly storageSelectedIds = signal<string[]>([]);
@@ -2380,6 +2822,23 @@ export class AutomationHubComponent implements OnInit {
     { value: 'TuTadak', label: 'Tu Tadak Buddy Roast Banter' },
     { value: 'RoastAndTwist', label: 'Deadpan Roast + Twist Ending' },
     { value: 'FamilyClean', label: 'Family Clean Slapstick' },
+  ];
+  readonly youtubeCategories: ReadonlyArray<{ id: string; name: string }> = [
+    { id: '1', name: 'Film & Animation' },
+    { id: '2', name: 'Autos & Vehicles' },
+    { id: '10', name: 'Music' },
+    { id: '15', name: 'Pets & Animals' },
+    { id: '17', name: 'Sports' },
+    { id: '19', name: 'Travel & Events' },
+    { id: '20', name: 'Gaming' },
+    { id: '22', name: 'People & Blogs' },
+    { id: '23', name: 'Comedy' },
+    { id: '24', name: 'Entertainment' },
+    { id: '25', name: 'News & Politics' },
+    { id: '26', name: 'Howto & Style' },
+    { id: '27', name: 'Education' },
+    { id: '28', name: 'Science & Technology' },
+    { id: '29', name: 'Nonprofits & Activism' },
   ];
   readonly sourceTypes: AutomationSourceType[] = [
     'HinduPanchang',
@@ -3471,6 +3930,7 @@ export class AutomationHubComponent implements OnInit {
       attachedAssetIds: [...(post.attachedAssetIds ?? [])],
     });
     this.editingTagsCsv = post.tags.join(', ');
+    this.editingScheduledLocal = this.toLocalDateTimeInput(post.scheduledAtUtc);
   }
 
   async savePostEdits(): Promise<void> {
@@ -3480,12 +3940,257 @@ export class AutomationHubComponent implements OnInit {
       .split(',')
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
+    const parsedSchedule = this.fromLocalDateTimeInput(this.editingScheduledLocal);
+    if (parsedSchedule) {
+      draft.scheduledAtUtc = parsedSchedule;
+    }
     await this.runAction('save-post', async () => {
       await firstValueFrom(this.api.updatePost(draft.id, draft));
       this.editingPost.set(null);
-      this.status.showNotice('Post metadata and prompt updated.');
+      this.status.showNotice('Post metadata, schedule and YouTube details updated.');
       await this.loadOverview(true);
     });
+  }
+
+  hasPostThumbnail(post: AutomationPost): boolean {
+    return !!(post.thumbnailStorageKey || (post.thumbnailFrameAtSeconds !== null && post.thumbnailFrameAtSeconds !== undefined));
+  }
+
+  postThumbnailUrl(post: AutomationPost): string {
+    return this.api.postThumbnailUrl(post.id, post.updatedAtUtc);
+  }
+
+  categoryName(categoryId?: string | null): string {
+    return this.youtubeCategories.find((c) => c.id === categoryId)?.name ?? (categoryId || 'People & Blogs');
+  }
+
+  youtubeTagsLength(tags: readonly string[]): number {
+    let total = 0;
+    let count = 0;
+    for (const raw of tags) {
+      const t = raw.trim();
+      if (!t) continue;
+      total += t.length + (t.includes(' ') ? 2 : 0);
+      count++;
+    }
+    return total + Math.max(0, count - 1);
+  }
+
+  editingTagsCount(): number {
+    return this.editingTagsCsv.split(',').map((t) => t.trim()).filter((t) => t.length > 0).length;
+  }
+
+  editingTagsLength(): number {
+    return this.youtubeTagsLength(this.editingTagsCsv.split(','));
+  }
+
+  formatLocalSchedule(utcIso?: string | null): string {
+    if (!utcIso) return 'Not scheduled';
+    const d = new Date(utcIso);
+    if (Number.isNaN(d.getTime())) return utcIso;
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  toLocalDateTimeInput(utcIso?: string | null): string {
+    if (!utcIso) return '';
+    const d = new Date(utcIso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  fromLocalDateTimeInput(localStr: string): string | null {
+    const trimmed = (localStr ?? '').trim();
+    if (!trimmed) return null;
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+
+  postReadiness(post: AutomationPost): {
+    items: ReadonlyArray<{ label: string; ok: boolean; hint?: string }>;
+    readyCount: number;
+    totalCount: number;
+    missingCount: number;
+    summary: string;
+  } {
+    const titleOk = !!post.title?.trim() && post.title.trim().length <= 100;
+    const descOk = (post.description?.trim().length ?? 0) >= 30;
+    const tagsLen = this.youtubeTagsLength(post.tags ?? []);
+    const tagsOk = (post.tags?.length ?? 0) >= 3 && tagsLen <= 500;
+    const catOk = !!post.categoryId?.trim();
+    const channelOk = !!post.targetChannelId?.trim();
+    const schedOk = !!post.scheduledAtUtc;
+    const videoOk = !!(post.attachedRenderJobId || post.attachedHandoffId);
+    const thumbOk = this.hasPostThumbnail(post);
+
+    const items = [
+      { label: 'Title', ok: titleOk, hint: titleOk ? 'Title within 100 chars' : 'Title required (<= 100 chars)' },
+      { label: 'Description', ok: descOk, hint: descOk ? 'SEO description ready' : 'Add a detailed description (30+ chars)' },
+      { label: 'Tags', ok: tagsOk, hint: tagsOk ? `${post.tags.length} tags` : 'Add at least 3 tags (<= 500 chars total)' },
+      { label: 'Category', ok: catOk, hint: catOk ? this.categoryName(post.categoryId) : 'Pick a YouTube category' },
+      { label: 'Channel', ok: channelOk, hint: channelOk ? (post.targetChannelTitle || 'Channel assigned') : 'Assign a target channel' },
+      { label: 'Schedule', ok: schedOk, hint: schedOk ? this.formatLocalSchedule(post.scheduledAtUtc) : 'Pick scheduled upload time' },
+      { label: 'Video', ok: videoOk, hint: videoOk ? (post.attachedVideoSourceLabel || 'Video attached') : 'Generate or attach video' },
+      { label: 'Thumbnail', ok: thumbOk, hint: thumbOk ? (post.thumbnailSource || 'Thumbnail set') : 'Upload or AI-generate a thumbnail' },
+    ];
+    const readyCount = items.filter((i) => i.ok).length;
+    const missing = items.filter((i) => !i.ok).map((i) => i.label);
+    return {
+      items,
+      readyCount,
+      totalCount: items.length,
+      missingCount: missing.length,
+      summary: missing.length === 0 ? 'All details ready' : `Missing: ${missing.join(', ')}`,
+    };
+  }
+
+  private syncUpdatedPostState(updated: AutomationPost, refreshFullEditor = false): void {
+    const editing = this.editingPost();
+    if (editing && editing.id === updated.id) {
+      if (refreshFullEditor) {
+        this.editingPost.set({
+          ...updated,
+          tags: [...updated.tags],
+          trackedFunnelUrls: [...updated.trackedFunnelUrls],
+          attachedAssetIds: [...(updated.attachedAssetIds ?? [])],
+        });
+        this.editingTagsCsv = updated.tags.join(', ');
+        this.editingScheduledLocal = this.toLocalDateTimeInput(updated.scheduledAtUtc);
+      } else {
+        this.editingPost.set({
+          ...editing,
+          thumbnailStorageKey: updated.thumbnailStorageKey,
+          thumbnailFrameAtSeconds: updated.thumbnailFrameAtSeconds,
+          thumbnailSource: updated.thumbnailSource,
+          aiThumbnailPrompt: updated.aiThumbnailPrompt,
+          updatedAtUtc: updated.updatedAtUtc,
+        });
+      }
+    }
+    this.overview.update((ov) =>
+      ov
+        ? { ...ov, posts: ov.posts.map((p) => (p.id === updated.id ? updated : p)) }
+        : ov
+    );
+  }
+
+  async onPostThumbnailFile(post: AutomationPost, event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    if (!/^image\/(jpeg|png)$/i.test(file.type) && !/\.(png|jpe?g)$/i.test(file.name)) {
+      this.status.showError('A thumbnail must be a JPG or PNG picture.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      this.status.showError('Thumbnail upload must be 2 MB or smaller.');
+      return;
+    }
+
+    let dataUrl: string;
+    try {
+      dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => (typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read file')));
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
+      });
+    } catch {
+      this.status.showError('That thumbnail picture could not be read.');
+      return;
+    }
+
+    this.thumbnailBusyId.set(post.id);
+    try {
+      const updated = await firstValueFrom(this.api.setPostThumbnail(post.id, { imageBase64: dataUrl }));
+      this.syncUpdatedPostState(updated);
+      this.status.showNotice(`Thumbnail uploaded for "${updated.title}".`);
+      await this.loadOverview(true);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Thumbnail upload failed.'));
+    } finally {
+      this.thumbnailBusyId.set(null);
+    }
+  }
+
+  async generateAiPostThumbnail(post: AutomationPost, promptOverride?: string | null): Promise<void> {
+    this.thumbnailBusyId.set(`ai:${post.id}`);
+    try {
+      const updated = await firstValueFrom(this.api.generateAiThumbnail(post.id, promptOverride ?? post.aiThumbnailPrompt));
+      this.syncUpdatedPostState(updated);
+      this.status.showNotice(`Generated AI thumbnail for "${updated.title}".`);
+      await this.loadOverview(true);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'AI thumbnail generation failed.'));
+    } finally {
+      this.thumbnailBusyId.set(null);
+    }
+  }
+
+  async setFrameThumbnail(post: AutomationPost): Promise<void> {
+    const secs = Math.max(0, Number(this.thumbFrameSeconds() || 0));
+    this.thumbnailBusyId.set(post.id);
+    try {
+      const updated = await firstValueFrom(this.api.setPostThumbnail(post.id, { frameAtSeconds: secs }));
+      this.syncUpdatedPostState(updated);
+      this.status.showNotice(`Thumbnail set to video frame at ${secs}s.`);
+      await this.loadOverview(true);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Could not pick video frame for thumbnail.'));
+    } finally {
+      this.thumbnailBusyId.set(null);
+    }
+  }
+
+  async clearPostThumbnail(post: AutomationPost): Promise<void> {
+    this.thumbnailBusyId.set(post.id);
+    try {
+      const updated = await firstValueFrom(this.api.deletePostThumbnail(post.id));
+      this.syncUpdatedPostState(updated);
+      this.status.showNotice('Custom thumbnail cleared.');
+      await this.loadOverview(true);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Could not remove thumbnail.'));
+    } finally {
+      this.thumbnailBusyId.set(null);
+    }
+  }
+
+  async autoFillPostDetails(post: AutomationPost): Promise<void> {
+    await this.runAction(`autofill:${post.id}`, async () => {
+      const updated = await firstValueFrom(this.api.autoFillDetails(post.id));
+      this.syncUpdatedPostState(updated, true);
+      this.status.showNotice(`Auto-filled missing metadata, tags & thumbnail check for "${updated.title}".`);
+      await this.loadOverview(true);
+    });
+  }
+
+  async verifyPostFacts(post: AutomationPost): Promise<void> {
+    await this.runAction(`verify:${post.id}`, async () => {
+      const updated = await firstValueFrom(this.api.verifyPost(post.id));
+      this.syncUpdatedPostState(updated, true);
+      if (updated.verificationStatus === 'Mismatch') {
+        this.status.showError(updated.verificationSummary || 'Date/fact mismatch detected.');
+      } else {
+        this.status.showNotice(updated.verificationSummary || `Facts verified for "${updated.title}".`);
+      }
+      await this.loadOverview(true);
+    });
+  }
+
+  async reverifyAndFixPost(post: AutomationPost): Promise<void> {
+    await this.runAction(`fix:${post.id}`, async () => {
+      const updated = await firstValueFrom(this.api.reverifyAndFixPost(post.id));
+      this.syncUpdatedPostState(updated, true);
+      this.status.showNotice(`Refreshed "${updated.title}" with live verified facts for ${updated.dateKey}.`);
+      await this.loadOverview(true);
+    });
+  }
+
+  googleVerifyUrl(query: string): string {
+    return `https://www.google.com/search?q=${encodeURIComponent(query || '')}`;
   }
 
   async openVideoPicker(post: AutomationPost): Promise<void> {
@@ -3575,8 +4280,15 @@ export class AutomationHubComponent implements OnInit {
     await this.savePostAnimationPrefs(post);
   }
 
-  async openStoragePicker(target: { kind: 'post'; post: AutomationPost } | { kind: 'rule'; rule: AutomationRule }): Promise<void> {
-    const current = target.kind === 'post' ? (target.post.attachedAssetIds ?? []) : (target.rule.attachedAssetIds ?? []);
+  async openStoragePicker(
+    target: { kind: 'post'; post: AutomationPost } | { kind: 'rule'; rule: AutomationRule } | { kind: 'thumbnail'; post: AutomationPost }
+  ): Promise<void> {
+    const current =
+      target.kind === 'post'
+        ? (target.post.attachedAssetIds ?? [])
+        : target.kind === 'rule'
+          ? (target.rule.attachedAssetIds ?? [])
+          : [];
     this.storageSelectedIds.set([...current]);
     this.storagePickerTarget.set(target);
     if (this.storageCatalog()) return;
@@ -3596,6 +4308,10 @@ export class AutomationHubComponent implements OnInit {
   }
 
   toggleStorageAsset(assetId: string): void {
+    if (this.storagePickerTarget()?.kind === 'thumbnail') {
+      this.storageSelectedIds.set([assetId]);
+      return;
+    }
     const cur = this.storageSelectedIds();
     if (cur.includes(assetId)) {
       this.storageSelectedIds.set(cur.filter((id) => id !== assetId));
@@ -3609,6 +4325,23 @@ export class AutomationHubComponent implements OnInit {
     if (!target) return;
     const picked = [...this.storageSelectedIds()];
     this.storagePickerTarget.set(null);
+
+    if (target.kind === 'thumbnail') {
+      const assetId = picked[0];
+      if (!assetId) return;
+      this.thumbnailBusyId.set(target.post.id);
+      try {
+        const updated = await firstValueFrom(this.api.setPostThumbnail(target.post.id, { storageAssetId: assetId }));
+        this.syncUpdatedPostState(updated);
+        this.status.showNotice(`Thumbnail set from Studio Storage for "${updated.title}".`);
+        await this.loadOverview(true);
+      } catch (err: unknown) {
+        this.status.showError(this.readErr(err, 'Could not apply storage image as thumbnail.'));
+      } finally {
+        this.thumbnailBusyId.set(null);
+      }
+      return;
+    }
 
     if (target.kind === 'rule') {
       target.rule.attachedAssetIds = picked;

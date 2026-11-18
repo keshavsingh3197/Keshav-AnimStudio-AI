@@ -20,7 +20,11 @@ public sealed record EcosystemPanchangSignal(
     string AmritKaal,
     string RahuKaal,
     string? DailySanskritSutra,
-    string? DailySutraMeaning);
+    string? DailySutraMeaning,
+    bool IsVerified = true,
+    string? SourceName = null,
+    string? SourceUrl = null,
+    string? VerificationNote = null);
 
 public sealed record EcosystemFestivalSignal(
     string Id,
@@ -33,7 +37,10 @@ public sealed record EcosystemFestivalSignal(
     string? RitualsAndPujaVidhi,
     string? FastingRules,
     bool IsMajorFestival,
-    string? Category);
+    string? Category,
+    bool IsVerified = true,
+    string? VerificationSource = null,
+    string? VerificationUrl = null);
 
 public sealed record EcosystemDailyKathaSignal(
     string? Id,
@@ -41,7 +48,9 @@ public sealed record EcosystemDailyKathaSignal(
     string DeityOrSage,
     string StorySummary,
     string? MoralTeaching,
-    string? SanskritMantra);
+    string? SanskritMantra,
+    bool IsVerified = true,
+    string? SourceName = null);
 
 public sealed record EcosystemHistoricalSignal(
     string? Id,
@@ -50,7 +59,12 @@ public sealed record EcosystemHistoricalSignal(
     string Title,
     string Category,
     string Description,
-    string? CulturalSignificance);
+    string? CulturalSignificance,
+    bool IsExactDateMatch = true,
+    bool IsVerified = false,
+    string? SourceName = null,
+    string? SourceUrl = null,
+    string? VerificationNote = null);
 
 public sealed record EcosystemCompetitionSignal(
     string Id,
@@ -69,6 +83,21 @@ public sealed record EcosystemFunnelCampaignSignal(
     string DestinationUrl,
     string? CallToActionText);
 
+public sealed record SignalVerificationCheck(
+    string Category,
+    string Status,
+    string Message,
+    string? SourceName = null,
+    string? SourceUrl = null,
+    string? VerifySearchUrl = null);
+
+public sealed record SignalVerificationReport(
+    string OverallStatus,
+    string Summary,
+    IReadOnlyList<SignalVerificationCheck> Checks,
+    int MismatchesCount,
+    int WarningsCount);
+
 public sealed record EcosystemSignalsSnapshot(
     string DateKey,
     string Location,
@@ -79,7 +108,8 @@ public sealed record EcosystemSignalsSnapshot(
     IReadOnlyList<EcosystemCompetitionSignal> Competitions,
     IReadOnlyList<EcosystemFunnelCampaignSignal> FunnelCampaigns,
     IReadOnlyList<string> Warnings,
-    DateTimeOffset FetchedAtUtc);
+    DateTimeOffset FetchedAtUtc,
+    SignalVerificationReport? Verification = null);
 
 public sealed class EcosystemServiceOptions
 {

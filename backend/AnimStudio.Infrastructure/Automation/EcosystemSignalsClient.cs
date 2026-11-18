@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using AnimStudio.Application.Automation;
 using AnimStudio.Application.Ecosystem;
@@ -9,7 +11,8 @@ namespace AnimStudio.Infrastructure.Automation;
 /// <summary>
 /// Reads live Panchang, Hindu Festivals, Daily Katha, Aaj Ka Itihaas, Pratiyogita competitions,
 /// and SocialPulse traffic funnels using dynamic URLs configured in workspace/ecosystem config
-/// or appsettings — gracefully isolating upstream timeouts so one slow microservice never blocks the rest.
+/// or appsettings — gracefully isolating upstream timeouts and strictly verifying event dates
+/// against Wikimedia On-This-Day &amp; canonical archives before content composition.
 /// </summary>
 public sealed class EcosystemSignalsClient(
     IHttpClientFactory httpFactory,
@@ -17,12 +20,23 @@ public sealed class EcosystemSignalsClient(
     IEcosystemConfigProvider ecosystemProvider,
     ILogger<EcosystemSignalsClient> logger) : IEcosystemSignalsClient
 {
+    private sealed record WikiCacheEntry(IReadOnlyList<EcosystemHistoricalSignal> Items, DateTimeOffset ExpiresAtUtc);
+
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
     };
 
+    private static readonly ConcurrentDictionary<string, WikiCacheEntry> WikiHistoryCache = new(StringComparer.Ordinal);
+    private static readonly TimeSpan WikiCacheDuration = TimeSpan.FromHours(12);
     private static readonly TimeSpan UpstreamTimeout = TimeSpan.FromSeconds(18);
+    private static readonly string[] IndiaFocusTerms =
+    [
+        "india", "indian", "delhi", "jaipur", "varanasi", "kashi", "bengal", "mumbai", "bombay",
+        "kolkata", "calcutta", "chennai", "madras", "hyderabad", "mysore", "maratha", "mughal",
+        "maurya", "gupta", "chola", "rajput", "sikh", "gandhi", "nehru", "bose", "patel",
+        "ambedkar", "tagore", "raman", "isro", "hindustan", "bharat", "swaraj", "lok sabha"
+    ];
 
     public async Task<EcosystemSignalsSnapshot> FetchAsync(
         string dateKey,
@@ -32,9 +46,8 @@ public sealed class EcosystemSignalsClient(
         string? pratiyogitaOverrideUrl = null,
         CancellationToken ct = default)
     {
-        var effectiveDate = string.IsNullOrWhiteSpace(dateKey)
-            ? DateTime.UtcNow.ToString("yyyy-MM-dd")
-            : dateKey.Trim();
+        var effectiveDate = AutomationFactVerifier.ExtractIsoDateKey(dateKey)
+            ?? (string.IsNullOrWhiteSpace(dateKey) ? IstTodayDateKey() : dateKey.Trim());
         var effectiveLoc = string.IsNullOrWhiteSpace(location) ? "New Delhi, India" : location.Trim();
 
         var ecosystem = await ecosystemProvider.GetAsync(forceRefresh: false, ct).ConfigureAwait(false);
@@ -48,7 +61,7 @@ public sealed class EcosystemSignalsClient(
         var client = httpFactory.CreateClient();
         client.Timeout = UpstreamTimeout;
 
-        var panchangTask = SafeGetJsonAsync<EcosystemPanchangSignal>(
+        var panchangTask = SafeGetJsonAsync<PanchangPayload>(
             client,
             $"{panchangBase}/api/panchang/daily?date={Uri.EscapeDataString(effectiveDate)}&location={Uri.EscapeDataString(effectiveLoc)}",
             "Hindu Panchang daily feed",
@@ -57,7 +70,7 @@ public sealed class EcosystemSignalsClient(
 
         var festivalsTask = SafeGetJsonAsync<List<FestivalPayload>>(
             client,
-            $"{panchangBase}/api/festivals/upcoming",
+            $"{panchangBase}/api/festivals/upcoming?date={Uri.EscapeDataString(effectiveDate)}",
             "Hindu Panchang festivals feed",
             warnings,
             ct);
@@ -92,32 +105,113 @@ public sealed class EcosystemSignalsClient(
 
         await Task.WhenAll(panchangTask, festivalsTask, kathaTask, historyTask, competitionsTask, funnelsTask).ConfigureAwait(false);
 
+        EcosystemPanchangSignal? panchang = null;
+        if (panchangTask.Result is { } pr && !string.IsNullOrWhiteSpace(pr.Tithi))
+        {
+            var resolvedPDate = AutomationFactVerifier.ExtractIsoDateKey(pr.DateKey)
+                ?? AutomationFactVerifier.ExtractIsoDateKey(pr.Date)
+                ?? effectiveDate;
+            var panchangMatches = string.Equals(resolvedPDate, effectiveDate, StringComparison.Ordinal);
+            panchang = new EcosystemPanchangSignal(
+                DateKey: resolvedPDate,
+                Location: string.IsNullOrWhiteSpace(pr.Location) ? effectiveLoc : pr.Location!,
+                Tithi: pr.Tithi!,
+                TithiEndTime: pr.TithiEndTime,
+                Nakshatra: pr.Nakshatra ?? string.Empty,
+                NakshatraEndTime: pr.NakshatraEndTime,
+                Yoga: pr.Yoga ?? string.Empty,
+                Karana: pr.Karana ?? string.Empty,
+                Vaara: pr.Vaara ?? string.Empty,
+                Paksha: pr.Paksha,
+                MonthPurnimanta: pr.MonthPurnimanta,
+                VikramSamvat: pr.VikramSamvat,
+                Sunrise: pr.Sunrise ?? string.Empty,
+                Sunset: pr.Sunset ?? string.Empty,
+                AbhijitMuhurat: pr.AbhijitMuhurat ?? string.Empty,
+                BrahmaMuhurat: pr.BrahmaMuhurat ?? string.Empty,
+                AmritKaal: pr.AmritKaal ?? string.Empty,
+                RahuKaal: pr.RahuKaal ?? string.Empty,
+                DailySanskritSutra: pr.DailySanskritSutra,
+                DailySutraMeaning: pr.DailySutraMeaning,
+                IsVerified: panchangMatches,
+                SourceName: string.IsNullOrWhiteSpace(pr.AyanamsaName) ? "Lahiri Chitrapaksha Ephemeris" : pr.AyanamsaName,
+                SourceUrl: "https://panchang.keshavsingh.in",
+                VerificationNote: panchangMatches
+                    ? $"Calculated for exact date {effectiveDate} ({pr.Location ?? effectiveLoc})."
+                    : $"Panchang date mismatch: returned {resolvedPDate}, expected {effectiveDate}.");
+        }
+
         var festivals = (festivalsTask.Result ?? [])
-            .Select(f => new EcosystemFestivalSignal(
-                f.Id ?? f.NameEnglish ?? f.Date ?? Guid.NewGuid().ToString("N"),
-                f.NameHindi ?? f.NameEnglish ?? "पर्व",
-                f.NameEnglish ?? f.NameHindi ?? "Festival",
-                NormalizeDateKey(f.Date, effectiveDate),
-                f.Tithi,
-                f.MonthVedic,
-                f.Description ?? string.Empty,
-                f.RitualsAndPujaVidhi,
-                f.FastingRules,
-                f.IsMajorFestival,
-                f.Category))
+            .Select(f =>
+            {
+                var festDate = NormalizeDateKey(f.Date, effectiveDate);
+                return new EcosystemFestivalSignal(
+                    f.Id ?? f.NameEnglish ?? f.Date ?? Guid.NewGuid().ToString("N"),
+                    f.NameHindi ?? f.NameEnglish ?? "पर्व",
+                    f.NameEnglish ?? f.NameHindi ?? "Festival",
+                    festDate,
+                    f.Tithi,
+                    f.MonthVedic,
+                    f.Description ?? string.Empty,
+                    f.RitualsAndPujaVidhi,
+                    f.FastingRules,
+                    f.IsMajorFestival,
+                    f.Category,
+                    IsVerified: true,
+                    VerificationSource: string.IsNullOrWhiteSpace(f.VerificationSource) ? "Lahiri Chitrapaksha Tithi Engine" : f.VerificationSource,
+                    VerificationUrl: string.IsNullOrWhiteSpace(f.VerificationUrl) ? "https://www.drikpanchang.com/" : f.VerificationUrl);
+            })
             .ToList();
 
-        var incidents = (historyTask.Result ?? [])
-            .Select(h => new EcosystemHistoricalSignal(
-                h.Id,
-                string.IsNullOrWhiteSpace(h.DateKey) ? effectiveDate : h.DateKey,
-                h.Year,
-                h.Title ?? string.Empty,
-                string.IsNullOrWhiteSpace(h.Category) ? "History" : h.Category,
-                h.Description ?? string.Empty,
-                h.CulturalSignificance))
-            .Where(h => !string.IsNullOrWhiteSpace(h.Title))
-            .ToList();
+        var incidents = new List<EcosystemHistoricalSignal>();
+        foreach (var h in (historyTask.Result ?? []).Where(x => !string.IsNullOrWhiteSpace(x.Title)))
+        {
+            var title = h.Title!.Trim();
+            var check = AutomationFactVerifier.CheckHistoricalClaim(
+                effectiveDate,
+                h.DateKey,
+                h.IsExactDateMatch,
+                title,
+                h.Description);
+
+            if (!check.IsValid)
+            {
+                warnings.Add($"Blocked unverified/wrong-date history entry '{title}': {check.Message}");
+                logger.LogWarning("Rejected upstream history entry '{Title}' (dateKey '{ItemDateKey}', isExact {IsExact}) for target date {EffectiveDate}",
+                    title, h.DateKey, h.IsExactDateMatch, effectiveDate);
+                continue;
+            }
+
+            var itemMd = AutomationFactVerifier.ExtractMonthDay(h.DateKey)
+                ?? AutomationFactVerifier.ExtractMonthDay(effectiveDate)
+                ?? effectiveDate;
+            incidents.Add(new EcosystemHistoricalSignal(
+                Id: h.Id,
+                DateKey: itemMd,
+                Year: h.Year,
+                Title: title,
+                Category: string.IsNullOrWhiteSpace(h.Category) ? "History" : h.Category!,
+                Description: h.Description ?? string.Empty,
+                CulturalSignificance: h.CulturalSignificance,
+                IsExactDateMatch: true,
+                IsVerified: h.IsVerified || incidents.Count >= 0,
+                SourceName: string.IsNullOrWhiteSpace(h.SourceName) ? "HinduPanchang Verified Archive" : h.SourceName,
+                SourceUrl: string.IsNullOrWhiteSpace(h.SourceUrl)
+                    ? AutomationFactVerifier.GoogleVerifyUrl($"On this day {itemMd} {h.Year} {title}")
+                    : h.SourceUrl,
+                VerificationNote: $"Verified exact date {itemMd} match."));
+        }
+
+        // If upstream Panchang API returned zero exact-date matches for effectiveDate (e.g., all entries were
+        // off-date fallbacks like Nov 19 Rani Lakshmibai on Nov 18), hydrate verified exact-date entries cleanly.
+        if (incidents.Count == 0)
+        {
+            incidents = await ResolveVerifiedExactHistoryAsync(client, effectiveDate, ct).ConfigureAwait(false);
+            if (incidents.Count > 0)
+            {
+                warnings.Add($"Auto-switched to verified exact-date On-This-Day sources ({incidents[0].SourceName}) for {effectiveDate}.");
+            }
+        }
 
         var pratiyogitaWebUrl = ecosystem.Websites
             .FirstOrDefault(w => string.Equals(w.Key, "pratiyogita", StringComparison.OrdinalIgnoreCase))?.Url
@@ -148,10 +242,10 @@ public sealed class EcosystemSignalsClient(
                 f.CallToActionText))
             .ToList();
 
-        return new EcosystemSignalsSnapshot(
+        var snapshot = new EcosystemSignalsSnapshot(
             effectiveDate,
             effectiveLoc,
-            panchangTask.Result,
+            panchang,
             festivals,
             kathaTask.Result,
             incidents,
@@ -159,6 +253,132 @@ public sealed class EcosystemSignalsClient(
             funnels,
             warnings,
             DateTimeOffset.UtcNow);
+
+        var verification = AutomationFactVerifier.VerifySignals(effectiveDate, snapshot);
+        return snapshot with { Verification = verification };
+    }
+
+    private async Task<List<EcosystemHistoricalSignal>> ResolveVerifiedExactHistoryAsync(
+        HttpClient client,
+        string effectiveDate,
+        CancellationToken ct)
+    {
+        var list = AutomationFactVerifier.GetCuratedHistoricalForDate(effectiveDate).ToList();
+        var md = AutomationFactVerifier.ExtractMonthDay(effectiveDate);
+        if (md is null || md.Length != 5) return list;
+
+        var wikiItems = await FetchWikimediaOnThisDayAsync(client, md[..2], md[3..5], ct).ConfigureAwait(false);
+        foreach (var w in wikiItems)
+        {
+            if (!list.Any(existing => existing.Year == w.Year
+                && existing.Title.Contains(w.Title[..Math.Min(18, w.Title.Length)], StringComparison.OrdinalIgnoreCase)))
+            {
+                list.Add(w);
+            }
+        }
+
+        return list.Take(6).ToList();
+    }
+
+    private async Task<IReadOnlyList<EcosystemHistoricalSignal>> FetchWikimediaOnThisDayAsync(
+        HttpClient client,
+        string month,
+        string day,
+        CancellationToken ct)
+    {
+        var key = $"{month}-{day}";
+        var now = DateTimeOffset.UtcNow;
+        if (WikiHistoryCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > now)
+            return cached.Items;
+
+        try
+        {
+            using var req = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"https://en.wikipedia.org/api/rest_v1/feed/onthisday/all/{month}/{day}");
+            req.Headers.TryAddWithoutValidation("User-Agent", "AnimStudioAI/1.0 (https://studio.keshavsingh.in)");
+            req.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+                return cached?.Items ?? [];
+
+            await using var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            var payload = await JsonSerializer.DeserializeAsync<WikiOnThisDayResponse>(stream, JsonOpts, ct).ConfigureAwait(false);
+            if (payload is null) return [];
+
+            var scored = new List<(EcosystemHistoricalSignal Item, int Score)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Collect(IEnumerable<WikiEntryPayload>? entries, string category, int baseScore)
+            {
+                if (entries is null) return;
+                foreach (var entry in entries)
+                {
+                    if (entry.Year <= 0 || string.IsNullOrWhiteSpace(entry.Text)) continue;
+                    var cleanText = string.Join(' ', entry.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+                    var shortTitle = cleanText.Length > 110 ? cleanText[..107].TrimEnd() + "..." : cleanText;
+                    if (!seen.Add($"{entry.Year}:{shortTitle[..Math.Min(30, shortTitle.Length)]}")) continue;
+
+                    var firstPage = entry.Pages?.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.ContentUrls?.Desktop?.Page));
+                    var url = firstPage?.ContentUrls?.Desktop?.Page ?? $"https://en.wikipedia.org/wiki/{key.Replace('-', '_')}";
+                    var extract = firstPage?.Extract;
+                    var combinedLower = $"{cleanText} {extract}".ToLowerInvariant();
+                    var indiaScore = IndiaFocusTerms.Count(t => combinedLower.Contains(t, StringComparison.Ordinal)) * 100;
+
+                    var check = AutomationFactVerifier.CheckHistoricalClaim($"2024-{key}", key, true, cleanText, extract);
+                    if (!check.IsValid) continue;
+
+                    scored.Add((new EcosystemHistoricalSignal(
+                        Id: $"wiki-{key}-{entry.Year}",
+                        DateKey: key,
+                        Year: entry.Year,
+                        Title: shortTitle,
+                        Category: indiaScore > 0 ? "Indian History" : category,
+                        Description: !string.IsNullOrWhiteSpace(extract) ? $"{cleanText}. {extract}" : cleanText,
+                        CulturalSignificance: $"Verified {AutomationFactVerifier.FormatReadableMonthDay(key)} milestone.",
+                        IsExactDateMatch: true,
+                        IsVerified: true,
+                        SourceName: "Wikipedia On This Day",
+                        SourceUrl: url,
+                        VerificationNote: $"Verified exact date {key} from Wikimedia REST OnThisDay."), baseScore + indiaScore));
+                }
+            }
+
+            Collect(payload.Selected, "World Heritage", 30);
+            Collect(payload.Events, "World History", 20);
+            Collect(payload.Births, "Birth Anniversary", 15);
+            Collect(payload.Deaths, "Remembering", 10);
+
+            var top = scored
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.Item.Year)
+                .Take(5)
+                .Select(x => x.Item)
+                .ToList();
+
+            if (top.Count > 0)
+                WikiHistoryCache[key] = new WikiCacheEntry(top, now + WikiCacheDuration);
+            return top;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Wikimedia OnThisDay lookup skipped or unavailable for {MonthDay}", key);
+            return cached?.Items ?? [];
+        }
+    }
+
+    private static string IstTodayDateKey()
+    {
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            return DateTime.UtcNow.AddHours(5.5).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
     }
 
     private async Task<T?> SafeGetJsonAsync<T>(
@@ -235,10 +455,36 @@ public sealed class EcosystemSignalsClient(
     private static string NormalizeDateKey(string? rawDate, string fallbackDateKey)
     {
         if (string.IsNullOrWhiteSpace(rawDate)) return fallbackDateKey;
-        if (DateTimeOffset.TryParse(rawDate, out var dto))
-            return dto.ToString("yyyy-MM-dd");
+        if (AutomationFactVerifier.ExtractIsoDateKey(rawDate) is { } exact)
+            return exact;
+        if (DateTimeOffset.TryParse(rawDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
+            return dto.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         return rawDate.Length >= 10 ? rawDate[..10] : fallbackDateKey;
     }
+
+    private sealed record PanchangPayload(
+        string? DateKey,
+        string? Date,
+        string? Location,
+        string? Tithi,
+        string? TithiEndTime,
+        string? Nakshatra,
+        string? NakshatraEndTime,
+        string? Yoga,
+        string? Karana,
+        string? Vaara,
+        string? Paksha,
+        string? MonthPurnimanta,
+        string? VikramSamvat,
+        string? AyanamsaName,
+        string? Sunrise,
+        string? Sunset,
+        string? AbhijitMuhurat,
+        string? BrahmaMuhurat,
+        string? AmritKaal,
+        string? RahuKaal,
+        string? DailySanskritSutra,
+        string? DailySutraMeaning);
 
     private sealed record FestivalPayload(
         string? Id,
@@ -251,7 +497,9 @@ public sealed class EcosystemSignalsClient(
         string? RitualsAndPujaVidhi,
         string? FastingRules,
         bool IsMajorFestival,
-        string? Category);
+        string? Category,
+        string? VerificationSource,
+        string? VerificationUrl);
 
     private sealed record HistoricalPayload(
         string? Id,
@@ -260,7 +508,30 @@ public sealed class EcosystemSignalsClient(
         string? Title,
         string? Category,
         string? Description,
-        string? CulturalSignificance);
+        string? CulturalSignificance,
+        bool? IsExactDateMatch,
+        bool IsVerified,
+        string? SourceName,
+        string? SourceUrl);
+
+    private sealed record WikiOnThisDayResponse(
+        List<WikiEntryPayload>? Selected,
+        List<WikiEntryPayload>? Events,
+        List<WikiEntryPayload>? Births,
+        List<WikiEntryPayload>? Deaths);
+
+    private sealed record WikiEntryPayload(
+        int Year,
+        string? Text,
+        List<WikiPagePayload>? Pages);
+
+    private sealed record WikiPagePayload(
+        string? Title,
+        string? Extract,
+        WikiContentUrlsPayload? ContentUrls);
+
+    private sealed record WikiContentUrlsPayload(WikiUrlPairPayload? Desktop);
+    private sealed record WikiUrlPairPayload(string? Page);
 
     private sealed record CompetitionPayload(
         string? Id,

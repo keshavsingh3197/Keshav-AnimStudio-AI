@@ -227,6 +227,15 @@ public sealed class AutomationPost
     public string? AttachedStoryRunId { get; set; }
     public string? AttachedVideoSourceLabel { get; set; }
 
+    /// <summary>Object-store key for the custom/AI-generated YouTube thumbnail image (normalized JPEG/PNG).</summary>
+    public string? ThumbnailStorageKey { get; set; }
+
+    /// <summary>Optional video frame timestamp (seconds) to extract the YouTube thumbnail from when no custom image is uploaded.</summary>
+    public double? ThumbnailFrameAtSeconds { get; set; }
+
+    /// <summary>Human-readable source label for the configured thumbnail (Uploaded, AI Generated, Video Frame, Storage Image).</summary>
+    public string? ThumbnailSource { get; set; }
+
     public AutomationPostStatus Status { get; set; } = AutomationPostStatus.PreparedPreview;
     public DateTime? ScheduledAtUtc { get; set; }
     public string? QueueItemId { get; set; }
@@ -283,6 +292,23 @@ public sealed class AutomationPost
 
     /// <summary>Timestamp when a published video was synced to sister HinduPanchang / ecosystem video hub.</summary>
     public DateTime? SyncedToEcosystemAtUtc { get; set; }
+
+    /// <summary>Date/fact verification result: Verified, NeedsReview, Mismatch, or Unverified.</summary>
+    public string VerificationStatus { get; set; } = "Verified";
+
+    /// <summary>Human-readable summary of fact &amp; date verification or mismatch explanation.</summary>
+    public string? VerificationSummary { get; set; }
+
+    /// <summary>Authoritative source label (e.g. Wikipedia On This Day, Lahiri Chitrapaksha Ephemeris).</summary>
+    public string? VerificationSourceName { get; set; }
+
+    /// <summary>Direct clickable source URL or search verification URL for double-checking facts.</summary>
+    public string? VerificationSourceUrl { get; set; }
+
+    /// <summary>Detailed list of detected date or fact warnings/mismatches for this post.</summary>
+    public List<string> VerificationIssues { get; set; } = [];
+
+    public DateTime? VerifiedAtUtc { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
