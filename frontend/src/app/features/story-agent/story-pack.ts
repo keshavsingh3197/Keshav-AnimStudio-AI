@@ -50,7 +50,15 @@ export interface PackMeme {
 }
 
 export type FunnyEndingRule = 'mid-and-end' | 'every-scene' | 'episode-end' | 'ai-decides' | 'none';
-export type PackComedyStyle = 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+export type PackComedyStyle =
+  | 'Auto'
+  | 'KhadiBhasha'
+  | 'TuTadak'
+  | 'RoastAndTwist'
+  | 'FamilyClean'
+  | 'GlobalSlapstick'
+  | 'TankSeries'
+  | 'DesiKhadiSitcom';
 
 export interface PackSettings {
   title: string;

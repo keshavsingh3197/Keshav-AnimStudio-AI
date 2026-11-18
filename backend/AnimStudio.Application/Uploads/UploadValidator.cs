@@ -58,6 +58,9 @@ public static class UploadValidator
         new(AssetKind.Video, "video/mp4", ".mp4", [".mp4"],
             [[0x66, 0x74, 0x79, 0x70]]),
 
+        new(AssetKind.Video, "video/webm", ".webm", [".webm"],
+            [[0x1A, 0x45, 0xDF, 0xA3]]),
+
         new(AssetKind.Audio, "audio/mp4", ".m4a", [".m4a"],
             [[0x66, 0x74, 0x79, 0x70]])
     ];

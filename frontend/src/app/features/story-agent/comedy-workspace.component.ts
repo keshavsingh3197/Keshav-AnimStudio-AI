@@ -71,22 +71,38 @@ export class ComedyWorkspaceComponent {
     this.selectedMemeNames.set(cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]);
   }
 
-  applyAutoComedyPreset(): void {
-    this.language.set('hi');
+  applyAutoComedyPreset(track: 'desi' | 'international' | 'tank' = 'desi'): void {
     this.style.set('3D');
     this.targetSeconds.set(30);
     this.voicing.set('CharactersOnly');
-    this.comedyStyle.set('Auto');
     this.includeMidMemes.set(true);
-    if (!this.title().trim()) this.title.set('टपरी पर दोस्ती और उधार कांड 😂');
-    if (!this.material().trim()) {
+    if (track === 'international') {
+      this.language.set('en');
+      this.comedyStyle.set('GlobalSlapstick');
+      this.title.set('Sneaky Doorway Trophy Heist 😂 | #Shorts');
       this.material.set(
-        'पप्पू भैया पूरे कॉन्फिडेंस के साथ बबलू यार को चाय-समोसे की पार्टी देने टपरी पर ले जाते हैं, बबलू उन्हें खड़ी भाषा में चिढ़ाता है, बीच में उधार वाली पुरानी डायरी खुल जाती है और दोनों में से किसी के पास पैसे नहीं निकलते!'
+        'Woody Buddy tip-toes past a glowing doorway frame to snatch a golden trophy, but Cuppy Mascot swaps the door with a bouncy spring wall into a sky-bridge obstacle twist!',
       );
+      this.notice.set('Applied International Zero-Dialogue 3D Slapstick preset (Doorway & Sky Gauntlet).');
+    } else if (track === 'tank') {
+      this.language.set('en');
+      this.comedyStyle.set('TankSeries');
+      this.title.set('KV-Mini vs Mega Cannon Trap | Cartoon Tank Series | EP 01');
+      this.material.set(
+        'Two googly-eyed cartoon tanks brag across the canyon arena before a colossal super-cannon misfires a single squeaky rubber duck!',
+      );
+      this.notice.set('Applied Cartoon Tank Series (| EP XX) preset.');
+    } else {
+      this.language.set('hi');
+      this.comedyStyle.set('DesiKhadiSitcom');
+      this.title.set('टपरी पर दोस्ती और उधार कांड 😂 | EP 01');
+      this.material.set(
+        'पप्पू भैया पूरे कॉन्फिडेंस के साथ बबलू यार को चाय-समोसे की पार्टी देने टपरी पर ले जाते हैं, बबलू उन्हें खड़ी भाषा में चिढ़ाता है, बीच में उधार वाली पुरानी डायरी खुल जाती है और दोनों में से किसी के पास पैसे नहीं निकलते!',
+      );
+      this.notice.set('Applied Desi Khadi-Bhasha MJO-Style Sitcom preset (Tu-Tadak + Auto Memes).');
     }
     const autoPick = this.memeLibrary().slice(0, 6).map((c) => c.name);
     if (autoPick.length) this.selectedMemeNames.set(autoPick);
-    this.notice.set('Applied YouTube comedy preset (Khadi Bhasha + Tu-Tadak banter + auto mid-video memes).');
   }
 
   private body() {

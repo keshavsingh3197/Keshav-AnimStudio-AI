@@ -18,7 +18,11 @@ public enum CharacterVisualRole
     Scholar = 4,
     ChildDevotee = 5,
     NobleWoman = 6,
-    Warrior = 7
+    Warrior = 7,
+    BrainrotLog = 8,
+    CupDancer = 9,
+    CartoonTank = 10,
+    ComicBobble = 11
 }
 
 public sealed record ProceduralCharacterProfile(
@@ -93,6 +97,18 @@ public static partial class DialogueScriptParser
 
     private static readonly string[] ChildDevoteeTokens =
         ["dhruva", "dhruv", "prahlad", "bhakta", "bhakt", "bal", "shishya", "jigyasu", "nachiketa", "eklavya", "lav", "kush", "child", "ध्रुव", "प्रह्लाद", "भक्त", "बाल", "शिष्य", "जिज्ञासु"];
+
+    private static readonly string[] CartoonTankTokens =
+        ["kv-2", "panzer", "tank", "cannon", "turret", "टैंक", "तोप"];
+
+    private static readonly string[] BrainrotLogTokens =
+        ["brainrot", "sahur", "tung", "wooden log", "log", "lakda", "लकड़ा", "लाठी"];
+
+    private static readonly string[] CupDancerTokens =
+        ["teacup", "cup dancer", "kulhad", "espresso", "cup", "mug", "कप", "कुल्हड़"];
+
+    private static readonly string[] ComicBobbleTokens =
+        ["bobble", "mjo", "joker", "comedian", "prankster", "मसखरा"];
 
     public static ProceduralDialoguePlan ParsePlan(
         string title,
@@ -339,6 +355,10 @@ public static partial class DialogueScriptParser
     public static CharacterVisualRole InferRole(string speakerName)
     {
         var lower = speakerName.Trim().ToLowerInvariant();
+        if (CartoonTankTokens.Any(t => SceneDirectives.IndexOfWord(lower, t) >= 0)) return CharacterVisualRole.CartoonTank;
+        if (BrainrotLogTokens.Any(t => SceneDirectives.IndexOfWord(lower, t) >= 0)) return CharacterVisualRole.BrainrotLog;
+        if (CupDancerTokens.Any(t => SceneDirectives.IndexOfWord(lower, t) >= 0)) return CharacterVisualRole.CupDancer;
+        if (ComicBobbleTokens.Any(t => SceneDirectives.IndexOfWord(lower, t) >= 0)) return CharacterVisualRole.ComicBobble;
         if (ChildDevoteeTokens.Any(lower.Contains)) return CharacterVisualRole.ChildDevotee;
         if (NobleWomanTokens.Any(lower.Contains)) return CharacterVisualRole.NobleWoman;
         if (WarriorTokens.Any(lower.Contains)) return CharacterVisualRole.Warrior;

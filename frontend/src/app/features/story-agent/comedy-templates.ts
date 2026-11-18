@@ -7,10 +7,21 @@ export type ComedyTemplateId =
   | 'challenge'
   | 'misunderstanding';
 
-export type ComedyToneStyle = 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+export type ComedyToneStyle =
+  | 'Auto'
+  | 'KhadiBhasha'
+  | 'TuTadak'
+  | 'RoastAndTwist'
+  | 'FamilyClean'
+  | 'GlobalSlapstick'
+  | 'TankSeries'
+  | 'DesiKhadiSitcom';
 
 export const COMEDY_TONE_OPTIONS: readonly { id: ComedyToneStyle; label: string; hint: string }[] = [
   { id: 'Auto', label: 'YouTube Auto (Khadi Bhasha + Tu Tadak)', hint: 'Best Hindi retention blend: desi tapri banter, casual तू-तड़ाक teasing & fast punches' },
+  { id: 'GlobalSlapstick', label: '🌍 Global Slapstick Loop (International)', hint: 'Zero-dialogue 3D physical comedy, doorway peek-a-boos & Sky Gauntlet gags for worldwide viewers' },
+  { id: 'TankSeries', label: '🛡️ Cartoon Tank Series (| EP XX)', hint: 'Expressive googly-eyed 3D tank battles & tiny cannon twist episodes' },
+  { id: 'DesiKhadiSitcom', label: '🇮🇳 Desi Khadi Sitcom (MJO / HardToonz)', hint: '0:02 mid-shout cold open, wide-angle close-ups, Khadi Bhasha roasts & 1-3 word thumbnail hook' },
   { id: 'KhadiBhasha', label: 'Khadi Bhasha / Desi Tapri', hint: 'Earthy Haryana-UP street flavour ("अरे बावले", "इब देख तमाशा", "टैम")' },
   { id: 'TuTadak', label: 'Tu Tadak Buddy Banter', hint: 'Raw close-friend roasting ("अबे सुन", "तू रहने दे", "दिमाग़ घुटनों में है क्या")' },
   { id: 'RoastAndTwist', label: 'Deadpan Roast + Twist', hint: 'Fake confidence -> savage 6-word comeback -> upside-down climax reversal' },

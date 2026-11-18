@@ -367,7 +367,15 @@ export interface StoryBrief {
   textEngine?: string | null;
   /** The brand channel the story is made for; 'default' for the default one. */
   brandChannelId?: string | null;
-  comedyStyle?: 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+  comedyStyle?:
+    | 'Auto'
+    | 'KhadiBhasha'
+    | 'TuTadak'
+    | 'RoastAndTwist'
+    | 'FamilyClean'
+    | 'GlobalSlapstick'
+    | 'TankSeries'
+    | 'DesiKhadiSitcom';
   autoInsertMemes?: boolean;
 }
 
@@ -660,7 +668,15 @@ export interface CreateStoryRunBody {
   textEngine?: string;
   /** The brand channel the story is made for; its project publishes under it. Left out is the default channel. */
   brandChannelId?: string;
-  comedyStyle?: 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+  comedyStyle?:
+    | 'Auto'
+    | 'KhadiBhasha'
+    | 'TuTadak'
+    | 'RoastAndTwist'
+    | 'FamilyClean'
+    | 'GlobalSlapstick'
+    | 'TankSeries'
+    | 'DesiKhadiSitcom';
   autoInsertMemes?: boolean;
   options?: StoryBuildOptionsBody;
 }

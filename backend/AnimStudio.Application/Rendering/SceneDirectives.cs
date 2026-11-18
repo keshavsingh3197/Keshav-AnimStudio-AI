@@ -17,7 +17,10 @@ public enum SceneSetting
     Archive = 9,
     ModernCity = 10,
     ChaiStall = 11,
-    ComedyStage = 12
+    ComedyStage = 12,
+    SkyGauntlet = 13,
+    TankArena = 14,
+    DoorwaySet = 15
 }
 
 /// <summary>Light of a scene: shifts sky colours, sun position and particle kind.</summary>
@@ -62,6 +65,9 @@ public static partial class SceneDirectives
         (SceneSetting.Village, ["village", "home", "house", "hut", "farm", "field", "courtyard", "गाँव", "गांव", "घर", "खेत", "आँगन", "आंगन"]),
         (SceneSetting.Battlefield, ["battlefield", "battle", "war", "kurukshetra", "army", "rebellion", "revolt", "fight", "युद्ध", "रणभूमि", "कुरुक्षेत्र", "सेना", "विद्रोह", "संग्राम"]),
         (SceneSetting.Archive, ["archive", "library", "museum", "classroom", "school", "study", "manuscript", "scroll", "पुस्तकालय", "संग्रहालय", "कक्षा", "विद्यालय", "पांडुलिपि"]),
+        (SceneSetting.SkyGauntlet, ["sky gauntlet", "gauntlet", "obstacle course", "portal", "sky bridge", "catwalk", "clean or dirty", "ब्रिज", "बाधा"]),
+        (SceneSetting.TankArena, ["tank arena", "tank battle", "bunker", "panzer", "kv-2", "tank", "टैंक", "बंकर"]),
+        (SceneSetting.DoorwaySet, ["doorway", "hallway", "corridor", "peek", "pos ronda", "shed door", "दरवाज़ा", "दरवाजा", "गलियारा"]),
         (SceneSetting.ChaiStall, ["chai", "tapri", "tea stall", "nukkad", "dhaba", "mohalla", "gali", "टपरी", "चाय", "नुक्कड़", "मोहल्ला", "ढाबा"]),
         (SceneSetting.ComedyStage, ["comedy", "funny", "meme", "standup", "stage", "roast", "sketch", "prank", "laugh", "joker", "joke", "कॉमेडी", "हंसी", "मज़ाक", "चुटकुला"]),
         (SceneSetting.ModernCity, ["city", "office", "street", "modern", "tech", "lab", "studio", "शहर", "दफ्तर", "सड़क", "आधुनिक"]),
@@ -78,6 +84,10 @@ public static partial class SceneDirectives
 
     private static readonly (CharacterVisualRole Role, string[] Tokens)[] RoleTokens =
     [
+        (CharacterVisualRole.CartoonTank, ["tank", "panzer", "kv-2", "cannon", "turret", "टैंक", "तोप"]),
+        (CharacterVisualRole.BrainrotLog, ["brainrot", "log", "wooden", "sahur", "tung", "club", "लकड़ा", "लाठी"]),
+        (CharacterVisualRole.CupDancer, ["cup", "mug", "teacup", "kulhad", "ballerina", "espresso", "कप", "कुल्हड़"]),
+        (CharacterVisualRole.ComicBobble, ["bobble", "mjo", "caricature", "prankster", "joker", "comedian", "मसखरा", "कार्टून"]),
         (CharacterVisualRole.ChildDevotee, ["child", "boy", "girl", "kid", "young devotee", "student", "बालक", "बालिका", "बच्चा", "बच्ची", "शिष्य"]),
         (CharacterVisualRole.NobleWoman, ["queen", "mother", "woman", "lady", "princess", "rani", "mata", "रानी", "माता", "माँ", "स्त्री", "राजकुमारी", "देवी"]),
         (CharacterVisualRole.Warrior, ["warrior", "soldier", "general", "fighter", "guard", "revolutionary", "योद्धा", "सैनिक", "सेनापति", "वीर", "क्रांतिकारी"]),
@@ -180,7 +190,7 @@ public static partial class SceneDirectives
         SceneSetting.Cosmos => ProceduralSceneTheme.CosmosSacred3D,
         SceneSetting.PalaceCourt or SceneSetting.Battlefield or SceneSetting.Archive => ProceduralSceneTheme.HistoryChronicle3D,
         SceneSetting.ModernCity => ProceduralSceneTheme.NeonCyberGrid3D,
-        SceneSetting.ChaiStall or SceneSetting.ComedyStage => ProceduralSceneTheme.ComedyStage3D,
+        SceneSetting.ChaiStall or SceneSetting.ComedyStage or SceneSetting.SkyGauntlet or SceneSetting.TankArena or SceneSetting.DoorwaySet => ProceduralSceneTheme.ComedyStage3D,
         _ => fallback
     };
 
@@ -217,15 +227,17 @@ public static partial class SceneDirectives
         var lower = text.ToLowerInvariant();
         var best = SceneSetting.Auto;
         var bestAt = int.MaxValue;
-        // The setting named first wins ("temple by the river" is a temple).
+        var bestLen = 0;
+        // Earliest mention wins; at the same position a more specific multi-word phrase ("sky gauntlet") beats a shorter token ("sky").
         foreach (var (setting, tokens) in SettingTokens)
         {
             foreach (var token in tokens)
             {
                 var at = IndexOfWord(lower, token);
-                if (at >= 0 && at < bestAt)
+                if (at >= 0 && (at < bestAt || (at == bestAt && token.Length > bestLen)))
                 {
                     bestAt = at;
+                    bestLen = token.Length;
                     best = setting;
                 }
             }

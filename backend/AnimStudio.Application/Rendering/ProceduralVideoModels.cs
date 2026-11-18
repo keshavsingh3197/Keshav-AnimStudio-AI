@@ -120,6 +120,12 @@ public sealed class ProceduralVideoRequest
     /// <summary>When true, shapes punchline pacing and loop visual cue for short-form repeat loops (10s-30s).</summary>
     public bool IsSeamlessLoop { get; init; }
 
+    /// <summary>When true (or auto-enabled on comedy renders), mixes crisp synthesized cartoon SFX (boing/bonk/boom/scratch) on meme &amp; punchline beats.</summary>
+    public bool EnableComedySfx { get; init; }
+
+    /// <summary>Series episode number (0 for standalone) used to vary procedural props, stage hues, and uniqueness seeds per upload.</summary>
+    public int EpisodeNumber { get; init; }
+
     public bool SaveAsRenderJob { get; init; } = true;
     public bool ReturnInlineBytes { get; init; }
 

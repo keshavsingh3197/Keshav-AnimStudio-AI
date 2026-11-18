@@ -223,6 +223,10 @@ internal static class ProceduralCharacterRenderer
             CharacterVisualRole.ChildDevotee => ((byte)234, (byte)162, (byte)32, (byte)225, (byte)86, (byte)42),
             CharacterVisualRole.NobleWoman => ((byte)196, (byte)44, (byte)86, (byte)248, (byte)196, (byte)70),
             CharacterVisualRole.Warrior => ((byte)120, (byte)84, (byte)52, (byte)178, (byte)182, (byte)192),
+            CharacterVisualRole.BrainrotLog => ((byte)146, (byte)92, (byte)46, (byte)245, (byte)190, (byte)56),
+            CharacterVisualRole.CupDancer => ((byte)236, (byte)244, (byte)255, (byte)244, (byte)114, (byte)182),
+            CharacterVisualRole.CartoonTank => ((byte)72, (byte)114, (byte)64, (byte)250, (byte)204, (byte)21),
+            CharacterVisualRole.ComicBobble => ((byte)249, (byte)115, (byte)22, (byte)56, (byte)189, (byte)248),
             _ => ((byte)40, (byte)84, (byte)128, accent.R, accent.G, accent.B)
         };
         if (robeHex is not null)
@@ -385,6 +389,29 @@ internal static class ProceduralCharacterRenderer
                 canvas.FillEllipse(headCenterX, headCenterY - headRadius * 0.85f, scale * 0.14f, scale * 0.09f, 28, 36, 68, 0.98f);
                 canvas.FillEllipse(headCenterX + dir * scale * 0.05f, headCenterY - headRadius * 1.32f, scale * 0.055f, scale * 0.075f, 16, 185, 129, 0.96f);
                 canvas.DrawAdditiveDisc(headCenterX, headCenterY - headRadius * 1.2f, scale * 0.09f, 250, 204, 21, 0.65f);
+                break;
+
+            case CharacterVisualRole.CartoonTank:
+                canvas.FillEllipse(headCenterX, headCenterY, headRadius * 1.2f, headRadius * 0.72f, 72, 114, 64, 0.99f);
+                canvas.FillCapsule(headCenterX + dir * headRadius * 0.6f, headCenterY - headRadius * 0.1f,
+                    headCenterX + dir * headRadius * 1.9f, headCenterY - headRadius * 0.1f, scale * 0.036f, 54, 88, 48, 0.98f);
+                break;
+
+            case CharacterVisualRole.BrainrotLog:
+                canvas.FillCapsule(headCenterX, hipY, headCenterX, headCenterY - headRadius * 0.9f, headRadius * 0.85f, 146, 92, 46, 0.98f);
+                canvas.FillCapsule(baseX + dir * scale * 0.28f, shoulderY, baseX + dir * scale * 0.36f, shoulderY - scale * 0.32f,
+                    scale * 0.042f, 186, 128, 68, 0.97f);
+                break;
+
+            case CharacterVisualRole.CupDancer:
+                canvas.FillCapsule(headCenterX - scale * 0.14f, headCenterY - headRadius * 0.45f,
+                    headCenterX + scale * 0.14f, headCenterY - headRadius * 0.45f, scale * 0.024f, 248, 200, 52, 0.98f);
+                break;
+
+            case CharacterVisualRole.ComicBobble:
+                canvas.FillEllipse(headCenterX, headCenterY, headRadius * 1.18f, headRadius * 1.18f, skinR, skinG, skinB, 0.99f);
+                canvas.FillEllipse(headCenterX - dir * scale * 0.02f, headCenterY - headRadius * 0.95f,
+                    scale * 0.18f, scale * 0.095f, 36, 30, 42, 0.98f);
                 break;
 
             default:
