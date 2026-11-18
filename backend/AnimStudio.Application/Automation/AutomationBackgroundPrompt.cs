@@ -58,6 +58,9 @@ public static partial class AutomationBackgroundPromptBuilder
         SceneSetting.ModernCity => "modern Indian city rooftop terrace with a skyline of glass towers and soft evening lights",
         SceneSetting.ChaiStall => "busy Indian street corner chai stall with a steaming kettle, glass jars, string lights and a wooden bench",
         SceneSetting.ComedyStage => "small warm comedy club stage with a brick wall, spotlight pool and a red curtain at the side",
+        SceneSetting.SkyGauntlet => "vibrant stylized 3D floating sky gauntlet obstacle catwalk above sunlit clouds with glowing choice portals",
+        SceneSetting.TankArena => "stylized cartoon canyon tank arena with sandbag bunkers, craters and dramatic sunset battle lighting",
+        SceneSetting.DoorwaySet => "colorful slapstick 3D cartoon hallway with an oversized wooden doorway, checkerboard tiles and spotlight",
         _ => "cinematic Indian landscape with a clear open foreground"
     };
 

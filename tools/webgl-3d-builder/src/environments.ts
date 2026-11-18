@@ -9,7 +9,7 @@ export interface EnvironmentRig {
   ambientFireLights: { light: THREE.PointLight; baseIntensity: number; phase: number }[];
   animatedProps: {
     object: THREE.Object3D;
-    kind: 'bell' | 'sway' | 'ring' | 'spotlight' | 'water' | 'diya' | 'steam';
+    kind: 'bell' | 'sway' | 'ring' | 'spotlight' | 'water' | 'diya' | 'steam' | 'portal' | 'door' | 'hazard';
     baseRotZ?: number;
     baseY?: number;
     phase: number;
@@ -486,6 +486,151 @@ function addGenericRichSet(group: THREE.Group, setting: SceneSetting, env: Envir
   addDiya(group, 1.5, 0, -1.2, 2.0, env, true);
 }
 
+function addSkyGauntlet(group: THREE.Group, env: EnvironmentRig, variantSeed: number): void {
+  const deckMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.55 });
+  const railMat = new THREE.MeshStandardMaterial({ color: variantSeed % 2 === 0 ? 0x22d3ee : 0xa855f7, emissive: 0x0ea5e9, emissiveIntensity: 0.55 });
+  const catwalk = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.22, 9.5), deckMat);
+  catwalk.position.set(0, -0.11, -1.5);
+  catwalk.receiveShadow = true;
+  group.add(catwalk);
+
+  for (const sx of [-1.85, 1.85]) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.25, 9.5), railMat);
+    strip.position.set(sx, -0.09, -1.5);
+    group.add(strip);
+  }
+
+  const portalDefs: [number, number][] = [[-1.08, 0x22d3ee], [1.08, 0xf43f5e]];
+  for (let i = 0; i < portalDefs.length; i++) {
+    const [px, col] = portalDefs[i];
+    const portal = new THREE.Group();
+    portal.position.set(px, 1.15, -2.5);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.75, 0.08, 12, 32),
+      new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.85, roughness: 0.2 }),
+    );
+    portal.add(ring);
+    const veil = new THREE.Mesh(
+      new THREE.CircleGeometry(0.70, 24),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.24, side: THREE.DoubleSide }),
+    );
+    portal.add(veil);
+    group.add(portal);
+    env.animatedProps.push({ object: ring, kind: 'portal', phase: i * 1.4, speed: 1.6 });
+  }
+
+  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 });
+  for (let c = 0; c < 6; c++) {
+    const cx = (c - 2.5) * 2.1;
+    const cy = -1.2 + (c % 2) * 0.45;
+    const cloud = new THREE.Mesh(new THREE.SphereGeometry(0.95 + (c % 3) * 0.25, 12, 10), cloudMat);
+    cloud.scale.set(1.8, 0.55, 1.1);
+    cloud.position.set(cx, cy, -5.2 - (c % 2) * 1.2);
+    group.add(cloud);
+  }
+
+  const hazard = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.14, 1.6, 12),
+    new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.35 }),
+  );
+  hazard.rotation.z = Math.PI / 2;
+  hazard.position.set(0, 0.35, -1.0);
+  group.add(hazard);
+  env.animatedProps.push({ object: hazard, kind: 'hazard', phase: 0, speed: 1.9 });
+}
+
+function addTankArena(group: THREE.Group, env: EnvironmentRig): void {
+  const sandMat = new THREE.MeshStandardMaterial({ color: 0xa16236, roughness: 0.92 });
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(11, 36), sandMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  group.add(ground);
+
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x7c3f23, roughness: 0.88 });
+  for (const [rx, rz, h, r] of [[-3.4, -4.6, 2.2, 1.4], [0.4, -5.8, 2.8, 1.9], [3.5, -4.3, 2.0, 1.3]] as const) {
+    const mesa = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.72, r, h, 8), rockMat);
+    mesa.position.set(rx, h * 0.5 - 0.1, rz);
+    mesa.castShadow = true;
+    group.add(mesa);
+  }
+
+  const bagMat = new THREE.MeshStandardMaterial({ color: 0xc29b61, roughness: 0.85 });
+  for (let b = -2; b <= 2; b++) {
+    const bag = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.34, 6, 8), bagMat);
+    bag.rotation.z = Math.PI / 2;
+    bag.position.set(b * 0.56, 0.18, -2.3);
+    bag.castShadow = true;
+    group.add(bag);
+  }
+  const warnMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.5 });
+  for (const px of [-2.2, 2.2]) {
+    const pylon = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.58, 12), warnMat);
+    pylon.position.set(px, 0.29, -1.6);
+    pylon.castShadow = true;
+    group.add(pylon);
+  }
+
+  const fire = new THREE.PointLight(0xf97316, 2.4, 8, 1.5);
+  fire.position.set(0, 1.4, -2.6);
+  group.add(fire);
+  env.ambientFireLights.push({ light: fire, baseIntensity: 2.4, phase: 0.6 });
+}
+
+function addDoorwaySet(group: THREE.Group, env: EnvironmentRig, variantSeed: number): void {
+  const tileA = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.55 });
+  const tileB = new THREE.MeshStandardMaterial({ color: variantSeed % 2 === 0 ? 0x334155 : 0x4c1d95, roughness: 0.55 });
+  for (let x = -4; x <= 4; x++) {
+    for (let z = -3; z <= 3; z++) {
+      const tile = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, 0.98), (x + z) % 2 === 0 ? tileA : tileB);
+      tile.position.set(x, -0.03, z);
+      tile.receiveShadow = true;
+      group.add(tile);
+    }
+  }
+
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: variantSeed % 3 === 0 ? 0x4f46e5 : variantSeed % 3 === 1 ? 0x0f766e : 0xb45309,
+    roughness: 0.78,
+  });
+  for (const sx of [-2.45, 2.45]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(3.4, 4.2, 0.25), wallMat);
+    wall.position.set(sx, 2.1, -2.8);
+    wall.receiveShadow = true;
+    group.add(wall);
+  }
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.4, 0.25), wallMat);
+  lintel.position.set(0, 3.5, -2.8);
+  group.add(lintel);
+
+  const woodFrameMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.6 });
+  for (const fx of [-0.78, 0.78]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.85, 0.34), woodFrameMat);
+    post.position.set(fx, 1.425, -2.8);
+    group.add(post);
+  }
+  const topTrim = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.16, 0.36), woodFrameMat);
+  topTrim.position.set(0, 2.86, -2.8);
+  group.add(topTrim);
+
+  const doorPivot = new THREE.Group();
+  doorPivot.position.set(-0.7, 0, -2.76);
+  const doorLeaf = new THREE.Mesh(
+    new THREE.BoxGeometry(1.38, 2.75, 0.08),
+    new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 }),
+  );
+  doorLeaf.position.set(0.69, 1.375, 0);
+  doorLeaf.castShadow = true;
+  doorPivot.add(doorLeaf);
+  const knob = new THREE.Mesh(
+    new THREE.SphereGeometry(0.08, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.85, roughness: 0.2 }),
+  );
+  knob.position.set(1.22, 1.25, 0.07);
+  doorPivot.add(knob);
+  group.add(doorPivot);
+  env.animatedProps.push({ object: doorPivot, kind: 'door', phase: 0.3, speed: 2.2 });
+}
+
 export function buildEnvironment(
   scene: THREE.Scene,
   job: RenderJobJson,
@@ -604,6 +749,15 @@ export function buildEnvironment(
     case 'ChaiStall':
       addChaiStall(group, rig);
       break;
+    case 'SkyGauntlet':
+      addSkyGauntlet(group, rig, job.uniqueVariant ?? job.seed ?? 0);
+      break;
+    case 'TankArena':
+      addTankArena(group, rig);
+      break;
+    case 'DoorwaySet':
+      addDoorwaySet(group, rig, job.uniqueVariant ?? job.seed ?? 0);
+      break;
     case 'Himalaya':
       addHimalayaStage(group, rig);
       break;
@@ -648,6 +802,14 @@ export function updateEnvironment(
       const spot = prop.object as THREE.SpotLight;
       spot.target.position.set(Math.sin(t * prop.speed + prop.phase) * 1.1, 0.8, 0);
       spot.target.updateMatrixWorld();
+    } else if (prop.kind === 'portal') {
+      prop.object.rotation.z = t * prop.speed + prop.phase;
+      const s = 0.94 + 0.08 * Math.sin(t * 3.8 + prop.phase);
+      prop.object.scale.setScalar(s);
+    } else if (prop.kind === 'door') {
+      prop.object.rotation.y = 0.35 + Math.sin(t * prop.speed + prop.phase) * 0.48;
+    } else if (prop.kind === 'hazard') {
+      prop.object.rotation.y = t * prop.speed + prop.phase;
     }
   }
 

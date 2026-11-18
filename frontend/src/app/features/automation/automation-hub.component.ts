@@ -2818,6 +2818,9 @@ export class AutomationHubComponent implements OnInit {
   readonly narrativeModeOptions = NARRATIVE_MODE_OPTIONS;
   readonly comedyToneOptions: { value: ComedyToneStyle; label: string }[] = [
     { value: 'Auto', label: 'YouTube Auto (Khadi Bhasha + Tu Tadak)' },
+    { value: 'GlobalSlapstick', label: '🌍 International Slapstick Loop (Zero-Dialogue 3D)' },
+    { value: 'TankSeries', label: '🛡️ Cartoon Tank Series (| EP XX)' },
+    { value: 'DesiKhadiSitcom', label: '🇮🇳 Desi Khadi Sitcom (MJO / HardToonz Style)' },
     { value: 'KhadiBhasha', label: 'Khadi Bhasha / Desi Tapri Dialect' },
     { value: 'TuTadak', label: 'Tu Tadak Buddy Roast Banter' },
     { value: 'RoastAndTwist', label: 'Deadpan Roast + Twist Ending' },
@@ -4573,7 +4576,8 @@ export class AutomationHubComponent implements OnInit {
   }
 
   applyFunnyRuleAutoConfig(rule: AutomationRule): void {
-    const comedyHints = ['keshav-anim-ff', 'funny', 'comedy', 'meme', 'roast', 'hasya', 'tapri'];
+    const comedyHints = ['keshav-anim-ff', 'ploptoonz', 'gigglebot', 'kaleshadda', 'gappatoonz', 'funny', 'comedy', 'meme', 'roast', 'hasya', 'tapri'];
+    const intlHints = ['keshav-anim-ff', 'ploptoonz', 'gigglebot', 'zanyloop', 'global', 'tank'];
     const isComedyHint = (s?: string | null) => {
       const lower = (s ?? '').toLowerCase();
       return !!lower && !lower.includes('panchang') && !lower.includes('bhakti') && comedyHints.some((h) => lower.includes(h));
@@ -4586,20 +4590,28 @@ export class AutomationHubComponent implements OnInit {
       rule.targetChannelHandle = comedyChannel.channelHandle ?? null;
       rule.targetChannelTitle = comedyChannel.channelTitle;
     }
+    const handleLower = `${rule.targetChannelHandle ?? ''} ${rule.targetChannelTitle ?? ''}`.toLowerCase();
+    const isIntl = intlHints.some((h) => handleLower.includes(h));
     if (!rule.name.trim() || rule.name === 'New Daily Pipeline') {
-      rule.name = 'Funny 3D Comedy Shorts';
+      rule.name = isIntl ? 'Global 3D Slapstick Shorts' : 'Funny 3D Desi Comedy Shorts';
     }
-    rule.language = 'hi';
+    rule.language = isIntl ? 'en' : 'hi';
     rule.categoryId = '23';
     rule.narrativeMode = 'ShortReel';
     rule.targetSeconds = 25;
     rule.enableCharacterDialogue = true;
-    rule.speakerAName = rule.speakerAName?.trim() || 'पप्पू भैया';
-    rule.speakerBName = rule.speakerBName?.trim() || 'बबलू यार';
+    rule.speakerAName = rule.speakerAName?.trim() || (isIntl ? 'Woody Buddy' : 'पप्पू भैया');
+    rule.speakerBName = rule.speakerBName?.trim() || (isIntl ? 'Cuppy Mascot' : 'बबलू यार');
     rule.subtitlePreset = 'karaoke-pulse';
-    rule.comedyStyle = rule.comedyStyle ?? 'Auto';
+    rule.comedyStyle = rule.comedyStyle && rule.comedyStyle !== 'Auto'
+      ? rule.comedyStyle
+      : (isIntl ? 'GlobalSlapstick' : 'DesiKhadiSitcom');
     rule.autoInsertMemes = true;
-    this.status.showNotice('Applied separate Funnier Channel auto-config (Khadi Bhasha + Tu-Tadak + Auto Memes).');
+    this.status.showNotice(
+      isIntl
+        ? 'Applied International Zero-Dialogue 3D Slapstick config (Global Shorts + Auto Memes).'
+        : 'Applied Desi Khadi Sitcom auto-config (Tu-Tadak + Auto Memes).',
+    );
   }
 
   onRuleNarrativeChange(rule: AutomationRule, mode: AutomationNarrativeMode): void {

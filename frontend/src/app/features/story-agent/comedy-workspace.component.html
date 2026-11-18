@@ -82,7 +82,9 @@
       }
     </div>
     <div class="cw-actions">
-      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset()">⚡ Auto Comedy Preset</button>
+      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('desi')">🇮🇳 Desi Khadi Sitcom</button>
+      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('international')">🌍 Global 3D Loop</button>
+      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('tank')">🛡️ Tank Series EP</button>
       <button type="button" [disabled]="!ready() || busy()" (click)="convert()">
         @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> Working… } @else { Convert with configured AI }
       </button>

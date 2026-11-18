@@ -6,7 +6,11 @@ export type CharacterRole =
   | 'Scholar'
   | 'ChildDevotee'
   | 'NobleWoman'
-  | 'Warrior';
+  | 'Warrior'
+  | 'BrainrotLog'
+  | 'CupDancer'
+  | 'CartoonTank'
+  | 'ComicBobble';
 
 export type SceneSetting =
   | 'Auto'
@@ -21,7 +25,10 @@ export type SceneSetting =
   | 'Archive'
   | 'ModernCity'
   | 'ChaiStall'
-  | 'ComedyStage';
+  | 'ComedyStage'
+  | 'SkyGauntlet'
+  | 'TankArena'
+  | 'DoorwaySet';
 
 export type SceneTimeOfDay = 'Auto' | 'Dawn' | 'Day' | 'Sunset' | 'Night';
 
@@ -114,6 +121,8 @@ export interface RenderJobJson {
   vfxStyle: VfxStyle;
   enableDynamicCamera: boolean;
   isSeamlessLoop: boolean;
+  isComedyMode?: boolean;
+  uniqueVariant?: number;
   topCategoryLabel?: string | null;
   footerLabel?: string | null;
   title: string;

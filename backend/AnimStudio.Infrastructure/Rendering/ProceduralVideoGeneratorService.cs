@@ -197,6 +197,18 @@ public sealed class ProceduralVideoGeneratorService(
         if (effectiveMemeCues.Count > 0 && dialoguePlan.Memes.Count == 0)
             dialoguePlan = dialoguePlan with { MemeCues = effectiveMemeCues };
 
+        // 2.6 Deterministic cartoon SFX layer for comedy shorts & series
+        var isComedy = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
+            || resolvedTheme == ProceduralSceneTheme.ComedyStage3D
+            || request.EnableComedySfx;
+        var hasSfx = false;
+        if (isComedy && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1))
+        {
+            var sfxDst = workspace.Resolve("in/sfx.wav");
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct).ConfigureAwait(false);
+            hasSfx = File.Exists(sfxDst);
+        }
+
         // 3. Optional beat-synchronized ASS subtitle + top-header overlay (reuses ScriptFonts Devanagari resolution)
         var hasSubtitles = false;
         if (request.IncludeCaptions && capabilities.Supports(RenderFeature.BurnedSubtitles))
@@ -280,7 +292,7 @@ public sealed class ProceduralVideoGeneratorService(
             CreateNoWindow = true
         };
 
-        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles, memeOverlays))
+        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles, memeOverlays, hasSfx))
             startInfo.ArgumentList.Add(arg);
 
         using var process = new Process { StartInfo = startInfo };
@@ -716,7 +728,8 @@ public sealed class ProceduralVideoGeneratorService(
         bool hasSpeech,
         bool hasBgm,
         bool hasSubtitles,
-        IReadOnlyList<ResolvedMemeOverlay>? memeOverlays = null)
+        IReadOnlyList<ResolvedMemeOverlay>? memeOverlays = null,
+        bool hasSfx = false)
     {
         var args = new List<string>
         {
@@ -733,6 +746,7 @@ public sealed class ProceduralVideoGeneratorService(
         var nextInput = 1;
         var speechIdx = -1;
         var bgmIdx = -1;
+        var sfxIdx = -1;
 
         if (hasSpeech)
         {
@@ -747,6 +761,13 @@ public sealed class ProceduralVideoGeneratorService(
             args.AddRange(["-stream_loop", "-1", "-t", durStr, "-i", "in/ambient.wav"]);
         }
 
+        if (hasSfx)
+        {
+            sfxIdx = nextInput++;
+            args.Add("-i");
+            args.Add("in/sfx.wav");
+        }
+
         var overlays = memeOverlays?.Where(o => !string.IsNullOrWhiteSpace(o.RelativePath)).ToList() ?? [];
         var overlayInputs = new List<(int InputIndex, ResolvedMemeOverlay Overlay)>(overlays.Count);
         foreach (var ov in overlays)
@@ -756,7 +777,7 @@ public sealed class ProceduralVideoGeneratorService(
             args.Add(ov.RelativePath);
         }
 
-        if (overlays.Count == 0)
+        if (overlays.Count == 0 && !hasSfx)
         {
             if (hasSpeech && hasBgm)
             {
@@ -820,26 +841,50 @@ public sealed class ProceduralVideoGeneratorService(
             }
 
             string? audioMap = null;
+            var baseAudioLabel = hasSfx ? "abase" : "aout";
             if (hasSpeech && hasBgm)
             {
                 fc.Append(CultureInfo.InvariantCulture,
-                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
-                audioMap = "[aout]";
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[{baseAudioLabel}];");
+                audioMap = $"[{baseAudioLabel}]";
             }
             else if (hasSpeech)
             {
                 fc.Append(CultureInfo.InvariantCulture,
-                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]");
-                audioMap = "[aout]";
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[{baseAudioLabel}];");
+                audioMap = $"[{baseAudioLabel}]";
             }
             else if (hasBgm)
             {
                 fc.Append(CultureInfo.InvariantCulture,
-                    $"[{bgmIdx}:a]aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
-                audioMap = "[aout]";
+                    $"[{bgmIdx}:a]aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6[{baseAudioLabel}];");
+                audioMap = $"[{baseAudioLabel}]";
             }
 
-            args.AddRange(["-filter_complex", fc.ToString().TrimEnd(';'), "-map", $"[{currentVideo}]"]);
+            if (hasSfx)
+            {
+                if (audioMap is not null)
+                {
+                    fc.Append(CultureInfo.InvariantCulture,
+                        $"[{sfxIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.88[sfx];{audioMap}[sfx]amix=inputs=2:duration=first:normalize=0[aout];");
+                    audioMap = "[aout]";
+                }
+                else
+                {
+                    fc.Append(CultureInfo.InvariantCulture,
+                        $"[{sfxIdx}:a]aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout];");
+                    audioMap = "[aout]";
+                }
+            }
+
+            if (fc.Length > 0)
+            {
+                args.AddRange(["-filter_complex", fc.ToString().TrimEnd(';'), "-map", currentVideo == "0:v" ? "0:v" : $"[{currentVideo}]"]);
+            }
+            else
+            {
+                args.AddRange(["-map", "0:v"]);
+            }
             if (audioMap is not null) args.AddRange(["-map", audioMap]);
         }
 
@@ -852,7 +897,7 @@ public sealed class ProceduralVideoGeneratorService(
             "-movflags", "+faststart"
         ]);
 
-        if (hasSpeech || hasBgm)
+        if (hasSpeech || hasBgm || hasSfx)
         {
             args.AddRange(["-c:a", "aac", "-profile:a", "aac_low", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-t", durStr, "-shortest"]);
         }

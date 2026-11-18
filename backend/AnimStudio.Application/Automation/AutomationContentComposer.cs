@@ -714,11 +714,19 @@ public static class AutomationContentComposer
     {
         var customSeed = string.IsNullOrWhiteSpace(rule.CustomTopicPrompt) ? null : rule.CustomTopicPrompt.Trim();
         var effectiveTone = rule.ComedyStyle;
-        var isKhadi = effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha;
+        if (effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.Auto && !isHindi)
+            effectiveTone = AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick;
+        var isKhadi = effectiveTone is AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha
+            or AnimStudio.Domain.Stories.ComedyToneStyle.DesiKhadiSitcom;
         var isClean = effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.FamilyClean;
-        var (speakerA, speakerB) = ResolveSpeakerPair(rule, customSeed ?? "Comedy Chai Tapri", null, isHindi);
+        var isTank = effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries;
+        var isGlobal = effectiveTone == AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick;
+        var defaultPairSeed = isTank ? "KV-Tiny Tank & Blitz Tank"
+            : isGlobal ? "Woody Log & Cuppy Mug"
+            : "Comedy Chai Tapri";
+        var (speakerA, speakerB) = ResolveSpeakerPair(rule, customSeed ?? defaultPairSeed, null, isHindi && !isTank && !isGlobal);
         var byStander = isHindi ? "टपरी भैया" : "Chai Guy";
-        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode(dateKey)) % 5;
+        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode($"{dateKey}:{rule.TargetChannelHandle}:{rule.Id}")) % 5;
         var isFull = IsFullStoryMode(rule);
         var includeMemes = rule.AutoInsertMemes;
 
@@ -747,21 +755,33 @@ public static class AutomationContentComposer
             _ => "Wedding Buffet Paneer Strategy Exposed 😂"
         };
 
+        var epTag = $"EP {(slot + 1):00}";
         var title = Truncate(
-            isHindi ? $"{topicTitleHi} | #Shorts Comedy" : $"{topicTitleEn} | 3D Comedy Short",
+            isTank ? $"{topicTitleEn} | Cartoon Tank Series | {epTag}"
+                : isHindi ? $"{topicTitleHi} | #Shorts Comedy"
+                : $"{topicTitleEn} | 3D Comedy Loop",
             MaxTitleLength);
 
-        var script = isHindi
-            ? BuildHindiComedyScript(speakerA, speakerB, byStander, slot, effectiveTone, isFull, includeMemes, rule.EnableCharacterDialogue)
-            : BuildEnglishComedyScript(speakerA, speakerB, byStander, slot, isFull, includeMemes, rule.EnableCharacterDialogue);
+        var script = isTank || isGlobal
+            ? BuildEnglishComedyScript(speakerA, speakerB, byStander, slot, isFull, includeMemes, rule.EnableCharacterDialogue, effectiveTone)
+            : isHindi
+                ? BuildHindiComedyScript(speakerA, speakerB, byStander, slot, effectiveTone, isFull, includeMemes, rule.EnableCharacterDialogue)
+                : BuildEnglishComedyScript(speakerA, speakerB, byStander, slot, isFull, includeMemes, rule.EnableCharacterDialogue, effectiveTone);
 
-        var summaryText = isHindi
-            ? $"{topicTitleHi} — {effectiveTone} देसी कॉमेडी शॉर्ट"
-            : $"{topicTitleEn} — 3D animated comedy skit";
+        var summaryText = isTank
+            ? $"{topicTitleEn} — {epTag} animated cartoon tank comedy"
+            : isHindi
+                ? $"{topicTitleHi} — {effectiveTone} देसी कॉमेडी शॉर्ट"
+                : $"{topicTitleEn} — unique 3D slapstick loop";
         var prompt = ApplyPromptOverride(rule,
-            $"Expressive colorful 3D comedy animation in {ratioLabel} across an Indian chai tapri and comedy spot stage: " +
-            $"warm tangerine lighting, exaggerated wide-eyed cartoon reactions, rapid banter cuts on '{topicTitleHi}'.");
-        var thumbPrompt = $"Bright expressive 3D cartoon comedy thumbnail for '{title}', shocked and laughing faces, bold orange/gold contrast, no text.";
+            isTank
+                ? $"Vibrant 3D cartoon tank arena comedy in {ratioLabel}, expressive googly-eyed tanks, canyon dust and comic cannon twist on '{topicTitleEn}'."
+                : isGlobal
+                    ? $"World-friendly 3D cartoon slapstick animation in {ratioLabel}, stylized doorway & sky gauntlet characters, vivid reaction faces on '{topicTitleEn}'."
+                    : $"Expressive colorful 3D comedy animation in {ratioLabel} across an Indian chai tapri and comedy spot stage: warm tangerine lighting, exaggerated wide-eyed cartoon reactions, rapid banter cuts on '{topicTitleHi}'.");
+        var thumbPrompt = isHindi && !isTank && !isGlobal
+            ? $"Bright MJO-style 3D cartoon comedy thumbnail for '{title}', shocked bulging eyes, bold high-contrast background, punchy 1-3 word Hinglish shock hook."
+            : $"Bright viral 3D animation thumbnail for '{title}', extreme wide-eyed comic reaction close-up, saturated neon sky rim light, zero clutter.";
         var tags = MergeTags(
             ["Comedy Shorts", "Desi Comedy", isKhadi ? "Khadi Bhasha Comedy" : "Tu Tadak Comedy", "Hindi Funny Animation", "KESHAV-ANIM-FF", "Shorts"],
             baseTags,
@@ -896,30 +916,66 @@ public static class AutomationContentComposer
         int slot,
         bool isFull,
         bool includeMemes,
-        bool dialogueEnabled)
+        bool dialogueEnabled,
+        AnimStudio.Domain.Stories.ComedyToneStyle tone = AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick)
     {
         if (!dialogueEnabled)
         {
             return $"""
-                [SCENE]: comedy stage | day | playful
-                Me setting five alarms for 5 AM thinking I will become a morning legend...
-                {(includeMemes ? "[MEME]: shocked_face | Brain went straight back into airplane mode!\n" : string.Empty)}Only to wake up at 11 AM feeling proud that I turned all five off in my sleep!
+                [CAST]: {speakerA} | log | warm carved wood, huge googly eyes
+                [CAST]: {speakerB} | cup | bright ceramic mug, bouncing steam
+                [SCENE]: doorway set | day | slapstick | IMAGE: colorful 3D hallway with central wooden slapstick doorway and spotlight
+                Me tip-toeing past the doorway thinking nobody saw that sneaky snack grab...
+                {(includeMemes ? "[MEME]: shocked_face | BUSTED IN 4K!\n" : string.Empty)}Wait... why is everyone standing right behind the door?!
                 """;
         }
 
         string memeMid(string key, string caption) => includeMemes ? $"[MEME]: {key} | {caption}\n" : string.Empty;
+
+        if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries
+            || (tone != AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick && slot % 3 == 2))
+        {
+            return $"""
+                [CAST]: {speakerA} | tank | olive green turret, googly eyes, oversized barrel
+                [CAST]: {speakerB} | tank | crimson armor plating, nervous eyebrows
+                [SCENE]: tank arena | sunset | dramatic | IMAGE: stylized cartoon desert canyon tank arena with bunkers and smoke plumes, no people
+                [{speakerA}]: (proud) Step aside mini tank — one blast from this mega cannon ends the whole episode!
+                [{speakerB}]: (surprised) Bro wait, did you check what ammo you actually loaded in that barrel?!
+                {memeMid("shocked_face", "WRONG AMMO LOADED!")}[SCENE]: tank arena | day | laughing | IMAGE: colorful cartoon tank canyon with tiny confetti puff and shocked birds, no people
+                [{speakerA}]: (confused) Wait... why did my super cannon just shoot one bouncy rubber duck?!
+                [{speakerB}]: (laughing) Victory by rubber ducky — see you in the next episode!
+                {(isFull ? $"[{speakerA}]: (angry) Don't laugh! Wait till Episode Next — I'm switching to water balloons!" : string.Empty)}
+                {memeMid("emotional_damage", "TOTAL CONFUSION!")}
+                """;
+        }
+
+        if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick || slot % 3 == 0)
+        {
+            return $"""
+                [CAST]: {speakerA} | log | carved wooden buddy, expressive giant eyes, sports bat
+                [CAST]: {speakerB} | cup | pastel espresso dancer, golden rim, cheeky grin
+                [SCENE]: doorway set | day | slapstick | IMAGE: vibrant 3D cartoon hallway with peek-a-boo doorway frame and checkerboard floor, no people
+                [{speakerA}]: (proud) Zero noise, maximum stealth — grabbing that golden trophy before anyone blinks!
+                [{speakerB}]: (surprised) Wait... why did you just walk straight back into your own reflection?!
+                {memeMid("brain_buffering", "LOOK BEHIND THE DOOR!")}[SCENE]: sky gauntlet | sunset | excited | IMAGE: glowing 3D floating sky bridge obstacle course above sunlit clouds, no people
+                [{speakerA}]: (angry) Who put a slippery banana trap right on the CLEAN obstacle door?!
+                [{speakerB}]: (laughing) Spoiler alert: both doors lead to the bouncy trampoline anyway!
+                {memeMid("shocked_face", "INSTANT REPLAY LOOP!")}
+                """;
+        }
+
         return $"""
-            [CAST]: {speakerA} | scholar | orange hoodie, messy hair, smug sunglasses
-            [CAST]: {speakerB} | child | blue jacket, raised eyebrow, deadpan grin
-            [CAST]: {bystander} | villager | cafe apron, holding tea tray, unimpressed look
-            [SCENE]: chai stall | day | playful | IMAGE: bright cartoon corner cafe tapri, steaming cups, warm sunlit comedy backdrop, no people
-            [{speakerB}]: (angry) Bro, you texted 'two minutes away' forty minutes ago — why are you still wearing slippers at home?
+            [CAST]: {speakerA} | bobble | bright orange hoodie, giant expressive cartoon eyes
+            [CAST]: {speakerB} | bobble | cyan jacket, suspicious sideways glance
+            [CAST]: {bystander} | cup | cafe mug mascot holding tray, unimpressed
+            [SCENE]: chai stall | day | playful | IMAGE: bright stylized 3D cartoon corner cafe with floating neon mug sign, no people
+            [{speakerB}]: (angry) Bro, you texted 'two minutes away' forty minutes ago — why are you still wearing slippers?!
             [{speakerA}]: (proud) Relax, my spirit arrived on time — my slippers just got stuck buffering on the couch!
-            {memeMid("brain_buffering", "Excuse level: 999+!")}[SCENE]: comedy stage | sunset | laughing | IMAGE: colorful animated street cafe table under glowing evening lamps, comic shadows, no people
-            [{bystander}]: (sarcastic) That is hilarious — anyway your friend ordered four samosas on your tab while waiting!
-            [{speakerA}]: (surprised) Wait... my UPI app suddenly lost signal right outside the door!
-            {(isFull ? $"[{speakerB}]: (laughing) Nice try, I brought my hotspot — pay up right now!" : string.Empty)}
-            {memeMid("emotional_damage", "Caught red-handed with zero signal!")}
+            {memeMid("brain_buffering", "EXCUSE LEVEL 999+")}[SCENE]: comedy stage | sunset | laughing | IMAGE: vibrant 3D cartoon stage with spotlight rings and brick wall, no people
+            [{bystander}]: (sarcastic) Hilarious — anyway your friend ordered four extra snacks on your tab while waiting!
+            [{speakerA}]: (surprised) Wait... my payment app suddenly lost Wi-Fi right outside the door!
+            {(isFull ? $"[{speakerB}]: (laughing) Nice try, I turned on my hotspot — pay up right now!" : string.Empty)}
+            {memeMid("emotional_damage", "CAUGHT ZERO SIGNAL!")}
             """;
     }
 

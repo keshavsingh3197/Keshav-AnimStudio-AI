@@ -69,6 +69,9 @@ internal static class WebGlVideoFrameRenderer
             vfxStyle = effectiveVfx,
             enableDynamicCamera = request.EnableDynamicCamera,
             isSeamlessLoop = request.IsSeamlessLoop,
+            isComedyMode = resolvedTheme == ProceduralSceneTheme.ComedyStage3D
+                || string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase),
+            uniqueVariant = unchecked(seed ^ (request.EpisodeNumber * 7919)),
             topCategoryLabel = request.TopCategoryLabel,
             footerLabel = request.FooterLabel,
             title = request.Title,

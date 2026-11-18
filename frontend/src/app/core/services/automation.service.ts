@@ -48,7 +48,15 @@ export type AutomationVisualEngine =
 
 export type AutomationNarrativeMode = 'Auto' | 'ShortReel' | 'FullStory';
 
-export type ComedyToneStyle = 'Auto' | 'KhadiBhasha' | 'TuTadak' | 'RoastAndTwist' | 'FamilyClean';
+export type ComedyToneStyle =
+  | 'Auto'
+  | 'KhadiBhasha'
+  | 'TuTadak'
+  | 'RoastAndTwist'
+  | 'FamilyClean'
+  | 'GlobalSlapstick'
+  | 'TankSeries'
+  | 'DesiKhadiSitcom';
 
 export type SubtitleMotionPreset = 'event-glow' | 'karaoke-pulse' | 'classic-clean';
 

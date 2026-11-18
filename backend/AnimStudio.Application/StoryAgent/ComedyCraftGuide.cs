@@ -88,6 +88,12 @@ public static class ComedyCraftGuide
                     "Dry deadpan confidence punctured by brutal 6-word friend roasts and an upside-down plot twist payoff.",
                 ComedyToneStyle.FamilyClean =>
                     "Clean, bouncy situational slapstick comedy suitable for all ages — warm teasing with big animated reactions.",
+                ComedyToneStyle.GlobalSlapstick =>
+                    "Zero-dialogue / minimal-text worldwide 3D physical slapstick & seamless loop comedy: exaggerated reaction timing, doorway peek-a-boos, sky gauntlet gags, crisp cartoon SFX, zero language barrier so any country laughs.",
+                ComedyToneStyle.TankSeries =>
+                    "International 3D cartoon tank series (| EP XX): expressive googly-eyed tanks with personality, dramatic canyon standoffs, tiny cannon recoil twist, comic smoke puffs, crisp SFX punchline.",
+                ComedyToneStyle.DesiKhadiSitcom =>
+                    "MJO / HardToonz viral Hindi comedy rhythm: 0:02 mid-shout cold open, extreme wide-angle close-ups vs background partner, bulging eyes & sweat drops, rapid escalation & 1-3 word Hinglish thumbnail hook.",
                 _ =>
                     "YouTube high-retention comedy blend: snappy buddy roast banter, exaggerated setups, instant interruptions, zero stiff lecturing."
             };
@@ -103,6 +109,12 @@ public static class ComedyCraftGuide
                 "डेडपैन रोस्ट और सरप्राइज़ ट्विस्ट: एक किरदार बड़े आत्मविश्वास से फेंके, दूसरा 5-8 शब्दों में बेबाक रोस्ट कर दे, और आखिरी लाइन पूरा खेल पलट दे।",
             ComedyToneStyle.FamilyClean =>
                 "साफ़-सुथरी फैमिली व बच्चों की स्लैपस्टिक कॉमेडी: 'अरे वाह' और मज़ेदार स्थितिजन्य गड़बड़ी — बिना 'अबे/तू' की कड़वाहट के सबके साथ देखने लायक हँसी।",
+            ComedyToneStyle.GlobalSlapstick =>
+                "इंटरनेशनल नॉन-डायलॉग 3D स्लैपस्टिक व सीमलेस लूप कॉमेडी: शब्दों से ज़्यादा चेहरे के एक्सप्रेशन, डोरवे पीक-अ-बू, स्काई ब्रिज बाधा और शॉकिंग कार्टून साउंड इफ़ेक्ट्स (ताकि पूरी दुनिया बिना भाषा की रुकावट के देखे)।",
+            ComedyToneStyle.TankSeries =>
+                "कार्टून टैंक कॉमेडी सीरीज़ (| EP XX): गोल-मटोल आँखों वाले 3D टैंक कैरेक्टर, रणभूमि में बड़ा दावा और अचानक फुस्स तोप का ज़बरदस्त ट्विस्ट।",
+            ComedyToneStyle.DesiKhadiSitcom =>
+                "MJO / HardToonz स्टाइल देसी खड़ी भाषा सिटकॉम (| EP XX): पहले 2 सेकंड में तेज़ बहस से शुरुआत, बड़े कैमरे के सामने शॉक-फेस क्लोज़-अप, तेज़ कट्स और 1-3 शब्दों का वायरल हिंग्लिश थंबनेल हुक।",
             _ =>
                 "यूट्यूब हाई-रिटेंशन देसी कॉमेडी (खड़ी भाषा + तू-तड़ाक याराना मिक्स): 'अबे सुन', 'इब के करैगो', 'अरे बावले', 'तू रहने दे भाई' जैसी आम बोलचाल की मज़ेदार भाषा बोलें। कोई किताबी उपदेश या 'आइए जानें / मित्र' वाली औपचारिकता बिल्कुल न रखें।"
         };

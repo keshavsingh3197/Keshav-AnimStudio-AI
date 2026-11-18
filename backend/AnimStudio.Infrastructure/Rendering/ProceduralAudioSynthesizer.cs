@@ -322,4 +322,99 @@ public static class ProceduralAudioSynthesizer
         await fs.WriteAsync(header, ct).ConfigureAwait(false);
         await fs.WriteAsync(pcmData, ct).ConfigureAwait(false);
     }
+
+    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon }
+
+    /// <summary>
+    /// Synthesizes deterministic cartoon &amp; slapstick sound effects aligned to meme cutaways and emotional beats.
+    /// Zero external copyright samples: every hit is procedural DSP waveform synthesis at 48kHz stereo.
+    /// </summary>
+    public static async Task WriteComedySfxWavAsync(
+        string outputPath,
+        ProceduralDialoguePlan plan,
+        int durationSeconds,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var totalSamples = Math.Max(SampleRate, durationSeconds * SampleRate);
+        var mix = new double[totalSamples];
+        var events = new List<(double Time, ComedySfxKind Kind, double Gain)>();
+
+        foreach (var meme in plan.Memes)
+        {
+            var kind = meme.Name.Contains("bonk", StringComparison.OrdinalIgnoreCase) ? ComedySfxKind.Bonk
+                : meme.Name.Contains("buffering", StringComparison.OrdinalIgnoreCase) ? ComedySfxKind.RecordScratch
+                : ComedySfxKind.VineBoom;
+            events.Add((Math.Max(0.15, meme.StartSeconds - 0.06), kind, 0.78));
+        }
+
+        foreach (var turn in plan.Turns)
+        {
+            if (turn.IsTitleHook) continue;
+            if (turn.SpeakerRole == CharacterVisualRole.CartoonTank && turn.Emotion is "angry" or "proud")
+                events.Add((turn.StartSeconds + 0.08, ComedySfxKind.TankCannon, 0.72));
+            else if (turn.Emotion is "surprised")
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Boing, 0.52));
+            else if (turn.Emotion is "angry")
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Bonk, 0.48));
+            else if (turn.Emotion is "confused")
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.RecordScratch, 0.44));
+        }
+
+        var rng = new Random(0xC0DE5F);
+        foreach (var (time, kind, gain) in events)
+        {
+            var startIdx = (int)Math.Round(time * SampleRate);
+            var sfxDur = kind switch
+            {
+                ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => 0.75,
+                ComedySfxKind.Boing => 0.46,
+                ComedySfxKind.RecordScratch => 0.24,
+                _ => 0.28
+            };
+            var len = Math.Min(totalSamples - Math.Max(0, startIdx), (int)(sfxDur * SampleRate));
+            if (startIdx < 0 || len <= 0) continue;
+
+            var phase = 0.0;
+            for (var i = 0; i < len; i++)
+            {
+                var u = i / (double)SampleRate;
+                var freq = kind switch
+                {
+                    ComedySfxKind.Boing => 220.0 + 340.0 * Math.Exp(-u * 6.0) + 75.0 * Math.Sin(u * 48.0),
+                    ComedySfxKind.Bonk => 540.0 * Math.Exp(-u * 14.0) + 185.0,
+                    ComedySfxKind.VineBoom => 118.0 * Math.Exp(-u * 5.2) + 36.0,
+                    ComedySfxKind.TankCannon => 145.0 * Math.Exp(-u * 7.5) + 42.0,
+                    ComedySfxKind.RecordScratch => 720.0 + 520.0 * Math.Sin(u * 82.0),
+                    _ => 440.0
+                };
+                phase += 2.0 * Math.PI * freq / SampleRate;
+                var env = kind is ComedySfxKind.VineBoom or ComedySfxKind.TankCannon
+                    ? Math.Min(1.0, u / 0.008) * Math.Exp(-u * 3.8)
+                    : Math.Min(1.0, u / 0.004) * Math.Exp(-u * 7.5);
+                var raw = Math.Sin(phase);
+                if (kind == ComedySfxKind.RecordScratch)
+                    raw = 0.6 * raw + 0.4 * (rng.NextDouble() * 2.0 - 1.0);
+                else if (kind == ComedySfxKind.TankCannon)
+                    raw = Math.Tanh(raw * 2.2 + (rng.NextDouble() * 2.0 - 1.0) * 0.45 * Math.Exp(-u * 14.0));
+                else if (kind == ComedySfxKind.VineBoom)
+                    raw = Math.Tanh(raw * 2.4);
+
+                mix[startIdx + i] += raw * env * gain;
+            }
+        }
+
+        var pcmBytes = new byte[totalSamples * Channels * sizeof(short)];
+        var span = pcmBytes.AsSpan();
+        for (var i = 0; i < totalSamples; i++)
+        {
+            var clamped = Math.Tanh(mix[i]) * 0.90;
+            var s = (short)Math.Clamp(clamped * short.MaxValue, short.MinValue, short.MaxValue);
+            var o = i * Channels * 2;
+            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(o, 2), s);
+            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(o + 2, 2), s);
+        }
+
+        await WritePcmWavFileAsync(outputPath, pcmBytes, SampleRate, Channels, 16, ct).ConfigureAwait(false);
+    }
 }

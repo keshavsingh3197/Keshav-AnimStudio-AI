@@ -22,7 +22,16 @@ public enum ComedyToneStyle
     RoastAndTwist = 3,
 
     /// <summary>Warm, clean situational slapstick suitable for kids and family audiences without rough banter.</summary>
-    FamilyClean = 4
+    FamilyClean = 4,
+
+    /// <summary>Zero-dialogue / minimal-text international physical slapstick, doorway peek-a-boo loops &amp; cartoon SFX comedy.</summary>
+    GlobalSlapstick = 5,
+
+    /// <summary>Expressive 3D cartoon tank battles &amp; cannon recoil gag series (| EP XX) inspired by viral global tank animations.</summary>
+    TankSeries = 6,
+
+    /// <summary>MJO / HardToonz style Hindi Khadi-Bhasha dialogue sitcom (| EP XX) with close-up smash cuts &amp; bulging-eye shock hooks.</summary>
+    DesiKhadiSitcom = 7
 }
 
 /// <summary>
@@ -32,9 +41,20 @@ public static class ComedyChannelMatcher
 {
     private static readonly string[] ComedyTokens =
     [
-        "keshav-anim-ff", "funny", "comedy", "meme", "memes", "roast",
+        "keshav-anim-ff", "ploptoonz", "gigglebot", "kaleshadda", "gappatoonz", "zanyloop", "kookitoonz",
+        "funny", "comedy", "meme", "memes", "roast", "slapstick", "toonz",
         "hasya", "chutkule", "tapri", "humor", "humour", "skit", "parody"
     ];
+
+    private static readonly string[] InternationalTokens =
+    [
+        "keshav-anim-ff", "ploptoonz", "gigglebot", "zanyloop", "kookitoonz", "global", "world", "slapstick", "tank", "toonz"
+    ];
+
+    public static bool IsInternationalComedyHint(params string?[] candidates) =>
+        candidates.Any(c => !string.IsNullOrWhiteSpace(c)
+            && !SeriousExclusions.Any(c.ToLowerInvariant().Contains)
+            && InternationalTokens.Any(c.ToLowerInvariant().Contains));
 
     private static readonly string[] SeriousExclusions =
     [
@@ -52,6 +72,9 @@ public static class ComedyChannelMatcher
             "tutadak" or "tutadaak" or "banter" or "dosti" => ComedyToneStyle.TuTadak,
             "roastandtwist" or "roasttwist" or "roast" or "deadpan" => ComedyToneStyle.RoastAndTwist,
             "familyclean" or "clean" or "family" => ComedyToneStyle.FamilyClean,
+            "globalslapstick" or "slapstick" or "brainrot" or "loop" => ComedyToneStyle.GlobalSlapstick,
+            "tankseries" or "tanks" or "tank" => ComedyToneStyle.TankSeries,
+            "desikhadisitcom" or "sitcom" or "mjo" => ComedyToneStyle.DesiKhadiSitcom,
             _ => fallback
         };
     }

@@ -276,6 +276,9 @@ public sealed partial class ProceduralSceneRasterizer
             case SceneSetting.ModernCity: DrawCitySkyline(t); break;
             case SceneSetting.ChaiStall: DrawChaiStall(t); break;
             case SceneSetting.ComedyStage: DrawComedyStage(t); break;
+            case SceneSetting.SkyGauntlet: DrawSkyGauntlet(t); break;
+            case SceneSetting.TankArena: DrawTankArena(t); break;
+            case SceneSetting.DoorwaySet: DrawDoorwaySet(t); break;
             case SceneSetting.Temple: DrawTempleSanctum(t); break;
             case SceneSetting.Cosmos: DrawCosmosNebula(t); break;
         }
@@ -824,6 +827,42 @@ public sealed partial class ProceduralSceneRasterizer
             var pulse = 0.75f + 0.25f * MathF.Sin((float)t * 5f + f * 1.1f);
             DrawAdditiveDisc(fx, h + minSide * 0.02f, minSide * 0.032f * pulse, 255, 208, 92, 0.52f);
         }
+    }
+
+    private void DrawSkyGauntlet(double t)
+    {
+        var h = HorizonY;
+        var minSide = MathF.Min(Width, Height);
+        FillGradientRect(0, h, Width, Height, (42, 118, 224), (16, 46, 112), 0.72f);
+        FillRect(Width * 0.14f, h, Width * 0.86f, Height, 225, 238, 255, 0.22f);
+        foreach (var (gx, r, g, b) in new[] { (0.28f, (byte)34, (byte)211, (byte)238), (0.72f, (byte)244, (byte)63, (byte)94) })
+        {
+            var pulse = 0.85f + 0.15f * MathF.Sin((float)t * 4.2f + gx * 8f);
+            DrawAdditiveDisc(Width * gx, h - minSide * 0.20f, minSide * 0.14f * pulse, r, g, b, 0.45f);
+            DrawAdditiveRing(Width * gx, h - minSide * 0.20f, minSide * 0.11f, r, g, b, 0.85f);
+        }
+    }
+
+    private void DrawTankArena(double t)
+    {
+        var h = HorizonY;
+        var minSide = MathF.Min(Width, Height);
+        FillGradientRect(0, h, Width, Height, (132, 92, 54), (62, 42, 24), 0.90f);
+        FillEllipse(Width * 0.2f, h + minSide * 0.06f, Width * 0.16f, minSide * 0.04f, 44, 30, 18, 0.65f);
+        FillEllipse(Width * 0.78f, h + minSide * 0.08f, Width * 0.18f, minSide * 0.05f, 44, 30, 18, 0.65f);
+        DrawAdditiveDisc(Width * 0.5f, h - minSide * 0.12f, minSide * 0.22f, 255, 148, 62, 0.18f + 0.06f * MathF.Sin((float)t * 3f));
+    }
+
+    private void DrawDoorwaySet(double t)
+    {
+        var h = HorizonY;
+        var minSide = MathF.Min(Width, Height);
+        FillGradientRect(0, h, Width, Height, (74, 82, 108), (32, 36, 52), 0.88f);
+        var dw = Width * 0.30f;
+        var dx = (Width - dw) * 0.5f;
+        FillRect(dx, h - minSide * 0.44f, dx + dw, h, 142, 86, 46, 0.94f);
+        FillRect(dx + dw * 0.08f, h - minSide * 0.41f, dx + dw * 0.92f, h, 34, 24, 38, 0.90f);
+        DrawAdditiveDisc(Width * 0.5f, h - minSide * 0.24f, minSide * 0.19f, 255, 224, 130, 0.26f + 0.08f * MathF.Sin((float)t * 5f));
     }
 
     // ------------------------------------------------------------------ final grade

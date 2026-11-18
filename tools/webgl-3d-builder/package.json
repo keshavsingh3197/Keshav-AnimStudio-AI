@@ -4,7 +4,9 @@
   "private": true,
   "description": "Bundles Three.js WebGL 3D animation engine into AnimStudio.Infrastructure embedded resources.",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --format=iife --minify --outfile=../../backend/AnimStudio.Infrastructure/Rendering/WebGl3D/scene-3d.bundle.js"
+    "build": "npm run build:batch && npm run build:motion",
+    "build:batch": "esbuild src/main.ts --bundle --format=iife --minify --outfile=../../backend/AnimStudio.Infrastructure/Rendering/WebGl3D/scene-3d.bundle.js",
+    "build:motion": "esbuild src/motion-stage.ts --bundle --format=esm --minify --outfile=../../frontend/src/app/features/motion-copy/motion-3d-stage.js"
   },
   "dependencies": {
     "three": "^0.175.0"
