@@ -2,16 +2,47 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using AnimStudio.Application.Automation;
 using AnimStudio.Application.Common;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Songs;
 using AnimStudio.Domain.Automation;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Rendering;
+using AnimStudio.Domain.Stories;
 using Microsoft.Extensions.Logging;
 
 namespace AnimStudio.Infrastructure.Automation;
+
+public sealed record CreateComedyStudioPostDto(
+    string Title,
+    string? ScriptOrIdeas = null,
+    string AudienceTrack = "local",
+    string Language = "hi",
+    AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.Auto,
+    AutomationVideoFormat Format = AutomationVideoFormat.Vertical,
+    AutomationNarrativeMode NarrativeMode = AutomationNarrativeMode.ShortReel,
+    AutomationVisualEngine VisualEngine = AutomationVisualEngine.Procedural3D,
+    int TargetSeconds = 30,
+    string? SpeakerAName = null,
+    string? SpeakerBName = null,
+    string? SubtitlePreset = null,
+    bool EnableCharacterDialogue = true,
+    bool IncludeMidMemes = true,
+    bool IncludeBackgroundMusic = true,
+    string? BackgroundTemplateAssetId = null,
+    AutomationBackdropMotion BackgroundMotion = AutomationBackdropMotion.Still,
+    string? LocationPrompt = null,
+    string? AttachedSongId = null,
+    string? TargetChannelId = null,
+    IReadOnlyList<string>? AttachedAssetIds = null,
+    string RenderAction = "draft");
+
+public sealed record DualComedyBootstrapResult(
+    IReadOnlyList<AutomationRule> Rules,
+    int CreatedCount);
 
 public sealed record CompileComedyRequestDto(
     IReadOnlyList<string> PostIds,
@@ -85,6 +116,255 @@ public sealed partial class EcosystemAutomationService
         rule.ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
         rule.AutoInsertMemes = true;
         return rule;
+    }
+
+    public async Task<DualComedyBootstrapResult> BootstrapDualComedyPipelinesAsync(
+        string userId,
+        CancellationToken ct)
+    {
+        var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
+        var existingRules = await repository.ListRulesAsync(userId, ct).ConfigureAwait(false);
+        var connected = await connections.ListAsync(userId, ct).ConfigureAwait(false);
+        var now = UtcNow;
+        var nextOrder = existingRules.Count > 0 ? existingRules.Max(r => r.SortOrder) + 1 : 6;
+        var resultRules = existingRules.Where(r => r.SourceType == AutomationSourceType.FunnyComedy).ToList();
+        var created = 0;
+
+        var hasLocal = resultRules.Any(r =>
+            !string.Equals(r.Language, "en", StringComparison.OrdinalIgnoreCase)
+            || ComedyChannelMatcher.IsComedyChannelHint(r.TargetChannelHandle, r.Name)
+               && !ComedyChannelMatcher.IsInternationalComedyHint(r.Name));
+        if (!hasLocal)
+        {
+            var localMatch = connected.FirstOrDefault(c =>
+                ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle)
+                && !ComedyChannelMatcher.IsInternationalComedyHint(c.ChannelHandle, c.ChannelTitle))
+                ?? connected.FirstOrDefault(c => ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle))
+                ?? connected.FirstOrDefault();
+            var localTuple = localMatch is null ? ((string, string, string?)?)null : (localMatch.ChannelId, localMatch.ChannelTitle, localMatch.ChannelHandle);
+            var localRule = await BuildFunnyComedyStarterRuleAsync(userId, nextOrder++, localTuple, settings, now, ct).ConfigureAwait(false);
+            localRule.FunnelWebsiteKeys = ["hub", "studio", "pratiyogita"];
+            localRule.VisualEngine = AutomationVisualEngine.Procedural3D;
+            await repository.UpsertRuleAsync(localRule, ct).ConfigureAwait(false);
+            resultRules.Add(localRule);
+            created++;
+        }
+
+        var hasInternational = resultRules.Any(r =>
+            string.Equals(r.Language, "en", StringComparison.OrdinalIgnoreCase)
+            || r.ComedyStyle is AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick or AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries);
+        if (!hasInternational)
+        {
+            var intlMatch = connected.FirstOrDefault(c =>
+                ComedyChannelMatcher.IsInternationalComedyHint(c.ChannelHandle, c.ChannelTitle)
+                && !(c.ChannelHandle ?? string.Empty).Contains("KESHAV-ANIM-FF", StringComparison.OrdinalIgnoreCase))
+                ?? connected.FirstOrDefault(c => !(c.ChannelHandle ?? string.Empty).Contains("bhakti", StringComparison.OrdinalIgnoreCase))
+                ?? connected.FirstOrDefault();
+            var intlTuple = intlMatch is null ? ((string, string, string?)?)null : (intlMatch.ChannelId, intlMatch.ChannelTitle, intlMatch.ChannelHandle);
+            var intlRule = BuildStarterRule(
+                userId,
+                nextOrder,
+                "International 3D Comedy Loop (Global English)",
+                "Worldwide visual 3D slapstick loops, doorway gags & Cartoon Tank episodes crafted for global audiences.",
+                AutomationSourceType.FunnyComedy,
+                intlTuple,
+                null,
+                "22:00",
+                settings,
+                ["hub", "studio", "social"],
+                "23",
+                now);
+            intlRule.Language = "en";
+            intlRule.TargetSeconds = 30;
+            intlRule.EnableCharacterDialogue = true;
+            intlRule.SpeakerAName = "Woody Buddy";
+            intlRule.SpeakerBName = "Cuppy Mug";
+            intlRule.NarrativeMode = AutomationNarrativeMode.ShortReel;
+            intlRule.SubtitlePreset = "karaoke-pulse";
+            intlRule.ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick;
+            intlRule.VisualEngine = AutomationVisualEngine.Procedural3D;
+            intlRule.AutoInsertMemes = true;
+            await repository.UpsertRuleAsync(intlRule, ct).ConfigureAwait(false);
+            resultRules.Add(intlRule);
+            created++;
+        }
+
+        return new DualComedyBootstrapResult(resultRules, created);
+    }
+
+    public async Task<AutomationPost> CreateComedyStudioPostAsync(
+        string userId,
+        CreateComedyStudioPostDto request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Trim().Length < 3)
+            throw EditingException.Invalid("title", "Provide a comedy title of at least 3 characters.");
+
+        var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
+        var ecosystem = await ecosystemProvider.GetAsync(forceRefresh: false, ct).ConfigureAwait(false);
+        var connected = await connections.ListAsync(userId, ct).ConfigureAwait(false);
+        var now = UtcNow;
+        var dateKey = ResolveDateKey(null, settings.DefaultTimeZone);
+
+        var isIntl = string.Equals(request.AudienceTrack, "international", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.Language, "en", StringComparison.OrdinalIgnoreCase)
+            || request.ComedyStyle is AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick
+                or AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries;
+        var effectiveLang = isIntl ? "en" : "hi";
+        var effectiveTone = request.ComedyStyle == AnimStudio.Domain.Stories.ComedyToneStyle.Auto && isIntl
+            ? AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick
+            : request.ComedyStyle;
+
+        var chosenChannel = !string.IsNullOrWhiteSpace(request.TargetChannelId)
+            ? connected.FirstOrDefault(c => string.Equals(c.ChannelId, request.TargetChannelId.Trim(), StringComparison.Ordinal))
+            : connected.FirstOrDefault(c => isIntl
+                ? ComedyChannelMatcher.IsInternationalComedyHint(c.ChannelHandle, c.ChannelTitle)
+                : ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle));
+        chosenChannel ??= connected.FirstOrDefault();
+
+        var existingComedyRules = (await repository.ListRulesAsync(userId, ct).ConfigureAwait(false))
+            .Where(r => r.SourceType == AutomationSourceType.FunnyComedy)
+            .ToList();
+        var matchingRule = existingComedyRules.FirstOrDefault(r =>
+            string.Equals(r.Language, effectiveLang, StringComparison.OrdinalIgnoreCase))
+            ?? existingComedyRules.FirstOrDefault();
+
+        var channelTuple = chosenChannel is null
+            ? ((string, string, string?)?)null
+            : (chosenChannel.ChannelId, chosenChannel.ChannelTitle, chosenChannel.ChannelHandle);
+
+        var tempRule = BuildStarterRule(
+            userId,
+            99,
+            isIntl ? "International 3D Comedy Studio" : "Local Desi 3D Comedy Studio",
+            "Created directly from Comedy Studio workspace.",
+            AutomationSourceType.FunnyComedy,
+            channelTuple,
+            null,
+            isIntl ? "22:00" : "21:00",
+            settings,
+            ["hub", "studio", "pratiyogita", "social"],
+            "23",
+            now);
+        tempRule.Id = matchingRule?.Id ?? tempRule.Id;
+        tempRule.Language = effectiveLang;
+        tempRule.ComedyStyle = effectiveTone;
+        tempRule.VideoFormat = request.Format;
+        tempRule.NarrativeMode = request.NarrativeMode;
+        tempRule.VisualEngine = request.VisualEngine;
+        tempRule.TargetSeconds = Math.Clamp(request.TargetSeconds > 0 ? request.TargetSeconds : 30, 10, MaxSecondsFor(request.Format));
+        tempRule.EnableCharacterDialogue = request.EnableCharacterDialogue;
+        tempRule.SpeakerAName = string.IsNullOrWhiteSpace(request.SpeakerAName) ? (isIntl ? "Woody Buddy" : "पप्पू भैया") : request.SpeakerAName.Trim();
+        tempRule.SpeakerBName = string.IsNullOrWhiteSpace(request.SpeakerBName) ? (isIntl ? "Cuppy Mug" : "बबलू यार") : request.SpeakerBName.Trim();
+        tempRule.SubtitlePreset = NormalizeSubtitlePreset(request.SubtitlePreset);
+        tempRule.AutoInsertMemes = request.IncludeMidMemes;
+        tempRule.CustomTopicPrompt = request.Title.Trim();
+
+        var signals = await signalsClient.FetchAsync(dateKey, settings.DefaultLocation,
+            settings.PanchangApiBaseUrl, settings.SocialApiBaseUrl, settings.PratiyogitaApiBaseUrl, ct).ConfigureAwait(false);
+        var composed = AutomationContentComposer.ComposeForRule(tempRule, signals, ecosystem).First();
+
+        var customTitle = request.Title.Trim();
+        var safeTitle = customTitle.Length > 100 ? customTitle[..100].TrimEnd() : customTitle;
+        var customScript = string.IsNullOrWhiteSpace(request.ScriptOrIdeas)
+            ? composed.Script
+            : request.ScriptOrIdeas.Trim();
+
+        var stage = AutomationStageScript.Normalize(new AutomationStageSettings
+        {
+            BackgroundTemplateAssetId = request.BackgroundTemplateAssetId,
+            BackgroundMotion = request.BackgroundMotion,
+            LocationPrompt = request.LocationPrompt,
+            IncludeBackgroundMusic = request.IncludeBackgroundMusic,
+            AttachedSongId = request.AttachedSongId,
+            FollowScriptExactly = true,
+        });
+        if (stage.BackgroundTemplateAssetId is { } bgId && !await IsOwnedImageAsync(userId, bgId, ct).ConfigureAwait(false))
+            throw EditingException.Invalid("template-not-found", "Selected background picture was not found in your Studio Storage.");
+
+        var post = new AutomationPost
+        {
+            Id = $"ap_cmd_{Guid.NewGuid():n}"[..24],
+            UserId = userId,
+            RuleId = tempRule.Id,
+            RuleName = tempRule.Name,
+            SourceType = AutomationSourceType.FunnyComedy,
+            DateKey = dateKey,
+            Fingerprint = $"comedy-studio:{now.Ticks}:{Guid.NewGuid():n}"[..36],
+            SourceItemKey = composed.SourceItemKey,
+            SourceTitle = safeTitle,
+            SourceSummary = composed.SourceSummary,
+            TargetChannelId = chosenChannel?.ChannelId,
+            TargetChannelHandle = chosenChannel?.ChannelHandle,
+            TargetChannelTitle = chosenChannel?.ChannelTitle,
+            Title = safeTitle,
+            Script = customScript,
+            AiVideoPrompt = composed.AiVideoPrompt,
+            AiThumbnailPrompt = composed.AiThumbnailPrompt,
+            Description = composed.Description,
+            PinnedComment = composed.PinnedComment,
+            Tags = [.. composed.Tags],
+            CategoryId = "23",
+            Privacy = "public",
+            MadeForKids = false,
+            Format = request.Format,
+            Language = effectiveLang,
+            PrimaryDestinationUrl = composed.PrimaryDestinationUrl,
+            TrackedFunnelUrls = [.. composed.TrackedLinks],
+            HeaderBannerText = composed.HeaderBannerText,
+            EventColorHex = composed.EventColorHex,
+            EnableCharacterDialogue = request.EnableCharacterDialogue,
+            SpeakerAName = tempRule.SpeakerAName,
+            SpeakerBName = tempRule.SpeakerBName,
+            SubtitlePreset = tempRule.SubtitlePreset,
+            VisualEngine = request.VisualEngine,
+            NarrativeMode = request.NarrativeMode,
+            ComedyStyle = effectiveTone,
+            AutoInsertMemes = request.IncludeMidMemes,
+            TargetSeconds = tempRule.TargetSeconds,
+            AttachedAssetIds = request.AttachedAssetIds is { Count: > 0 } ? [.. request.AttachedAssetIds.Take(40)] : [],
+            Stage = stage,
+            Status = AutomationPostStatus.PreparedPreview,
+            ScheduledAtUtc = ComputeScheduledUtc(dateKey, tempRule.PreferredPublishTime, settings.DefaultTimeZone),
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        post = await AutoFillMissingDetailsAsync(userId, post.Id, ct).ConfigureAwait(false);
+
+        if (string.Equals(request.RenderAction, "render3d", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GenerateAnimatedVideoAsync(
+                userId,
+                post.Id,
+                ProceduralSceneTheme.ComedyStage3D,
+                tempRule.TargetSeconds,
+                "720p",
+                ct,
+                format: request.Format.ToString(),
+                enableCharacterDialogue: request.EnableCharacterDialogue,
+                subtitlePreset: tempRule.SubtitlePreset,
+                speakerAName: tempRule.SpeakerAName,
+                speakerBName: tempRule.SpeakerBName,
+                narrativeMode: request.NarrativeMode,
+                attachedAssetIds: post.AttachedAssetIds).ConfigureAwait(false);
+        }
+
+        if (string.Equals(request.RenderAction, "renderAi", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GenerateAiVideoAsync(
+                userId,
+                post.Id,
+                ct,
+                visualEngine: request.VisualEngine == AutomationVisualEngine.Auto ? AutomationVisualEngine.AiRealisticStory : request.VisualEngine,
+                narrativeMode: request.NarrativeMode,
+                targetSeconds: tempRule.TargetSeconds,
+                attachedAssetIds: post.AttachedAssetIds,
+                useTemplateScript: false).ConfigureAwait(false);
+        }
+
+        return post;
     }
 
     private async Task<TempFileLease> MaterializeStageSongLeaseAsync(

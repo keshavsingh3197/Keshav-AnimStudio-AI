@@ -853,6 +853,20 @@ export class AutomationService {
     );
   }
 
+  bootstrapDualComedy(): Observable<DualComedyBootstrapResult> {
+    return this.unwrap(
+      this.http.post<ApiResponse<DualComedyBootstrapResult>>(`${this.base}/comedy/bootstrap-dual`, {})
+    );
+  }
+
+  createComedyPost(body: CreateComedyPostRequest): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/comedy/create-post`, body, {
+        context: silentHttpContext(),
+      })
+    );
+  }
+
   private unwrap<T>(obs: Observable<ApiResponse<T>>): Observable<T> {
     return obs.pipe(
       map((res) => {
@@ -863,6 +877,36 @@ export class AutomationService {
       })
     );
   }
+}
+
+export interface CreateComedyPostRequest {
+  title: string;
+  scriptOrIdeas?: string | null;
+  audienceTrack: 'local' | 'international';
+  language: 'hi' | 'en';
+  comedyStyle: ComedyToneStyle;
+  format: AutomationVideoFormat;
+  narrativeMode: AutomationNarrativeMode;
+  visualEngine: AutomationVisualEngine;
+  targetSeconds: number;
+  speakerAName?: string | null;
+  speakerBName?: string | null;
+  subtitlePreset?: SubtitleMotionPreset | string;
+  enableCharacterDialogue?: boolean;
+  includeMidMemes?: boolean;
+  includeBackgroundMusic?: boolean;
+  backgroundTemplateAssetId?: string | null;
+  backgroundMotion?: AutomationBackdropMotion;
+  locationPrompt?: string | null;
+  attachedSongId?: string | null;
+  targetChannelId?: string | null;
+  attachedAssetIds?: string[];
+  renderAction?: 'draft' | 'render3d' | 'renderAi';
+}
+
+export interface DualComedyBootstrapResult {
+  rules: AutomationRule[];
+  createdCount: number;
 }
 
 export interface CompileComedyResult {

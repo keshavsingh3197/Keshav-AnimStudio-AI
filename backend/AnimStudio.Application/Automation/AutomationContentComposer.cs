@@ -782,15 +782,29 @@ public static class AutomationContentComposer
         var thumbPrompt = isHindi && !isTank && !isGlobal
             ? $"Bright MJO-style 3D cartoon comedy thumbnail for '{title}', shocked bulging eyes, bold high-contrast background, punchy 1-3 word Hinglish shock hook."
             : $"Bright viral 3D animation thumbnail for '{title}', extreme wide-eyed comic reaction close-up, saturated neon sky rim light, zero clutter.";
-        var tags = MergeTags(
-            ["Comedy Shorts", "Desi Comedy", isKhadi ? "Khadi Bhasha Comedy" : "Tu Tadak Comedy", "Hindi Funny Animation", "KESHAV-ANIM-FF", "Shorts"],
-            baseTags,
-            baseHashtags);
-        var description = BuildDescription(rule,
-            $"{summaryText}\n😂 {(isClean ? "सबके साथ बैठकर देखें!" : "असली यारों वाला देसी रोस्ट!")} रोज़ ऐसे ही मज़ेदार 3D कॉमेडी वीडियो के लिए सब्सक्राइब करें!",
-            links, tags);
+        var isInternational = isTank || isGlobal || !isHindi;
+        var tags = isInternational
+            ? MergeTags(
+                ["3D Comedy", "Animated Shorts", "Cartoon Comedy", isTank ? "Cartoon Tank Series" : "Slapstick Loop", "Funny Animation", "Shorts"],
+                baseTags,
+                baseHashtags)
+            : MergeTags(
+                ["Comedy Shorts", "Desi Comedy", isKhadi ? "Khadi Bhasha Comedy" : "Tu Tadak Comedy", "Hindi Funny Animation", "KESHAV-ANIM-FF", "Shorts"],
+                baseTags,
+                baseHashtags);
+        var description = isInternational
+            ? BuildDescription(rule,
+                $"{summaryText}\n😂 Original 3D cartoon animation crafted in AnimStudio AI — subscribe for fresh comedy episodes!",
+                links, tags)
+            : BuildDescription(rule,
+                $"{summaryText}\n😂 {(isClean ? "सबके साथ बैठकर देखें!" : "असली यारों वाला देसी रोस्ट!")} रोज़ ऐसे ही मज़ेदार 3D कॉमेडी वीडियो के लिए सब्सक्राइब करें!",
+                links, tags);
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"😂 ऐसा दोस्त किसके ग्रुप में है? नाम लिख के बेइज़्ज़ती करो 👇\n🔗 {primaryLink}", links)
+            ? BuildPinnedComment(
+                isInternational
+                    ? $"😂 Which punchline caught you off guard? Drop a comment! 👇\n🔗 {primaryLink}"
+                    : $"😂 ऐसा दोस्त किसके ग्रुप में है? नाम लिख के बेइज़्ज़ती करो 👇\n🔗 {primaryLink}",
+                links)
             : null;
 
         return new ComposedAutomationContent(
@@ -888,7 +902,7 @@ public static class AutomationContentComposer
                 [CAST]: {speakerA} | scholar | red tracksuit, headband, dramatic pose
                 [CAST]: {speakerB} | child | blue casual tee, coffee mug, deadpan face
                 [SCENE]: modern city | dawn | tense | IMAGE: sunny Indian rooftop terrace apartment morning view with yoga mat, bright 3D cartoon background, no people
-                [{speakerA}]: (proud) अबे बबलू, आज से सुबह पाँच बजे जिम और सीधा सिक्स-पैक एब्स — तेरे से ना हो पाएगा!
+                [{speakerA}]: (proud) अबे सुन {speakerB}, आज से सुबह पाँच बजे जिम और सीधा सिक्स-पैक एब्स — तेरे से ना हो पाएगा!
                 [{speakerB}]: (sarcastic) अच्छा? पर अभी साढ़े ग्यारह बज रहे हैं और हाथ में समोसा क्यों दबा रखा है भाई?
                 {memeMid("overconfidence", "सपने सिक्स-पैक के, हाथ में समोसा!")}[SCENE]: comedy stage | day | laughing | IMAGE: vibrant living room sofa with snacks table, comic morning light, 3D cartoon background, no people
                 [{speakerA}]: (mischievous) अबे यह प्री-वर्कआउट कार्ब लोडिंग है! कल से पक्का पसीना बहाऊँगा!
@@ -1058,7 +1072,7 @@ public static class AutomationContentComposer
         AutomationSourceType.Pratiyogita
             => ["pratiyogita", "social", "studio"],
         AutomationSourceType.FunnyComedy
-            => ["studio", "pratiyogita", "social"],
+            => ["hub", "studio", "pratiyogita", "social"],
         _ => ["studio", "social", "panchang", "blog"]
     };
 
