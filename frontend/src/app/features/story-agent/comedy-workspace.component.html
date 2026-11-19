@@ -1,165 +1,639 @@
 <section class="cw">
-  <header>
-    <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:6px;">
-      <a routerLink="/story-agent">← Story Agent</a>
-      <a routerLink="/shorts">Shorts Creator ↗</a>
-      <a routerLink="/automation">Comedy Auto Post Pipeline ↗</a>
-      <a routerLink="/memes">Memes &amp; Reactions ↗</a>
-      <a routerLink="/story-template">Story Template Studio ↗</a>
+  <header class="cw-hero card">
+    <div class="cw-top-links">
+      <a routerLink="/story-agent" class="cw-pill">← Story Agent</a>
+      <a routerLink="/automation" class="cw-pill">🤖 Auto Post Hub ↗</a>
+      <a routerLink="/youtube" class="cw-pill">📺 YouTube Connect ↗</a>
+      <a routerLink="/youtube/analysis" class="cw-pill">📊 Channel Analytics ↗</a>
+      <a routerLink="/memes" class="cw-pill">🎭 Memes &amp; Effects ↗</a>
+      <a routerLink="/privacy" class="cw-pill muted">🔒 Privacy Policy</a>
+      <a routerLink="/terms" class="cw-pill muted">📜 Terms</a>
     </div>
-    <h1>Comedy workspace</h1>
-    <p>Make an acted comedy short with characters, dialogue and visual jokes. Review the script before making a video.</p>
+
+    <div class="cw-hero-row">
+      <div>
+        <span class="cw-eyebrow">All-In-One 3D Comedy Video Studio</span>
+        <h1>3D Animated Comedy — Local &amp; International</h1>
+        <p class="muted">
+          Create real <strong>3D animated MP4 comedy videos</strong> directly inside Comedy — no need to jump between screens or guess which engine to pick.
+          Switch tracks between <strong>🇮🇳 Local Desi (&#64;KESHAV-ANIM-FF)</strong> &amp; <strong>🌍 International Slapstick / Tank Series</strong>, auto-generate backgrounds, check YouTube &amp; Ad Policy rules, and publish right here.
+        </p>
+      </div>
+      @if (auth.isAuthenticated()) {
+        <div class="cw-hero-actions">
+          <button type="button" class="secondary" [disabled]="busy()" (click)="bootstrapDualPipelines()">
+            @if (busyAction() === 'bootstrap') {
+              <span class="btn-spin" aria-hidden="true"></span> Setting up…
+            } @else {
+              ⚡ Setup Dual Local + International Pipelines ({{ comedyRules().length }})
+            }
+          </button>
+          <button type="button" class="secondary" [disabled]="loadingWorkspace() || busy()" (click)="loadWorkspaceData(false)">
+            ↻ Refresh Queue &amp; Channels
+          </button>
+        </div>
+      }
+    </div>
+
+    @if (!auth.isAuthenticated()) {
+      <div class="notice warn-box" role="status">
+        <div>
+          <strong>Guest Preview Mode:</strong> You can try presets, scripts &amp; story JSON templates offline.
+          Sign in to unlock <strong>3D MP4 rendering, AI Auto Background Generation, Studio Storage &amp; direct YouTube Publishing</strong>.
+        </div>
+        <button type="button" class="primary-btn" (click)="auth.openAuthModal()">Sign In with Keshav Account</button>
+      </div>
+    } @else {
+      <div class="yt-strip">
+        <div class="yt-strip-left">
+          <strong>📺 Target YouTube Channel:</strong>
+          @if (connectedChannels().length === 0) {
+            <span class="muted">No YouTube channel connected yet.</span>
+            <a routerLink="/youtube" class="primary-btn small-btn">Connect YouTube Channel ↗</a>
+          } @else {
+            <select [ngModel]="selectedChannelId()" (ngModelChange)="selectedChannelId.set($event)" aria-label="Target YouTube Channel">
+              @for (ch of connectedChannels(); track ch.channelId) {
+                <option [value]="ch.channelId">
+                  {{ ch.channelTitle }} {{ ch.channelHandle ? '(' + ch.channelHandle + ')' : '' }}
+                  {{ ch.needsReconnect ? '⚠ Reconnect needed' : '✓ Ready' }}
+                </option>
+              }
+            </select>
+            @if (selectedChannel(); as sc) {
+              <span class="status-tag" [class.ok]="!sc.needsReconnect" [class.err]="sc.needsReconnect">
+                {{ sc.needsReconnect ? '⚠ Reconnect on /youtube' : '✓ OAuth Connected' }}
+              </span>
+            }
+            <a routerLink="/youtube" class="cw-pill">Manage / Add Channel ↗</a>
+          }
+        </div>
+        @if (activePostId(); as draftId) {
+          <div class="yt-strip-right">
+            <span class="status-tag info">Editing Draft: {{ draftId }}</span>
+            <button type="button" class="secondary small-btn" (click)="startNewEpisode()">+ New Episode</button>
+          </div>
+        }
+      </div>
+    }
   </header>
 
-  <section class="card cw-section">
-    <h2>Start with a story template</h2>
-    <p>Download an example JSON file, fill it yourself or give it to another AI, then upload or paste the completed file below.
-      The example includes two sample scenes: replace them with your own. Choose language, style, length and voicing below before downloading.</p>
-    <button type="button" class="secondary" (click)="downloadTemplate()">Download story template (.json)</button>
-    <p class="muted">Keep the field names and at least two scenes. The required JSON field "narration" contains the spoken words, not necessarily a narrator.
-      The lines should join to the same words,
-      and each character who speaks must appear in cast. Actual timing depends on the voice. Review all generated material and media rights.</p>
-  </section>
+  @if (error(); as problem) {
+    <div class="notice error" role="alert">{{ problem }}</div>
+  }
+  @if (notice(); as message) {
+    <div class="notice ok-box" role="status">{{ message }}</div>
+  }
 
+  <!-- STEP 1: DUAL AUDIENCE TRACKS + PRESETS -->
   <section class="card cw-section">
-    <h2>1. Your material</h2>
-    <label for="cw-title">Compilation title</label>
-    <input id="cw-title" maxlength="160" [ngModel]="title()" (ngModelChange)="title.set($event)" placeholder="Funny everyday surprises" />
-    <label for="cw-material">Your ideas or scripts</label>
-    <textarea id="cw-material" rows="12" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
-      placeholder="Paste multiple scripts, characters, dialogue and scene descriptions here."></textarea>
-    <span class="muted">{{ material().length }} / 20000 characters. Ideas are combined into one Short; choose only what fits.</span>
-    <label>Or load a text file <input type="file" accept=".txt,text/plain" (change)="pickScript($event)" /></label>
-    <label for="cw-reference">Reference link or your observations <span class="muted">(optional)</span></label>
-    <input id="cw-reference" maxlength="1000" [ngModel]="reference()" (ngModelChange)="reference.set($event)"
-      placeholder="A video link and what you observed" />
-    <p class="muted">The app does not fetch or watch this link. If you send the prompt to an external tool, that tool receives the link and your text.</p>
+    <div class="section-head">
+      <div>
+        <h2>1. Pick Audience Track &amp; Comedy Style</h2>
+        <p class="muted">Maintain two distinct channels without cross-language SEO conflicts: Indian Hindi/Hinglish banter for <code>&#64;KESHAV-ANIM-FF</code> and English global slapstick for Worldwide viewers.</p>
+      </div>
+      <div class="cw-actions">
+        <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('desi')">🇮🇳 Desi Khadi Sitcom</button>
+        <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('international')">🌍 Global 3D Loop</button>
+        <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('tank')">🛡️ Tank Series EP</button>
+      </div>
+    </div>
+
+    <div class="track-grid">
+      <button type="button"
+              class="track-card"
+              [class.selected]="audienceTrack() === 'local'"
+              (click)="selectAudienceTrack('local')">
+        <div class="track-top">
+          <strong>🇮🇳 Local / Desi 3D Comedy</strong>
+          <span class="status-tag ok">&#64;KESHAV-ANIM-FF · Hindi / Hinglish</span>
+        </div>
+        <small>Khadi Bhasha, Tu-Tadak buddy banter, desi tapri props, reaction meme bursts &amp; Hindi SEO tags.</small>
+      </button>
+
+      <button type="button"
+              class="track-card"
+              [class.selected]="audienceTrack() === 'international'"
+              (click)="selectAudienceTrack('international')">
+        <div class="track-top">
+          <strong>🌍 International 3D Comedy Loop</strong>
+          <span class="status-tag info">Global Channel · English</span>
+        </div>
+        <small>Visual doorway slapstick loops, expressive physical humor &amp; Cartoon Tank episodes built for global traffic.</small>
+      </button>
+    </div>
+
+    <!-- ENGINE PICKER (NO CONFUSION!) -->
+    <div class="engine-wrap">
+      <span class="field-title">2. Visual Rendering Engine (Default: Built-in 3D Animated Engine)</span>
+      <div class="engine-grid">
+        <button type="button"
+                class="engine-card"
+                [class.selected]="visualEngine() === 'Procedural3D'"
+                (click)="visualEngine.set('Procedural3D'); style.set('3D')">
+          <div class="track-top">
+            <strong>🎬 Built-in 3D Animated Engine</strong>
+            <span class="status-tag ok">Recommended</span>
+          </div>
+          <small>Generates live 3D cartoon character animations, subtitles, reaction memes &amp; custom backdrops straight to MP4. Fast &amp; zero extra video API cost.</small>
+        </button>
+
+        <button type="button"
+                class="engine-card"
+                [class.selected]="visualEngine() === 'AiRealisticStory'"
+                (click)="visualEngine.set('AiRealisticStory')">
+          <div class="track-top">
+            <strong>✨ AI Animated Story Images</strong>
+            <span class="status-tag info">Scene-by-Scene AI</span>
+          </div>
+          <small>Uses configured AI image generation + voices + motion camera per scene for illustrated comedy storytelling.</small>
+        </button>
+
+        <button type="button"
+                class="engine-card"
+                [class.selected]="visualEngine() === 'StorageImagesStory'"
+                (click)="visualEngine.set('StorageImagesStory')">
+          <div class="track-top">
+            <strong>📁 Animate Studio Storage Images</strong>
+            <span class="status-tag">Custom Pics + Voices</span>
+          </div>
+          <small>Turns your uploaded or generated Studio Storage images into animated voiced shorts with music &amp; subtitles.</small>
+        </button>
+      </div>
+    </div>
+
     <div class="cw-row">
       <label>Language
-        <select [ngModel]="language()" (ngModelChange)="language.set($event)">
-          <option value="hi">Hindi</option><option value="en">English</option>
+        <select [ngModel]="language()" (ngModelChange)="language.set($event); selectAudienceTrack($event === 'en' ? 'international' : 'local')">
+          <option value="hi">Hindi / Hinglish (भारत / Local)</option>
+          <option value="en">English (Worldwide / International)</option>
         </select>
       </label>
-      <label>Comedy tone / dialect
+      <label>Video Format
+        <select [ngModel]="format()" (ngModelChange)="format.set($event)">
+          <option value="Vertical">9:16 Vertical (Shorts / Reels)</option>
+          <option value="Wide">16:9 Wide (Full Episode / Tank Series)</option>
+        </select>
+      </label>
+      <label>Narrative Pace
+        <select [ngModel]="narrativeMode()" (ngModelChange)="narrativeMode.set($event)">
+          <option value="ShortReel">Short Reel (Punchy Viral Cuts)</option>
+          <option value="FullStory">Full Story (Multiple Scene Arc)</option>
+        </select>
+      </label>
+      <label>Target Length
+        <select [ngModel]="targetSeconds()" (ngModelChange)="targetSeconds.set(+$event)">
+          <option [ngValue]="20">20 seconds (Ultra-fast Short)</option>
+          <option [ngValue]="30">30 seconds (Sweet Spot)</option>
+          <option [ngValue]="45">45 seconds (Mid-build Skit)</option>
+          <option [ngValue]="60">60 seconds (Full Short)</option>
+          @if (format() === 'Wide') {
+            <option [ngValue]="90">90 seconds (Wide Episode)</option>
+          }
+        </select>
+      </label>
+    </div>
+
+    <div class="cw-row">
+      <label>Comedy Tone / Dialect
         <select [ngModel]="comedyStyle()" (ngModelChange)="comedyStyle.set($event)">
           @for (tone of comedyToneOptions; track tone.id) {
             <option [value]="tone.id">{{ tone.label }}</option>
           }
         </select>
       </label>
-      <label>Target length
-        <select [ngModel]="targetSeconds()" (ngModelChange)="targetSeconds.set($event)">
-          <option [ngValue]="30">About 30 seconds</option><option [ngValue]="60">About 60 seconds</option>
+      <label>Subtitle Motion Style
+        <select [ngModel]="subtitlePreset()" (ngModelChange)="subtitlePreset.set($event)">
+          <option value="karaoke-pulse">Karaoke Word Pulse (High Retention)</option>
+          <option value="event-glow">Event Color Glow</option>
+          <option value="classic-clean">Classic Clean Bottom</option>
         </select>
       </label>
-      <label>How the story is spoken
-        <select [ngModel]="voicing()" (ngModelChange)="voicing.set($event)">
-          <option value="CharactersOnly">Characters speak and act (no narrator)</option>
-          <option value="Narrated">Narrated story</option>
-        </select>
+      <label>Lead Character (Speaker A)
+        <input type="text" maxlength="40" [ngModel]="speakerAName()" (ngModelChange)="speakerAName.set($event)" />
       </label>
-      <label>Visual style
-        <select [ngModel]="style()" (ngModelChange)="style.set($event)">
-          <option value="3D">3D cartoon</option><option value="2D">2D cartoon</option>
-        </select>
+      <label>Co-Star / Rival (Speaker B)
+        <input type="text" maxlength="40" [ngModel]="speakerBName()" (ngModelChange)="speakerBName.set($event)" />
       </label>
     </div>
-    <div style="margin: 10px 0;">
-      <label style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+  </section>
+
+  <!-- STEP 2: EPISODE SCRIPT, MUSIC & AUTO BACKGROUND TOOLS -->
+  <section class="card cw-section">
+    <h2>3. Script, Memes, Music &amp; Auto Background Tools</h2>
+    <label for="cw-title">Episode Title (used for 3D Video &amp; YouTube SEO)</label>
+    <input id="cw-title" maxlength="160" [ngModel]="title()" (ngModelChange)="title.set($event)"
+           [placeholder]="audienceTrack() === 'international' ? 'e.g. Sneaky Doorway Trophy Heist 😂 | #Shorts' : 'e.g. टपरी पर दोस्ती और उधार कांड 😂 | EP 01'" />
+
+    <label for="cw-material">Story Idea or Directed Script (optional for auto-generation; accepts `[SCENE]:` &amp; `[Speaker]:` lines)</label>
+    <textarea id="cw-material" rows="7" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
+              placeholder="Write your dialogue lines or plot idea here — or leave blank after typing a Title to let our Comedy Composer build a high-retention script automatically!"></textarea>
+
+    <div class="cw-inline-controls">
+      <label class="inline-check">
         <input type="checkbox" [ngModel]="includeMidMemes()" (ngModelChange)="includeMidMemes.set($event)" />
-        <span>Use in-app Reaction Memes right in the middle punchlines &amp; ending</span>
+        <span>Auto-Insert Mid-Video &amp; Climax Reaction Memes</span>
       </label>
-      @if (includeMidMemes() && memeLibrary().length > 0) {
-        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
-          @for (meme of memeLibrary().slice(0, 12); track meme.id) {
-            <button type="button" class="secondary"
-                    [style.opacity]="selectedMemeNames().includes(meme.name) ? '1' : '0.55'"
-                    (click)="toggleMemeName(meme.name)">
-              {{ selectedMemeNames().includes(meme.name) ? '✓' : '+' }} {{ meme.name }}
-            </button>
+      <label class="inline-check">
+        <input type="checkbox" [ngModel]="includeBackgroundMusic()" (ngModelChange)="includeBackgroundMusic.set($event)" />
+        <span>Include Background Music</span>
+      </label>
+      @if (includeBackgroundMusic() && songs().length > 0) {
+        <label class="compact-select">
+          <span>Custom Song Track:</span>
+          <select [ngModel]="attachedSongId()" (ngModelChange)="attachedSongId.set($event)">
+            <option value="">Built-in Comedy Beat (Auto)</option>
+            @for (s of songs(); track s.id) {
+              <option [value]="s.id">{{ s.title }} ({{ s.language }} · {{ s.style }})</option>
+            }
+          </select>
+        </label>
+      }
+    </div>
+
+    @if (includeMidMemes() && memeLibrary().length > 0) {
+      <div class="chips-wrap">
+        @for (meme of memeLibrary().slice(0, 12); track meme.id) {
+          <button type="button" class="secondary small-btn"
+                  [class.chip-active]="selectedMemeNames().includes(meme.name)"
+                  (click)="toggleMemeName(meme.name)">
+            {{ selectedMemeNames().includes(meme.name) ? '✓' : '+' }} {{ meme.name }}
+          </button>
+        }
+      </div>
+    }
+
+    <!-- AUTO BACKGROUND TOOLS BLOCK RIGHT INSIDE COMEDY -->
+    <div class="bg-tools-box">
+      <div class="section-head">
+        <div>
+          <h3>🖼️ Auto Background Tools (3D Stage or Custom / AI Backdrop)</h3>
+          <p class="muted">Keep our dynamic 3D Stage, or generate/upload/pick a matching backdrop plate right here.</p>
+        </div>
+        <div class="bg-mode-pills">
+          <button type="button" class="secondary small-btn" [class.chip-active]="!useCustomBackground()" (click)="clearCustomBackground()">
+            Built-in Dynamic 3D Stage
+          </button>
+          <button type="button" class="secondary small-btn" [class.chip-active]="useCustomBackground()" (click)="useCustomBackground.set(true)">
+            Custom / AI Background Image
+          </button>
+        </div>
+      </div>
+
+      <div class="cw-row">
+        <label>Scene Location / Atmosphere Prompt
+          <input type="text" maxlength="200" [ngModel]="locationPrompt()" (ngModelChange)="locationPrompt.set($event)"
+                 placeholder="e.g. Indian roadside chai tapri with comic props, bright 3D cartoon style" />
+        </label>
+        <label>Background Camera Motion
+          <select [ngModel]="backgroundMotion()" (ngModelChange)="backgroundMotion.set($event)">
+            <option value="Still">Still (Characters Stay Grounded)</option>
+            <option value="GentleZoom">Gentle Zoom (Slow Push-in)</option>
+            <option value="SlowPan">Slow Pan (Horizontal Glide)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="cw-actions">
+        <button type="button" class="secondary" [disabled]="busy()" (click)="buildBackgroundPrompt()">
+          @if (busyAction() === 'bg-prompt') { <span class="btn-spin" aria-hidden="true"></span> Building… }
+          @else { ✍️ Auto-Build Background Prompt }
+        </button>
+        <button type="button" class="primary-btn" [disabled]="busy()" (click)="generateAiBackground()">
+          @if (busyAction() === 'bg-generate') { <span class="btn-spin" aria-hidden="true"></span> Generating AI Image… }
+          @else { ✨ Auto-Generate AI Background }
+        </button>
+        <label class="secondary file-label" [class.disabled]="busy()">
+          @if (busyAction() === 'bg-upload') { <span class="btn-spin" aria-hidden="true"></span> Uploading… }
+          @else { ⬆ Upload Backdrop (PNG/JPG/WebP) }
+          <input type="file" accept="image/png,image/jpeg,image/webp" [disabled]="busy()" (change)="uploadBackgroundImage($event)" hidden />
+        </label>
+        <button type="button" class="secondary" [disabled]="busy()" (click)="toggleStoragePicker()">
+          {{ showStoragePicker() ? 'Hide Studio Storage Images' : '📁 Pick from Studio Storage' }}
+        </button>
+      </div>
+
+      @if (bgPromptText()) {
+        <div class="bg-prompt-box">
+          <div class="section-head">
+            <small class="muted">
+              AI Image Prompt
+              @if (bgPromptData(); as bp) { ({{ bp.aspectRatio }} · {{ bp.width }}×{{ bp.height }}) }
+            </small>
+            <div class="cw-actions">
+              <button type="button" class="secondary small-btn" (click)="copyText(bgPromptText(), 'Background prompt copied!')">Copy Prompt</button>
+              @if (bgPromptData()?.negativePrompt; as neg) {
+                <button type="button" class="secondary small-btn" (click)="copyText(neg, 'Negative prompt copied!')">Copy Negative</button>
+              }
+            </div>
+          </div>
+          <textarea rows="3" maxlength="2000" [ngModel]="bgPromptText()" (ngModelChange)="bgPromptText.set($event)"></textarea>
+        </div>
+      }
+
+      @if (backgroundTemplateAssetId(); as bgId) {
+        <div class="bg-preview-bar">
+          <img [src]="bgPreviewUrl(bgId)" alt="Selected 3D comedy stage background" class="bg-preview-img" />
+          <div>
+            <strong>✓ Custom Background Attached</strong>
+            <p class="muted">Asset ID: <code>{{ bgId }}</code> · Motion: {{ backgroundMotion() }}</p>
+            <button type="button" class="secondary small-btn" (click)="clearCustomBackground()">Remove Custom Background</button>
+          </div>
+        </div>
+      }
+
+      @if (showStoragePicker()) {
+        @if (loadingStorage()) {
+          <p class="muted"><span class="btn-spin" aria-hidden="true"></span> Loading Studio Storage catalog…</p>
+        } @else if (storageCatalog(); as cat) {
+          @if (cat.images.length === 0) {
+            <p class="muted">No images found in Studio Storage yet. Upload one or click Auto-Generate AI Background above.</p>
+          } @else {
+            <div class="storage-grid">
+              @for (img of cat.images; track img.id) {
+                <div class="storage-item" [class.selected]="backgroundTemplateAssetId() === img.id || selectedStorageAssetIds().includes(img.id)">
+                  <img [src]="assetThumbUrl(img.id)" [alt]="img.name" loading="lazy" />
+                  <small>{{ img.name }}</small>
+                  <div class="storage-item-btns">
+                    <button type="button" class="secondary tiny-btn" (click)="selectStorageBackground(img.id)">Use as BG</button>
+                    <button type="button" class="secondary tiny-btn" (click)="toggleAttachedStoryAsset(img.id)">
+                      {{ selectedStorageAssetIds().includes(img.id) ? '✓ Scene Pic' : '+ Scene Pic' }}
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+    </div>
+
+    <!-- ONE-CLICK VIDEO CREATION CTA -->
+    <div class="cta-bar">
+      <button type="button" class="primary-btn cta-main" [disabled]="busy() || title().trim().length < 3" (click)="createOrRenderPost('render3d')">
+        @if (busyAction() === 'studio-render3d') {
+          <span class="btn-spin" aria-hidden="true"></span> Rendering 3D Comedy Video (MP4)…
+        } @else {
+          🎬 Create &amp; Generate 3D Comedy Video (MP4)
+        }
+      </button>
+      @if (visualEngine() !== 'Procedural3D') {
+        <button type="button" class="primary-btn" [disabled]="busy() || title().trim().length < 3" (click)="createOrRenderPost('renderAi')">
+          @if (busyAction() === 'studio-renderAi') {
+            <span class="btn-spin" aria-hidden="true"></span> Starting {{ visualEngine() }}…
+          } @else {
+            ✨ Generate with {{ visualEngine() === 'StorageImagesStory' ? 'Storage Images' : 'AI Story' }}
+          }
+        </button>
+      }
+      <button type="button" class="secondary" [disabled]="busy() || title().trim().length < 3" (click)="createOrRenderPost('draft')">
+        @if (busyAction() === 'studio-draft') {
+          <span class="btn-spin" aria-hidden="true"></span> Saving…
+        } @else {
+          💾 Save Draft &amp; Auto-Fill SEO Only
+        }
+      </button>
+    </div>
+  </section>
+
+  <!-- STEP 3: COMEDY QUEUE, MP4 PREVIEW, YOUTUBE POLICY CHECKLIST & PUBLISHING -->
+  @if (auth.isAuthenticated()) {
+    <section class="card cw-section">
+      <div class="section-head">
+        <div>
+          <h2>4. Comedy Videos, Policy Compliance &amp; YouTube Publishing ({{ comedyPosts().length }})</h2>
+          <p class="muted">Preview rendered MP4s, inspect YouTube &amp; Ad Policy checks, auto-fill thumbnails/tags, schedule or publish immediately.</p>
+        </div>
+      </div>
+
+      @if (renderedComedyPosts().length >= 2) {
+        <div class="compile-bar">
+          <strong>🔥 Compile &lt;3m "Best-Of" Compilation ({{ compileSelectedIds().length }} selected)</strong>
+          <div class="cw-row">
+            <label>Compilation Title
+              <input type="text" maxlength="120" [ngModel]="compileTitle()" (ngModelChange)="compileTitle.set($event)" />
+            </label>
+            <label>Max Length (seconds)
+              <input type="number" min="30" max="180" [ngModel]="compileMaxSeconds()" (ngModelChange)="compileMaxSeconds.set(+$event)" />
+            </label>
+          </div>
+          <button type="button" class="primary-btn" [disabled]="busy() || compileSelectedIds().length < 2" (click)="compileBestOfVideo()">
+            @if (busyAction() === 'compile') { <span class="btn-spin" aria-hidden="true"></span> Merging Clips… }
+            @else { 🎞️ Compile Selected Clips into Highlights MP4 }
+          </button>
+        </div>
+      }
+
+      @if (loadingWorkspace()) {
+        <p class="muted"><span class="btn-spin" aria-hidden="true"></span> Loading comedy queue…</p>
+      } @else if (comedyPosts().length === 0) {
+        <div class="notice">No Comedy episodes queued yet. Click one of the starter presets above and hit <strong>🎬 Create &amp; Generate 3D Comedy Video</strong>!</div>
+      } @else {
+        <div class="queue-list">
+          @for (post of comedyPosts(); track post.id) {
+            @let policy = policyReport(post);
+            <article class="queue-card" [class.rendering]="post.status === 'GeneratingVideo' || post.status === 'Publishing'">
+              <div class="queue-top">
+                <div class="queue-badges">
+                  <span class="status-tag" [class.ok]="post.language === 'hi'" [class.info]="post.language === 'en'">
+                    {{ post.language === 'en' ? '🌍 International EN' : '🇮🇳 Local HI' }}
+                  </span>
+                  <span class="status-tag"
+                        [class.ok]="post.status === 'VideoReadyForReview' || post.status === 'Published'"
+                        [class.info]="post.status === 'GeneratingVideo' || post.status === 'Approved' || post.status === 'Publishing'"
+                        [class.err]="post.status === 'Failed'">
+                    {{ post.status }}
+                    @if (post.storyProgressPercent) { · {{ post.storyProgressPercent }}% }
+                  </span>
+                  @if (post.targetChannelHandle || post.targetChannelTitle) {
+                    <span class="status-tag">📺 {{ post.targetChannelHandle || post.targetChannelTitle }}</span>
+                  }
+                </div>
+                <label class="inline-check">
+                  <input type="checkbox"
+                         [disabled]="!post.attachedRenderJobId"
+                         [checked]="compileSelectedIds().includes(post.id)"
+                         (change)="toggleCompilePost(post.id)" />
+                  <small>Include in Best-Of</small>
+                </label>
+              </div>
+
+              <h3>{{ post.title }}</h3>
+              @if (post.storyStageSummary) {
+                <p class="muted"><small>{{ post.storyStageSummary }}</small></p>
+              }
+              @if (post.lastError) {
+                <div class="notice error">{{ post.lastError }}</div>
+              }
+
+              <div class="media-preview-row">
+                @if (post.attachedRenderJobId; as jobId) {
+                  <video class="video-player" [src]="previewVideoUrl(jobId)" controls playsinline preload="metadata"></video>
+                }
+                @if (post.thumbnailStorageKey) {
+                  <img class="post-thumb" [src]="postThumbUrl(post)" alt="Video thumbnail" />
+                }
+              </div>
+
+              <!-- YOUTUBE & AD POLICY READINESS CHECKLIST -->
+              <div class="policy-box">
+                <div class="section-head">
+                  <strong>🛡️ YouTube &amp; Ad Policy Pre-Publish Check</strong>
+                  <span class="status-tag" [class.ok]="policy.readyToPublish" [class.warn]="!policy.readyToPublish">
+                    {{ policy.readyToPublish ? '✓ Policy Ready to Publish' : 'Review Checklist Items' }}
+                  </span>
+                </div>
+                <ul class="policy-list">
+                  @for (chk of policy.checks; track chk.label) {
+                    <li [class.ok]="chk.ok" [class.pending]="!chk.ok">
+                      <span>{{ chk.ok ? '✅' : '⚠️' }} {{ chk.label }}</span>
+                      @if (!chk.ok && chk.hint) { <small class="muted">— {{ chk.hint }}</small> }
+                    </li>
+                  }
+                </ul>
+                <label class="inline-check policy-consent">
+                  <input type="checkbox"
+                         [checked]="isPolicyConfirmed(post.id)"
+                         (change)="setPolicyConfirmed(post.id, $any($event.target).checked)" />
+                  <span>I confirm original 3D character/script media rights &amp; adherence to YouTube / Google AdSense content policies (<a routerLink="/terms">Terms</a>).</span>
+                </label>
+              </div>
+
+              <div class="cw-actions">
+                <button type="button" class="secondary small-btn" (click)="loadPostIntoStudio(post)">↙ Load into Editor</button>
+                <button type="button" class="secondary small-btn" [disabled]="busy()" (click)="autoFillPostSeo(post)">✨ Auto-Fill SEO</button>
+                <button type="button" class="secondary small-btn" [disabled]="busy()" (click)="generatePostThumbnail(post)">🖼️ Generate Thumbnail</button>
+                <button type="button" class="secondary small-btn" [disabled]="busy()" (click)="verifyPostCompliance(post)">🛡️ Verify Facts/Policy</button>
+                <button type="button" class="secondary small-btn" (click)="openPostEditor(post.id)">
+                  {{ expandedPostId() === post.id ? 'Hide Metadata ▲' : 'Edit Title / Schedule ▼' }}
+                </button>
+                @if (post.attachedRenderJobId; as jobId) {
+                  <a class="secondary small-btn link-pill" [href]="downloadVideoUrl(jobId)" download>⬇ Download MP4</a>
+                }
+                @if (post.status !== 'Published') {
+                  <button type="button" class="secondary small-btn" [disabled]="busy() || !policy.readyToPublish" (click)="publishPostToYouTube(post, false)">
+                    📅 Schedule YouTube
+                  </button>
+                  <button type="button" class="primary-btn small-btn" [disabled]="busy() || !policy.readyToPublish" (click)="publishPostToYouTube(post, true)">
+                    🚀 Publish to YouTube Now
+                  </button>
+                } @else if (post.publishedVideoUrl) {
+                  <a class="primary-btn small-btn link-pill" [href]="post.publishedVideoUrl" target="_blank" rel="noopener noreferrer">▶ Watch on YouTube ↗</a>
+                }
+              </div>
+
+              @if (expandedPostId() === post.id) {
+                <div class="post-editor">
+                  <label>YouTube Title (max 100 chars)
+                    <input type="text" maxlength="100" [ngModel]="editDraftTitle()" (ngModelChange)="editDraftTitle.set($event)" />
+                  </label>
+                  <label>YouTube Description
+                    <textarea rows="4" [ngModel]="editDraftDescription()" (ngModelChange)="editDraftDescription.set($event)"></textarea>
+                  </label>
+                  <div class="cw-row">
+                    <label>Comma-Separated Tags
+                      <input type="text" [ngModel]="editDraftTags()" (ngModelChange)="editDraftTags.set($event)" />
+                    </label>
+                    <label>Scheduled Time (UTC/Local Picker)
+                      <input type="datetime-local" [ngModel]="editDraftScheduledAt()" (ngModelChange)="editDraftScheduledAt.set($event)" />
+                    </label>
+                  </div>
+                  <label class="inline-check">
+                    <input type="checkbox" [ngModel]="editDraftMadeForKids()" (ngModelChange)="editDraftMadeForKids.set($event)" />
+                    <span>Made for Kids (keep unchecked for general teen/adult roast comedy)</span>
+                  </label>
+                  <div class="cw-actions">
+                    <button type="button" class="primary-btn small-btn" [disabled]="busy()" (click)="savePostDetails(post)">💾 Save Metadata &amp; Schedule</button>
+                  </div>
+                </div>
+              }
+            </article>
+          }
+        </div>
+      }
+    </section>
+  }
+
+  <!-- COLLAPSIBLE ADVANCED EXTERNAL AI STORY JSON CONVERTER (PRESERVED!) -->
+  <details class="card cw-section cw-advanced">
+    <summary><strong>🛠️ Advanced: External AI Story JSON Converter, Template Exporter &amp; Story Agent Import</strong></summary>
+    <div class="cw-advanced-body">
+      <div class="cw-subblock">
+        <h3>Story Template (.json)</h3>
+        <p class="muted">Download an example Story JSON file, edit or hand to an external AI tool, then paste or upload it back below.</p>
+        <div class="cw-actions">
+          <button type="button" class="secondary" (click)="downloadTemplate()">Download story template (.json)</button>
+          <label class="secondary file-label">
+            Load idea script (.txt)
+            <input type="file" accept=".txt,text/plain" (change)="pickScript($event)" hidden />
+          </label>
+        </div>
+        <label for="cw-reference">Reference link or observations (optional)
+          <input id="cw-reference" maxlength="1000" [ngModel]="reference()" (ngModelChange)="reference.set($event)" placeholder="A video link and notes" />
+        </label>
+        <div class="cw-actions">
+          <button type="button" [disabled]="!ready() || busy()" (click)="convert()">
+            @if (busyAction() === 'json-convert') { <span class="btn-spin" aria-hidden="true"></span> Converting… }
+            @else { Convert Script to JSON via Configured AI }
+          </button>
+          <button type="button" class="secondary" [disabled]="!ready() || busy()" (click)="preparePrompt()">Prepare External AI Prompt</button>
+        </div>
+      </div>
+
+      @if (prompt()) {
+        <div class="cw-subblock">
+          <h3>External AI Prompt</h3>
+          <textarea aria-label="External AI prompt" rows="8" readonly [value]="prompt()"></textarea>
+          <div class="cw-actions">
+            <button type="button" class="secondary" (click)="copyPrompt()">Copy prompt</button>
+            <button type="button" class="secondary" (click)="downloadPrompt()">Download prompt</button>
+          </div>
+        </div>
+      }
+
+      <div class="cw-subblock">
+        <h3>Review &amp; Import Story JSON into Story Agent</h3>
+        <label class="secondary file-label">
+          Upload completed Story JSON / .txt
+          <input type="file" accept=".json,.txt,application/json,text/plain" [disabled]="busy()" (change)="pickStory($event)" hidden />
+        </label>
+        <textarea id="cw-reply" rows="9" [ngModel]="reply()" (ngModelChange)="updateReply($event)"
+                  placeholder="Paste the complete animstudio-story JSON response here."></textarea>
+        <div class="cw-actions">
+          <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="loadPastedStory()">Load and review script</button>
+          <button type="button" [disabled]="!reply().trim() || busy()" (click)="importStory()">
+            @if (busyAction() === 'import-story') { <span class="btn-spin" aria-hidden="true"></span> Importing… }
+            @else { Import into Story Agent }
+          </button>
+          <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="downloadStory()">Download story JSON</button>
+        </div>
+      </div>
+
+      @if (review(); as script) {
+        <div class="cw-subblock">
+          <h3>Reviewed Performance: {{ script.title }}</h3>
+          @if (script.warnings.length) {
+            <div class="notice error" role="alert">
+              <strong>Check before producing:</strong>
+              <ul>@for (warning of script.warnings; track $index) { <li>{{ warning }}</li> }</ul>
+            </div>
+          }
+          @for (scene of script.scenes; track $index) {
+            <article class="cw-review-scene">
+              <h4>{{ $index + 1 }}. {{ scene.headline }}</h4>
+              <p class="cw-dialogue"><strong>Dialogue:</strong> {{ scene.dialogue || 'Missing dialogue' }}</p>
+              <p><strong>Setting:</strong> {{ scene.image || 'Not specified' }}</p>
+            </article>
+          }
+          <button type="button" class="secondary" [disabled]="script.warnings.length > 0" (click)="prepareVideoPrompt()">Prepare External Video Prompt</button>
+          @if (videoPrompt()) {
+            <textarea id="cw-video-prompt" rows="8" readonly [value]="videoPrompt()"></textarea>
+            <div class="cw-actions">
+              <button type="button" class="secondary" (click)="copyVideoPrompt()">Copy video prompt</button>
+              <button type="button" class="secondary" (click)="downloadVideoPrompt()">Download video prompt</button>
+            </div>
           }
         </div>
       }
     </div>
-    <div class="cw-actions">
-      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('desi')">🇮🇳 Desi Khadi Sitcom</button>
-      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('international')">🌍 Global 3D Loop</button>
-      <button type="button" class="secondary" [disabled]="busy()" (click)="applyAutoComedyPreset('tank')">🛡️ Tank Series EP</button>
-      <button type="button" [disabled]="!ready() || busy()" (click)="convert()">
-        @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> Working… } @else { Convert with configured AI }
-      </button>
-      <button type="button" class="secondary" [disabled]="!ready() || busy()" (click)="preparePrompt()">Prepare external prompt</button>
-    </div>
-    <p class="muted">AI conversion sends your text and reference to the configured provider and may use quota or incur charges. The external prompt is a manual alternative.</p>
-  </section>
-
-  @if (prompt()) {
-    <section class="card cw-section">
-      <h2>2. External AI prompt</h2>
-      <p>Copy or download this prompt, use it in a tool of your choice, and paste its JSON response below. Prepare it again after changing the inputs.</p>
-      <textarea aria-label="External AI prompt" rows="10" readonly [value]="prompt()"></textarea>
-      <div class="cw-actions">
-        <button type="button" class="secondary" (click)="copyPrompt()">Copy prompt</button>
-        <button type="button" class="secondary" (click)="downloadPrompt()">Download prompt</button>
-      </div>
-    </section>
-  }
-
-  <section class="card cw-section">
-    <h2>3. Review and import</h2>
-    <p class="muted">Loading a file replaces the story JSON below and updates the title, language, supported length, voicing and style above.
-      Your original ideas and reference are not changed. Import uses the JSON below; changing the form above does not edit it.</p>
-    <label>Upload a completed story JSON or text file
-      <input type="file" accept=".json,.txt,application/json,text/plain" [disabled]="busy()" (change)="pickStory($event)" />
-    </label>
-    <label for="cw-reply">Story JSON from the configured AI or another tool</label>
-    <textarea id="cw-reply" rows="12" [ngModel]="reply()" (ngModelChange)="updateReply($event)"
-      placeholder="Paste the complete animstudio-story JSON response here."></textarea>
-    <p class="muted">Check the dialogue, scene count, visual prompts and actual duration. Import checks the script again; you approve it before building.
-      Generated output is not guaranteed to be original or copyright-safe. Use only media you have rights to.</p>
-    <div class="cw-actions">
-      <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="loadPastedStory()">Load and review script</button>
-      <button type="button" [disabled]="!reply().trim() || busy()" (click)="importStory()">
-        @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> Importing… } @else { Import into Story Agent }
-      </button>
-      <button type="button" class="secondary" [disabled]="!reply().trim() || busy()" (click)="downloadStory()">Download story JSON</button>
-    </div>
-  </section>
-  @if (review(); as script) {
-    <section class="card cw-section">
-      <h2>Review the performance: {{ script.title }}</h2>
-      <p>@if (script.targetSeconds) { Target: about {{ script.targetSeconds }} seconds. } @else { No target duration specified. }
-        Read the dialogue and actions, and revise the JSON above if needed;
-        reload it to refresh this review. Timing is an estimate, not a guarantee.</p>
-      @if (script.warnings.length) {
-        <div class="notice error" role="alert">
-          <strong>Check before producing:</strong>
-          <ul>@for (warning of script.warnings; track $index) { <li>{{ warning }}</li> }</ul>
-        </div>
-      }
-      @for (scene of script.scenes; track $index) {
-        <article class="cw-review-scene">
-          <h3>{{ $index + 1 }}. {{ scene.headline }}</h3>
-          <p class="cw-dialogue"><strong>Dialogue:</strong> {{ scene.dialogue || 'Missing dialogue' }}</p>
-          <p><strong>Setting:</strong> {{ scene.image || 'Not specified' }}</p>
-          <p><strong>Action:</strong> {{ scene.action || 'Not specified' }}</p>
-        </article>
-      }
-      <button type="button" class="secondary" [disabled]="script.warnings.length > 0" (click)="prepareVideoPrompt()">I reviewed this — prepare video prompt</button>
-      <p class="muted">This prepares text for Google Flow or another video tool; it does not generate video.
-        External tools may require shorter clips and may not follow dialogue or lip-sync exactly. Check and edit the result.</p>
-      @if (videoPrompt()) {
-        <label for="cw-video-prompt">Video generation prompt</label>
-        <textarea id="cw-video-prompt" rows="12" readonly [value]="videoPrompt()"></textarea>
-        <div class="cw-actions">
-          <button type="button" class="secondary" (click)="copyVideoPrompt()">Copy video prompt</button>
-          <button type="button" class="secondary" (click)="downloadVideoPrompt()">Download video prompt</button>
-        </div>
-      }
-      <p class="muted">Story Agent can use attached moving clips, but its character voices require a supported speech engine and
-        cast voices enabled. It does not automatically lip-sync those voices to the clips; review the final result.</p>
-    </section>
-  }
-  @if (error(); as problem) { <div class="notice error" role="alert">{{ problem }}</div> }
-  @if (notice(); as message) { <div class="notice" role="status">{{ message }}</div> }
+  </details>
 </section>

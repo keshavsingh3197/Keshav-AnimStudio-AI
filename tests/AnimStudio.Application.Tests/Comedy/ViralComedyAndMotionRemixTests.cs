@@ -103,6 +103,8 @@ public sealed class ViralComedyAndMotionRemixTests
         var post = AutomationContentComposer.ComposeForRule(rule, EmptySignals("2026-11-18"), EmptyEcosystem()).Single();
         Assert.Contains(expectedSceneToken, post.Script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("[CAST]:", post.Script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("3D Comedy", post.Tags);
+        Assert.Contains("Original 3D cartoon animation", post.Description, StringComparison.Ordinal);
     }
 
     [Fact]

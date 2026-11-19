@@ -572,6 +572,24 @@ public sealed class AutomationController(
         return Ok(ApiResponse<ComedyCompilationResult>.Ok(result));
     }
 
+    [HttpPost("comedy/bootstrap-dual")]
+    public async Task<ActionResult<ApiResponse<DualComedyBootstrapResult>>> BootstrapDualComedy(CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<DualComedyBootstrapResult>() is { } denied) return denied;
+        return Ok(ApiResponse<DualComedyBootstrapResult>.Ok(
+            await automation.BootstrapDualComedyPipelinesAsync(currentUser.UserId, ct)));
+    }
+
+    [HttpPost("comedy/create-post")]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> CreateComedyPost(
+        [FromBody] CreateComedyStudioPostDto request,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationPost>.Ok(
+            await automation.CreateComedyStudioPostAsync(currentUser.UserId, request, ct)));
+    }
+
     [HttpDelete("queue/{id}")]
     public async Task<ActionResult<ApiResponse<EmptyPayload>>> DeletePost(
         string id,
