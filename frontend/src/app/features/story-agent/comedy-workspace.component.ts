@@ -170,7 +170,7 @@ export class ComedyWorkspaceComponent {
   });
 
   constructor() {
-    this.effects.list().subscribe({
+    this.effects.list({}, true).subscribe({
       next: (list) => {
         const sorted = [...list].sort((a, b) => Number(b.category === 'Reaction') - Number(a.category === 'Reaction'));
         this.memeLibrary.set(sorted);
@@ -189,7 +189,7 @@ export class ComedyWorkspaceComponent {
       if (key === this.lastAuthKey) return;
       this.lastAuthKey = key;
       if (authed) {
-        void this.loadWorkspaceData(false);
+        void this.loadWorkspaceData(true);
       } else {
         this.overview.set(null);
         this.songs.set([]);
@@ -217,9 +217,9 @@ export class ComedyWorkspaceComponent {
       if (!this.selectedChannelId() && ov.connectedChannels.length > 0) {
         this.pickDefaultChannelForTrack(this.audienceTrack(), ov.connectedChannels);
       }
-      if (!background) {
+      if (this.songs().length === 0 || !background) {
         try {
-          const songRes = await firstValueFrom(this.songsApi.list());
+          const songRes = await firstValueFrom(this.songsApi.list(background));
           this.songs.set(songRes.songs ?? []);
         } catch {
           /* songs list optional */

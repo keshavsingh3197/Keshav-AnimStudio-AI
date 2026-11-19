@@ -14,10 +14,13 @@ export function silentHttpContext(): HttpContext {
 
 const SILENT_URL_FRAGMENTS = [
   '/api/auth/media-ticket',
+  '/api/auth/session',
+  '/api/config',
   '/api/logs/stream',
   '/api/shorts/active',
   '/api/system/admin-access',
   '/api/system/ecosystem',
+  '/api/system/session',
   '/assets/',
 ];
 
