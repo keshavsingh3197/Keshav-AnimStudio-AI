@@ -64,7 +64,7 @@ function parseAccentSegments(line: string): AccentSegment[] {
           <div class="ss-tabs">
             <button type="button" class="ss-tab" [class.on]="activeTab() === 'styles'" (click)="activeTab.set('styles')">
               <span class="ss-tab-icon">🎬</span>
-              <span>Style Presets (10)</span>
+              <span>Style Presets ({{ presets.length }})</span>
             </button>
             <button type="button" class="ss-tab" [class.on]="activeTab() === 'layouts'" (click)="activeTab.set('layouts')">
               <span class="ss-tab-icon">📐</span>

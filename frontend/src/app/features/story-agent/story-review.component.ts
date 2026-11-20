@@ -51,6 +51,7 @@ export const TRANSITION_LABEL: Record<StoryTransition, string> = {
   None: 'Cut', Fade: 'Crossfade', Dissolve: 'Dissolve', WipeLeft: 'Wipe left', WipeRight: 'Wipe right', SlideLeft: 'Slide left',
   SlideRight: 'Slide right', SlideUp: 'Slide up', SlideDown: 'Slide down', CircleOpen: 'Iris open', CircleClose: 'Iris close', ZoomIn: 'Zoom through',
   Blur: 'Blur through', FadeBlack: 'Dip to black', FadeWhite: 'Dip to white', CircleCrop: 'Iris through black', DiagonalWipe: 'Diagonal wipe',
+  Radial: 'Radial sweep', SmoothLeft: 'Smooth left', SmoothRight: 'Smooth right', SmoothUp: 'Smooth up', SmoothDown: 'Smooth down', HorzOpen: 'Curtain open', VertOpen: 'Gate open',
 };
 
 /** Where Google's own music tool is, for making a track by hand from the brief. */

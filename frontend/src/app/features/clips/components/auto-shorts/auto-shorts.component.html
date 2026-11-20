@@ -141,8 +141,10 @@
       <!-- How the shorts are cut -->
       <section class="as-options" aria-label="Options">
         <div class="as-quick">
+          <button type="button" class="as-auto as-auto-divine" (click)="divineSetup()" [disabled]="pickedClips().length === 0"
+                  title="Default devotional flow: sweeping picture motion, radial & dissolve junctions, golden light & pure Flowers/Petals/Sparkles FX (never Hearts)">🪔 Divine Auto</button>
           <button type="button" class="as-auto" (click)="autoSetup()" [disabled]="pickedClips().length === 0"
-                  title="Settings that suit your picks: shared out, exact length, videos first, auto style">✨ Auto setup</button>
+                  title="Settings that suit your picks: shared out, exact length, videos first, Divine default style">✨ Auto setup</button>
           <button type="button" class="as-auto as-auto-fun" (click)="comedySetup()" [disabled]="pickedClips().length === 0"
                   title="Whole clips in order, numbered and counted down, a 'which is funniest?' poll on top and a call to action below">😂 Comedy compilation</button>
           @if (state.timelineOrderedAssetIds().length > 0) {
@@ -150,7 +152,7 @@
                     title="Cut sequential shorts from your timeline clips in exact order (1 → N)">🎬 Timeline in Order</button>
           }
           @for (p of presets; track p.id) {
-            <button type="button" class="as-chip" (click)="applyPreset(p)" [title]="p.hint">{{ p.icon }} {{ p.label }}</button>
+            <button type="button" class="as-chip" [class.on]="style() === p.style && seconds() === p.seconds" (click)="applyPreset(p)" [title]="p.hint">{{ p.icon }} {{ p.label }}</button>
           }
         </div>
 
@@ -337,14 +339,14 @@
           }
         </div>
 
-        <h4>3 · Style</h4>
+        <h4>3 · Style, Motion &amp; Pure FX <span class="as-count">{{ styleHints[style()].icon }} {{ style() }}</span></h4>
         <div class="as-cards as-styles" role="radiogroup" aria-label="Style">
           @for (s of styles; track s) {
             @let pv = stylePreviews[s];
-            <button type="button" class="as-card as-style-card" role="radio" [attr.aria-checked]="style() === s" [class.on]="style() === s" (click)="pickStyle(s)">
+            <button type="button" class="as-card as-style-card" [class.as-style-divine]="s === 'Divine'" role="radio" [attr.aria-checked]="style() === s" [class.on]="style() === s" (click)="pickStyle(s)">
               <span [class]="'as-pv as-pv-' + pv.kind" [style.--cut]="pv.cut + 's'" [style.filter]="pv.grade" aria-hidden="true">
                 <span class="as-pv-shot"></span><span class="as-pv-shot"></span><span class="as-pv-shot"></span>
-                <span class="as-pv-text" [class.bold]="pv.bold">{{ pv.bold ? 'WOW' : 'line' }}</span>
+                <span class="as-pv-text" [class.bold]="pv.bold">{{ pv.bold ? 'WOW' : s === 'Divine' ? '🪔' : 'line' }}</span>
               </span>
               <span class="as-card-body">
                 <span class="as-card-name">{{ styleHints[s].icon }} {{ s }}</span>
@@ -374,31 +376,56 @@
             <p class="as-hint">No {{ style() }} short rendered yet. The animation above shows its pace, and your first {{ style() }} short will play here.</p>
           }
         </div>
-        <div class="as-toggles">
-          <label><input type="checkbox" [ngModel]="motion()" (ngModelChange)="motion.set($event)" /> Camera moves &amp; looks on pictures</label>
-          <label><input type="checkbox" [ngModel]="transitions()" (ngModelChange)="transitions.set($event)" /> Transitions between shots</label>
+        <div class="as-fx-card">
+          <div class="as-toggles">
+            <label><input type="checkbox" [ngModel]="motion()" (ngModelChange)="motion.set($event)" />
+              <span><strong>Camera motion &amp; glow on every picture</strong> — alternates push-in, pan &amp; drift so stills feel like video</span>
+            </label>
+            <label><input type="checkbox" [ngModel]="transitions()" (ngModelChange)="transitions.set($event)" />
+              <span><strong>Junction transitions between images &amp; clips</strong></span>
+            </label>
+          </div>
           @if (transitions()) {
-            <div class="as-field">
-              <label class="as-label" for="as-trans-kind">Transition</label>
-              <div class="as-chips">
+            <div class="as-field as-field-top">
+              <label class="as-label" for="as-trans-kind">Junction</label>
+              <div class="as-stack">
                 <select id="as-trans-kind" class="as-sel" [ngModel]="transitionOverride()" (ngModelChange)="transitionOverride.set($event)">
                   @for (t of transitionOverrides; track t.label) {
                     <option [ngValue]="t.id">{{ t.label }}</option>
                   }
                 </select>
-                <button type="button" class="as-chip" [class.on]="transitionSeconds() === null" (click)="transitionSeconds.set(null)">Auto timing</button>
-                @for (ts of [0.3, 0.5, 0.8]; track ts) {
-                  <button type="button" class="as-chip" [class.on]="transitionSeconds() === ts" (click)="transitionSeconds.set(ts)">{{ ts }}s</button>
-                }
+                <div class="as-chips">
+                  <button type="button" class="as-chip" [class.on]="transitionSeconds() === null" (click)="transitionSeconds.set(null)">Auto timing</button>
+                  @for (ts of [0.3, 0.5, 0.8, 1.2]; track ts) {
+                    <button type="button" class="as-chip" [class.on]="transitionSeconds() === ts" (click)="transitionSeconds.set(ts)">{{ ts }}s</button>
+                  }
+                </div>
               </div>
             </div>
           }
-          <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
-          <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card <span class="as-muted">(plays after the {{ seconds() }}s)</span></label>
+          <div class="as-field as-field-top">
+            <label class="as-label" for="as-atmo">Particles FX</label>
+            <div class="as-stack">
+              <select id="as-atmo" class="as-sel" [ngModel]="atmosphere()" (ngModelChange)="atmosphere.set($event)">
+                @for (a of atmosphereOptions; track a.id) {
+                  <option [ngValue]="a.id">{{ a.label }}</option>
+                }
+              </select>
+              <p class="as-hint">{{ atmosphereHint() }}</p>
+            </div>
+          </div>
+          <div class="as-toggles as-toggles-row">
+            <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
+            <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card <span class="as-muted">(after {{ seconds() }}s)</span></label>
+          </div>
         </div>
 
-        <h4>4 · Top &amp; bottom <span class="as-count">automatic</span></h4>
-        <p class="as-hint">Your footage plays in the middle. Above and below it, every short gets its own designed bands - a question or poll on top, numbered parts, and a call to action underneath.</p>
+        <details class="as-collapsible" [open]="showPackaging()" (toggle)="showPackaging.set($any($event.target).open)">
+          <summary>
+            <span>4 · Bands, Poll, Captions &amp; Memes <span class="as-count">{{ hasPackagingActive() ? 'active' : 'clean fullscreen' }}</span></span>
+          </summary>
+          <div class="as-collapsible-body">
+            <p class="as-hint">Keep collapsed for clean full-screen devotional / music shorts, or expand to add top poll/quiz bars, banners, script lines &amp; reaction memes.</p>
         <div class="as-pack">
           @let m = mock();
           <div class="as-mock" aria-hidden="true" [style.background]="m.design?.bar ?? '#111827'">
@@ -532,17 +559,19 @@
         @if (memeError(); as err) { <p class="as-warn" role="alert">{{ err }}</p> }
 
 
-        <h4>5 · Script lines <span class="as-count">{{ lines().length }}</span></h4>
+        <h5>Script lines <span class="as-count">{{ lines().length }}</span></h5>
         <textarea class="as-lines" rows="4" [ngModel]="linesText()" (ngModelChange)="linesText.set($event)"
-                  placeholder="One line per row - hooks, captions, quotes. Each short gets different lines at random.&#10;Wait till the end 😮&#10;3 things nobody tells you&#10;Watch this before you go"></textarea>
+                  placeholder="One line per row - devotional quotes, hooks, captions. Each short gets different lines."></textarea>
         <div class="as-chips">
           @for (m of textModes; track m.id) {
             <button type="button" class="as-chip" [class.on]="textMode() === m.id" (click)="textMode.set(m.id)"
                     [disabled]="lines().length === 0 && m.id !== 'None'">{{ m.label }}</button>
           }
         </div>
+          </div>
+        </details>
 
-        <h4>6 · Sound</h4>
+        <h4>5 · Sound &amp; Music</h4>
         @if (musicOptions().length === 0) {
           <p class="as-hint">No music in this project yet - add a clean reusable Studio BGM below, or keep clips' own sound.</p>
         } @else {
@@ -575,7 +604,7 @@
           <label><input type="checkbox" [ngModel]="keepClipAudio()" (ngModelChange)="keepClipAudio.set($event)" /> Keep clips' own sound under the music</label>
         </div>
 
-        <h4>7 · Google Drive</h4>
+        <h4>6 · Google Drive</h4>
         <div class="as-field">
           <app-topic-picker label="Topic (files the shorts in the Drive library and links them to the calendar)" [value]="topicId()" (valueChange)="pickTopic($event)" />
         </div>

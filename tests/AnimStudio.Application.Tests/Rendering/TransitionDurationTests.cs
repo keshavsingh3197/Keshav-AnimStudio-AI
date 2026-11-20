@@ -21,6 +21,13 @@ public class TransitionDurationTests
     [InlineData(SceneTransition.FadeWhite, "fadewhite")]
     [InlineData(SceneTransition.CircleCrop, "circlecrop")]
     [InlineData(SceneTransition.DiagonalWipe, "diagbr")]
+    [InlineData(SceneTransition.Radial, "radial")]
+    [InlineData(SceneTransition.SmoothLeft, "smoothleft")]
+    [InlineData(SceneTransition.SmoothRight, "smoothright")]
+    [InlineData(SceneTransition.SmoothUp, "smoothup")]
+    [InlineData(SceneTransition.SmoothDown, "smoothdown")]
+    [InlineData(SceneTransition.HorzOpen, "horzopen")]
+    [InlineData(SceneTransition.VertOpen, "vertopen")]
     public void Reference_style_transitions_use_allowlisted_filters_and_preserve_padded_timing(SceneTransition kind, string filter)
     {
         var transition = new TransitionSettings(kind, new FrameCount(15));

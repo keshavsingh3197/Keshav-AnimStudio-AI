@@ -27,7 +27,14 @@ public enum SceneTransition
     FadeBlack = 13,
     FadeWhite = 14,
     CircleCrop = 15,
-    DiagonalWipe = 16
+    DiagonalWipe = 16,
+    Radial = 17,
+    SmoothLeft = 18,
+    SmoothRight = 19,
+    SmoothUp = 20,
+    SmoothDown = 21,
+    HorzOpen = 22,
+    VertOpen = 23
 }
 
 public sealed record TransitionSettings(SceneTransition Kind, FrameCount Duration)
@@ -56,6 +63,13 @@ public sealed record TransitionSettings(SceneTransition Kind, FrameCount Duratio
         SceneTransition.FadeWhite => "fadewhite",
         SceneTransition.CircleCrop => "circlecrop",
         SceneTransition.DiagonalWipe => "diagbr",
+        SceneTransition.Radial => "radial",
+        SceneTransition.SmoothLeft => "smoothleft",
+        SceneTransition.SmoothRight => "smoothright",
+        SceneTransition.SmoothUp => "smoothup",
+        SceneTransition.SmoothDown => "smoothdown",
+        SceneTransition.HorzOpen => "horzopen",
+        SceneTransition.VertOpen => "vertopen",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown scene transition.")
     };
 }

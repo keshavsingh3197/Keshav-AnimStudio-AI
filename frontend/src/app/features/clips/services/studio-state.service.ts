@@ -10985,6 +10985,43 @@ function chunkIntoWordPops(line: string): string[] {
 
 export const STUDIO_STYLE_PRESETS: readonly StudioStylePreset[] = [
   {
+    id: 'Divine',
+    label: 'Divine & Devotional',
+    icon: '🪔',
+    tag: 'Pure Sacred · Safe & Golden',
+    description: 'Golden warm glow, sweeping Ken Burns & pan moves on every still image, radial & smooth-glide transitions, and pure flowers/petals/sparkles — zero romantic or aggressive FX.',
+    transitions: ['Dissolve', 'Radial', 'SmoothLeft', 'CircleOpen', 'SmoothRight', 'Fade'],
+    transitionSeconds: 0.75,
+    motions: ['zoom-in', 'pan-right', 'zoom-out', 'pan-up', 'drift', 'pan-left', 'breathe'],
+    intensity: 0.19,
+    easing: 'ease',
+    look: 'warm',
+    filterPreset: 'warm',
+    vignette: true,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'flowers',
+    defaultTextMode: 'PerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      '🪔 Pure grace in [every] sacred moment',
+      'Feel the [divine] peace within',
+      'Devotion, light & [eternal] bliss',
+    ],
+    hookTextStyle: {
+      fontSize: 28, color: '#fef3c7', accentColor: '#facc15', position: 'top',
+      boxStyle: 'box', boxColor: '#1c1917', boxOpacity: 0.68,
+      outlineColor: '#ca8a04', outlineWidth: 1.5, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.45, transitionOut: 'fade', transitionOutDuration: 0.35,
+    },
+    captionTextStyle: {
+      fontSize: 23, color: '#fef3c7', accentColor: '#facc15', position: 'bottom',
+      boxStyle: 'box', boxColor: '#1c1917', boxOpacity: 0.62,
+      outlineColor: '#78350f', outlineWidth: 1.5, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.45, transitionOut: 'fade', transitionOutDuration: 0.35,
+    },
+  },
+  {
     id: 'DirectResponse',
     label: 'Direct-Response Ad',
     icon: '🎯',

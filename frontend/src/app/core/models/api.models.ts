@@ -1053,8 +1053,14 @@ export interface TrackControlState {
  * Pace and finish of a batch of auto shorts. Auto picks styles that suit the batch; Mixed
  * deals every style out so no two shorts look alike.
  */
-export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'DirectResponse', 'Explainer', 'Viral', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
+export const AUTO_SHORT_STYLES = [
+  'Auto', 'Divine', 'Mixed', 'DirectResponse', 'Explainer', 'Viral', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro',
+] as const;
 export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
+
+/** Pure family-safe atmospheric particle overlay added over Auto Shorts (never Hearts). */
+export const AUTO_SHORT_ATMOSPHERES = ['Auto', 'SacredMix', 'Flowers', 'Petals', 'Sparkles', 'Cosmic', 'None'] as const;
+export type AutoShortAtmosphere = (typeof AUTO_SHORT_ATMOSPHERES)[number];
 
 /** How the batch's lines go on screen. */
 export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot', 'WordPop', 'HookAndWordPop'] as const;
@@ -1105,6 +1111,8 @@ export interface AutoShortsBody {
   /** Optional transition length override in seconds (0.2-2.0). */
   transitionSeconds?: number | null;
   motion: boolean;
+  /** Pure family-safe particle atmosphere overlay (Auto picks Flowers/Petals/Sparkles/Cosmic for Divine). */
+  atmosphere?: AutoShortAtmosphere;
   keepClipAudio: boolean;
   exportName?: string | null;
   width: number;
@@ -1247,6 +1255,7 @@ export const TRANSITIONS = [
   'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose',
   'SlideUp', 'SlideDown', 'ZoomIn',
   'Blur', 'FadeBlack', 'FadeWhite', 'CircleCrop', 'DiagonalWipe',
+  'Radial', 'SmoothLeft', 'SmoothRight', 'SmoothUp', 'SmoothDown', 'HorzOpen', 'VertOpen',
 ] as const;
 
 export const ANCHORS = [

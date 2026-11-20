@@ -52,7 +52,31 @@ public enum AutoShortStyle
     /// </summary>
     Viral = 9,
     DirectResponse = 10,
-    Explainer = 11
+    Explainer = 11,
+
+    /// <summary>
+    /// Golden devotional Shorts: smooth gimbal-style sweeps on every still image, flowing
+    /// dissolves, radial and smooth-glide transitions, warm glow and strictly family-safe sacred FX.
+    /// </summary>
+    Divine = 12
+}
+
+/// <summary>
+/// Subtle atmospheric particle overlay added over a planned Auto Short. Never emits romantic Hearts
+/// or aggressive party cannons automatically in Divine/Auto mode.
+/// </summary>
+public enum AutoShortAtmosphere
+{
+    /// <summary>Picks pure sacred particles (Flowers, Petals, Sparkles, Cosmic) for Divine, Cosmic for DirectResponse, clean otherwise.</summary>
+    Auto = 0,
+    None = 1,
+
+    /// <summary>Cycles pure devotional particles (Flowers, Petals, Sparkles, Cosmic) across the batch.</summary>
+    SacredMix = 2,
+    Flowers = 3,
+    Petals = 4,
+    Sparkles = 5,
+    Cosmic = 6
 }
 
 /// <summary>Where a short's footage goes in its running order.</summary>
@@ -158,6 +182,9 @@ public sealed record AutoShortBatch
 
     /// <summary>Camera moves and grades on pictures.</summary>
     public bool Motion { get; init; } = true;
+
+    /// <summary>Pure family-safe atmospheric particle overlay (Auto lets style decide).</summary>
+    public AutoShortAtmosphere Atmosphere { get; init; } = AutoShortAtmosphere.Auto;
 
     /// <summary>Keep the footage's own sound under the music.</summary>
     public bool KeepClipAudio { get; init; } = true;
@@ -303,7 +330,24 @@ public static class AutoShortPlanner
         ["zoom-in", "pan-left", "pan-right"], 0.08, 0.14, "ease",
         ["cinematic", "none"], false, BoldText: true);
 
-    private static readonly Pace[] AllPaces = [Energetic, Cinematic, Calm, Hype, Dreamy, Dramatic, Retro, Viral];
+    private static readonly Pace Divine = new(
+        AutoShortStyle.Divine,
+        2.6, 4.6,
+        [
+            SceneTransition.Dissolve, SceneTransition.SmoothLeft, SceneTransition.Radial,
+            SceneTransition.CircleOpen, SceneTransition.SmoothRight, SceneTransition.Fade,
+            SceneTransition.DiagonalWipe, SceneTransition.SmoothUp, SceneTransition.HorzOpen, SceneTransition.ZoomIn,
+        ],
+        0.55, 0.95,
+        ["zoom-in", "pan-right", "zoom-out", "pan-up", "drift", "pan-left", "breathe", "pan-down"],
+        0.16, 0.24, "ease",
+        ["warm", "cinematic"], true);
+
+    /// <summary>Strictly pure devotional FX overlays rotated in Divine/SacredMix mode (never Hearts or aggressive party cannons).</summary>
+    private static readonly string[] SacredAtmospheres = ["flowers", "petals", "sparkles", "cosmic"];
+    private static readonly string[] CalmAtmospheres = ["petals", "sparkles"];
+
+    private static readonly Pace[] AllPaces = [Divine, Energetic, Cinematic, Calm, Hype, Dreamy, Dramatic, Retro, Viral];
 
     /// <summary>
     /// The styles a batch may draw from. Mixed and Auto deal theirs from a deck, so a batch
@@ -321,21 +365,23 @@ public static class AutoShortPlanner
         AutoShortStyle.Viral => [Viral],
         AutoShortStyle.DirectResponse => [DirectResponse],
         AutoShortStyle.Explainer => [Explainer],
+        AutoShortStyle.Divine => [Divine],
         AutoShortStyle.Auto => AutoPaces(batch, usable, target),
         _ => AllPaces,
     };
 
     /// <summary>
-    /// Styles that suit the batch: quick ones for teasers, slow ones for long picture holds,
-    /// and the footage-led looks when most of the picks are video.
+    /// Styles that suit the batch: quick ones for teasers, Divine/devotional for serene picture
+    /// journeys, and balanced multi-style motion for longer reels.
     /// </summary>
     private static Pace[] AutoPaces(AutoShortBatch batch, IReadOnlyList<AutoShortSource> usable, double target)
     {
         var footage = usable.Count(s => s.Kind == AssetKind.Video) / (double)usable.Count >= 0.5;
         if (target <= 20) return [Hype, Energetic];
-        if (batch.Layout != AutoShortLayout.FitLength && batch.AutoImageDuration != true && batch.ImageSeconds >= 7 && !footage) return [Calm, Dreamy, Cinematic];
-        if (target <= 45) return footage ? [Viral, Energetic, Dramatic, Cinematic] : [Energetic, Viral, Cinematic, Retro];
-        return footage ? [Cinematic, Dramatic, Energetic] : [Cinematic, Dreamy, Retro, Calm];
+        if (batch.Layout != AutoShortLayout.FitLength && batch.AutoImageDuration != true && batch.ImageSeconds >= 7 && !footage)
+            return [Divine, Calm, Dreamy, Cinematic];
+        if (target <= 45) return footage ? [Divine, Viral, Energetic, Cinematic] : [Divine, Cinematic, Energetic, Dreamy];
+        return footage ? [Divine, Cinematic, Dramatic, Energetic] : [Divine, Cinematic, Dreamy, Calm];
     }
 
     /// <summary>
@@ -431,13 +477,15 @@ public static class AutoShortPlanner
         var designId = AutoShortPackager.CleanDesignId(packaging.Design);
         var designDeck = designId == "auto" ? new Deck<AutoShortPackager.Design>(AutoShortPackager.Designs, random) : null;
         var topDeck = new Deck<int>([0, 1, 2], random);
+        var sacredFxDeck = new Deck<string>(SacredAtmospheres, random);
+        var calmFxDeck = new Deck<string>(CalmAtmospheres, random);
 
         var shorts = new List<ClipMergeCommand>();
         var styles = new List<AutoShortStyle>();
         for (var k = 0; k < cuts.Count; k++)
         {
             var label = cuts.Count == 1 ? name : $"{name} #{k + 1}";
-            var built = BuildShort(effectiveBatch, PaceAt(k), cuts[k], random, lineDeck, musicDeck, label);
+            var built = BuildShort(effectiveBatch, PaceAt(k), cuts[k], random, lineDeck, musicDeck, sacredFxDeck, calmFxDeck, label);
             if (packaging.IsEmpty && languages.Length == 1)
             {
                 shorts.Add(built);
@@ -857,6 +905,13 @@ public static class AutoShortPlanner
             var guard = 0;
             while ((lengths.Count > 0 || owed >= 0.05) && guard++ < 400 && shots.Count < ClipMergeSpec.MaxClips)
             {
+                if (lengths.Count == 0 && owed < MinShotSeconds && shots.Count > 0)
+                {
+                    owed = StretchPictures(shots, Round(owed), MaxImageSeconds);
+                    if (owed > 0.01) owed = ExtendFootage(shots, Round(owed));
+                    if (owed < 0.05) break;
+                }
+
                 var len = lengths.Count > 0 ? lengths.Dequeue() + owed : Math.Max(MinShotSeconds, owed);
                 owed = 0;
                 var source = shots.Count == 0 && openers is not null ? openers.Next() : deck.Next();
@@ -970,11 +1025,15 @@ public static class AutoShortPlanner
 
     private static ClipMergeCommand BuildShort(
         AutoShortBatch batch, Pace pace, List<Shot> shots, Random random,
-        Deck<string>? lines, Deck<string>? music, string exportName)
+        Deck<string>? lines, Deck<string>? music,
+        Deck<string> sacredFxDeck, Deck<string> calmFxDeck, string exportName)
     {
         var items = new List<TimelineItemSpec>();
         var junctions = new List<ClipJunctionOverride>();
         var look = batch.Motion ? Pick(random, pace.Looks) : null;
+        var motionDeck = new Deck<string>(pace.Motions, random);
+        var transitionDeck = new Deck<SceneTransition>(pace.Transitions, random);
+        var isDivine = pace.Style == AutoShortStyle.Divine;
 
         var at = 0.0;
         foreach (var shot in shots)
@@ -1000,11 +1059,11 @@ public static class AutoShortPlanner
                 item.Type = "image";
                 item.Transform = new TimelineItemTransformSpec
                 {
-                    Motion = batch.Motion ? Pick(random, pace.Motions) : "none",
+                    Motion = batch.Motion ? motionDeck.Next() : "none",
                     MotionIntensity = Round(Between(random, pace.IntensityMin, pace.IntensityMax)),
                     MotionEasing = pace.Easing,
-                    FocusX = Round(Between(random, 35, 65)),
-                    FocusY = Round(Between(random, 30, 60)),
+                    FocusX = Round(isDivine ? Between(random, 42, 58) : Between(random, 35, 65)),
+                    FocusY = Round(isDivine ? Between(random, 30, 50) : Between(random, 30, 60)),
                     Look = look is null or "none" ? null : look,
                     Vignette = batch.Motion && pace.Vignette,
                 };
@@ -1028,7 +1087,7 @@ public static class AutoShortPlanner
                 ? Math.Clamp(ts, 0.2, 2.0)
                 : Between(random, pace.TransitionMin, pace.TransitionMax);
             var secs = Round(Math.Min(room, requestedSecs));
-            var pickedKind = batch.TransitionOverride ?? Pick(random, pace.Transitions);
+            var pickedKind = batch.TransitionOverride ?? transitionDeck.Next();
             var kind = secs >= 0.2 ? pickedKind : SceneTransition.None;
             secs = kind == SceneTransition.None ? 0 : secs;
 
@@ -1039,40 +1098,56 @@ public static class AutoShortPlanner
 
         var total = Round(at);
         items.AddRange([.. TextItems(batch.TextMode, lines, [.. items], junctions, total, pace.BoldText, pace.Style)]);
-        if (pace.Style == AutoShortStyle.DirectResponse)
+
+        var atmosphereKind = ResolveAtmosphereKind(batch, pace, shots, sacredFxDeck, calmFxDeck);
+        if (atmosphereKind is not null && total >= 1.5)
         {
+            var isDirectAd = pace.Style == AutoShortStyle.DirectResponse && atmosphereKind == "cosmic";
             items.Add(new TimelineItemSpec
             {
-                Id = "auto_cosmic_fx",
+                Id = isDirectAd ? "auto_cosmic_fx" : "auto_atmosphere_fx",
                 Type = "celebration",
                 TrackId = "FX1",
                 StartTime = 0,
                 Duration = total,
-                Src = "cosmic",
-                Name = "Cosmic Atmosphere",
-                Celebration = new CelebrationSpec { Mode = "rain", Density = 28, Size = 0.9, Speed = 0.85 },
-            });
-            if (total >= 4.0)
-            {
-                var ctaDur = Round(Math.Min(2.5, total * 0.35));
-                items.Add(new TimelineItemSpec
+                Src = atmosphereKind,
+                Name = atmosphereKind switch
                 {
-                    Id = "auto_cta",
-                    Type = "text",
-                    TrackId = "TXT1",
-                    StartTime = Round(total - ctaDur),
-                    Duration = ctaDur,
-                    Src = "ORDER NOW →",
-                    Name = "CTA Button",
-                    TextStyle = new TimelineItemTextStyleSpec
-                    {
-                        FontSize = 24, Color = "#0f172a", Position = "custom", X = 50, Y = 88,
-                        BoxStyle = "box", BoxColor = "#facc15", BoxOpacity = 0.98,
-                        OutlineColor = "#ffffff", OutlineWidth = 1.5, Shadow = true, Uppercase = true,
-                        TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.2,
-                    },
-                });
-            }
+                    "flowers" => "Sacred Flower Shower",
+                    "petals" => "Devotional Petals",
+                    "sparkles" => "Divine Golden Sparkles",
+                    _ => "Cosmic Atmosphere",
+                },
+                Celebration = new CelebrationSpec
+                {
+                    Mode = "rain",
+                    Density = isDirectAd ? 28 : atmosphereKind == "sparkles" ? 32 : 24,
+                    Size = isDirectAd ? 0.9 : 0.85,
+                    Speed = isDirectAd ? 0.85 : 0.78,
+                },
+            });
+        }
+
+        if (pace.Style == AutoShortStyle.DirectResponse && total >= 4.0)
+        {
+            var ctaDur = Round(Math.Min(2.5, total * 0.35));
+            items.Add(new TimelineItemSpec
+            {
+                Id = "auto_cta",
+                Type = "text",
+                TrackId = "TXT1",
+                StartTime = Round(total - ctaDur),
+                Duration = ctaDur,
+                Src = "ORDER NOW →",
+                Name = "CTA Button",
+                TextStyle = new TimelineItemTextStyleSpec
+                {
+                    FontSize = 24, Color = "#0f172a", Position = "custom", X = 50, Y = 88,
+                    BoxStyle = "box", BoxColor = "#facc15", BoxOpacity = 0.98,
+                    OutlineColor = "#ffffff", OutlineWidth = 1.5, Shadow = true, Uppercase = true,
+                    TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.2,
+                },
+            });
         }
 
         var musicId = music?.Next();
@@ -1095,6 +1170,28 @@ public static class AutoShortPlanner
             IncludeOutro = batch.IncludeOutro,
             YouTubeLoudness = true,
             TimelineItems = items,
+        };
+    }
+
+    private static string? ResolveAtmosphereKind(
+        AutoShortBatch batch, Pace pace, List<Shot> shots, Deck<string> sacredFxDeck, Deck<string> calmFxDeck)
+    {
+        return batch.Atmosphere switch
+        {
+            AutoShortAtmosphere.None => null,
+            AutoShortAtmosphere.Flowers => "flowers",
+            AutoShortAtmosphere.Petals => "petals",
+            AutoShortAtmosphere.Sparkles => "sparkles",
+            AutoShortAtmosphere.Cosmic => "cosmic",
+            AutoShortAtmosphere.SacredMix => sacredFxDeck.Next(),
+            _ => pace.Style switch
+            {
+                AutoShortStyle.Divine => sacredFxDeck.Next(),
+                AutoShortStyle.DirectResponse => "cosmic",
+                AutoShortStyle.Calm or AutoShortStyle.Dreamy
+                    when batch.Motion && shots.Any(s => s.Source.Kind == AssetKind.Image) => calmFxDeck.Next(),
+                _ => null,
+            },
         };
     }
 
@@ -1162,6 +1259,14 @@ public static class AutoShortPlanner
                         BoxStyle = "box", BoxColor = "#0f172a", BoxOpacity = 0.85,
                         OutlineColor = "#38bdf8", OutlineWidth = 1.5, Shadow = true, Uppercase = false,
                         TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.25,
+                    }
+                    : style == AutoShortStyle.Divine
+                    ? new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 28, Color = "#fef3c7", AccentColor = "#facc15", Position = "top",
+                        BoxStyle = "box", BoxColor = "#1c1917", BoxOpacity = 0.62,
+                        OutlineColor = "#ca8a04", OutlineWidth = 1.5, Shadow = true, Uppercase = false,
+                        TransitionIn = "fade", TransitionInDuration = 0.45, TransitionOut = "fade", TransitionOutDuration = 0.35,
                     }
                     : bold
                     // A dark word on a white plate, as creator Shorts label what is on screen.
@@ -1265,6 +1370,14 @@ public static class AutoShortPlanner
                         BoxStyle = "box", BoxColor = "#0f172a", BoxOpacity = 0.85,
                         OutlineColor = "#38bdf8", OutlineWidth = 1.5, Shadow = true, Uppercase = false,
                         TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.25,
+                    }
+                    : style == AutoShortStyle.Divine
+                    ? new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 26, Color = "#fef3c7", AccentColor = "#facc15", Position = "custom", X = 50, Y = 74,
+                        BoxStyle = "box", BoxColor = "#1c1917", BoxOpacity = 0.52,
+                        OutlineColor = "#78350f", OutlineWidth = 1.5, Shadow = true, Uppercase = false,
+                        TransitionIn = "fade", TransitionInDuration = 0.45, TransitionOut = "fade", TransitionOutDuration = 0.35,
                     }
                     : bold
                     // Big yellow words with a heavy outline, popped in fast on every cut.
