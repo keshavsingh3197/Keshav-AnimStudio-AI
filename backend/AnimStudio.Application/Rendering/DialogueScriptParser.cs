@@ -146,11 +146,34 @@ public static partial class DialogueScriptParser
         if (parsedLines.Count == 0)
             parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null, null, null));
 
+        var isComedyContext = string.Equals(eventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
+            || sceneDirectives.Any(s => s.Setting is SceneSetting.ComedyStage or SceneSetting.ChaiStall or SceneSetting.Bedroom
+                or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop
+                or SceneSetting.DoorwaySet or SceneSetting.SkyGauntlet or SceneSetting.TankArena);
+
         var castByName = castDirectives
             .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        CharacterVisualRole RoleOf(string name) => castByName.TryGetValue(name, out var c) ? c.Role : InferRole(name);
-        string? RobeOf(string name) => castByName.TryGetValue(name, out var c) ? c.RobeHex : null;
+        CharacterVisualRole RoleOf(string name, DialogueSpeakerSlot preferredSlot = DialogueSpeakerSlot.Narrator)
+        {
+            if (castByName.TryGetValue(name, out var c)) return c.Role;
+            var inferred = InferRole(name);
+            if (isComedyContext && inferred == CharacterVisualRole.Scholar)
+                return preferredSlot == DialogueSpeakerSlot.Left ? CharacterVisualRole.ComicBobble : CharacterVisualRole.Scholar;
+            return inferred;
+        }
+        string? RobeOf(string name, DialogueSpeakerSlot preferredSlot = DialogueSpeakerSlot.Narrator)
+        {
+            if (castByName.TryGetValue(name, out var c) && !string.IsNullOrWhiteSpace(c.RobeHex))
+                return c.RobeHex;
+            if (!isComedyContext) return null;
+            return preferredSlot switch
+            {
+                DialogueSpeakerSlot.Left => "#F59E0B",
+                DialogueSpeakerSlot.Right => "#0EA5E9",
+                _ => null
+            };
+        }
 
         var distinctSpeakers = parsedLines
             .Select(x => x.Speaker)
@@ -189,8 +212,14 @@ public static partial class DialogueScriptParser
             return new ProceduralDialoguePlan(false, null, null, turns);
         }
 
-        var leftProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, leftName!, RoleOf(leftName!), RobeOf(leftName!));
-        var rightProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, rightName!, RoleOf(rightName!), RobeOf(rightName!));
+        var leftRole = RoleOf(leftName!, DialogueSpeakerSlot.Left);
+        var rightRole = RoleOf(rightName!, DialogueSpeakerSlot.Right);
+        var leftRobe = RobeOf(leftName!, DialogueSpeakerSlot.Left);
+        var rightRobe = RobeOf(rightName!, DialogueSpeakerSlot.Right);
+        if (isComedyContext && leftRole == CharacterVisualRole.Scholar && rightRole == CharacterVisualRole.Scholar)
+            leftRole = CharacterVisualRole.ComicBobble;
+        var leftProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, leftName!, leftRole, leftRobe);
+        var rightProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, rightName!, rightRole, rightRobe);
 
         // Everyone else who speaks, then silent [CAST] extras, fills the back row (max three).
         var supporting = parsedLines
@@ -388,9 +417,31 @@ public static partial class DialogueScriptParser
 
         var synced = plan.MemeCues.Select(m =>
         {
-            var idx = Math.Clamp(m.AfterTurnIndex, 0, updatedTurns.Count - 1);
-            var anchor = Math.Max(0.25, updatedTurns[idx].EndSeconds - Math.Min(0.25, m.Seconds * 0.15));
-            return m with { StartSeconds = Math.Round(anchor, 2) };
+            var anchorPos = -1;
+            for (var i = 0; i < updatedTurns.Count; i++)
+            {
+                if (!updatedTurns[i].IsTitleHook && updatedTurns[i].Index == m.AfterTurnIndex)
+                {
+                    anchorPos = i;
+                    break;
+                }
+            }
+            if (anchorPos < 0)
+                anchorPos = Math.Clamp(m.AfterTurnIndex, 0, updatedTurns.Count - 1);
+
+            var anchorTurn = updatedTurns[anchorPos];
+            var nextTurn = anchorPos + 1 < updatedTurns.Count ? updatedTurns[anchorPos + 1] : null;
+            var availableGap = nextTurn is not null ? nextTurn.StartSeconds - anchorTurn.EndSeconds : m.Seconds;
+
+            if (availableGap >= 0.45)
+            {
+                var start = Math.Round(anchorTurn.EndSeconds + 0.04, 3);
+                var dur = Math.Round(Math.Clamp(availableGap - 0.08, 0.45, Math.Max(0.45, m.Seconds)), 3);
+                return m with { StartSeconds = start, Seconds = dur };
+            }
+
+            var fallbackAnchor = Math.Max(0.25, anchorTurn.EndSeconds + 0.02);
+            return m with { StartSeconds = Math.Round(fallbackAnchor, 3) };
         }).ToList();
         return plan with { Turns = updatedTurns, MemeCues = synced };
     }
@@ -678,7 +729,7 @@ public static partial class DialogueScriptParser
         if (action is null)
         {
             var wasThisSpeakerSleeping = sleepingSlot == slot;
-            if (ContainsAnyToken(lower, "सो रहा", "सोते", "खर्राटे", "नींद", "sleeping", "snoring", "asleep", "in bed", "five more minutes", "पांच मिनट और"))
+            if (ContainsAnyToken(lower, "सो रहा", "सोते", "सोने दे", "सोने दो", "खर्राटे", "ख्र्र", "खर्र", "नींद", "sleeping", "snoring", "asleep", "zzz", "in bed", "five more minutes", "पाँच मिनट", "पांच मिनट"))
             {
                 // Asking "are you still sleeping?" points at the sleeping partner; declaring sleep lies down.
                 if (lower.Contains('?') && ContainsAnyToken(lower, "तू", "तुम", "you", "bro", "क्या"))
@@ -752,16 +803,17 @@ public static partial class DialogueScriptParser
         {
             if (sleepingSlot is { } sleeper && sleeper != slot)
             {
-                listenerAction = ContainsAnyToken(lower, "उठ", "जाग", "wake", "अलार्म", "सो रहा") || emotion == "angry"
-                    ? "wakingUp"
-                    : "sleeping";
+                var wakeSignal = ContainsAnyToken(lower, "उठ", "जाग", "wake", "अलार्म", "सो रहा")
+                    || emotion is "angry" or "surprised"
+                    || lower.Contains('!');
+                listenerAction = wakeSignal ? "wakingUp" : "sleeping";
                 if (listenerAction == "wakingUp") sleepingSlot = null;
             }
             else if (action is "shockedFall" or "wakingUp")
             {
                 listenerAction = isComedy ? "laughing" : "shockedFall";
             }
-            else if (emotion == "laughing")
+            else if (emotion == "laughing" && action != "eating")
             {
                 listenerAction = isComedy ? "slapForehead" : "waving";
             }
@@ -826,7 +878,7 @@ public static partial class DialogueScriptParser
             return "laughing";
         if (ContainsAnyToken(lower, "अरे", "हैरान", "चौंक", "omg", "what!", "shocked", "surprised", "gasp", "असंभव", "सच में"))
             return "surprised";
-        if (ContainsAnyToken(lower, "क्रोध", "गुस्सा", "खबरदार", "angry", "furious", "beware", "stop!"))
+        if (ContainsAnyToken(lower, "क्रोध", "गुस्सा", "खबरदार", "पकड़ लिया", "नालायक", "बावले", "angry", "furious", "beware", "stop!"))
             return "angry";
         if (ContainsAnyToken(lower, "दुःख", "दुख", "क्षमा", "रो", "sad", "sorry", "tears", "worried", "चिंता"))
             return "sad";

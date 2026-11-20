@@ -196,10 +196,10 @@ export function createVfxRig(
 
   const shockBurstGroup = new THREE.Group();
   const spikeMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
-  for (let s = 0; s < 8; s++) {
-    const ang = (s / 8) * Math.PI * 2;
-    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.32, 4), spikeMat);
-    spike.position.set(Math.cos(ang) * 0.42, Math.sin(ang) * 0.42, 0);
+  for (let s = 0; s < 6; s++) {
+    const ang = (s / 6) * Math.PI * 2;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.16, 4), spikeMat);
+    spike.position.set(Math.cos(ang) * 0.22, Math.sin(ang) * 0.22, 0);
     spike.rotation.z = ang - Math.PI / 2;
     shockBurstGroup.add(spike);
   }
@@ -300,14 +300,14 @@ export function updateVfxRig(
     const frac = (t * 1.35 + d / vfx.streamDots.length) % 1;
     dot.position.set(
       srcX + (dstX - srcX) * frac,
-      1.32 + Math.sin(frac * Math.PI) * 0.34 + Math.sin(t * 7 + d) * 0.03,
-      0.18 + Math.cos(t * 6 + d) * 0.08,
+      1.38 + Math.sin(frac * Math.PI) * 0.42 + Math.sin(t * 7 + d) * 0.03,
+      -0.38 + Math.cos(t * 6 + d) * 0.06,
     );
     mat.color.set(streamColor);
-    mat.opacity = Math.sin(frac * Math.PI) * 0.65;
+    mat.opacity = Math.sin(frac * Math.PI) * 0.22;
   }
 
-  // Reaction VFX burst near active speaker on Laughing / Surprised / Proud / Angry lines
+  // Reaction VFX burst near active speaker on Laughing / Surprised / Proud / Angry lines (kept behind character silhouette)
   const showBurst = hasActiveSpeaker && (emotion === 'laughing' || emotion === 'surprised' || emotion === 'proud' || memeActive) && (turnLocalProgress < 0.45 || memeActive);
   if (showBurst) {
     const k = Math.min(1, turnLocalProgress / 0.45);
@@ -315,45 +315,46 @@ export function updateVfxRig(
     const bCount = vfx.burstPositions.length / 3;
     for (let i = 0; i < bCount; i++) {
       const ang = (i / bCount) * Math.PI * 2;
-      const rad = 0.25 + k * 1.15;
+      const rad = 0.62 + k * 0.95;
       vfx.burstPositions[i * 3] = centerX + Math.cos(ang) * rad;
-      vfx.burstPositions[i * 3 + 1] = 1.45 + Math.sin(ang) * rad * 0.85 - k * 0.22;
-      vfx.burstPositions[i * 3 + 2] = 0.35;
+      vfx.burstPositions[i * 3 + 1] = 1.55 + Math.sin(ang) * rad * 0.85 - k * 0.18;
+      vfx.burstPositions[i * 3 + 2] = -0.35;
     }
     vfx.burstPoints.geometry.attributes.position.needsUpdate = true;
-    vfx.burstMat.opacity = (1 - k * 0.75) * 0.9;
+    vfx.burstMat.opacity = (1 - k * 0.8) * 0.45;
   } else {
     vfx.burstMat.opacity = 0;
   }
 
-  // 1) Floating "Zzz" blocks when either character is sleeping
+  // 1) Floating "Zzz" blocks when either character is sleeping (hover cleanly over pillow, never blocking close-ups)
   const leftAsleep = leftAction === 'sleeping';
   const rightAsleep = rightAction === 'sleeping';
   if (leftAsleep || rightAsleep) {
     vfx.sleepZGroup.visible = true;
     const sx = leftAsleep ? leftX : rightX;
-    const sy = (leftAsleep ? leftY : rightY) + 0.72;
+    const sy = (leftAsleep ? leftY : rightY) + 0.62;
+    const sz = leftAsleep && leftY > 0.25 ? -0.78 : -0.35;
     vfx.sleepZGroup.children.forEach((child, idx) => {
       const cycle = (t * 0.55 + idx * 0.33) % 1;
-      child.position.set(sx + Math.sin(t * 2.2 + idx) * 0.14 + cycle * 0.18, sy + cycle * 0.75, -0.35);
+      child.position.set(sx + Math.sin(t * 2.2 + idx) * 0.12 + cycle * 0.14, sy + cycle * 0.65, sz);
       child.rotation.z = Math.sin(t * 1.8 + idx) * 0.22;
-      const sc = Math.sin(cycle * Math.PI);
+      const sc = Math.sin(cycle * Math.PI) * 0.85;
       child.scale.setScalar(Math.max(0.01, sc));
     });
   } else {
     vfx.sleepZGroup.visible = false;
   }
 
-  // 2) Comic shock starburst on shockedFall / wakingUp / active meme cue
+  // 2) Comic shock starburst positioned cleanly ABOVE head top (never occluding face or eyes)
   const speakerX = activeSlot === 'Right' ? rightX : leftX;
   const speakerY = activeSlot === 'Right' ? rightY : leftY;
   const speakerAct = activeSlot === 'Right' ? rightAction : leftAction;
-  const showShock = memeActive || ((speakerAct === 'shockedFall' || speakerAct === 'wakingUp' || emotion === 'surprised') && turnLocalProgress < 0.55);
+  const showShock = memeActive || ((speakerAct === 'shockedFall' || speakerAct === 'wakingUp' || emotion === 'surprised') && turnLocalProgress < 0.42);
   if (showShock) {
     vfx.shockBurstGroup.visible = true;
-    vfx.shockBurstGroup.position.set(speakerX, speakerY + 1.48, -0.18);
-    vfx.shockBurstGroup.rotation.z = t * 1.8;
-    const pulse = 0.85 + 0.25 * Math.sin(t * 18);
+    vfx.shockBurstGroup.position.set(speakerX, speakerY + 2.08, -0.18);
+    vfx.shockBurstGroup.rotation.z = t * 2.2;
+    const pulse = 0.88 + 0.18 * Math.sin(t * 16);
     vfx.shockBurstGroup.scale.setScalar(pulse);
   } else {
     vfx.shockBurstGroup.visible = false;

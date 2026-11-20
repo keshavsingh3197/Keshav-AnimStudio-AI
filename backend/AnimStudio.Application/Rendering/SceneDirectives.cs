@@ -109,10 +109,12 @@ public static partial class SceneDirectives
     [
         ("#D9661A", ["saffron", "orange", "bhagwa", "भगवा", "केसरिया", "नारंगी"]),
         ("#E8E4DA", ["white", "ivory", "सफेद", "श्वेत"]),
+        ("#0EA5E9", ["teal", "cyan", "turquoise", "sky blue", "आसमानी"]),
         ("#2F5FC9", ["blue", "indigo", "नीला", "नीले"]),
+        ("#EC4899", ["pink", "coral", "magenta", "गुलाबी"]),
         ("#A3243A", ["red", "maroon", "crimson", "लाल", "मैरून"]),
-        ("#2F8A57", ["green", "emerald", "हरा", "हरे"]),
-        ("#D9A62B", ["gold", "golden", "yellow", "pitambar", "सुनहरा", "पीला", "पीताम्बर"]),
+        ("#2F8A57", ["green", "emerald", "lime", "हरा", "हरे"]),
+        ("#D9A62B", ["gold", "golden", "yellow", "mustard", "pitambar", "सुनहरा", "पीला", "पीताम्बर"]),
         ("#6B3FA0", ["purple", "violet", "बैंगनी"]),
         ("#7A5230", ["brown", "earthy", "भूरा"]),
         ("#3A3A44", ["black", "dark", "काला"])

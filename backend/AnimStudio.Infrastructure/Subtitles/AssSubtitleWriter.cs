@@ -192,10 +192,57 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         var words = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0) return sanitizedText;
 
-        var wordCount = Math.Max(1, words.Count(w => w != @"\N"));
-        var totalCs = Math.Max(40, (int)Math.Round(duration.TotalMilliseconds / 10.0));
-        var perWordCs = Math.Clamp(totalCs / wordCount, 8, 90);
-        var sb = new StringBuilder(@"{\fad(130,130)}");
+        // Speaker labels ("पप्पू भैया:", "बबलू यार:") are never spoken aloud — highlight them immediately ({\k0})
+        // so 100% of karaoke duration aligns with the actual spoken dialogue words.
+        var prefixEnd = -1;
+        for (var i = 0; i < words.Length && i <= 3; i++)
+        {
+            if (words[i] == @"\N") break;
+            if (words[i].EndsWith(':') && words[i].Length > 1 && !char.IsDigit(words[i][0]))
+            {
+                if (words.Skip(i + 1).Any(w => w != @"\N"))
+                    prefixEnd = i;
+                break;
+            }
+        }
+
+        var spokenIndices = new List<int>(words.Length);
+        var weights = new List<double>(words.Length);
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (words[i] == @"\N" || i <= prefixEnd) continue;
+            spokenIndices.Add(i);
+            weights.Add(ComputeSpokenWordWeight(words[i]));
+        }
+
+        if (spokenIndices.Count == 0)
+        {
+            spokenIndices.Clear();
+            weights.Clear();
+            for (var i = 0; i < words.Length; i++)
+            {
+                if (words[i] == @"\N") continue;
+                spokenIndices.Add(i);
+                weights.Add(ComputeSpokenWordWeight(words[i]));
+            }
+            prefixEnd = -1;
+        }
+
+        var totalCs = Math.Max(25, (int)Math.Round(duration.TotalMilliseconds / 10.0));
+        var totalWeight = Math.Max(1.0, weights.Sum());
+        var csPerWord = new int[words.Length];
+        var allocated = 0;
+        for (var k = 0; k < spokenIndices.Count; k++)
+        {
+            var idx = spokenIndices[k];
+            var cs = k == spokenIndices.Count - 1
+                ? Math.Max(4, totalCs - allocated)
+                : Math.Max(4, (int)Math.Round(totalCs * weights[k] / totalWeight));
+            csPerWord[idx] = cs;
+            allocated += cs;
+        }
+
+        var sb = new StringBuilder(@"{\fad(65,65)}");
         for (var i = 0; i < words.Length; i++)
         {
             if (words[i] == @"\N")
@@ -204,8 +251,33 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
                 continue;
             }
             if (i > 0 && words[i - 1] != @"\N") sb.Append(' ');
-            sb.Append(@"{\k").Append(perWordCs.ToString(CultureInfo.InvariantCulture)).Append('}').Append(words[i]);
+            var cs = i <= prefixEnd ? 0 : csPerWord[i];
+            sb.Append(@"{\k").Append(cs.ToString(CultureInfo.InvariantCulture)).Append('}').Append(words[i]);
         }
         return sb.ToString();
+    }
+
+    private static double ComputeSpokenWordWeight(string word)
+    {
+        var letters = 0;
+        var pause = 0.0;
+        foreach (var ch in word)
+        {
+            if (char.IsLetterOrDigit(ch)
+                || char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.NonSpacingMark
+                    or System.Globalization.UnicodeCategory.SpacingCombiningMark)
+            {
+                letters++;
+            }
+            else if (ch is ',' or ';' or '—')
+            {
+                pause += 2.5;
+            }
+            else if (ch is '.' or '!' or '?' or '।')
+            {
+                pause += 4.0;
+            }
+        }
+        return Math.Max(2.0, letters) + Math.Min(8.0, pause);
     }
 }

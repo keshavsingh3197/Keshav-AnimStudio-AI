@@ -27,9 +27,9 @@ public sealed record ProceduralSpeechSynthesisResult(
 internal static class ProceduralSpeechSynthesizer
 {
     private const double LeadInSeconds = 0.35;
-    private const double PauseBetweenTurnsSeconds = 0.25;
-    private const double MinTitleHoldSeconds = 2.0;
-    private const double TailSeconds = 0.85;
+    private const double PauseBetweenTurnsSeconds = 0.24;
+    private const double MinTitleHoldSeconds = 1.25;
+    private const double TailSeconds = 0.75;
 
     /// <summary>The fastest the narration may be sped up to fit a cap; past this Hindi speech starts to blur.</summary>
     private const double MaxSpeechTempo = 1.25;
@@ -422,8 +422,12 @@ internal static class ProceduralSpeechSynthesizer
 
         // Keep the finished video inside its cap (a Short must stay <= 180s): speed the voices up a little
         // and, when that is not enough, drop middle lines so the opening and the ending moral still play.
+        var memePauseByTurnIdx = initialPlan.Memes
+            .GroupBy(m => m.AfterTurnIndex)
+            .ToDictionary(g => g.Key, g => Math.Clamp(g.First().Seconds * 0.65, 0.72, 1.05));
+        var extraMemePauseSeconds = memePauseByTurnIdx.Values.Sum();
         var fit = SpeechFitPlanner.Plan(
-            clipDurations, maxDurationSeconds, LeadInSeconds, PauseBetweenTurnsSeconds, TailSeconds, MaxSpeechTempo);
+            clipDurations, maxDurationSeconds, LeadInSeconds + extraMemePauseSeconds, PauseBetweenTurnsSeconds, TailSeconds, MaxSpeechTempo);
         var speechWavPath = Path.Combine(workspaceInputDir, "speech.wav");
 
         var built = await WriteSpeechTrackAsync(fit.KeptIndices).ConfigureAwait(false);
@@ -436,18 +440,20 @@ internal static class ProceduralSpeechSynthesizer
         {
             if (await TryApplyTempoAsync(speechWavPath, tempo, ffmpegOptions, logger, ct).ConfigureAwait(false))
             {
+                var actualDur = AiAudioValidator.TryGetWavDuration(await File.ReadAllBytesAsync(speechWavPath, ct).ConfigureAwait(false));
+                var scale = actualDur is > 0.2 && cursor > 0.2 ? (cursor / actualDur.Value) : tempo;
                 updatedTurns = [.. updatedTurns.Select(t => t.IsTitleHook ? t : t with
                 {
-                    StartSeconds = Math.Round(t.StartSeconds / tempo, 2),
-                    EndSeconds = Math.Round(t.EndSeconds / tempo, 2)
+                    StartSeconds = Math.Round(t.StartSeconds / scale, 3),
+                    EndSeconds = Math.Round(t.EndSeconds / scale, 3)
                 })];
-                cursor /= tempo;
+                cursor = actualDur ?? (cursor / tempo);
             }
             else
             {
                 // No speed-up available: fit by dropping lines alone.
                 var plain = SpeechFitPlanner.Plan(
-                    clipDurations, maxDurationSeconds, LeadInSeconds, PauseBetweenTurnsSeconds, TailSeconds, maxTempo: 1.0);
+                    clipDurations, maxDurationSeconds, LeadInSeconds + extraMemePauseSeconds, PauseBetweenTurnsSeconds, TailSeconds, maxTempo: 1.0);
                 built = await WriteSpeechTrackAsync(plain.KeptIndices).ConfigureAwait(false);
                 if (built is null)
                     return null;
@@ -481,41 +487,69 @@ internal static class ProceduralSpeechSynthesizer
 
         async Task<(List<ProceduralDialogueTurn> Turns, double Cursor)?> WriteSpeechTrackAsync(IReadOnlyList<int> kept)
         {
-            var nonEmptyClips = new List<byte[]>(kept.Count * 2 + 1);
+            var nonEmptyClips = new List<byte[]>(kept.Count * 2 + 2);
             var leadGap = BuildSilenceWavLike(referenceClip, LeadInSeconds);
-            if (leadGap is not null) nonEmptyClips.Add(leadGap);
+            var at = 0.0;
+            if (leadGap is not null)
+            {
+                nonEmptyClips.Add(leadGap);
+                at += AiAudioValidator.TryGetWavDuration(leadGap) ?? LeadInSeconds;
+            }
 
             var turns = new List<ProceduralDialogueTurn>(kept.Count + 1);
-            var at = LeadInSeconds;
 
             var titleTurn = !spokenTitleOnly ? initialPlan.Turns.FirstOrDefault(t => t.IsTitleHook) : null;
             if (titleTurn is not null)
             {
                 turns.Add(titleTurn with
                 {
-                    StartSeconds = 0.12,
-                    EndSeconds = Math.Round(Math.Max(MinTitleHoldSeconds, Math.Min(3.4, at + (clipDurations.Count > 0 ? clipDurations[0] : 2.2))), 2)
+                    StartSeconds = 0.04,
+                    EndSeconds = Math.Round(Math.Clamp(at + 1.15, MinTitleHoldSeconds, 1.65), 3)
                 });
             }
 
             for (var k = 0; k < kept.Count; k++)
             {
                 var i = kept[k];
-                if (clipBytesList[i].Length > 44)
-                    nonEmptyClips.Add(clipBytesList[i]);
+                var clip = clipBytesList[i];
+                var clipDur = clip.Length > 44
+                    ? (AiAudioValidator.TryGetWavDuration(clip) ?? clipDurations[i])
+                    : clipDurations[i];
+                if (clip.Length > 44)
+                    nonEmptyClips.Add(clip);
 
                 turns.Add(speechTurns[i] with
                 {
-                    StartSeconds = Math.Round(at, 2),
-                    EndSeconds = Math.Round(at + clipDurations[i], 2)
+                    StartSeconds = Math.Round(at, 3),
+                    EndSeconds = Math.Round(at + clipDur, 3)
                 });
 
-                at += clipDurations[i];
+                at += clipDur;
+
+                // Dedicated silent reaction beat after turns carrying a [MEME] cue so memes & SFX never stomp dialogue.
+                var hasMemeHere = memePauseByTurnIdx.TryGetValue(speechTurns[i].Index, out var memeBeat);
                 if (k < kept.Count - 1)
                 {
-                    var pause = BuildSilenceWavLike(referenceClip, PauseBetweenTurnsSeconds);
-                    if (pause is not null) nonEmptyClips.Add(pause);
-                    at += PauseBetweenTurnsSeconds;
+                    var pauseSecs = hasMemeHere ? memeBeat : PauseBetweenTurnsSeconds;
+                    var pause = BuildSilenceWavLike(referenceClip, pauseSecs);
+                    if (pause is not null)
+                    {
+                        nonEmptyClips.Add(pause);
+                        at += AiAudioValidator.TryGetWavDuration(pause) ?? pauseSecs;
+                    }
+                    else
+                    {
+                        at += pauseSecs;
+                    }
+                }
+                else if (hasMemeHere)
+                {
+                    var tailMemeGap = BuildSilenceWavLike(referenceClip, memeBeat);
+                    if (tailMemeGap is not null)
+                    {
+                        nonEmptyClips.Add(tailMemeGap);
+                        at += AiAudioValidator.TryGetWavDuration(tailMemeGap) ?? memeBeat;
+                    }
                 }
             }
 
@@ -832,7 +866,7 @@ internal static class ProceduralSpeechSynthesizer
 
         // Fast-path when already canonical 48kHz stereo 16-bit PCM WAV (avoids unnecessary FFmpeg spawns)
         if (kind == AiAudioValidator.Wav && IsStereo48kPcmWav(rawAudio))
-            return rawAudio;
+            return TrimLeadingAndTrailingSilence(rawAudio);
 
         // Normalize every turn to stereo 48kHz PCM WAV cleanly so StoryWav.Join never hits sample-rate mismatch
         // (e.g. 24kHz mono Gemini WAV vs 48kHz stereo BGM) and lip-sync amplitude envelope reads uniform PCM.
@@ -879,7 +913,10 @@ internal static class ProceduralSpeechSynthesizer
             await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
 
             if (proc.ExitCode == 0 && File.Exists(dstPath))
-                return await File.ReadAllBytesAsync(dstPath, ct).ConfigureAwait(false);
+            {
+                var converted = await File.ReadAllBytesAsync(dstPath, ct).ConfigureAwait(false);
+                return TrimLeadingAndTrailingSilence(converted);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -891,7 +928,145 @@ internal static class ProceduralSpeechSynthesizer
             TryDelete(dstPath);
         }
 
-        return kind == AiAudioValidator.Wav ? rawAudio : null;
+        return kind == AiAudioValidator.Wav ? TrimLeadingAndTrailingSilence(rawAudio) : null;
+    }
+
+    /// <summary>
+    /// Strips dead silence before speech onset and after speech completion from a 16-bit PCM WAV clip
+    /// while preserving a clean 30ms lead-in and 50ms tail with 10ms soft fades. Prevents TTS model
+    /// padding from delaying dialogue turn transitions, camera cuts, SFX, or karaoke subtitles.
+    /// </summary>
+    internal static byte[] TrimLeadingAndTrailingSilence(byte[] wav)
+    {
+        if (wav.Length < 44
+            || !wav.AsSpan(0, 4).SequenceEqual("RIFF"u8)
+            || !wav.AsSpan(8, 4).SequenceEqual("WAVE"u8))
+        {
+            return wav;
+        }
+
+        ushort format = 0;
+        ushort channels = 0;
+        var sampleRate = 0;
+        ushort bits = 0;
+        var dataOffset = -1;
+        var dataLen = 0;
+
+        var offset = 12;
+        while (offset + 8 <= wav.Length)
+        {
+            var id = wav.AsSpan(offset, 4);
+            var size = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(wav.AsSpan(offset + 4, 4));
+            var body = offset + 8;
+            if (id.SequenceEqual("fmt "u8) && body + 16 <= wav.Length)
+            {
+                format = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(wav.AsSpan(body, 2));
+                channels = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(wav.AsSpan(body + 2, 2));
+                sampleRate = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(wav.AsSpan(body + 4, 4));
+                bits = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(wav.AsSpan(body + 14, 2));
+            }
+            else if (id.SequenceEqual("data"u8))
+            {
+                dataOffset = body;
+                dataLen = Math.Min(Math.Max(0, size), wav.Length - body);
+                break;
+            }
+            if (size <= 0) break;
+            offset = body + size + (size & 1);
+        }
+
+        if (format != 1 || channels == 0 || sampleRate <= 0 || bits != 16 || dataOffset < 0)
+            return wav;
+
+        var blockAlign = channels * 2;
+        var totalFrames = dataLen / blockAlign;
+        if (totalFrames < sampleRate / 4) // Under 250ms: never trim further
+            return wav;
+
+        var windowFrames = Math.Max(1, sampleRate / 100); // 10ms window
+        var firstActiveFrame = -1;
+        var lastActiveFrame = -1;
+
+        for (var start = 0; start < totalFrames; start += windowFrames)
+        {
+            var end = Math.Min(totalFrames, start + windowFrames);
+            double sumSq = 0;
+            double maxAbs = 0;
+            var count = 0;
+            for (var f = start; f < end; f++)
+            {
+                var p = dataOffset + f * blockAlign;
+                var s = System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(wav.AsSpan(p, 2)) / 32768.0;
+                var a = Math.Abs(s);
+                if (a > maxAbs) maxAbs = a;
+                sumSq += s * s;
+                count++;
+            }
+
+            var rms = count > 0 ? Math.Sqrt(sumSq / count) : 0;
+            if (rms >= 0.008 || maxAbs >= 0.025)
+            {
+                if (firstActiveFrame < 0) firstActiveFrame = start;
+                lastActiveFrame = end;
+            }
+        }
+
+        if (firstActiveFrame < 0 || lastActiveFrame <= firstActiveFrame)
+            return wav;
+
+        var preRoll = (int)Math.Round(0.03 * sampleRate);
+        var tailRoll = (int)Math.Round(0.05 * sampleRate);
+        var trimStart = Math.Max(0, firstActiveFrame - preRoll);
+        var trimEnd = Math.Min(totalFrames, lastActiveFrame + tailRoll);
+        var minKeep = (int)Math.Round(0.30 * sampleRate);
+        if (trimEnd - trimStart < minKeep)
+            return wav;
+        if (trimStart <= preRoll && trimEnd >= totalFrames - tailRoll)
+            return wav;
+
+        var sliceBytes = (trimEnd - trimStart) * blockAlign;
+        var result = new byte[44 + sliceBytes];
+        var hs = result.AsSpan();
+        "RIFF"u8.CopyTo(hs[..4]);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(4, 4), 36 + sliceBytes);
+        "WAVE"u8.CopyTo(hs.Slice(8, 4));
+        "fmt "u8.CopyTo(hs.Slice(12, 4));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(16, 4), 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(20, 2), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(22, 2), (short)channels);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(24, 4), sampleRate);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(28, 4), sampleRate * blockAlign);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(32, 2), (short)blockAlign);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(34, 2), (short)bits);
+        "data"u8.CopyTo(hs.Slice(36, 4));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(40, 4), sliceBytes);
+
+        Buffer.BlockCopy(wav, dataOffset + trimStart * blockAlign, result, 44, sliceBytes);
+
+        // Apply gentle 10ms edge fade-in / fade-out on trimmed boundaries to avoid clicks.
+        var fadeFrames = Math.Min((trimEnd - trimStart) / 4, (int)Math.Round(0.01 * sampleRate));
+        for (var f = 0; f < fadeFrames; f++)
+        {
+            var gIn = trimStart > 0 ? 0.5 * (1.0 - Math.Cos(Math.PI * f / fadeFrames)) : 1.0;
+            var gOut = trimEnd < totalFrames ? 0.5 * (1.0 - Math.Cos(Math.PI * f / fadeFrames)) : 1.0;
+            for (var c = 0; c < channels; c++)
+            {
+                if (gIn < 1.0)
+                {
+                    var pIn = 44 + f * blockAlign + c * 2;
+                    var s = (short)Math.Round(System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(result.AsSpan(pIn, 2)) * gIn);
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(pIn, 2), s);
+                }
+                if (gOut < 1.0)
+                {
+                    var pOut = 44 + ((trimEnd - trimStart - 1 - f) * blockAlign) + c * 2;
+                    var s = (short)Math.Round(System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(result.AsSpan(pOut, 2)) * gOut);
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(pOut, 2), s);
+                }
+            }
+        }
+
+        return result;
     }
 
     private static bool IsStereo48kPcmWav(byte[] wav)

@@ -114,21 +114,21 @@ export function updateCameraRig(
   if (!hasTemplateLock && !isTitleHook) {
     const activeX = activeSlot === 'Left' ? leftX : activeSlot === 'Right' ? rightX : (leftX + rightX) * 0.5;
     if (cameraShot === 'closeUpSpeaker' && activeSlot !== 'Narrator') {
-      targetX = activeX + (activeSlot === 'Left' ? 0.14 : -0.14);
-      targetY = Math.max(0.85, speakerHeadY * 0.94);
-      targetZ = isPortrait ? 2.65 : 2.15;
+      targetX = activeX;
+      targetY = Math.max(0.92, speakerHeadY * 0.96);
+      targetZ = isPortrait ? 3.25 : 2.55;
       lookX = activeX;
-      lookY = Math.max(0.78, speakerHeadY * 0.92);
+      lookY = Math.max(0.76, speakerHeadY * 0.88);
     } else if (cameraShot === 'crashPunch' && activeSlot !== 'Narrator') {
       const punch = Math.max(0, 1 - Math.min(1, turnLocal / 0.28));
       targetX = activeX;
-      targetY = Math.max(0.88, speakerHeadY * 0.95);
-      targetZ = (isPortrait ? 2.42 : 1.98) - punch * 0.36;
+      targetY = Math.max(0.92, speakerHeadY * 0.96);
+      targetZ = (isPortrait ? 3.05 : 2.35) - punch * 0.28;
       lookX = activeX;
-      lookY = Math.max(0.82, speakerHeadY * 0.92);
-      rollZ += Math.sin(t * 28) * 0.032 * punch;
-      shakeX += Math.cos(t * 42) * 0.035 * punch;
-      shakeY += Math.sin(t * 36) * 0.03 * punch;
+      lookY = Math.max(0.78, speakerHeadY * 0.88);
+      rollZ += Math.sin(t * 28) * 0.025 * punch;
+      shakeX += Math.cos(t * 42) * 0.028 * punch;
+      shakeY += Math.sin(t * 36) * 0.022 * punch;
     } else if (cameraShot === 'reactionZoom') {
       const reactX = activeSlot === 'Left' ? rightX : leftX;
       targetX = reactX * 0.88;
@@ -183,10 +183,10 @@ export function updateCameraRig(
     }
   }
 
-  // Comedy smash-cut snaps instantaneously on turn change instead of sluggish gliding
+  // Comedy smash-cut snaps cleanly on turn/scene change instead of sluggish gliding
   if (turnChanged && !hasTemplateLock && (comedy || cameraShot === 'crashPunch' || cameraShot === 'closeUpSpeaker')) {
-    rig.currentPos.lerp(targetPos, 0.86);
-    rig.currentLook.lerp(targetLook, 0.86);
+    rig.currentPos.lerp(targetPos, 0.94);
+    rig.currentLook.lerp(targetLook, 0.94);
   } else {
     const speed = comedy ? 13.0 : (cameraShot === 'wideEstablishing' ? 4.2 : 6.4);
     const alpha = 1 - Math.exp(-speed / Math.max(1, job.fps));

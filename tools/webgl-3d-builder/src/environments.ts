@@ -663,12 +663,17 @@ function addBedroom(group: THREE.Group, env: EnvironmentRig): void {
   rug.receiveShadow = true;
   group.add(rug);
 
-  // Cozy bedroom back wall & arched window with golden light
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2e233b, roughness: 0.85 });
+  // Cozy bedroom back wall & arched window with moonlight/golden glow
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3b2f52, roughness: 0.82 });
   const backWall = new THREE.Mesh(new THREE.BoxGeometry(10, 4.6, 0.18), wallMat);
   backWall.position.set(0, 2.3, -2.9);
   backWall.receiveShadow = true;
   group.add(backWall);
+
+  const windowMoon = new THREE.PointLight(0xdbeafe, 2.2, 9.5, 1.3);
+  windowMoon.position.set(0.75, 2.65, 0.65);
+  group.add(windowMoon);
+  env.ambientFireLights.push({ light: windowMoon, baseIntensity: 2.2, phase: 0.1 });
 
   const winFrame = new THREE.Mesh(
     new THREE.BoxGeometry(1.5, 1.55, 0.08),
@@ -721,10 +726,10 @@ function addBedroom(group: THREE.Group, env: EnvironmentRig): void {
   bed.add(blanket);
 
   const pillow = new THREE.Mesh(
-    new THREE.BoxGeometry(0.68, 0.12, 0.38),
+    new THREE.BoxGeometry(1.04, 0.14, 0.42),
     new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.68 }),
   );
-  pillow.position.set(0, 0.5, -0.68);
+  pillow.position.set(0, 0.51, -0.72);
   bed.add(pillow);
   group.add(bed);
 
@@ -744,8 +749,8 @@ function addBedroom(group: THREE.Group, env: EnvironmentRig): void {
   group.add(bulb);
   env.ambientFireLights.push({ light: bulb, baseIntensity: 2.4, phase: 0.7 });
 
-  env.spots.bed = { x: -0.88, y: 0.48, z: -0.48, rotY: 0.25 };
-  env.spots.door = { x: 1.45, y: 0, z: -1.45, rotY: -0.35 };
+  env.spots.bed = { x: -0.88, y: 0.47, z: 0.16, rotY: 0.16 };
+  env.spots.door = { x: 1.45, y: 0, z: -1.35, rotY: -0.35 };
 }
 
 function addLivingRoom(group: THREE.Group, env: EnvironmentRig): void {
@@ -847,10 +852,17 @@ function addKitchen(group: THREE.Group, env: EnvironmentRig): void {
   grid.position.y = 0.01;
   group.add(grid);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.78 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.76 });
   const backWall = new THREE.Mesh(new THREE.BoxGeometry(10, 4.6, 0.18), wallMat);
   backWall.position.set(0, 2.3, -2.85);
   group.add(backWall);
+
+  const backsplash = new THREE.Mesh(
+    new THREE.BoxGeometry(6.8, 0.92, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.55 }),
+  );
+  backsplash.position.set(0, 1.32, -2.74);
+  group.add(backsplash);
 
   // Kitchen stove counter + marble slab
   const counterMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.55 });
@@ -914,13 +926,13 @@ function addKitchen(group: THREE.Group, env: EnvironmentRig): void {
     group.add(jar);
   }
 
-  const warmBulb = new THREE.PointLight(0xffedd5, 2.6, 7.5, 1.4);
-  warmBulb.position.set(0, 2.5, -1.0);
+  const warmBulb = new THREE.PointLight(0xfff7ed, 3.3, 9.5, 1.25);
+  warmBulb.position.set(0, 2.75, 0.45);
   group.add(warmBulb);
-  env.ambientFireLights.push({ light: warmBulb, baseIntensity: 2.6, phase: 0.2 });
+  env.ambientFireLights.push({ light: warmBulb, baseIntensity: 3.3, phase: 0.2 });
 
-  env.spots.counter = { x: 0.18, y: 0, z: -0.68, rotY: -0.18 };
-  env.spots.door = { x: 1.5, y: 0, z: -1.35, rotY: -0.4 };
+  env.spots.counter = { x: -0.42, y: 0, z: -0.68, rotY: 0.30 };
+  env.spots.door = { x: 1.35, y: 0, z: -1.15, rotY: -0.45 };
 }
 
 function addSweetShop(group: THREE.Group, env: EnvironmentRig): void {
