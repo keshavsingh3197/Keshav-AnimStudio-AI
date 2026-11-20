@@ -192,6 +192,7 @@ async function run(): Promise<void> {
       currentTimeOfDay = timeOfDay;
     };
 
+    let prevTurnIdx = -1;
     const totalFrames = Math.max(1, job.totalFrames);
     for (let i = 0; i < totalFrames; i++) {
       const t = i / job.fps;
@@ -204,8 +205,16 @@ async function run(): Promise<void> {
 
       const activeTurn = activeTurnAt(job, t);
       const isTitleHook = !activeTurn && job.turns.some((turn) => turn.isTitleHook && t >= turn.startSeconds && t <= turn.endSeconds);
+      const activeTurnIdx = activeTurn ? activeTurn.index : -1;
+      const turnChanged = activeTurnIdx !== prevTurnIdx;
+      prevTurnIdx = activeTurnIdx;
+
       const speechLevel = getSpeechLevel(job, i);
       const emotion = normalizeEmotion(activeTurn?.emotion);
+      const speakerAction = (activeTurn?.action || 'none') as string;
+      const listenerAction = (activeTurn?.listenerAction || 'none') as string;
+      const cameraShot = (activeTurn?.cameraShot || 'auto') as string;
+      const stageTarget = (activeTurn?.stageTarget || 'default') as string;
       const turnDur = activeTurn ? Math.max(0.2, activeTurn.endSeconds - activeTurn.startSeconds) : 1;
       const turnLocal = activeTurn ? Math.max(0, Math.min(1, (t - activeTurn.startSeconds) / turnDur)) : 0;
 
@@ -218,30 +227,109 @@ async function run(): Promise<void> {
 
       const currentLeft = leftRig as CharacterRig | null;
       const currentRight = rightRig as CharacterRig | null;
+
+      const leftAction = leftSpeaking ? speakerAction : rightSpeaking ? listenerAction : 'none';
+      const rightAction = rightSpeaking ? speakerAction : leftSpeaking ? listenerAction : 'none';
+
+      // Dynamic internal 3D stage blocking: characters lie on bed, sit on sofa, approach counter, or walk in from door!
+      const resolveSlotPose = (
+        slot: 'Left' | 'Right',
+        act: string,
+        isSpeaker: boolean,
+        baseX: number,
+        baseRotY: number,
+      ): { x: number; y: number; z: number; rotY: number } => {
+        const baseY = stageY;
+        if (job.stageLayout?.templateBackdrop) {
+          return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY };
+        }
+        const spots = env?.spots ?? {};
+        const tgt = isSpeaker ? stageTarget : 'default';
+
+        if ((act === 'sleeping' || (tgt === 'bed' && (act === 'wakingUp' || act === 'sitting'))) && spots.bed) {
+          return { x: spots.bed.x, y: spots.bed.y, z: spots.bed.z, rotY: spots.bed.rotY ?? baseRotY };
+        }
+        if ((act === 'sitting' || tgt === 'sofa') && spots.sofa) {
+          return { x: spots.sofa.x, y: spots.sofa.y, z: spots.sofa.z, rotY: spots.sofa.rotY ?? baseRotY };
+        }
+        if ((tgt === 'counter' || act === 'eating') && spots.counter) {
+          const offset = isSpeaker ? 0 : (slot === 'Left' ? -0.58 : 0.58);
+          return { x: spots.counter.x + offset, y: spots.counter.y, z: spots.counter.z, rotY: spots.counter.rotY ?? baseRotY };
+        }
+        if (act === 'walking' || act === 'running') {
+          const walkProgress = turnLocal < 0.85 ? Math.min(1, turnLocal / 0.85) : 1;
+          const eased = walkProgress * walkProgress * (3 - 2 * walkProgress);
+          const startX = tgt === 'door' && spots.door ? spots.door.x : baseX * 1.45;
+          const startZ = tgt === 'door' && spots.door ? spots.door.z : -0.35;
+          const endX = tgt === 'center' ? baseX * 0.42 : baseX;
+          const endZ = 0.28;
+          const x = startX + (endX - startX) * eased;
+          const z = startZ + (endZ - startZ) * eased;
+          const dx = endX - startX;
+          const moveYaw = Math.abs(dx) > 0.05 ? Math.atan2(dx, endZ - startZ) * 0.65 : baseRotY;
+          return { x, y: baseY, z, rotY: moveYaw };
+        }
+        if (tgt === 'center' || (isSpeaker && (act === 'pointing' || cameraShot === 'crashPunch'))) {
+          return { x: baseX * 0.72, y: baseY, z: 0.24, rotY: baseRotY * 0.7 };
+        }
+        return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY };
+      };
+
+      const posBlend = 1 - Math.exp(-8.5 / Math.max(1, job.fps));
+      if (currentLeft && !job.stageLayout?.templateBackdrop) {
+        const target = resolveSlotPose('Left', leftAction, leftSpeaking, defaultLeftX, 0.42);
+        const snapL = turnChanged && (leftAction === 'sleeping' || leftAction === 'sitting') ? 1 : posBlend;
+        currentLeft.root.position.x += (target.x - currentLeft.root.position.x) * snapL;
+        currentLeft.root.position.y += (target.y - currentLeft.root.position.y) * snapL;
+        currentLeft.root.position.z += (target.z - currentLeft.root.position.z) * snapL;
+        currentLeft.root.rotation.y += (target.rotY - currentLeft.root.rotation.y) * snapL;
+      }
+      if (currentRight && !job.stageLayout?.templateBackdrop) {
+        const target = resolveSlotPose('Right', rightAction, rightSpeaking, defaultRightX, -0.42);
+        const snapR = turnChanged && (rightAction === 'sleeping' || rightAction === 'sitting') ? 1 : posBlend;
+        currentRight.root.position.x += (target.x - currentRight.root.position.x) * snapR;
+        currentRight.root.position.y += (target.y - currentRight.root.position.y) * snapR;
+        currentRight.root.position.z += (target.z - currentRight.root.position.z) * snapR;
+        currentRight.root.rotation.y += (target.rotY - currentRight.root.rotation.y) * snapR;
+      }
+
       const lx = currentLeft ? currentLeft.root.position.x : defaultLeftX;
       const rx = currentRight ? currentRight.root.position.x : defaultRightX;
+      const ly = currentLeft ? currentLeft.root.position.y : stageY;
+      const ry = currentRight ? currentRight.root.position.y : stageY;
 
       if (env) {
         updateEnvironment(env, t, u, sceneMoment.sceneIndex, sceneMoment.localProgress, job.stageLayout);
       }
       if (currentLeft) {
-        updateCharacterRig(currentLeft, t, leftSpeaking, speechLevel, leftSpeaking ? emotion : 'calm', isTitleHook);
+        updateCharacterRig(currentLeft, t, leftSpeaking, speechLevel, leftSpeaking ? emotion : 'calm', isTitleHook, leftAction, turnLocal);
       }
       if (currentRight) {
-        updateCharacterRig(currentRight, t, rightSpeaking, speechLevel, rightSpeaking ? emotion : 'calm', isTitleHook);
+        updateCharacterRig(currentRight, t, rightSpeaking, speechLevel, rightSpeaking ? emotion : 'calm', isTitleHook, rightAction, turnLocal);
       }
       supportingRigs.forEach((rig, sIdx) => {
         const spk = sIdx === supIdx;
         rig.root.position.z = spk ? -0.35 : -0.82;
         rig.root.scale.setScalar(spk ? 0.84 : 0.72);
-        updateCharacterRig(rig, t, spk, speechLevel, spk ? emotion : 'calm', false);
+        updateCharacterRig(rig, t, spk, speechLevel, spk ? emotion : 'calm', false, spk ? speakerAction : 'none', turnLocal);
       });
 
+      const activeMeme = !!job.memeCues?.some((m) => t >= m.startSeconds - 0.05 && t <= m.startSeconds + Math.min(0.75, m.seconds));
+      const speakerHeadY = leftSpeaking
+        ? (ly + (currentLeft?.headY ?? 1.4))
+        : rightSpeaking
+          ? (ry + (currentRight?.headY ?? 1.4))
+          : 1.38;
+
       if (vfx) {
-        updateVfxRig(vfx, t, u, activeSlot, lx, rx, emotion, turnLocal, job.palette.primaryHex, job.palette.secondaryHex);
+        updateVfxRig(
+          vfx, t, u, activeSlot, lx, rx, emotion, turnLocal, job.palette.primaryHex, job.palette.secondaryHex,
+          leftAction, rightAction, ly, ry, activeMeme);
       }
 
-      updateCameraRig(camRig, job, t, u, activeSlot, lx, rx, emotion, isTitleHook);
+      updateCameraRig(
+        camRig, job, t, u, activeSlot, lx, rx, emotion, isTitleHook,
+        activeMeme ? 'crashPunch' : cameraShot, speakerAction, turnChanged, turnLocal, speakerHeadY);
 
       renderer.render(scene, camRig.camera);
       gl.readPixels(0, 0, job.width, job.height, gl.RGBA, gl.UNSIGNED_BYTE, pixelBuf);

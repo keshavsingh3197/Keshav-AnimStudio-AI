@@ -269,7 +269,13 @@ const FULL_VIDEO_MAX_SECONDS = 600;
           <div class="sig-card">
             <div class="sig-head">ॐ Panchang ({{ ov.signals.location }})</div>
             @if (ov.signals.panchang; as p) {
-              <div class="sig-main">{{ p.tithi }} • {{ p.nakshatra }}</div>
+              <div class="sig-main">
+                {{ p.tithi }}
+                @if (p.tithiEndTime) {
+                  <small class="sig-sub"> ({{ p.tithiEndTime }}@if (p.nextTithi) { &rarr; {{ p.nextTithi }} })</small>
+                }
+                • {{ p.nakshatra }}
+              </div>
               <div class="sig-meta">Abhijit: {{ p.abhijitMuhurat }} | Rahu: {{ p.rahuKaal }}</div>
             } @else {
               <div class="sig-muted">Panchang signal unavailable for this date</div>
@@ -476,7 +482,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                           </button>
                         }
                         <a class="verify-ext-link"
-                           [href]="post.verificationSourceUrl || googleVerifyUrl(post.sourceTitle + ' ' + post.dateKey)"
+                           [href]="post.verificationSourceUrl || postGoogleVerifyUrl(post)"
                            target="_blank" rel="noopener">
                           Verify Source ↗
                         </a>
@@ -1048,7 +1054,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                               📚 Source: {{ post.verificationSourceName || 'Verified Reference' }} ↗
                             </a>
                           }
-                          <a class="verify-ext-link" [href]="googleVerifyUrl((post.sourceTitle || post.title) + ' ' + post.dateKey)" target="_blank" rel="noopener">
+                          <a class="verify-ext-link" [href]="postGoogleVerifyUrl(post)" target="_blank" rel="noopener">
                             🔍 Google Double-Check ↗
                           </a>
                         </div>
@@ -4194,6 +4200,15 @@ export class AutomationHubComponent implements OnInit {
 
   googleVerifyUrl(query: string): string {
     return `https://www.google.com/search?q=${encodeURIComponent(query || '')}`;
+  }
+
+  postGoogleVerifyUrl(post: AutomationPost): string {
+    const label = post.sourceTitle || post.title;
+    if (post.sourceType === 'HinduFestival' && post.sourceItemKey) {
+      const m = /^festival:(\d{4}-\d{2}-\d{2}):/.exec(post.sourceItemKey);
+      if (m) return this.googleVerifyUrl(`${label} ${m[1]} DrikPanchang`);
+    }
+    return this.googleVerifyUrl(`${label} ${post.dateKey}`);
   }
 
   async openVideoPicker(post: AutomationPost): Promise<void> {

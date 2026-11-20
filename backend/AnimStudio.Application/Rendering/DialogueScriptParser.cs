@@ -41,7 +41,11 @@ public sealed record ProceduralDialogueTurn(
     bool IsTitleHook,
     CharacterVisualRole? SpeakerRole = null,
     string? SceneBackdropCue = null,
-    string? Emotion = null);
+    string? Emotion = null,
+    string? Action = null,
+    string? ListenerAction = null,
+    string? CameraShot = null,
+    string? StageTarget = null);
 
 /// <param name="AfterTurnIndex">The 0-based index in <see cref="ProceduralDialoguePlan.Turns"/> that this meme punctuates.</param>
 public sealed record ProceduralMemeCue(
@@ -140,7 +144,7 @@ public static partial class DialogueScriptParser
         var (parsedLines, castDirectives, sceneDirectives, rawMemes) = ExtractDialogueSegments(rawBody, preferredSpeakerA, preferredSpeakerB, cleanTitle, eventType);
 
         if (parsedLines.Count == 0)
-            parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null));
+            parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null, null, null));
 
         var castByName = castDirectives
             .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
@@ -216,9 +220,13 @@ public static partial class DialogueScriptParser
         var step = remaining / consolidated.Count;
         var start = titleHold + 0.12;
 
+        var prevSceneCue = (string?)null;
+        var sleepingSlot = (DialogueSpeakerSlot?)null;
+        var turnInScene = 0;
+
         for (var i = 0; i < consolidated.Count; i++)
         {
-            var (rawSpeaker, lineText, sceneCue) = consolidated[i];
+            var (rawSpeaker, lineText, sceneCue, pendingAction, pendingShot) = consolidated[i];
             var end = i == consolidated.Count - 1 ? total - 0.12 : start + step - 0.08;
             if (end <= start + 0.35) break;
 
@@ -260,7 +268,27 @@ public static partial class DialogueScriptParser
                 speakerRole = slot == DialogueSpeakerSlot.Left ? leftProfile.Role : rightProfile.Role;
             }
 
-            var (cleanLineText, emotion) = ExtractInlineEmotion(lineText);
+            if (!string.Equals(sceneCue, prevSceneCue, StringComparison.Ordinal))
+            {
+                turnInScene = 0;
+                prevSceneCue = sceneCue;
+            }
+
+            var (cleanLineText, emotion, inlineAction, inlineShot) = ExtractInlineStageCues(lineText);
+            var (setting, _) = SceneDirectives.FromCue(sceneCue);
+            var (action, listenerAction, cameraShot, stageTarget) = ResolveTurnCinematics(
+                cleanLineText,
+                emotion,
+                pendingAction ?? inlineAction,
+                pendingShot ?? inlineShot,
+                slot,
+                setting,
+                turnInScene,
+                i,
+                consolidated.Count,
+                eventType,
+                ref sleepingSlot);
+
             resultTurns.Add(new ProceduralDialogueTurn(
                 i + 1,
                 Math.Round(start, 2),
@@ -271,14 +299,29 @@ public static partial class DialogueScriptParser
                 IsTitleHook: false,
                 SpeakerRole: speakerRole,
                 SceneBackdropCue: sceneCue,
-                Emotion: emotion));
+                Emotion: emotion,
+                Action: action,
+                ListenerAction: listenerAction,
+                CameraShot: cameraShot,
+                StageTarget: stageTarget));
 
+            turnInScene++;
             start += step;
         }
 
-        // The title card opens in the first scene so the backdrop doesn't jump right after it.
-        if (resultTurns.Count > 1 && resultTurns[1].SceneBackdropCue is { } firstCue)
-            resultTurns[0] = resultTurns[0] with { SceneBackdropCue = firstCue };
+        // The title card and opening narrator beat inherit the first scene cue so the stage opens inside the first set.
+        var firstCue = resultTurns.Select(t => t.SceneBackdropCue).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
+        if (firstCue is not null)
+        {
+            for (var j = 0; j < resultTurns.Count && string.IsNullOrWhiteSpace(resultTurns[j].SceneBackdropCue); j++)
+            {
+                resultTurns[j] = resultTurns[j] with
+                {
+                    SceneBackdropCue = firstCue,
+                    CameraShot = j == 0 ? "wideEstablishing" : resultTurns[j].CameraShot
+                };
+            }
+        }
 
         var memeCues = MapMemeCues(rawMemes, parsedLines.Count, resultTurns);
         return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns, supporting, sceneDirectives, memeCues);
@@ -290,14 +333,14 @@ public static partial class DialogueScriptParser
     /// <summary>A spoken line is kept whole up to this length (about 120 words); captions split it into readable chunks.</summary>
     public const int MaxSpokenLineChars = 800;
 
-    private static List<(string? Speaker, string Text, string? Cue)> ConsolidateDialogueTurns(
-        List<(string? Speaker, string Text, string? Cue)> parsedLines,
+    private static List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)> ConsolidateDialogueTurns(
+        List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)> parsedLines,
         int maxSlots)
     {
         if (parsedLines.Count <= maxSlots)
             return parsedLines;
 
-        var grouped = new List<(string? Speaker, string Text, string? Cue)>(maxSlots);
+        var grouped = new List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)>(maxSlots);
         var perSlot = (double)parsedLines.Count / maxSlots;
         for (var i = 0; i < maxSlots; i++)
         {
@@ -306,7 +349,7 @@ public static partial class DialogueScriptParser
             if (to <= from) continue;
 
             var slice = parsedLines.Skip(from).Take(to - from).ToList();
-            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text)), slice[0].Cue));
+            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text)), slice[0].Cue, slice[0].Action, slice[0].Shot));
         }
 
         return grouped.Count > 0 ? grouped : parsedLines;
@@ -422,14 +465,14 @@ public static partial class DialogueScriptParser
         return cues;
     }
 
-    private static (List<(string? Speaker, string Text, string? Cue)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes, List<(int AfterLineIndex, MemeDirective Directive)> Memes) ExtractDialogueSegments(
+    private static (List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes, List<(int AfterLineIndex, MemeDirective Directive)> Memes) ExtractDialogueSegments(
         string raw,
         string? preferredA,
         string? preferredB,
         string title,
         string? eventType)
     {
-        var list = new List<(string? Speaker, string Text, string? Cue)>();
+        var list = new List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)>();
         var cast = new List<CastDirective>();
         var scenes = new List<SceneDirective>();
         var memes = new List<(int AfterLineIndex, MemeDirective Directive)>();
@@ -438,6 +481,8 @@ public static partial class DialogueScriptParser
         // Explicit [SCENE] directions win; without any, a spoken line that names a place moves the stage there.
         var hasExplicitScenes = rawLines.Any(l => SpeakerPrefixRegex().Match(l.Trim()) is { Success: true } m && SceneDirectives.IsSceneTag(m.Groups[1].Value));
         string? currentCue = null;
+        string? pendingAction = null;
+        string? pendingShot = null;
         var (defaultA, defaultB) = !string.IsNullOrWhiteSpace(preferredA) && !string.IsNullOrWhiteSpace(preferredB)
             ? (preferredA.Trim(), preferredB.Trim())
             : InferCharacterPairFromTitle(title, eventType);
@@ -473,6 +518,16 @@ public static partial class DialogueScriptParser
                     memes.Add((Math.Max(0, list.Count - 1), meme));
                 continue;
             }
+            if (speakerMatch.Success && IsStageActionTag(speakerMatch.Groups[1].Value))
+            {
+                var body = speakerMatch.Groups[2].Value;
+                foreach (var token in body.Split(['|', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    pendingAction ??= NormalizeActionTag(token);
+                    pendingShot ??= NormalizeCameraShotTag(token);
+                }
+                continue;
+            }
 
             if (speakerMatch.Success)
             {
@@ -499,7 +554,9 @@ public static partial class DialogueScriptParser
                 if (cleanedPart.Length < 4) continue;
                 if (cleanedPart.Length <= 140)
                 {
-                    list.Add((currentSpeaker, cleanedPart, currentCue));
+                    list.Add((currentSpeaker, cleanedPart, currentCue, pendingAction, pendingShot));
+                    pendingAction = null;
+                    pendingShot = null;
                     if (!speakerMatch.Success)
                         currentSpeaker = string.Equals(currentSpeaker, defaultA, StringComparison.OrdinalIgnoreCase) ? defaultB : defaultA;
                 }
@@ -510,7 +567,9 @@ public static partial class DialogueScriptParser
                     {
                         var sc = Clean(s);
                         if (sc.Length < 4) continue;
-                        list.Add((currentSpeaker, sc, currentCue));
+                        list.Add((currentSpeaker, sc, currentCue, pendingAction, pendingShot));
+                        pendingAction = null;
+                        pendingShot = null;
                         if (!speakerMatch.Success)
                             currentSpeaker = string.Equals(currentSpeaker, defaultA, StringComparison.OrdinalIgnoreCase) ? defaultB : defaultA;
                     }
@@ -557,19 +616,207 @@ public static partial class DialogueScriptParser
     private static string Truncate(string value, int maxLen) =>
         value.Length <= maxLen ? value : value[..(maxLen - 1)].TrimEnd() + "…";
 
-    private static (string CleanText, string Emotion) ExtractInlineEmotion(string text)
+    private static (string CleanText, string Emotion, string? Action, string? CameraShot) ExtractInlineStageCues(string text)
     {
         var raw = text ?? string.Empty;
         string? explicitEmotion = null;
-        var match = LeadingEmotionRegex().Match(raw);
-        if (match.Success)
+        string? explicitAction = null;
+        string? explicitShot = null;
+
+        // Strip recognized leading or inline parenthetical stage directions without removing factual time/date notes.
+        raw = InlineCueParenRegex().Replace(raw, match =>
         {
-            explicitEmotion = NormalizeEmotionTag(match.Groups[1].Value);
-            raw = Clean(raw[match.Length..]);
-            if (string.IsNullOrWhiteSpace(raw)) raw = text ?? string.Empty;
-        }
-        return (raw, explicitEmotion ?? InferEmotion(raw));
+            var inner = match.Groups[1].Value;
+            var tokens = inner.Split([',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (tokens.Length == 0) return match.Value;
+
+            var matchedAny = false;
+            var allMatched = true;
+            foreach (var token in tokens)
+            {
+                var emo = NormalizeEmotionTag(token);
+                var act = NormalizeActionTag(token);
+                var shot = NormalizeCameraShotTag(token);
+                if (emo is null && act is null && shot is null)
+                {
+                    allMatched = false;
+                    continue;
+                }
+                matchedAny = true;
+                explicitEmotion ??= emo;
+                explicitAction ??= act;
+                explicitShot ??= shot;
+            }
+            return matchedAny && allMatched ? " " : match.Value;
+        });
+
+        raw = Clean(raw);
+        if (string.IsNullOrWhiteSpace(raw)) raw = text ?? string.Empty;
+        return (raw, explicitEmotion ?? InferEmotion(raw), explicitAction, explicitShot);
     }
+
+    private static (string Action, string ListenerAction, string CameraShot, string StageTarget) ResolveTurnCinematics(
+        string text,
+        string emotion,
+        string? explicitAction,
+        string? explicitShot,
+        DialogueSpeakerSlot slot,
+        SceneSetting setting,
+        int turnInScene,
+        int turnIndex,
+        int totalTurns,
+        string? eventType,
+        ref DialogueSpeakerSlot? sleepingSlot)
+    {
+        var lower = (text ?? string.Empty).ToLowerInvariant();
+        var isComedy = string.Equals(eventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
+            || setting is SceneSetting.ComedyStage or SceneSetting.ChaiStall or SceneSetting.DoorwaySet
+                or SceneSetting.SkyGauntlet or SceneSetting.TankArena or SceneSetting.Bedroom
+                or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop;
+
+        var action = explicitAction;
+        if (action is null)
+        {
+            var wasThisSpeakerSleeping = sleepingSlot == slot;
+            if (ContainsAnyToken(lower, "सो रहा", "सोते", "खर्राटे", "नींद", "sleeping", "snoring", "asleep", "in bed", "five more minutes", "पांच मिनट और"))
+            {
+                // Asking "are you still sleeping?" points at the sleeping partner; declaring sleep lies down.
+                if (lower.Contains('?') && ContainsAnyToken(lower, "तू", "तुम", "you", "bro", "क्या"))
+                {
+                    action = "pointing";
+                }
+                else
+                {
+                    action = "sleeping";
+                }
+            }
+            else if (wasThisSpeakerSleeping
+                || ContainsAnyToken(lower, "उठ जा", "उठो", "जागो", "wake up", "woke up", "get up"))
+            {
+                action = "wakingUp";
+            }
+            else if (ContainsAnyToken(lower, "भाग", "दौड़", "run", "running", "sprint", "chase", "flee", "चप्पल"))
+            {
+                action = "running";
+            }
+            else if (ContainsAnyToken(lower, "चल", "चलो", "आ रहा", "जा रहा", "निकल पड़ा", "पहुँच", "walk", "coming", "step aside", "tip-toe", "वन की ओर"))
+            {
+                action = "walking";
+            }
+            else if (emotion != "surprised"
+                && ContainsAnyToken(lower, "रबड़ी", "rabdi", "समोसा", "samosa", "छोले", "भटूरे", "मिठाई", "जलेबी", "पनीर", "चाय", "खा", "पी", "eat", "snack", "coffee", "tea"))
+            {
+                action = lower.Contains('?') ? "pointing" : "eating";
+            }
+            else if (ContainsAnyToken(lower, "बैठ", "तपस्या", "ध्यान", "सिंहासन", "सोफे", "कुर्सी", "sit", "sofa", "couch", "chair", "meditate"))
+            {
+                action = "sitting";
+            }
+            else if (ContainsAnyToken(lower, "प्रणाम", "नमस्ते", "आरती", "पूजा", "मंत्र", "वरदान", "प्रभु", "श्रीहरि", "नारायण", "pray", "bless", "mantra", "aarti", "ॐ"))
+            {
+                action = "praying";
+            }
+            else if (ContainsAnyToken(lower, "नाच", "dance", "party", "कूद", "jump", "bouncy"))
+            {
+                action = "dancing";
+            }
+            else if (ContainsAnyToken(lower, "दिमाग़", "पागल", "बावले", "बंद ताले", "gadbadi", "गड़बड़", "स्कैम", "udhaar", "उधार"))
+            {
+                action = isComedy ? "slapForehead" : "pointing";
+            }
+            else
+            {
+                action = emotion switch
+                {
+                    "surprised" => "shockedFall",
+                    "angry" => "pointing",
+                    "laughing" => "laughing",
+                    "confused" => "slapForehead",
+                    "proud" => setting is SceneSetting.Temple or SceneSetting.ForestAshram or SceneSetting.Himalaya ? "praying" : "pointing",
+                    "happy" => "waving",
+                    "sad" => "sitting",
+                    _ => isComedy ? (turnIndex % 2 == 0 ? "pointing" : "waving") : "none"
+                };
+            }
+        }
+
+        // Update sleep tracker cleanly for left/right wakeup transitions
+        if (action == "sleeping" && slot != DialogueSpeakerSlot.Narrator)
+            sleepingSlot = slot;
+        else if (action == "wakingUp" && sleepingSlot == slot)
+            sleepingSlot = null;
+
+        // Listener reacts naturally to the speaker (e.g., stays asleep until shouted at, or facepalms at savage roasts)
+        var listenerAction = "none";
+        if (slot is DialogueSpeakerSlot.Left or DialogueSpeakerSlot.Right)
+        {
+            if (sleepingSlot is { } sleeper && sleeper != slot)
+            {
+                listenerAction = ContainsAnyToken(lower, "उठ", "जाग", "wake", "अलार्म", "सो रहा") || emotion == "angry"
+                    ? "wakingUp"
+                    : "sleeping";
+                if (listenerAction == "wakingUp") sleepingSlot = null;
+            }
+            else if (action is "shockedFall" or "wakingUp")
+            {
+                listenerAction = isComedy ? "laughing" : "shockedFall";
+            }
+            else if (emotion == "laughing")
+            {
+                listenerAction = isComedy ? "slapForehead" : "waving";
+            }
+            else if (emotion == "angry" || action == "pointing")
+            {
+                listenerAction = isComedy ? "shockedFall" : "calm";
+            }
+            else if (action == "praying")
+            {
+                listenerAction = "praying";
+            }
+        }
+
+        // Stage target tells WebGL where the speaker moves/sits/interacts inside the 3D set
+        var stageTarget = setting switch
+        {
+            SceneSetting.Bedroom when action is "sleeping" or "wakingUp" or "sitting" => "bed",
+            SceneSetting.LivingRoom when action is "sitting" or "sleeping" => "sofa",
+            SceneSetting.Kitchen or SceneSetting.SweetShop or SceneSetting.ChaiStall when action is "eating" or "walking" or "pointing" => "counter",
+            SceneSetting.DoorwaySet when action is "walking" or "running" => "door",
+            _ when action is "walking" or "running" => "center",
+            _ => "default"
+        };
+
+        // Cinematography: smash cuts between establishing wide, tight MJO close-ups, crash punches & two-shots
+        var cameraShot = explicitShot;
+        if (cameraShot is null)
+        {
+            if (turnInScene == 0 || action is "walking" or "running" || slot == DialogueSpeakerSlot.Narrator)
+                cameraShot = "wideEstablishing";
+            else if (action is "shockedFall" or "wakingUp" || (turnIndex == totalTurns - 1 && isComedy))
+                cameraShot = "crashPunch";
+            else if (emotion is "angry" or "confused" || action is "slapForehead" || action is "eating")
+                cameraShot = "closeUpSpeaker";
+            else if (emotion == "surprised")
+                cameraShot = "reactionZoom";
+            else if (action == "praying")
+                cameraShot = "lowDramatic";
+            else
+                cameraShot = (turnIndex % 3) switch
+                {
+                    0 => "closeUpSpeaker",
+                    1 => isComedy ? "closeUpSpeaker" : "twoShot",
+                    _ => "twoShot"
+                };
+        }
+
+        return (action, listenerAction, cameraShot, stageTarget);
+    }
+
+    private static bool IsStageActionTag(string tag) =>
+        tag.Trim().Equals("ACTION", StringComparison.OrdinalIgnoreCase)
+        || tag.Trim().Equals("STAGE", StringComparison.OrdinalIgnoreCase)
+        || tag.Trim().Equals("SHOT", StringComparison.OrdinalIgnoreCase)
+        || tag.Trim().Equals("CAMERA", StringComparison.OrdinalIgnoreCase);
 
     internal static string InferEmotion(string? text)
     {
@@ -605,6 +852,45 @@ public static partial class DialogueScriptParser
             "happy" or "loving" or "hopeful" or "relieved" => "happy",
             "confused" or "shy" => "confused",
             "calm" or "whispering" or "neutral" => "calm",
+            "mischievous" or "sarcastic" or "playful" => "laughing",
+            _ => null
+        };
+    }
+
+    private static string? NormalizeActionTag(string rawTag)
+    {
+        var tag = rawTag.Trim().ToLowerInvariant();
+        return tag switch
+        {
+            "sleep" or "sleeping" or "snoring" or "asleep" or "सो रहा" or "सोते हुए" or "नींद" => "sleeping",
+            "wake" or "wakeup" or "wake up" or "waking" or "waking up" or "उठते हुए" or "जागते हुए" or "उठकर" => "wakingUp",
+            "walk" or "walking" or "enter" or "stroll" or "चलते हुए" or "आते हुए" or "टहलते हुए" => "walking",
+            "run" or "running" or "sprint" or "chase" or "दौड़ते हुए" or "भागते हुए" => "running",
+            "sit" or "sitting" or "seated" or "बैठकर" or "बैठते हुए" or "तपस्या" => "sitting",
+            "pray" or "praying" or "namaste" or "aarti" or "प्रणाम" or "प्रार्थना" => "praying",
+            "point" or "pointing" or "इशारा" or "उंगली दिखाकर" => "pointing",
+            "fall" or "falling" or "shocked fall" or "stumble" or "गिरते हुए" or "चौंका" => "shockedFall",
+            "facepalm" or "slap forehead" or "headslap" or "माथा पकड़कर" or "सिर पकड़कर" => "slapForehead",
+            "eat" or "eating" or "drinking" or "sipping" or "खाते हुए" or "पीते हुए" => "eating",
+            "dance" or "dancing" or "नाचते हुए" => "dancing",
+            "jump" or "jumping" or "hop" or "कूदते हुए" => "jumping",
+            "wave" or "waving" or "लहराते हुए" => "waving",
+            _ => null
+        };
+    }
+
+    private static string? NormalizeCameraShotTag(string rawTag)
+    {
+        var tag = rawTag.Trim().ToLowerInvariant();
+        return tag switch
+        {
+            "closeup" or "close up" or "close-up" or "tight shot" => "closeUpSpeaker",
+            "wide" or "wide shot" or "establishing" => "wideEstablishing",
+            "twoshot" or "two shot" or "two-shot" or "2-shot" => "twoShot",
+            "crash zoom" or "crashzoom" or "crash" or "punch" => "crashPunch",
+            "reaction" or "reaction zoom" => "reactionZoom",
+            "low angle" or "low dramatic" => "lowDramatic",
+            "over shoulder" or "ots" => "overShoulder",
             _ => null
         };
     }
@@ -612,8 +898,8 @@ public static partial class DialogueScriptParser
     private static bool ContainsAnyToken(string haystack, params string[] tokens) =>
         tokens.Any(haystack.Contains);
 
-    [GeneratedRegex(@"^\((happy|excited|laugh|laughing|sad|angry|scared|surprised|shocked|confused|shy|proud|sarcastic|whispering|shouting|worried|calm|hopeful|relieved|loving|determined|dramatic|gasp)\)\s*", RegexOptions.IgnoreCase)]
-    private static partial Regex LeadingEmotionRegex();
+    [GeneratedRegex(@"\(([^()]{2,48})\)")]
+    private static partial Regex InlineCueParenRegex();
 
     [GeneratedRegex(@"^\[([^\[\]]{2,34})\]:\s*(.+)$")]
     private static partial Regex SpeakerPrefixRegex();

@@ -128,6 +128,8 @@ export interface EcosystemPanchangSignal {
   rahuKaal: string;
   dailySanskritSutra?: string | null;
   dailySutraMeaning?: string | null;
+  nextTithi?: string | null;
+  nextNakshatra?: string | null;
 }
 
 export interface EcosystemFestivalSignal {

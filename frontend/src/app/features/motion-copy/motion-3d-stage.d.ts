@@ -28,7 +28,11 @@ export type SceneSetting3D =
   | 'ComedyStage'
   | 'SkyGauntlet'
   | 'TankArena'
-  | 'DoorwaySet';
+  | 'DoorwaySet'
+  | 'Bedroom'
+  | 'LivingRoom'
+  | 'Kitchen'
+  | 'SweetShop';
 
 export type VfxStyle3D = 'Auto' | 'DivineAura' | 'ComedyBurst' | 'CyberNeon' | 'CinematicDrama';
 export type CameraAngleMode = 'front' | 'left34' | 'right34' | 'lowHero' | 'autoCut';

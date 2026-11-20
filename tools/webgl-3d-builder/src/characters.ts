@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting } from './types';
+import { ActionKind, CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting } from './types';
 
 export interface CharacterRig {
   root: THREE.Group;
@@ -10,6 +10,12 @@ export interface CharacterRig {
   leftElbow: THREE.Group;
   rightShoulder: THREE.Group;
   rightElbow: THREE.Group;
+  leftHip?: THREE.Group;
+  rightHip?: THREE.Group;
+  leftKnee?: THREE.Group;
+  rightKnee?: THREE.Group;
+  snackProp?: THREE.Group;
+  headY: number;
   leftEyelid: THREE.Mesh;
   rightEyelid: THREE.Mesh;
   leftBrow: THREE.Mesh;
@@ -481,6 +487,9 @@ function buildComedyMascotRig(
   let cannonBarrel: THREE.Mesh | undefined;
   let propPivot: THREE.Group | undefined;
 
+  let leftHip: THREE.Group | undefined;
+  let rightHip: THREE.Group | undefined;
+
   if (role === 'CartoonTank') {
     // Treads & road wheels
     for (const sx of [-0.36, 0.36]) {
@@ -519,15 +528,21 @@ function buildComedyMascotRig(
     headPivot.position.set(0, 0.10, 0);
     turretGroup.add(headPivot);
   } else if (role === 'BrainrotLog') {
-    for (const side of [-1, 1]) {
+    const buildMascotLeg = (side: -1 | 1): THREE.Group => {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.14, -0.05, 0);
+      torsoGroup.add(hip);
       const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.28, 6, 8), bodyMat);
-      leg.position.set(side * 0.14, -0.22, 0);
-      torsoGroup.add(leg);
+      leg.position.set(0, -0.17, 0);
+      hip.add(leg);
       const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.10, 10, 8), trimMat);
       shoe.scale.set(0.9, 0.5, 1.5);
-      shoe.position.set(side * 0.14, -0.39, 0.05);
-      torsoGroup.add(shoe);
-    }
+      shoe.position.set(0, -0.34, 0.05);
+      hip.add(shoe);
+      return hip;
+    };
+    leftHip = buildMascotLeg(-1);
+    rightHip = buildMascotLeg(1);
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.25, 0.96, 18), bodyMat);
     trunk.position.y = 0.44;
     trunk.castShadow = true;
@@ -544,15 +559,21 @@ function buildComedyMascotRig(
     torsoGroup.add(headPivot);
   } else {
     // CupDancer: expressive tapered ceramic mug with golden rim & coffee top
-    for (const side of [-1, 1]) {
+    const buildCupLeg = (side: -1 | 1): THREE.Group => {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.13, -0.05, 0);
+      torsoGroup.add(hip);
       const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.30, 6, 8), darkMat);
-      leg.position.set(side * 0.13, -0.22, 0);
-      torsoGroup.add(leg);
+      leg.position.set(0, -0.17, 0);
+      hip.add(leg);
       const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), trimMat);
       shoe.scale.set(0.95, 0.5, 1.45);
-      shoe.position.set(side * 0.13, -0.39, 0.05);
-      torsoGroup.add(shoe);
-    }
+      shoe.position.set(0, -0.34, 0.05);
+      hip.add(shoe);
+      return hip;
+    };
+    leftHip = buildCupLeg(-1);
+    rightHip = buildCupLeg(1);
     const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.22, 0.62, 24), bodyMat);
     cup.position.y = 0.34;
     cup.castShadow = true;
@@ -602,6 +623,24 @@ function buildComedyMascotRig(
   const leftArm = buildArm(-1);
   const rightArm = buildArm(1);
 
+  // Removable 3D snack/rabdi bowl prop attached to right hand (visible during 'eating' action!)
+  const snackProp = new THREE.Group();
+  snackProp.position.set(0, -0.25, 0.06);
+  const snackBowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.07, 0.08, 14),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 }),
+  );
+  snackProp.add(snackBowl);
+  const snackSweet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.45 }),
+  );
+  snackSweet.scale.set(1.1, 0.55, 1.1);
+  snackSweet.position.y = 0.035;
+  snackProp.add(snackSweet);
+  snackProp.visible = false;
+  rightArm.elbow.add(snackProp);
+
   if (role === 'BrainrotLog') {
     propPivot = new THREE.Group();
     propPivot.position.set(0, -0.22, 0.04);
@@ -623,6 +662,10 @@ function buildComedyMascotRig(
     leftElbow: leftArm.elbow,
     rightShoulder: rightArm.shoulder,
     rightElbow: rightArm.elbow,
+    leftHip,
+    rightHip,
+    snackProp,
+    headY: role === 'CartoonTank' ? 1.05 : 1.35,
     leftEyelid: face.leftEye.eyelid,
     rightEyelid: face.rightEye.eyelid,
     leftBrow: face.leftEye.brow,
@@ -696,6 +739,10 @@ export function createCharacterRig(
   root.add(auraDisc);
 
   let pedestalGlow: THREE.Mesh | undefined;
+  let leftHip: THREE.Group | undefined;
+  let rightHip: THREE.Group | undefined;
+  let leftKnee: THREE.Group | undefined;
+  let rightKnee: THREE.Group | undefined;
   let hipY = 0.14;
 
   if (standing) {
@@ -706,21 +753,44 @@ export function createCharacterRig(
     pelvis.castShadow = true;
     bodyPivot.add(pelvis);
 
-    const legGeo = new THREE.CapsuleGeometry(0.108, 0.48, 8, 12);
+    const thighGeo = new THREE.CapsuleGeometry(0.104, 0.20, 6, 10);
+    const shinGeo = new THREE.CapsuleGeometry(0.092, 0.18, 6, 10);
     const shoeMat = new THREE.MeshStandardMaterial({ color: 0x3b2416, roughness: 0.55 });
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(legGeo, robeDarkMat);
-      leg.position.set(side * 0.13, 0.39, 0);
-      leg.castShadow = true;
-      leg.receiveShadow = true;
-      bodyPivot.add(leg);
+    const buildLeg = (side: -1 | 1): { hip: THREE.Group; knee: THREE.Group } => {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.13, hipY - 0.04, 0);
+      bodyPivot.add(hip);
+
+      const thigh = new THREE.Mesh(thighGeo, robeDarkMat);
+      thigh.position.set(0, -0.15, 0);
+      thigh.castShadow = true;
+      thigh.receiveShadow = true;
+      hip.add(thigh);
+
+      const knee = new THREE.Group();
+      knee.position.set(0, -0.30, 0);
+      hip.add(knee);
+
+      const shin = new THREE.Mesh(shinGeo, robeDarkMat);
+      shin.position.set(0, -0.14, 0);
+      shin.castShadow = true;
+      shin.receiveShadow = true;
+      knee.add(shin);
 
       const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.105, 12, 8), shoeMat);
       shoe.scale.set(0.95, 0.55, 1.55);
-      shoe.position.set(side * 0.13, 0.055, 0.05);
+      shoe.position.set(0, -0.265, 0.05);
       shoe.castShadow = true;
-      bodyPivot.add(shoe);
-    }
+      knee.add(shoe);
+
+      return { hip, knee };
+    };
+    const lLeg = buildLeg(-1);
+    const rLeg = buildLeg(1);
+    leftHip = lLeg.hip;
+    leftKnee = lLeg.knee;
+    rightHip = rLeg.hip;
+    rightKnee = rLeg.knee;
   } else {
     const lotus = createLotusPedestal(accentColor);
     pedestalGlow = lotus.glowMesh;
@@ -848,6 +918,24 @@ export function createCharacterRig(
   const leftArm = buildArm(-1);
   const rightArm = buildArm(1);
 
+  // Removable 3D snack/rabdi bowl prop attached to right hand (visible during 'eating' action!)
+  const snackProp = new THREE.Group();
+  snackProp.position.set(0, -0.25, 0.06);
+  const snackBowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.07, 0.08, 14),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 }),
+  );
+  snackProp.add(snackBowl);
+  const snackSweet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.45 }),
+  );
+  snackSweet.scale.set(1.1, 0.55, 1.1);
+  snackSweet.position.y = 0.035;
+  snackProp.add(snackSweet);
+  snackProp.visible = false;
+  rightArm.elbow.add(snackProp);
+
   // Neck + Sculpted Expressive 3D Head
   const headR = role === 'ComicBobble' ? 0.345 : role === 'ChildDevotee' ? 0.265 : 0.245;
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 0.14, 14), skinMat);
@@ -952,6 +1040,12 @@ export function createCharacterRig(
     leftElbow: leftArm.elbow,
     rightShoulder: rightArm.shoulder,
     rightElbow: rightArm.elbow,
+    leftHip,
+    rightHip,
+    leftKnee,
+    rightKnee,
+    snackProp,
+    headY: standing ? 1.54 : 1.04,
     leftEyelid: face.leftEye.eyelid,
     rightEyelid: face.rightEye.eyelid,
     leftBrow: face.leftEye.brow,
@@ -985,20 +1079,112 @@ export function updateCharacterRig(
   speechLevel: number,
   emotion: EmotionKind,
   isTitleOrGreeting: boolean,
+  action: ActionKind | string = 'none',
+  turnLocal = 0.5,
 ): void {
   const lt = t + rig.seedOffset;
-
-  // Breathing + squash-and-stretch comic bounce
+  const act = (action || 'none') as ActionKind;
   const isComedyMascot = rig.role === 'BrainrotLog' || rig.role === 'CupDancer' || rig.role === 'CartoonTank' || rig.role === 'ComicBobble';
+
+  if (rig.snackProp) {
+    rig.snackProp.visible = act === 'eating';
+  }
+
+  // Smooth baseline reset before applying action posture
+  let targetBodyRotX = 0;
+  let targetBodyRotZ = 0;
+  let targetBodyY = 0;
+  let targetTorsoRotX = 0;
+  let targetTorsoRotZ = 0;
+  let targetLeftHipX = 0;
+  let targetRightHipX = 0;
+  let targetLeftKneeX = 0;
+  let targetRightKneeX = 0;
+
+  // Breathing & idle/speech bounce
   const breath = Math.sin(lt * 2.1) * (isSpeaking ? 0.018 : 0.008);
   rig.torsoGroup.position.y = rig.baseTorsoY + breath;
 
-  const bounce = isSpeaking && rig.standing ? Math.abs(Math.sin(lt * (isComedyMascot ? 9.2 : 7.2))) * (isComedyMascot ? 0.055 : 0.035) : 0;
-  rig.bodyPivot.position.y = bounce;
+  if (act === 'sleeping') {
+    targetBodyRotX = -Math.PI * 0.46;
+    targetBodyY = 0.16;
+    targetLeftKneeX = 0.22;
+    targetRightKneeX = 0.14;
+    rig.auraRing.visible = false;
+  } else {
+    rig.auraRing.visible = true;
+    if (act === 'wakingUp') {
+      const w = Math.max(0, Math.min(1, (turnLocal - 0.06) / 0.42));
+      const eased = 1 - Math.pow(1 - w, 3);
+      targetBodyRotX = -Math.PI * 0.46 * (1 - eased) - 0.12 * Math.sin(w * Math.PI);
+      targetBodyY = 0.16 * (1 - eased) + Math.sin(w * Math.PI) * 0.14;
+      targetTorsoRotX = -0.14 * Math.sin(w * Math.PI);
+    } else if (act === 'sitting') {
+      targetBodyY = rig.standing ? -0.26 : 0;
+      targetLeftHipX = -Math.PI * 0.46;
+      targetRightHipX = -Math.PI * 0.46;
+      targetLeftKneeX = Math.PI * 0.46;
+      targetRightKneeX = Math.PI * 0.46;
+      targetTorsoRotX = isSpeaking ? Math.sin(lt * 3.8) * 0.08 : -0.05;
+    } else if (act === 'walking' || act === 'running') {
+      const freq = act === 'running' ? 14.0 : 7.5;
+      const stride = Math.sin(t * freq);
+      const amp = act === 'running' ? 0.85 : 0.52;
+      const kneeAmp = act === 'running' ? 1.05 : 0.55;
+      targetLeftHipX = stride * amp;
+      targetRightHipX = -stride * amp;
+      targetLeftKneeX = Math.max(0, -stride) * kneeAmp;
+      targetRightKneeX = Math.max(0, stride) * kneeAmp;
+      targetBodyY = Math.abs(Math.cos(t * freq)) * (act === 'running' ? 0.095 : 0.045);
+      targetTorsoRotX = act === 'running' ? 0.24 : 0.10;
+      targetTorsoRotZ = stride * 0.06;
+    } else if (act === 'praying') {
+      targetTorsoRotX = 0.16 + Math.sin(lt * 2.2) * 0.035;
+      targetBodyY = 0;
+    } else if (act === 'shockedFall') {
+      const k = Math.max(0, Math.min(1, turnLocal / 0.35));
+      targetBodyRotX = 0.28 * Math.sin(k * Math.PI * 0.7);
+      targetBodyRotZ = rig.facingSign * -0.12 * k;
+      targetBodyY = k < 0.35 ? Math.sin((k / 0.35) * Math.PI) * 0.15 : -0.08 * k;
+      targetLeftHipX = -0.22 * k;
+      targetRightHipX = 0.18 * k;
+      targetLeftKneeX = 0.32 * k;
+    } else if (act === 'jumping' || act === 'dancing') {
+      const hop = Math.abs(Math.sin(lt * (act === 'dancing' ? 8.5 : 6.2)));
+      targetBodyY = hop * (act === 'jumping' ? 0.22 : 0.10);
+      targetBodyRotZ = act === 'dancing' ? Math.sin(lt * 4.25) * 0.12 : 0;
+      targetLeftHipX = act === 'dancing' ? Math.sin(lt * 8.5) * 0.25 : -hop * 0.35;
+      targetRightHipX = act === 'dancing' ? -Math.sin(lt * 8.5) * 0.25 : -hop * 0.35;
+      targetLeftKneeX = hop * 0.55;
+      targetRightKneeX = hop * 0.55;
+    } else if (act === 'pointing') {
+      targetTorsoRotX = 0.14 + Math.sin(lt * 6.5) * 0.04;
+      targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 7.5)) * 0.035 : 0;
+    } else {
+      targetBodyY = isSpeaking && rig.standing
+        ? Math.abs(Math.sin(lt * (isComedyMascot ? 9.2 : 7.2))) * (isComedyMascot ? 0.055 : 0.035)
+        : 0;
+    }
+  }
 
-  if (isComedyMascot && isSpeaking) {
-    const sy = 1 + bounce * 1.1;
-    const sx = 1 - bounce * 0.45;
+  // Smooth exponential tracking for lower body & posture so transitions are crisp yet fluid
+  const blend = act === 'wakingUp' || act === 'shockedFall' || act === 'walking' || act === 'running' ? 0.45 : 0.28;
+  rig.bodyPivot.rotation.x += (targetBodyRotX - rig.bodyPivot.rotation.x) * blend;
+  rig.bodyPivot.rotation.z += (targetBodyRotZ - rig.bodyPivot.rotation.z) * blend;
+  rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * blend;
+  rig.torsoGroup.rotation.x += (targetTorsoRotX - rig.torsoGroup.rotation.x) * blend;
+  rig.torsoGroup.rotation.z += (targetTorsoRotZ - rig.torsoGroup.rotation.z) * blend;
+  if (rig.leftHip) rig.leftHip.rotation.x += (targetLeftHipX - rig.leftHip.rotation.x) * blend;
+  if (rig.rightHip) rig.rightHip.rotation.x += (targetRightHipX - rig.rightHip.rotation.x) * blend;
+  if (rig.leftKnee) rig.leftKnee.rotation.x += (targetLeftKneeX - rig.leftKnee.rotation.x) * blend;
+  if (rig.rightKnee) rig.rightKnee.rotation.x += (targetRightKneeX - rig.rightKnee.rotation.x) * blend;
+
+  if (act === 'sleeping') {
+    const breatheScale = 1 + Math.sin(lt * 2.2) * 0.025;
+    rig.bodyPivot.scale.set(1, breatheScale, 1);
+  } else if (isComedyMascot && isSpeaking) {
+    const sy = 1 + Math.max(0, rig.bodyPivot.position.y) * 0.85;
+    const sx = 1 - Math.max(0, rig.bodyPivot.position.y) * 0.35;
     rig.bodyPivot.scale.set(sx, sy, sx);
   } else if (rig.role === 'ChildDevotee') {
     rig.bodyPivot.scale.setScalar(0.86);
@@ -1009,6 +1195,7 @@ export function updateCharacterRig(
   // Tank turret swivel + cannon recoil punch on angry/proud beats
   if (rig.turretGroup) {
     rig.turretGroup.rotation.y = isSpeaking ? Math.sin(lt * 2.4) * 0.18 : rig.facingSign * -0.15;
+    rig.turretGroup.rotation.x = act === 'sleeping' ? 0.28 : 0;
   }
   if (rig.cannonBarrel) {
     const recoil = isSpeaking && (emotion === 'angry' || emotion === 'proud')
@@ -1020,32 +1207,45 @@ export function updateCharacterRig(
     rig.propPivot.rotation.x = isSpeaking ? Math.sin(lt * 8.5) * 0.65 : Math.sin(lt * 2.0) * 0.12;
   }
 
-  // Expressive bulging googly eye pop on surprised / angry / confused!
-  const eyePop = emotion === 'surprised' ? 1.38 : emotion === 'angry' ? 1.18 : 1.0;
+  // Expressive bulging googly eye pop on surprised / angry / confused / waking up / shocked!
+  const isWideShock = emotion === 'surprised' || act === 'shockedFall' || (act === 'wakingUp' && turnLocal > 0.25);
+  const eyePop = isWideShock ? 1.38 : emotion === 'angry' ? 1.18 : 1.0;
   rig.leftSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
   rig.rightSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
-  const pupilDartX = emotion === 'confused' ? Math.sin(lt * 9.0) * 0.014 : 0;
-  const pupilScale = emotion === 'surprised' ? 0.65 : 1.0;
+  const pupilDartX = (emotion === 'confused' || act === 'slapForehead') ? Math.sin(lt * 9.0) * 0.016 : 0;
+  const pupilScale = isWideShock ? 0.65 : 1.0;
   rig.leftPupil.scale.set(pupilScale, pupilScale, 0.65);
   rig.rightPupil.scale.set(pupilScale, pupilScale, 0.65);
   rig.leftPupil.rotation.y = pupilDartX * 8;
   rig.rightPupil.rotation.y = -pupilDartX * 8;
 
-  // Head nod + gaze toward conversation partner vs viewer
-  const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.075 : Math.sin(lt * 1.4) * 0.025;
-  const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.06 : 0;
-  rig.headPivot.rotation.x = talkNod;
-  rig.headPivot.rotation.z = sideTilt;
-  rig.headPivot.rotation.y = rig.facingSign * (isSpeaking ? -0.14 : 0.1);
+  // Head orientation per action & dialogue speech
+  if (act === 'sleeping') {
+    rig.headPivot.rotation.set(0.18, rig.facingSign * 0.28, 0.24);
+  } else if (act === 'eating') {
+    rig.headPivot.rotation.set(0.14 + Math.sin(lt * 5.4) * 0.12, 0, Math.sin(lt * 2.7) * 0.08);
+  } else if (act === 'slapForehead') {
+    rig.headPivot.rotation.set(0.18, rig.facingSign * -0.1, -0.22 + Math.sin(lt * 6.5) * 0.06);
+  } else {
+    const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.085 : Math.sin(lt * 1.4) * 0.025;
+    const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.065 : 0;
+    rig.headPivot.rotation.x = talkNod;
+    rig.headPivot.rotation.z = sideTilt;
+    rig.headPivot.rotation.y = act === 'walking' || act === 'running'
+      ? Math.sin(lt * 3.0) * 0.08
+      : rig.facingSign * (isSpeaking ? -0.14 : 0.1);
+  }
 
-  // Eyeblinks & emotion eyelids
+  // Eyeblinks & emotion/sleep eyelids
   const blinkPhase = (lt * 0.28) % 1;
   const blinking = blinkPhase > 0.955;
   let lidClose = -Math.PI * 0.48;
-  if (blinking) lidClose = 0.15;
+  if (act === 'sleeping' || act === 'praying') lidClose = 0.26;
+  else if (act === 'wakingUp' && turnLocal < 0.2) lidClose = 0.24;
+  else if (blinking) lidClose = 0.15;
   else if (emotion === 'laughing') lidClose = 0.04;
   else if (emotion === 'sad') lidClose = -Math.PI * 0.28;
-  else if (emotion === 'surprised') lidClose = -Math.PI * 0.62;
+  else if (isWideShock) lidClose = -Math.PI * 0.64;
   rig.leftEyelid.rotation.x = lidClose;
   rig.rightEyelid.rotation.x = lidClose;
 
@@ -1053,15 +1253,15 @@ export function updateCharacterRig(
   const baseBrowY = 0.085;
   let lift = isSpeaking ? 0.012 : 0;
   let browTilt = 0;
-  if (emotion === 'surprised') {
-    lift = 0.032;
-    browTilt = 0.16;
+  if (isWideShock) {
+    lift = 0.036;
+    browTilt = 0.18;
   } else if (emotion === 'angry') {
-    lift = -0.015;
-    browTilt = -0.32;
-  } else if (emotion === 'sad') {
-    lift = 0.01;
-    browTilt = 0.25;
+    lift = -0.016;
+    browTilt = -0.34;
+  } else if (emotion === 'sad' || act === 'slapForehead') {
+    lift = 0.012;
+    browTilt = 0.26;
   } else if (emotion === 'laughing' || emotion === 'happy') {
     lift = 0.024;
     browTilt = 0.12;
@@ -1071,23 +1271,72 @@ export function updateCharacterRig(
   rig.leftBrow.rotation.z = Math.PI / 2 - browTilt;
   rig.rightBrow.rotation.z = Math.PI / 2 + browTilt;
 
-  // Lip-sync driven strictly by audio envelope + multi-viseme shape modulation
+  // Lip-sync driven strictly by audio envelope + sniffing/snoring/chewing modulation
   const openAmt = isSpeaking ? Math.min(1, speechLevel * 1.35) : 0;
   const vowelWave = 0.5 + 0.5 * Math.sin(t * 21.0 + rig.seedOffset);
-  const mouthOpen = openAmt > 0.04 ? 0.12 + openAmt * (0.55 + 0.35 * vowelWave) : 0.03;
-  const mouthWide = openAmt > 0.04 ? 0.85 + 0.35 * (1 - vowelWave) : (emotion === 'happy' || emotion === 'laughing' ? 1.22 : 0.95);
+  let mouthOpen = openAmt > 0.04 ? 0.12 + openAmt * (0.55 + 0.35 * vowelWave) : 0.03;
+  if (act === 'sleeping' && !isSpeaking) {
+    mouthOpen = 0.08 + 0.24 * Math.max(0, Math.sin(lt * 2.1));
+  } else if (act === 'eating' && !isSpeaking) {
+    mouthOpen = 0.1 + 0.35 * Math.max(0, Math.sin(lt * 5.2));
+  } else if (isWideShock && !isSpeaking) {
+    mouthOpen = 0.62;
+  }
+  const mouthWide = openAmt > 0.04 ? 0.85 + 0.35 * (1 - vowelWave) : (emotion === 'happy' || emotion === 'laughing' ? 1.24 : 0.95);
 
   rig.mouthCavity.scale.set(1.05 * mouthWide, mouthOpen, 0.5);
   rig.upperLip.position.y = rig.mouthBaseY + mouthOpen * 0.024;
   rig.lowerLip.position.y = rig.mouthBaseY - mouthOpen * 0.048;
 
-  // Expressive two-arm skeletal animation
-  if (isTitleOrGreeting && !rig.standing) {
+  // Expressive two-arm skeletal animation per action
+  if (act === 'sleeping') {
+    rig.leftShoulder.rotation.set(-0.2, 0, 0.25);
+    rig.leftElbow.rotation.set(-0.6, 0, -0.35);
+    rig.rightShoulder.rotation.set(-0.2, 0, -0.25);
+    rig.rightElbow.rotation.set(-0.6, 0, 0.35);
+  } else if (act === 'wakingUp' || act === 'shockedFall') {
+    const flail = Math.sin(lt * 14) * 0.22;
+    rig.leftShoulder.rotation.set(-1.38 + flail, 0.25, 0.62);
+    rig.leftElbow.rotation.set(-0.55, 0, 0);
+    rig.rightShoulder.rotation.set(-1.38 - flail, -0.25, -0.62);
+    rig.rightElbow.rotation.set(-0.55, 0, 0);
+  } else if (act === 'praying' || (isTitleOrGreeting && !rig.standing)) {
     // Serene Namaste folded hands
     rig.leftShoulder.rotation.set(-0.95, 0.25, -0.42);
     rig.leftElbow.rotation.set(-1.35, 0, -0.5);
     rig.rightShoulder.rotation.set(-0.95, -0.25, 0.42);
     rig.rightElbow.rotation.set(-1.35, 0, 0.5);
+  } else if (act === 'slapForehead') {
+    // One hand slaps right onto forehead, other hand on waist
+    rig.rightShoulder.rotation.set(-1.85, -0.35, 0.32);
+    rig.rightElbow.rotation.set(-1.45, 0, 0.45);
+    rig.leftShoulder.rotation.set(-0.25, 0.2, 0.42);
+    rig.leftElbow.rotation.set(-0.9, 0, -0.55);
+  } else if (act === 'eating') {
+    const scoop = 0.5 + 0.5 * Math.sin(lt * 5.2);
+    rig.rightShoulder.rotation.set(-0.55 - scoop * 0.78, -0.22, 0.22);
+    rig.rightElbow.rotation.set(-0.85 - scoop * 0.72, 0, 0.24);
+    rig.leftShoulder.rotation.set(-0.32, 0.15, 0.22);
+    rig.leftElbow.rotation.set(-0.85, 0, -0.2);
+  } else if (act === 'walking' || act === 'running') {
+    const freq = act === 'running' ? 14.0 : 7.5;
+    const armSwing = Math.sin(t * freq) * (act === 'running' ? 0.95 : 0.55);
+    rig.leftShoulder.rotation.set(-armSwing, 0.1, 0.16);
+    rig.leftElbow.rotation.set(act === 'running' ? -1.45 : -0.45, 0, 0);
+    rig.rightShoulder.rotation.set(armSwing, -0.1, -0.16);
+    rig.rightElbow.rotation.set(act === 'running' ? -1.45 : -0.45, 0, 0);
+  } else if (act === 'pointing') {
+    const jab = Math.sin(lt * 8.5) * 0.14;
+    rig.rightShoulder.rotation.set(-1.42 + jab, -0.15 * rig.facingSign, -0.22);
+    rig.rightElbow.rotation.set(-0.22, 0, 0);
+    rig.leftShoulder.rotation.set(-0.25, 0.18, 0.42);
+    rig.leftElbow.rotation.set(-0.95, 0, -0.48);
+  } else if (act === 'dancing' || act === 'jumping') {
+    const groove = Math.sin(lt * 8.5) * 0.48;
+    rig.leftShoulder.rotation.set(-1.4 + groove, 0.2, 0.48);
+    rig.leftElbow.rotation.set(-0.6, 0, 0.2);
+    rig.rightShoulder.rotation.set(-1.4 - groove, -0.2, -0.48);
+    rig.rightElbow.rotation.set(-0.6, 0, -0.2);
   } else if (isSpeaking) {
     if (emotion === 'surprised') {
       rig.leftShoulder.rotation.set(-1.3, 0.2, 0.55);

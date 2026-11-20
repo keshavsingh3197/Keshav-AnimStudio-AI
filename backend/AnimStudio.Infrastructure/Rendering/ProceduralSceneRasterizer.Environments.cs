@@ -279,6 +279,10 @@ public sealed partial class ProceduralSceneRasterizer
             case SceneSetting.SkyGauntlet: DrawSkyGauntlet(t); break;
             case SceneSetting.TankArena: DrawTankArena(t); break;
             case SceneSetting.DoorwaySet: DrawDoorwaySet(t); break;
+            case SceneSetting.Bedroom: DrawVillage(t); break;
+            case SceneSetting.LivingRoom: DrawDoorwaySet(t); break;
+            case SceneSetting.Kitchen:
+            case SceneSetting.SweetShop: DrawChaiStall(t); break;
             case SceneSetting.Temple: DrawTempleSanctum(t); break;
             case SceneSetting.Cosmos: DrawCosmosNebula(t); break;
         }

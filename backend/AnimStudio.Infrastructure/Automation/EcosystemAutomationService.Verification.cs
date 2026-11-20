@@ -46,6 +46,26 @@ public sealed partial class EcosystemAutomationService
 
         var ecosystem = ecosystemTask.Result;
         var signals = signalsTask.Result;
+        var dateChanged = false;
+        if (post.SourceType == AutomationSourceType.HinduFestival && signals.UpcomingFestivals.Count > 0)
+        {
+            var matchedFest = MatchFestivalForPost(post, signals.UpcomingFestivals);
+            if (matchedFest is not null
+                && AutomationFactVerifier.ExtractIsoDateKey(matchedFest.DateKey) is { } canonicalFestDate
+                && !string.Equals(canonicalFestDate, effectiveDate, StringComparison.Ordinal))
+            {
+                effectiveDate = canonicalFestDate;
+                dateChanged = true;
+                signals = await signalsClient.FetchAsync(
+                    effectiveDate,
+                    !string.IsNullOrWhiteSpace(rule.Location) ? rule.Location : settings.DefaultLocation,
+                    settings.PanchangApiBaseUrl,
+                    settings.SocialApiBaseUrl,
+                    settings.PratiyogitaApiBaseUrl,
+                    ct).ConfigureAwait(false);
+            }
+        }
+
         var ruleForDate = CloneRuleForDateSignals(rule, effectiveDate);
         var composedItems = AutomationContentComposer.ComposeForRule(ruleForDate, signals, ecosystem);
         if (composedItems.Count == 0)
@@ -57,10 +77,13 @@ public sealed partial class EcosystemAutomationService
 
         var hadOldTopic = post.SourceTitle;
         var fresh = SelectMatchingComposedItem(post, composedItems);
+        var resolvedDate = AutomationFactVerifier.ExtractIsoDateKey(fresh.EventDateKey) ?? effectiveDate;
 
-        post.DateKey = effectiveDate;
+        post.DateKey = resolvedDate;
+        if (dateChanged || post.ScheduledAtUtc is null)
+            post.ScheduledAtUtc = ComputeScheduledUtc(resolvedDate, rule.PreferredPublishTime, rule.TimeZoneId);
         post.SourceItemKey = fresh.SourceItemKey;
-        post.Fingerprint = $"{effectiveDate}:{post.RuleId}:{fresh.SourceItemKey}";
+        post.Fingerprint = $"{resolvedDate}:{post.RuleId}:{fresh.SourceItemKey}".ToLowerInvariant();
         post.SourceTitle = fresh.SourceTitle;
         post.SourceSummary = fresh.SourceSummary;
         post.Title = fresh.Title;
@@ -169,6 +192,7 @@ public sealed partial class EcosystemAutomationService
         {
             var postDate = AutomationFactVerifier.ExtractIsoDateKey(post.DateKey);
             var matchingSignals = string.Equals(postDate, signalDate, StringComparison.Ordinal)
+                || (post.SourceType == AutomationSourceType.HinduFestival && overviewSignals.UpcomingFestivals.Count > 0)
                 ? overviewSignals
                 : null;
 
@@ -254,10 +278,29 @@ public sealed partial class EcosystemAutomationService
         FunnelWebsiteKeys = [.. post.TrackedFunnelUrls.Select(l => l.Key).Where(k => !string.IsNullOrWhiteSpace(k))],
     };
 
+    private static EcosystemFestivalSignal? MatchFestivalForPost(
+        AutomationPost post,
+        IReadOnlyList<EcosystemFestivalSignal> upcoming)
+    {
+        var keyParts = (post.SourceItemKey ?? string.Empty).Split(':');
+        var keyId = keyParts.Length >= 3 ? string.Join(':', keyParts.Skip(2)) : null;
+
+        return (!string.IsNullOrWhiteSpace(keyId)
+                ? upcoming.FirstOrDefault(f => string.Equals(f.Id, keyId, StringComparison.OrdinalIgnoreCase))
+                : null)
+            ?? upcoming.FirstOrDefault(f =>
+                (!string.IsNullOrWhiteSpace(f.NameEnglish)
+                    && ((post.SourceTitle?.Contains(f.NameEnglish, StringComparison.OrdinalIgnoreCase) == true)
+                        || post.Title.Contains(f.NameEnglish, StringComparison.OrdinalIgnoreCase)))
+                || (!string.IsNullOrWhiteSpace(f.NameHindi)
+                    && ((post.SourceTitle?.Contains(f.NameHindi, StringComparison.OrdinalIgnoreCase) == true)
+                        || post.Title.Contains(f.NameHindi, StringComparison.OrdinalIgnoreCase))));
+    }
+
     private static AutomationRule CloneRuleForDateSignals(AutomationRule rule, string effectiveDate)
     {
-        // When re-verifying a past or future festival card on its target DateKey, allow the composer to
-        // consider all upcoming festivals from that target date onward (lead window >= 7 days if needed).
+        // Strict single-day verification: when re-fixing a HinduFestival card for `effectiveDate`,
+        // enforce FestivalLeadDays = 0 so tomorrow's festivals can never masquerade as `effectiveDate`.
         if (rule.SourceType != AutomationSourceType.HinduFestival) return rule;
         return new AutomationRule
         {
@@ -282,7 +325,7 @@ public sealed partial class EcosystemAutomationService
             PreferredPublishTime = rule.PreferredPublishTime,
             TimeZoneId = rule.TimeZoneId,
             DaysOfWeek = [.. rule.DaysOfWeek],
-            FestivalLeadDays = Math.Max(rule.FestivalLeadDays, 7),
+            FestivalLeadDays = 0,
             FunnelWebsiteKeys = [.. rule.FunnelWebsiteKeys],
             SocialFunnelSlug = rule.SocialFunnelSlug,
             Privacy = rule.Privacy,

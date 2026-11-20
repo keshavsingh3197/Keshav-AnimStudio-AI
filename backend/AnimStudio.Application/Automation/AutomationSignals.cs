@@ -24,7 +24,9 @@ public sealed record EcosystemPanchangSignal(
     bool IsVerified = true,
     string? SourceName = null,
     string? SourceUrl = null,
-    string? VerificationNote = null);
+    string? VerificationNote = null,
+    string? NextTithi = null,
+    string? NextNakshatra = null);
 
 public sealed record EcosystemFestivalSignal(
     string Id,

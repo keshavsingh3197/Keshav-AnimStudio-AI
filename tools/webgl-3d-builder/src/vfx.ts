@@ -12,6 +12,10 @@ export interface VfxRig {
   streamDots: THREE.Mesh[];
   godRays: THREE.Mesh[];
   particleMode: 'upward' | 'firefly' | 'snow' | 'star' | 'petal';
+  sleepZGroup: THREE.Group;
+  shockBurstGroup: THREE.Group;
+  dizzyStarsGroup: THREE.Group;
+  dustGroup: THREE.Group;
 }
 
 export function createVfxRig(
@@ -172,6 +176,54 @@ export function createVfxRig(
     streamDots.push(dot);
   }
 
+  // Action-reactive cartoon VFX groups (sleep bubbles/Z, shock spikes, dizzy stars, footstep dust)
+  const sleepZGroup = new THREE.Group();
+  const sleepMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.85 });
+  for (let z = 0; z < 3; z++) {
+    const zBlock = new THREE.Group();
+    const s = 0.06 + z * 0.028;
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 0.35, s * 0.35), sleepMat);
+    topBar.position.y = s * 0.7;
+    const midBar = new THREE.Mesh(new THREE.BoxGeometry(s * 1.8, s * 0.32, s * 0.35), sleepMat);
+    midBar.rotation.z = 0.72;
+    const botBar = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 0.35, s * 0.35), sleepMat);
+    botBar.position.y = -s * 0.7;
+    zBlock.add(topBar, midBar, botBar);
+    sleepZGroup.add(zBlock);
+  }
+  sleepZGroup.visible = false;
+  group.add(sleepZGroup);
+
+  const shockBurstGroup = new THREE.Group();
+  const spikeMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
+  for (let s = 0; s < 8; s++) {
+    const ang = (s / 8) * Math.PI * 2;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.32, 4), spikeMat);
+    spike.position.set(Math.cos(ang) * 0.42, Math.sin(ang) * 0.42, 0);
+    spike.rotation.z = ang - Math.PI / 2;
+    shockBurstGroup.add(spike);
+  }
+  shockBurstGroup.visible = false;
+  group.add(shockBurstGroup);
+
+  const dizzyStarsGroup = new THREE.Group();
+  const starMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+  for (let s = 0; s < 3; s++) {
+    const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.068, 0), starMat);
+    dizzyStarsGroup.add(star);
+  }
+  dizzyStarsGroup.visible = false;
+  group.add(dizzyStarsGroup);
+
+  const dustGroup = new THREE.Group();
+  const dustMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.55 });
+  for (let d = 0; d < 4; d++) {
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), dustMat);
+    dustGroup.add(puff);
+  }
+  dustGroup.visible = false;
+  group.add(dustGroup);
+
   return {
     group,
     ambientPoints,
@@ -183,6 +235,10 @@ export function createVfxRig(
     streamDots,
     godRays,
     particleMode: mode,
+    sleepZGroup,
+    shockBurstGroup,
+    dizzyStarsGroup,
+    dustGroup,
   };
 }
 
@@ -197,6 +253,11 @@ export function updateVfxRig(
   turnLocalProgress: number,
   primaryHex: string,
   secondaryHex: string,
+  leftAction = 'none',
+  rightAction = 'none',
+  leftY = 0,
+  rightY = 0,
+  memeActive = false,
 ): void {
   const count = vfx.ambientPositions.length / 3;
   const climbDown = vfx.particleMode === 'snow' || (vfx.particleMode === 'petal' && u > 0.6);
@@ -247,9 +308,9 @@ export function updateVfxRig(
   }
 
   // Reaction VFX burst near active speaker on Laughing / Surprised / Proud / Angry lines
-  const showBurst = hasActiveSpeaker && (emotion === 'laughing' || emotion === 'surprised' || emotion === 'proud') && turnLocalProgress < 0.45;
+  const showBurst = hasActiveSpeaker && (emotion === 'laughing' || emotion === 'surprised' || emotion === 'proud' || memeActive) && (turnLocalProgress < 0.45 || memeActive);
   if (showBurst) {
-    const k = turnLocalProgress / 0.45;
+    const k = Math.min(1, turnLocalProgress / 0.45);
     const centerX = activeSlot === 'Left' ? leftX : rightX;
     const bCount = vfx.burstPositions.length / 3;
     for (let i = 0; i < bCount; i++) {
@@ -260,8 +321,72 @@ export function updateVfxRig(
       vfx.burstPositions[i * 3 + 2] = 0.35;
     }
     vfx.burstPoints.geometry.attributes.position.needsUpdate = true;
-    vfx.burstMat.opacity = (1 - k) * 0.85;
+    vfx.burstMat.opacity = (1 - k * 0.75) * 0.9;
   } else {
     vfx.burstMat.opacity = 0;
+  }
+
+  // 1) Floating "Zzz" blocks when either character is sleeping
+  const leftAsleep = leftAction === 'sleeping';
+  const rightAsleep = rightAction === 'sleeping';
+  if (leftAsleep || rightAsleep) {
+    vfx.sleepZGroup.visible = true;
+    const sx = leftAsleep ? leftX : rightX;
+    const sy = (leftAsleep ? leftY : rightY) + 0.72;
+    vfx.sleepZGroup.children.forEach((child, idx) => {
+      const cycle = (t * 0.55 + idx * 0.33) % 1;
+      child.position.set(sx + Math.sin(t * 2.2 + idx) * 0.14 + cycle * 0.18, sy + cycle * 0.75, -0.35);
+      child.rotation.z = Math.sin(t * 1.8 + idx) * 0.22;
+      const sc = Math.sin(cycle * Math.PI);
+      child.scale.setScalar(Math.max(0.01, sc));
+    });
+  } else {
+    vfx.sleepZGroup.visible = false;
+  }
+
+  // 2) Comic shock starburst on shockedFall / wakingUp / active meme cue
+  const speakerX = activeSlot === 'Right' ? rightX : leftX;
+  const speakerY = activeSlot === 'Right' ? rightY : leftY;
+  const speakerAct = activeSlot === 'Right' ? rightAction : leftAction;
+  const showShock = memeActive || ((speakerAct === 'shockedFall' || speakerAct === 'wakingUp' || emotion === 'surprised') && turnLocalProgress < 0.55);
+  if (showShock) {
+    vfx.shockBurstGroup.visible = true;
+    vfx.shockBurstGroup.position.set(speakerX, speakerY + 1.48, -0.18);
+    vfx.shockBurstGroup.rotation.z = t * 1.8;
+    const pulse = 0.85 + 0.25 * Math.sin(t * 18);
+    vfx.shockBurstGroup.scale.setScalar(pulse);
+  } else {
+    vfx.shockBurstGroup.visible = false;
+  }
+
+  // 3) Orbiting dizzy stars when confused or slapping forehead
+  const showDizzy = leftAction === 'slapForehead' || rightAction === 'slapForehead' || emotion === 'confused';
+  if (showDizzy) {
+    vfx.dizzyStarsGroup.visible = true;
+    const dx = rightAction === 'slapForehead' ? rightX : leftAction === 'slapForehead' ? leftX : speakerX;
+    const dy = (rightAction === 'slapForehead' ? rightY : leftAction === 'slapForehead' ? leftY : speakerY) + 1.82;
+    vfx.dizzyStarsGroup.children.forEach((star, idx) => {
+      const ang = t * 4.5 + (idx / 3) * Math.PI * 2;
+      star.position.set(dx + Math.cos(ang) * 0.28, dy + Math.sin(ang * 2) * 0.04, Math.sin(ang) * 0.24);
+      star.rotation.y = t * 5;
+    });
+  } else {
+    vfx.dizzyStarsGroup.visible = false;
+  }
+
+  // 4) Footstep dust puffs when walking or running
+  const walkerLeft = leftAction === 'walking' || leftAction === 'running';
+  const walkerRight = rightAction === 'walking' || rightAction === 'running';
+  if (walkerLeft || walkerRight) {
+    vfx.dustGroup.visible = true;
+    const wx = walkerLeft ? leftX : rightX;
+    const wy = (walkerLeft ? leftY : rightY) + 0.06;
+    vfx.dustGroup.children.forEach((puff, idx) => {
+      const cycle = (t * (leftAction === 'running' || rightAction === 'running' ? 3.2 : 1.8) + idx * 0.25) % 1;
+      puff.position.set(wx - cycle * 0.35 + (idx % 2 === 0 ? -0.1 : 0.1), wy + cycle * 0.28, -0.05);
+      puff.scale.setScalar(Math.max(0.01, Math.sin(cycle * Math.PI) * 1.25));
+    });
+  } else {
+    vfx.dustGroup.visible = false;
   }
 }

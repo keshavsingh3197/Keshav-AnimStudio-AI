@@ -20,7 +20,11 @@ public enum SceneSetting
     ComedyStage = 12,
     SkyGauntlet = 13,
     TankArena = 14,
-    DoorwaySet = 15
+    DoorwaySet = 15,
+    Bedroom = 16,
+    LivingRoom = 17,
+    Kitchen = 18,
+    SweetShop = 19
 }
 
 /// <summary>Light of a scene: shifts sky colours, sun position and particle kind.</summary>
@@ -71,7 +75,11 @@ public static partial class SceneDirectives
         (SceneSetting.ChaiStall, ["chai", "tapri", "tea stall", "nukkad", "dhaba", "mohalla", "gali", "टपरी", "चाय", "नुक्कड़", "मोहल्ला", "ढाबा"]),
         (SceneSetting.ComedyStage, ["comedy", "funny", "meme", "standup", "stage", "roast", "sketch", "prank", "laugh", "joker", "joke", "कॉमेडी", "हंसी", "मज़ाक", "चुटकुला"]),
         (SceneSetting.ModernCity, ["city", "office", "street", "modern", "tech", "lab", "studio", "शहर", "दफ्तर", "सड़क", "आधुनिक"]),
-        (SceneSetting.Temple, ["temple", "mandir", "shrine", "sanctum", "garbhagriha", "aarti", "puja", "मंदिर", "देवालय", "गर्भगृह", "आरती", "पूजा"])
+        (SceneSetting.Temple, ["temple", "mandir", "shrine", "sanctum", "garbhagriha", "aarti", "puja", "मंदिर", "देवालय", "गर्भगृह", "आरती", "पूजा"]),
+        (SceneSetting.Bedroom, ["bedroom", "bed", "cot", "charpai", "pillow", "blanket", "sleeping", "snoring", "woke up", "alarm", "बेडरूम", "पलंग", "चारपाई", "बिस्तर", "तकिया", "रजाई", "खर्राटे", "सो रहा", "नींद"]),
+        (SceneSetting.LivingRoom, ["living room", "drawing room", "sofa", "couch", "tv room", "hallway", "सोफा", "सोफे", "बैठक", "हॉल", "टीवी", "लिविंग रूम"]),
+        (SceneSetting.Kitchen, ["kitchen", "stove", "cooking", "kadhai", "rabdi", "rasoi", "paratha", "भोजन", "रसोई", "किचन", "चूल्हा", "कड़ाही", "कढ़ाई", "रबड़ी", "सब्ज़ी", "नाश्ता"]),
+        (SceneSetting.SweetShop, ["sweet shop", "halwai", "mithai", "jalebi", "laddoo", "laddu", "bakery", "sweets", "हलवाई", "मिठाई", "दुकान", "जलेबी", "लड्डू", "दुकानदार"])
     ];
 
     private static readonly (SceneTimeOfDay Time, string[] Tokens)[] TimeTokens =
@@ -190,7 +198,9 @@ public static partial class SceneDirectives
         SceneSetting.Cosmos => ProceduralSceneTheme.CosmosSacred3D,
         SceneSetting.PalaceCourt or SceneSetting.Battlefield or SceneSetting.Archive => ProceduralSceneTheme.HistoryChronicle3D,
         SceneSetting.ModernCity => ProceduralSceneTheme.NeonCyberGrid3D,
-        SceneSetting.ChaiStall or SceneSetting.ComedyStage or SceneSetting.SkyGauntlet or SceneSetting.TankArena or SceneSetting.DoorwaySet => ProceduralSceneTheme.ComedyStage3D,
+        SceneSetting.ChaiStall or SceneSetting.ComedyStage or SceneSetting.SkyGauntlet or SceneSetting.TankArena or SceneSetting.DoorwaySet
+            or SceneSetting.Bedroom or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop
+            => ProceduralSceneTheme.ComedyStage3D,
         _ => fallback
     };
 

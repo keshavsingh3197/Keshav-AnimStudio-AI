@@ -470,7 +470,15 @@ public sealed partial class EcosystemAutomationService(
             .Where(p => p.AttachedHandoffId is not null && p.Status != AutomationPostStatus.Skipped)
             .Select(p => p.AttachedHandoffId!)
             .ToHashSet(StringComparer.Ordinal);
-        var postsOnDate = (await repository.ListPostsAsync(userId, effectiveDate, effectiveDate, null, 400, ct).ConfigureAwait(false)).ToList();
+        var maxFestivalLead = selectedRules
+            .Where(r => r.SourceType == AutomationSourceType.HinduFestival)
+            .Select(r => Math.Clamp(r.FestivalLeadDays, 0, 7))
+            .DefaultIfEmpty(0)
+            .Max();
+        var lookupEnd = maxFestivalLead > 0
+            ? DateOnly.Parse(effectiveDate).AddDays(maxFestivalLead).ToString("yyyy-MM-dd")
+            : effectiveDate;
+        var postsOnDate = (await repository.ListPostsAsync(userId, effectiveDate, lookupEnd, null, 400, ct).ConfigureAwait(false)).ToList();
         var duplicatesRemoved = await RemoveDuplicateDraftsAsync(postsOnDate, ct).ConfigureAwait(false);
 
         var userRenders = await LoadFinishedRendersAsync(userId, ct).ConfigureAwait(false);
@@ -492,7 +500,8 @@ public sealed partial class EcosystemAutomationService(
             var composedItems = AutomationContentComposer.ComposeForRule(rule, ruleSignals, ecosystem);
             foreach (var composed in composedItems)
             {
-                var fingerprint = $"{effectiveDate}:{rule.Id}:{composed.SourceItemKey}".ToLowerInvariant();
+                var postDateKey = AutomationFactVerifier.ExtractIsoDateKey(composed.EventDateKey) ?? effectiveDate;
+                var fingerprint = $"{postDateKey}:{rule.Id}:{composed.SourceItemKey}".ToLowerInvariant();
                 var existing = AutomationPost.SelectPreferred(
                     postsOnDate.Where(p => string.Equals(p.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase)));
                 existing ??= await repository.FindPostByFingerprintAsync(userId, fingerprint, ct).ConfigureAwait(false);
@@ -502,7 +511,7 @@ public sealed partial class EcosystemAutomationService(
                 {
                     existing = AutomationPost.SelectPreferred(postsOnDate.Where(p =>
                         string.Equals(p.RuleId, rule.Id, StringComparison.Ordinal)
-                        && string.Equals(p.DateKey, effectiveDate, StringComparison.Ordinal)));
+                        && string.Equals(p.DateKey, postDateKey, StringComparison.Ordinal)));
                 }
 
                 if (existing is not null && !forceRegenerate)
@@ -520,7 +529,7 @@ public sealed partial class EcosystemAutomationService(
                     ? await TryRefineWithAiAsync(userId, rule, composed, ct).ConfigureAwait(false)
                     : (Content: composed, UsedAi: false);
 
-                var scheduledUtc = ComputeScheduledUtc(effectiveDate, rule.PreferredPublishTime, rule.TimeZoneId);
+                var scheduledUtc = ComputeScheduledUtc(postDateKey, rule.PreferredPublishTime, rule.TimeZoneId);
                 var post = existing ?? new AutomationPost
                 {
                     Id = $"ap_{Guid.NewGuid():n}",
@@ -531,7 +540,7 @@ public sealed partial class EcosystemAutomationService(
 
                 post.RuleName = rule.Name;
                 post.SourceType = rule.SourceType;
-                post.DateKey = effectiveDate;
+                post.DateKey = postDateKey;
                 post.Fingerprint = fingerprint;
                 post.SourceItemKey = composed.SourceItemKey;
                 post.SourceTitle = composed.SourceTitle;
@@ -1584,6 +1593,14 @@ public sealed partial class EcosystemAutomationService(
                 if (directives >= MaxPastedDirectives + DialogueScriptParser.MaxMemeCues) continue;
                 directives++;
                 kept.Add($"[MEME]: {text}");
+                continue;
+            }
+            if (speaker.Equals("ACTION", StringComparison.OrdinalIgnoreCase)
+                || speaker.Equals("SHOT", StringComparison.OrdinalIgnoreCase)
+                || speaker.Equals("STAGE", StringComparison.OrdinalIgnoreCase)
+                || speaker.Equals("CAMERA", StringComparison.OrdinalIgnoreCase))
+            {
+                kept.Add($"[{speaker.ToUpperInvariant()}]: {text}");
                 continue;
             }
 

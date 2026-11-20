@@ -98,4 +98,92 @@ public sealed class WebGl3DEngineTests
 
         Assert.False(WebGlVideoFrameRenderer.IsAvailable(cfg));
     }
+
+    [Fact]
+    public void DialogueScriptParser_infers_actions_sleep_to_wakeup_camera_shots_and_indoor_rooms()
+    {
+        const string script = """
+            [SCENE]: bedroom | night | playful
+            [पप्पू भैया]: (sleeping) ख्र्र्र... बस पाँच मिनट और सोने दो...
+            [बबलू यार]: (angry, pointing) अबे उठ जा नालायक!
+            [SCENE]: kitchen | night | mischievous
+            [पप्पू भैया]: (walking, eating) आहाहा, कड़ाही की गरम रबड़ी मस्त है!
+            [बबलू यार]: (surprised) अरे बाप रे, सारी रबड़ी खा गया?!
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "Midnight Rabdi Heist", script, null, 24, enableDialogue: true, "पप्पू भैया", "बबलू यार", "FunnyComedy");
+        var spoken = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+
+        Assert.Equal(4, spoken.Count);
+        Assert.Equal("sleeping", spoken[0].Action);
+        Assert.Equal("bed", spoken[0].StageTarget);
+        Assert.DoesNotContain("(sleeping)", spoken[0].Text, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal("pointing", spoken[1].Action);
+        Assert.Equal("wakingUp", spoken[1].ListenerAction);
+        Assert.DoesNotContain("(angry", spoken[1].Text, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(SceneSetting.Kitchen, SceneDirectives.FromCue(spoken[2].SceneBackdropCue).Setting);
+        Assert.Equal("walking", spoken[2].Action);
+        Assert.Equal("counter", spoken[2].StageTarget);
+
+        Assert.Equal("shockedFall", spoken[3].Action);
+        Assert.Equal("crashPunch", spoken[3].CameraShot);
+
+        var palette = ProceduralEventPalette.Resolve("FunnyComedy", ProceduralSceneTheme.ComedyStage3D);
+        var req = new ProceduralVideoRequest
+        {
+            Title = "Midnight Rabdi Heist",
+            Script = script,
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            EventType = "FunnyComedy",
+            EnableCharacterDialogue = true,
+            EnableComedySfx = true
+        };
+        var json = WebGlVideoFrameRenderer.SerializeJobJson(
+            720, 1280, 24, 24, 576, 99, ProceduralSceneTheme.ComedyStage3D, req, palette, plan, new float[576], 0);
+        Assert.Contains("\"action\":\"sleeping\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"cameraShot\":\"crashPunch\"", json, StringComparison.Ordinal);
+        Assert.Contains("Bedroom", json, StringComparison.Ordinal);
+        Assert.Contains("Kitchen", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("पलंग पर सो रहा था", SceneSetting.Bedroom)]
+    [InlineData("living room sofa with tea", SceneSetting.LivingRoom)]
+    [InlineData("रसोई में गरम रबड़ी बन रही है", SceneSetting.Kitchen)]
+    [InlineData("हलवाई की मिठाई दुकान पर जलेबी", SceneSetting.SweetShop)]
+    public void SceneDirectives_matches_indoor_story_rooms(string text, SceneSetting expected)
+    {
+        var setting = SceneDirectives.InferSetting(text);
+        Assert.Equal(expected, setting);
+    }
+
+    [Fact]
+    public async Task WriteComedySfxWavAsync_synthesizes_sfx_for_action_transitions_even_outside_comedy()
+    {
+        const string script = """
+            [SCENE]: bedroom | dawn
+            [A]: (sleeping) आराम कर रहा था...
+            [B]: (waking up) अरे जागो, मंदिर जाने का समय हो गया!
+            [SCENE]: temple | dawn
+            [A]: (walking) चलो मंदिर की ओर चलते हैं।
+            [B]: (praying) भगवान को प्रणाम!
+            """;
+        var plan = DialogueScriptParser.ParsePlan(
+            "Morning Temple", script, null, 14, enableDialogue: true, "A", "B", "HinduFestival");
+        var wavPath = Path.Combine(Path.GetTempPath(), $"animstudio-action-sfx-{Guid.NewGuid():n}.wav");
+        try
+        {
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(wavPath, plan, 14, CancellationToken.None, comedyIntensity: false);
+            var bytes = await File.ReadAllBytesAsync(wavPath);
+            Assert.True(bytes.Length > 44);
+            Assert.Contains(bytes.Skip(44), b => b != 0);
+        }
+        finally
+        {
+            if (File.Exists(wavPath)) File.Delete(wavPath);
+        }
+    }
 }

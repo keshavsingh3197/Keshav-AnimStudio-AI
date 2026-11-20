@@ -323,17 +323,19 @@ public static class ProceduralAudioSynthesizer
         await fs.WriteAsync(pcmData, ct).ConfigureAwait(false);
     }
 
-    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon }
+    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep, TempleBell, EatingPop }
 
     /// <summary>
-    /// Synthesizes deterministic cartoon &amp; slapstick sound effects aligned to meme cutaways and emotional beats.
-    /// Zero external copyright samples: every hit is procedural DSP waveform synthesis at 48kHz stereo.
+    /// Synthesizes deterministic cartoon, cinematic &amp; situational action sound effects aligned to turns, actions,
+    /// camera smash-cuts, and meme cutaways. Zero external copyright samples: every hit is procedural DSP waveform
+    /// synthesis at 48kHz stereo.
     /// </summary>
     public static async Task WriteComedySfxWavAsync(
         string outputPath,
         ProceduralDialoguePlan plan,
         int durationSeconds,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool comedyIntensity = true)
     {
         ArgumentNullException.ThrowIfNull(plan);
         var totalSamples = Math.Max(SampleRate, durationSeconds * SampleRate);
@@ -348,17 +350,60 @@ public static class ProceduralAudioSynthesizer
             events.Add((Math.Max(0.15, meme.StartSeconds - 0.06), kind, 0.78));
         }
 
+        string? prevCue = null;
         foreach (var turn in plan.Turns)
         {
-            if (turn.IsTitleHook) continue;
+            if (turn.IsTitleHook)
+            {
+                prevCue = turn.SceneBackdropCue;
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(turn.SceneBackdropCue)
+                && !string.Equals(turn.SceneBackdropCue, prevCue, StringComparison.Ordinal))
+            {
+                events.Add((Math.Max(0.05, turn.StartSeconds - 0.04), ComedySfxKind.Whoosh, comedyIntensity ? 0.36 : 0.24));
+            }
+            prevCue = turn.SceneBackdropCue;
+
+            var action = turn.Action ?? "none";
             if (turn.SpeakerRole == CharacterVisualRole.CartoonTank && turn.Emotion is "angry" or "proud")
                 events.Add((turn.StartSeconds + 0.08, ComedySfxKind.TankCannon, 0.72));
-            else if (turn.Emotion is "surprised")
-                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Boing, 0.52));
-            else if (turn.Emotion is "angry")
-                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Bonk, 0.48));
-            else if (turn.Emotion is "confused")
-                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.RecordScratch, 0.44));
+            else if (action == "wakingUp")
+            {
+                events.Add((turn.StartSeconds + 0.02, ComedySfxKind.AlarmDing, comedyIntensity ? 0.48 : 0.30));
+                if (comedyIntensity)
+                    events.Add((turn.StartSeconds + 0.16, ComedySfxKind.Boing, 0.42));
+            }
+            else if (action is "walking" or "running")
+            {
+                var stepGap = action == "running" ? 0.20 : 0.34;
+                var stepCount = action == "running" ? 5 : 3;
+                for (var s = 0; s < stepCount; s++)
+                {
+                    var st = turn.StartSeconds + 0.04 + s * stepGap;
+                    if (st + 0.12 < turn.EndSeconds)
+                        events.Add((st, ComedySfxKind.Footstep, comedyIntensity ? 0.28 : 0.20));
+                }
+            }
+            else if (action == "praying")
+                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.TempleBell, comedyIntensity ? 0.28 : 0.24));
+            else if (action == "shockedFall")
+                events.Add((turn.StartSeconds + 0.04, comedyIntensity ? ComedySfxKind.VineBoom : ComedySfxKind.Whoosh, comedyIntensity ? 0.56 : 0.28));
+            else if (action == "slapForehead")
+                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Bonk, comedyIntensity ? 0.42 : 0.24));
+            else if (action == "eating")
+                events.Add((turn.StartSeconds + 0.12, ComedySfxKind.EatingPop, 0.30));
+            else if (action is "jumping" or "dancing")
+                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Boing, 0.38));
+            else if (turn.CameraShot == "crashPunch")
+                events.Add((turn.StartSeconds + 0.02, ComedySfxKind.Whoosh, 0.32));
+            else if (comedyIntensity && turn.Emotion is "surprised")
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Boing, 0.48));
+            else if (comedyIntensity && turn.Emotion is "angry")
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Bonk, 0.44));
+            else if (comedyIntensity && turn.Emotion is "confused")
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.RecordScratch, 0.40));
         }
 
         var rng = new Random(0xC0DE5F);
@@ -368,14 +413,20 @@ public static class ProceduralAudioSynthesizer
             var sfxDur = kind switch
             {
                 ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => 0.75,
-                ComedySfxKind.Boing => 0.46,
+                ComedySfxKind.TempleBell => 0.95,
+                ComedySfxKind.Boing or ComedySfxKind.AlarmDing => 0.44,
+                ComedySfxKind.Whoosh => 0.28,
                 ComedySfxKind.RecordScratch => 0.24,
+                ComedySfxKind.Footstep => 0.11,
+                ComedySfxKind.EatingPop => 0.18,
                 _ => 0.28
             };
             var len = Math.Min(totalSamples - Math.Max(0, startIdx), (int)(sfxDur * SampleRate));
             if (startIdx < 0 || len <= 0) continue;
 
             var phase = 0.0;
+            var phase2 = 0.0;
+            var lpNoise = 0.0;
             for (var i = 0; i < len; i++)
             {
                 var u = i / (double)SampleRate;
@@ -386,12 +437,24 @@ public static class ProceduralAudioSynthesizer
                     ComedySfxKind.VineBoom => 118.0 * Math.Exp(-u * 5.2) + 36.0,
                     ComedySfxKind.TankCannon => 145.0 * Math.Exp(-u * 7.5) + 42.0,
                     ComedySfxKind.RecordScratch => 720.0 + 520.0 * Math.Sin(u * 82.0),
+                    ComedySfxKind.AlarmDing => 1180.0 + 30.0 * Math.Sin(u * 62.0),
+                    ComedySfxKind.Footstep => 130.0 * Math.Exp(-u * 26.0) + 48.0,
+                    ComedySfxKind.TempleBell => 528.0,
+                    ComedySfxKind.EatingPop => 290.0 + 260.0 * (u / Math.Max(0.05, sfxDur)),
+                    ComedySfxKind.Whoosh => 260.0 + 480.0 * Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
                     _ => 440.0
                 };
                 phase += 2.0 * Math.PI * freq / SampleRate;
-                var env = kind is ComedySfxKind.VineBoom or ComedySfxKind.TankCannon
-                    ? Math.Min(1.0, u / 0.008) * Math.Exp(-u * 3.8)
-                    : Math.Min(1.0, u / 0.004) * Math.Exp(-u * 7.5);
+                phase2 += 2.0 * Math.PI * (freq * 1.498) / SampleRate;
+                var env = kind switch
+                {
+                    ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => Math.Min(1.0, u / 0.008) * Math.Exp(-u * 3.8),
+                    ComedySfxKind.TempleBell => Math.Min(1.0, u / 0.006) * Math.Exp(-u * 2.4),
+                    ComedySfxKind.Whoosh => Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
+                    ComedySfxKind.Footstep => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 28.0),
+                    ComedySfxKind.AlarmDing => Math.Min(1.0, u / 0.003) * Math.Exp(-u * 6.5),
+                    _ => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 7.5)
+                };
                 var raw = Math.Sin(phase);
                 if (kind == ComedySfxKind.RecordScratch)
                     raw = 0.6 * raw + 0.4 * (rng.NextDouble() * 2.0 - 1.0);
@@ -399,6 +462,18 @@ public static class ProceduralAudioSynthesizer
                     raw = Math.Tanh(raw * 2.2 + (rng.NextDouble() * 2.0 - 1.0) * 0.45 * Math.Exp(-u * 14.0));
                 else if (kind == ComedySfxKind.VineBoom)
                     raw = Math.Tanh(raw * 2.4);
+                else if (kind == ComedySfxKind.Whoosh)
+                {
+                    var white = rng.NextDouble() * 2.0 - 1.0;
+                    lpNoise += 0.08 * (white - lpNoise);
+                    raw = lpNoise * 0.72 + raw * 0.12;
+                }
+                else if (kind == ComedySfxKind.TempleBell)
+                    raw = 0.62 * raw + 0.28 * Math.Sin(phase2) + 0.14 * Math.Sin(phase * 2.01);
+                else if (kind == ComedySfxKind.AlarmDing)
+                    raw = 0.72 * raw + 0.28 * Math.Sin(phase * 1.5);
+                else if (kind == ComedySfxKind.Footstep)
+                    raw = Math.Tanh(raw * 1.4 + (rng.NextDouble() * 2.0 - 1.0) * 0.28 * Math.Exp(-u * 35.0));
 
                 mix[startIdx + i] += raw * env * gain;
             }

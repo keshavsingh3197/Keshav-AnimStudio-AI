@@ -197,15 +197,16 @@ public sealed class ProceduralVideoGeneratorService(
         if (effectiveMemeCues.Count > 0 && dialoguePlan.Memes.Count == 0)
             dialoguePlan = dialoguePlan with { MemeCues = effectiveMemeCues };
 
-        // 2.6 Deterministic cartoon SFX layer for comedy shorts & series
+        // 2.6 Deterministic cartoon & situational action SFX layer (comedy + multi-scene story renders)
         var isComedy = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
             || resolvedTheme == ProceduralSceneTheme.ComedyStage3D
             || request.EnableComedySfx;
+        var hasActions = dialoguePlan.Turns.Any(t => !t.IsTitleHook && !string.IsNullOrWhiteSpace(t.Action) && t.Action != "none");
         var hasSfx = false;
-        if (isComedy && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1))
+        if ((isComedy || (request.IncludeAmbientAudio && hasActions)) && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1))
         {
             var sfxDst = workspace.Resolve("in/sfx.wav");
-            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct).ConfigureAwait(false);
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct, comedyIntensity: isComedy).ConfigureAwait(false);
             hasSfx = File.Exists(sfxDst);
         }
 
