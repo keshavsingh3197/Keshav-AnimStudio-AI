@@ -209,7 +209,7 @@ export class YouTubeCheckupComponent implements OnInit {
     const v = this.previewVideo();
     if (!v) return null;
     return VIDEO_ID.test(v.videoId)
-      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&rel=0`)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${v.videoId}?rel=0`)
       : null;
   });
 

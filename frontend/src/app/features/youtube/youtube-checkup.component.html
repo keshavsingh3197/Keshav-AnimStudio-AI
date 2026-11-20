@@ -1094,7 +1094,7 @@
             <div class="ck-preview-stage" [class.is-vertical]="pv.isShort">
               @if (previewEmbedUrl(); as embedSrc) {
                 <iframe [src]="embedSrc" title="YouTube video player preview"
-                        allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen
+                        allow="encrypted-media; picture-in-picture" allowfullscreen
                         referrerpolicy="strict-origin-when-cross-origin"></iframe>
               } @else {
                 <div class="ck-preview-error">
@@ -1104,6 +1104,9 @@
             </div>
 
             <footer class="ck-preview-foot">
+              <div class="notice warn" role="note" style="margin-bottom:8px;font-size:12px;">
+                🛡️ <strong>Invalid-Traffic Shield:</strong> Avoid rewatching your own public videos or clicking ads on the same creator account, device, or Wi-Fi. Use <strong>Studio (Safe) ↗</strong> to inspect uploads.
+              </div>
               <div class="ck-preview-meta">
                 @if (pv.publishedAt) {
                   <span>Published {{ pv.publishedAt | date: 'mediumDate' }}</span>
@@ -1118,13 +1121,13 @@
                 <button type="button" class="ck-btn-edit ck-btn-highlight" (click)="closePreview(); openEditor(pv)">
                   ✎ Edit Details in Checkup
                 </button>
-                <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-outline">
-                  Watch on YouTube ↗
+                <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-studio" title="Open safely in YouTube Studio without generating public self-views">
+                  Studio (Safe) ↗
+                </a>
+                <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-outline" title="Public share URL — avoid rewatching from your creator account/device">
+                  Public Link ↗
                 </a>
                 <button type="button" class="ck-btn-outline" (click)="copyUrlField('preview-' + pv.videoId, pv.videoUrl)" title="Copy video URL">{{ urlCopiedKey() === 'preview-' + pv.videoId ? '✓ Copied' : '🔗 Copy URL' }}</button>
-                <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-studio">
-                  Studio ↗
-                </a>
               </div>
             </footer>
           </div>

@@ -52,6 +52,9 @@ public sealed class YouTubeChannelAnalysisService(
     /// <summary>The numbers are not read again sooner than this, however often refresh is pressed.</summary>
     public static readonly TimeSpan MinRefresh = TimeSpan.FromMinutes(30);
 
+    /// <summary>When Analytics failed or just gained permission while Data API numbers are still fresh, allow fast retry.</summary>
+    public static readonly TimeSpan AnalyticsRetryCooldown = TimeSpan.FromSeconds(15);
+
     /// <summary>How many of the newest uploads are read.</summary>
     public const int MaxVideos = 100;
 
@@ -90,8 +93,31 @@ public sealed class YouTubeChannelAnalysisService(
         var analysis = await analyses.GetAsync(userId, channelId, ct).ConfigureAwait(false);
         var now = Now;
 
+        var needsAnalyticsRetry = analysis is not null && NeedsAnalyticsRetry(channel, analysis);
         if (analysis is not null && analysis.FetchError is null && now - analysis.FetchedAtUtc < MinRefresh)
+        {
+            if (!needsAnalyticsRetry || now - analysis.UpdatedAtUtc < AnalyticsRetryCooldown)
+                return View(channel, analysis, now);
+
+            if (!oauth.IsConfigured)
+                throw new YouTubeAnalysisException("youtube-not-configured", "YouTube isn't set up on this server.");
+            if (channel.NeedsReconnect)
+                throw new YouTubeAnalysisException("youtube-reconnect", "YouTube access for this channel has expired or was removed. Connect the channel again.");
+
+            try
+            {
+                var token = await connections.GetAccessTokenAsync(userId, channelId, ct).ConfigureAwait(false);
+                await ReadAnalyticsAsync(analysis, token, now, ct).ConfigureAwait(false);
+            }
+            catch (YouTubePublishException ex)
+            {
+                logger.LogInformation("Couldn't retry YouTube Analytics for channel {ChannelId}: {Code}", channelId, ex.Code);
+                analysis.AnalyticsError = ex.Message;
+            }
+            analysis.UpdatedAtUtc = now;
+            await analyses.UpsertAsync(analysis, ct).ConfigureAwait(false);
             return View(channel, analysis, now);
+        }
 
         if (!oauth.IsConfigured)
             throw new YouTubeAnalysisException("youtube-not-configured", "YouTube isn't set up on this server.");
@@ -405,9 +431,22 @@ public sealed class YouTubeChannelAnalysisService(
             ?? throw new YouTubeAnalysisException("channel-not-found", "That channel isn't connected to your account.", notFound: true);
     }
 
+    internal static bool NeedsAnalyticsRetry(YouTubeConnectionStatus channel, YouTubeChannelAnalysis analysis) =>
+        channel.CanReadAnalytics
+        && (!string.IsNullOrWhiteSpace(analysis.AnalyticsError) || analysis.AnalyticsFetchedAtUtc is null);
+
+    internal static DateTime? ComputeNextRefreshAtUtc(YouTubeConnectionStatus channel, YouTubeChannelAnalysis? analysis) =>
+        analysis switch
+        {
+            null => null,
+            { FetchError: not null } => null,
+            _ when NeedsAnalyticsRetry(channel, analysis) => analysis.UpdatedAtUtc + AnalyticsRetryCooldown,
+            _ => analysis.FetchedAtUtc + MinRefresh
+        };
+
     private YouTubeChannelAnalysisView View(YouTubeConnectionStatus channel, YouTubeChannelAnalysis? analysis, DateTime now)
     {
-        var next = analysis is { FetchError: null } ? analysis.FetchedAtUtc + MinRefresh : (DateTime?)null;
+        var next = ComputeNextRefreshAtUtc(channel, analysis);
         return new YouTubeChannelAnalysisView(
             channel,
             analysis,

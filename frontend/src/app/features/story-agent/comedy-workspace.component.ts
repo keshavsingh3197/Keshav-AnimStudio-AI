@@ -695,10 +695,15 @@ export class ComedyWorkspaceComponent {
   policyReport(post: AutomationPost): PolicyCheckResult {
     const channel = this.connectedChannels().find((c) => c.channelId === post.targetChannelId) ?? this.selectedChannel();
     const tagsLen = (post.tags ?? []).join(',').length;
+    const hashtagsCount = (post.description.match(/#[^\s#]+/g) ?? []).length;
+    const hasSpamBait = /(sub4sub|sub 4 sub|sub for sub|subscribe back|watch4watch|buy views|free views|bit\.ly\/|tinyurl\.com\/)/i
+      .test(`${post.title} ${post.description}`);
     const confirmed = !!this.policyConfirmedByPost()[post.id];
     const checks: { label: string; ok: boolean; hint?: string }[] = [
       { label: `Title <= 100 chars (${post.title.length}/100)`, ok: post.title.trim().length >= 3 && post.title.trim().length <= 100 },
       { label: 'Original description & hub link present', ok: post.description.trim().length >= 20, hint: 'Click Auto-Fill SEO' },
+      { label: `Hashtag hygiene <= 15 (${hashtagsCount}/15)`, ok: hashtagsCount <= 15, hint: 'Keep 3–8 focused hashtags; >15 triggers YouTube spam rejection' },
+      { label: 'Zero engagement-bait / URL-shortener spam', ok: !hasSpamBait, hint: 'Remove sub4sub, view-exchange bait, or bit.ly/tinyurl links' },
       { label: `YouTube tags limit <= 500 chars (${tagsLen}/500)`, ok: tagsLen <= 500 },
       { label: 'Non-Made-For-Kids classification checked', ok: !post.madeForKids, hint: 'Roast/satire comedy should stay general audience (not Made for Kids)' },
       { label: 'Rendered MP4 attached', ok: !!post.attachedRenderJobId || !!post.attachedHandoffId, hint: 'Click Generate 3D Comedy Video above' },
@@ -707,7 +712,11 @@ export class ComedyWorkspaceComponent {
         ok: !!channel && !channel.needsReconnect,
         hint: channel?.needsReconnect ? 'Reconnect channel on /youtube' : 'Connect channel on /youtube',
       },
-      { label: 'Creator originality & Ad/YouTube policy confirmed', ok: confirmed, hint: 'Tick confirmation checkbox before upload' },
+      {
+        label: 'Originality, Ad Policy & Invalid-Traffic (no self-watch on own account/device/Wi-Fi) confirmed',
+        ok: confirmed,
+        hint: 'Tick confirmation checkbox — review via local MP4/Studio rather than public rewatch',
+      },
     ];
     return {
       readyToPublish: checks.every((c) => c.ok),

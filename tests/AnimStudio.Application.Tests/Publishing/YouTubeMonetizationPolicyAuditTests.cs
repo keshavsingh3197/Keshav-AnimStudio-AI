@@ -86,4 +86,32 @@ public sealed class YouTubeMonetizationPolicyAuditTests
         Assert.Contains(report.Suggestions, s => s.Title.StartsWith("Verify 2 mobile / external upload(s)", StringComparison.Ordinal));
         Assert.NotEmpty(report.WhatToFix);
     }
+
+    [Fact]
+    public void Audit_flags_upload_burst_engagement_spam_and_includes_invalid_traffic_self_watch_shield()
+    {
+        var burstVideos = Enumerable.Range(1, 13)
+            .Select(i => new YouTubePolicyVideoInput(
+                $"vb{i:00}",
+                $"Distinct Comedy Sketch Episode {i} #shorts",
+                i == 1
+                    ? "Check this episode and sub4sub subscribe back via bit.ly/mychannel for free views!"
+                    : $"Original comedy dialogue skit number {i} featuring characters Pappu & Bablu.",
+                ["comedy", "shorts"],
+                "23",
+                false,
+                true,
+                Now.AddHours(-i),
+                200 + i * 10,
+                "public",
+                InPlaylist: true,
+                UploadedByApp: true))
+            .ToList();
+
+        var audit = YouTubeMonetizationPolicyAudit.Analyze(burstVideos, playlistsKnown: true);
+
+        Assert.Contains(audit.Items, i => i.Verdict == "verify" && i.Id == "verify-invalid-traffic-self-watch");
+        Assert.Contains(audit.Items, i => i.Verdict == "wrong" && i.Id == "policy-upload-burst");
+        Assert.Contains(audit.Items, i => i.Verdict == "wrong" && i.Id == "policy-engagement-spam");
+    }
 }
