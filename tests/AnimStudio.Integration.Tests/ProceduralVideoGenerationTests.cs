@@ -259,6 +259,96 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
     }
 
     [FfmpegFact]
+    public async Task Comedy_WebGl3D_renders_rabdi_skit_with_synced_speech_bedroom_and_kitchen()
+    {
+        if (!WebGlVideoFrameRenderer.IsAvailable())
+            return;
+
+        var store = new InMemoryObjectStore();
+        var jobsRepo = new InMemoryRenderJobRepo();
+        var projectsRepo = new InMemoryProjectRepo();
+        var ffmpegOptions = Options.Create(new FfmpegOptions
+        {
+            FfmpegPath = FfmpegLocator.FfmpegPath,
+            FfprobePath = FfmpegLocator.FfprobePath
+        });
+        var capabilities = new FfmpegCapabilities
+        {
+            IsAvailable = true,
+            HasLibass = true,
+            HasLibx264 = true,
+            HasAac = true,
+            Major = FfmpegLocator.MajorVersion
+        };
+
+        var service = new ProceduralVideoGeneratorService(
+            ffmpegOptions,
+            capabilities,
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            jobsRepo,
+            projectsRepo,
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string rabdiScript = """
+            [SCENE]: bedroom | night | playful
+            [पप्पू भैया]: ख्र्र्र... बस पाँच मिनट... रसोई से गरम रबड़ी की खुशबू आ रही है...
+            [बबलू यार]: अरे पप्पू! आधी रात को ये रसोई में कड़ाही कौन खड़का रहा है?!
+            [SCENE]: kitchen | night | mischievous
+            [पप्पू भैया]: आहाहा! आज मलाईदार रबड़ी अकेले साफ कर दूँगा...
+            [बबलू यार]: पकड़ लिया बे! सारी रबड़ी अकेले चट कर गया नालायक?!
+            """;
+
+        var result = await service.GenerateAsync("user-comedy-verify", new ProceduralVideoRequest
+        {
+            Title = "आधी रात का रबड़ी कांड 😂 | EP 01",
+            EventType = "FunnyComedy",
+            TopCategoryLabel = "KESHAV-ANIM-FF • COMEDY SHORT",
+            Language = "hi",
+            Script = rabdiScript,
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            RenderEngine = ProceduralRenderEngine.Auto,
+            SubtitlePreset = "karaoke-pulse",
+            EnableCharacterDialogue = true,
+            EnableComedySfx = true,
+            FollowScriptExactly = true,
+            SpeakerAName = "पप्पू भैया",
+            SpeakerBName = "बबलू यार",
+            FooterLabel = "Keshav Hub",
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 18,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.True(result.SizeBytes > 50_000);
+        Assert.Contains("engine=webgl-3d", result.Summary);
+
+        var outPath = Path.Combine(_root, "rabdi-fixed.mp4");
+        await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
+
+        var auditOut = Environment.GetEnvironmentVariable("ANIMSTUDIO_COMEDY_AUDIT_MP4");
+        if (!string.IsNullOrWhiteSpace(auditOut))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(auditOut)!);
+            await File.WriteAllBytesAsync(auditOut, result.InlineMp4Bytes!);
+        }
+
+        Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outPath}\""));
+        Assert.Equal("aac,48000,2", FfmpegLocator.Probe(
+            $"-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of csv=p=0 \"{outPath}\""));
+    }
+
+    [FfmpegFact]
     public async Task Generates_cpu_fast_fallback_and_webgl_3d_dialogue_videos()
     {
         var store = new InMemoryObjectStore();

@@ -466,11 +466,11 @@
                   <a routerLink="/youtube/checkup" [queryParams]="{ channel: r.video.channelId, video: r.video.videoId }" class="yt-action-link yt-action-checkup" title="Open Details Checkup &amp; AI Optimizer for this video">
                     🩺 Fix Details
                   </a>
-                  <a [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Open on YouTube">
-                    Watch ↗
-                  </a>
-                  <a [href]="r.video.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Open in YouTube Studio">
+                  <a [href]="r.video.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Open safely in YouTube Studio (recommended — does not create self-views)">
                     Studio ↗
+                  </a>
+                  <a [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Public watch link (for sharing — avoid repeatedly watching your own video from the same account/device)">
+                    Watch ↗
                   </a>
                   <button type="button" class="yt-action-btn" (click)="copy(r.video)" title="Copy video URL to clipboard">
                     {{ copiedId() === r.video.id ? 'Copied ✓' : 'Copy link' }}
@@ -713,7 +713,7 @@
             <div class="yt-preview-stage" [class.is-vertical]="isShortVideo(pv)">
               @if (previewEmbedUrl(); as embedSrc) {
                 <iframe [src]="embedSrc" title="YouTube video player preview"
-                        allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen
+                        allow="encrypted-media; picture-in-picture" allowfullscreen
                         referrerpolicy="strict-origin-when-cross-origin"></iframe>
               } @else {
                 <div class="yt-preview-error">
@@ -723,6 +723,9 @@
             </div>
 
             <footer class="yt-preview-foot">
+              <div class="notice warn" role="note" style="margin-bottom:8px;font-size:12px;">
+                🛡️ <strong>Invalid-Traffic Shield:</strong> Avoid repeatedly rewatching your own public videos or clicking ads from your creator Google account, device, or Wi-Fi. Prefer <strong>Studio ↗</strong> or AnimStudio's local MP4 render.
+              </div>
               <div class="yt-preview-meta">
                 <span>Published {{ pv.publishedAt | date: 'mediumDate' }}</span>
                 <span class="yt-pill">{{ pv.privacy }}</span>
@@ -738,15 +741,15 @@
                 <a routerLink="/youtube/checkup" [queryParams]="{ channel: pv.channelId, video: pv.videoId }" class="yt-btn-primary" (click)="closePreview()">
                   🩺 Open in Details Optimizer
                 </a>
-                <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline">
-                  Watch on YouTube ↗
+                <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline yt-btn-studio" title="Review safely in YouTube Studio without public self-views">
+                  Studio (Safe) ↗
+                </a>
+                <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline" title="Public link — avoid rewatching from your creator account/device">
+                  Public Link ↗
                 </a>
                 <button type="button" class="yt-btn-outline" (click)="copy(pv)" title="Copy video URL">
                   {{ copiedId() === pv.id ? '✓ Copied' : '🔗 Copy URL' }}
                 </button>
-                <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline yt-btn-studio">
-                  Studio ↗
-                </a>
               </div>
             </footer>
           </div>

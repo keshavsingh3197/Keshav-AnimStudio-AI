@@ -61,6 +61,10 @@ public static partial class AutomationBackgroundPromptBuilder
         SceneSetting.SkyGauntlet => "vibrant stylized 3D floating sky gauntlet obstacle catwalk above sunlit clouds with glowing choice portals",
         SceneSetting.TankArena => "stylized cartoon canyon tank arena with sandbag bunkers, craters and dramatic sunset battle lighting",
         SceneSetting.DoorwaySet => "colorful slapstick 3D cartoon hallway with an oversized wooden doorway, checkerboard tiles and spotlight",
+        SceneSetting.Bedroom => "cozy colorful 3D Indian bedroom interior with wooden charpai bed, soft pillows, warm bedside lamp and window daylight",
+        SceneSetting.LivingRoom => "bright Indian family living room with sofa seating, coffee table, framed wall art, curtains and wooden door",
+        SceneSetting.Kitchen => "lively Indian home kitchen with gas stove, steaming brass rabdi kadhai, spice rack jars and warm counter light",
+        SceneSetting.SweetShop => "vibrant Indian halwai mithai sweet shop counter with stacked laddoo trays, marigold garlands and warm lantern glow",
         _ => "cinematic Indian landscape with a clear open foreground"
     };
 

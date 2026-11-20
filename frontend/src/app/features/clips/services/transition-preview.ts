@@ -42,6 +42,26 @@ export function transitionPreviewFrame(kind: string, progress: number, incoming:
       frame.transform = `translate${axis}(${sign * (incoming ? p - 1 : p) * 100}%)`;
       break;
     }
+    case 'SmoothLeft':
+    case 'SmoothRight':
+    case 'SmoothUp':
+    case 'SmoothDown': {
+      const axis = kind === 'SmoothLeft' || kind === 'SmoothRight' ? 'X' : 'Y';
+      const sign = kind === 'SmoothLeft' || kind === 'SmoothUp' ? -1 : 1;
+      frame.transform = `translate${axis}(${sign * (incoming ? p - 1 : p) * 28}%)`;
+      if (incoming) frame.opacity = p;
+      break;
+    }
+    case 'HorzOpen':
+      if (incoming) frame.clipPath = `inset(0 ${(1 - p) * 50}% 0 ${(1 - p) * 50}%)`;
+      break;
+    case 'VertOpen':
+      if (incoming) frame.clipPath = `inset(${(1 - p) * 50}% 0 ${(1 - p) * 50}% 0)`;
+      break;
+    case 'Radial':
+      if (incoming) frame.clipPath = `circle(${p * 75}% at 50% 50%)`;
+      if (incoming) frame.opacity = 0.25 + 0.75 * p;
+      break;
     case 'WipeLeft':
       if (incoming) frame.clipPath = `inset(0 0 0 ${(1 - p) * 100}%)`;
       break;

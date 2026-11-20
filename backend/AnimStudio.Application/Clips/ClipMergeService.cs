@@ -151,6 +151,7 @@ public sealed record AutoShortsCommand
     public SceneTransition? TransitionOverride { get; init; }
     public double? TransitionSeconds { get; init; }
     public bool Motion { get; init; } = true;
+    public AutoShortAtmosphere Atmosphere { get; init; } = AutoShortAtmosphere.Auto;
     public bool KeepClipAudio { get; init; } = true;
     public string? ExportName { get; init; }
     public int Width { get; init; } = 1080;
@@ -904,6 +905,7 @@ public sealed class ClipMergeService(
                 TransitionOverride = command.TransitionOverride,
                 TransitionSeconds = command.TransitionSeconds,
                 Motion = command.Motion,
+                Atmosphere = command.Atmosphere,
                 KeepClipAudio = command.KeepClipAudio,
                 ExportName = command.ExportName ?? "Auto short",
                 Width = command.Width,

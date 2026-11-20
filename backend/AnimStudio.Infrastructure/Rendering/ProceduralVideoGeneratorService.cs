@@ -197,15 +197,16 @@ public sealed class ProceduralVideoGeneratorService(
         if (effectiveMemeCues.Count > 0 && dialoguePlan.Memes.Count == 0)
             dialoguePlan = dialoguePlan with { MemeCues = effectiveMemeCues };
 
-        // 2.6 Deterministic cartoon SFX layer for comedy shorts & series
+        // 2.6 Deterministic cartoon & situational action SFX layer (comedy + multi-scene story renders)
         var isComedy = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
             || resolvedTheme == ProceduralSceneTheme.ComedyStage3D
             || request.EnableComedySfx;
+        var hasActions = dialoguePlan.Turns.Any(t => !t.IsTitleHook && !string.IsNullOrWhiteSpace(t.Action) && t.Action != "none");
         var hasSfx = false;
-        if (isComedy && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1))
+        if ((isComedy || (request.IncludeAmbientAudio && hasActions)) && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1))
         {
             var sfxDst = workspace.Resolve("in/sfx.wav");
-            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct).ConfigureAwait(false);
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct, comedyIntensity: isComedy).ConfigureAwait(false);
             hasSfx = File.Exists(sfxDst);
         }
 
@@ -650,7 +651,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var topCategoryMargin = Math.Max(14, height / 62);
         var topTitleMargin = isPortrait ? Math.Max(48, height / 23) : Math.Max(42, height / 20);
-        var titleHookMargin = isPortrait ? Math.Max(215, (int)Math.Round(height * 0.175)) : Math.Max(118, (int)Math.Round(height * 0.165));
+        var titleHookMargin = isPortrait ? Math.Max(148, (int)Math.Round(height * 0.118)) : Math.Max(105, (int)Math.Round(height * 0.145));
 
         // On 9:16 mobile Shorts, reserve bottom ~27% for YouTube @handle/title/Share overlay and right ~18% for Like/Save/Comment/Share buttons.
         var dialogueMargin = isPortrait
@@ -662,15 +663,16 @@ public sealed class ProceduralVideoGeneratorService(
             ? Math.Max(265, (int)Math.Round(height * 0.228))
             : Math.Max(18, height / 50);
 
+        var karaokeSecondary = motionPreset == SubtitleMotionPreset.KaraokePulse;
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
         {
             [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: isPortrait ? 54 : 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 40, MarginR: 40),
             [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? 70 : 76, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 38, MarginR: 38),
-            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? 82 : 90, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait ? captionMarginR : captionMarginL),
-            [MemePopStyleCharId] = new("MemePop", "#FEF08A", Bold: true, Alignment: 8, MarginV: isPortrait ? Math.Max(290, (int)Math.Round(height * 0.23)) : Math.Max(140, (int)Math.Round(height * 0.19)), FontScalePercent: isPortrait ? 92 : 96, OutlineColorHex: "#7C2D12", SecondaryColorHex: "#F97316", MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: 48, MarginR: 48),
-            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#0F172A", SecondaryColorHex: palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? 68 : 80, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait ? captionMarginR : captionMarginL),
+            [MemePopStyleCharId] = new("MemePop", "#FEF08A", Bold: true, Alignment: 8, MarginV: isPortrait ? Math.Max(255, (int)Math.Round(height * 0.20)) : Math.Max(130, (int)Math.Round(height * 0.17)), FontScalePercent: isPortrait ? 86 : 92, OutlineColorHex: "#7C2D12", SecondaryColorHex: "#F97316", MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: 48, MarginR: 48),
+            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: karaokeSecondary ? "#F8FAFC" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: karaokeSecondary ? "#F8FAFC" : palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#0F172A", SecondaryColorHex: karaokeSecondary ? "#F8FAFC" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
             [FooterStyleCharId] = new("FooterTag", "#E2E8F0", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: isPortrait ? 52 : 54, OutlineColorHex: "#0F172A", MotionPreset: SubtitleMotionPreset.None, MarginL: captionMarginL, MarginR: captionMarginR)
         };
 
@@ -941,20 +943,21 @@ public sealed class ProceduralVideoGeneratorService(
             }
         }
 
-        // Auto-inject one mid-video meme reaction for FunnyComedy when library memes exist and script didn't include [MEME].
+        // Auto-inject one climax reaction meme for FunnyComedy when library memes exist and script didn't include [MEME]
+        // (placed cleanly right as the punchline lands so it never blocks mid-dialogue speech).
         if (cues.Count == 0 && isComedy && playables.Count > 0 && dialoguePlan.Turns.Count >= 4)
         {
-            var midTurnIdx = Math.Clamp(dialoguePlan.Turns.Count / 2, 1, dialoguePlan.Turns.Count - 2);
-            var anchor = Math.Max(1.0, dialoguePlan.Turns[midTurnIdx].EndSeconds - 0.15);
-            cues.Add(new ProceduralMemeCue(midTurnIdx, playables[0].Name, playables[0].Name, 1.6, Math.Round(anchor, 2)));
+            var lastSpokenIdx = Math.Max(1, dialoguePlan.Turns.Count - 1);
+            var anchor = Math.Max(1.0, dialoguePlan.Turns[lastSpokenIdx].EndSeconds - 0.10);
+            cues.Add(new ProceduralMemeCue(lastSpokenIdx, playables[0].Name, playables[0].Name, 1.05, Math.Round(anchor, 2)));
         }
 
         if (cues.Count == 0 || playables.Count == 0)
             return (cues, []);
 
         var overlays = new List<ResolvedMemeOverlay>();
-        var boxW = Math.Clamp((int)Math.Round(width * 0.48), 240, 560);
-        var boxH = Math.Clamp((int)Math.Round(boxW * 0.72), 180, 420);
+        var boxW = Math.Clamp((int)Math.Round(width * 0.36), 196, 440);
+        var boxH = Math.Clamp((int)Math.Round(boxW * 0.68), 145, 320);
         var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < cues.Count && i < DialogueScriptParser.MaxMemeCues; i++)

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting } from './types';
+import { ActionKind, CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting } from './types';
 
 export interface CharacterRig {
   root: THREE.Group;
@@ -10,6 +10,12 @@ export interface CharacterRig {
   leftElbow: THREE.Group;
   rightShoulder: THREE.Group;
   rightElbow: THREE.Group;
+  leftHip?: THREE.Group;
+  rightHip?: THREE.Group;
+  leftKnee?: THREE.Group;
+  rightKnee?: THREE.Group;
+  snackProp?: THREE.Group;
+  headY: number;
   leftEyelid: THREE.Mesh;
   rightEyelid: THREE.Mesh;
   leftBrow: THREE.Mesh;
@@ -35,6 +41,7 @@ export interface CharacterRig {
   name: string;
   facingSign: number;
   standing: boolean;
+  hasFloorAura?: boolean;
   seedOffset: number;
 }
 
@@ -62,11 +69,28 @@ function isStandingScene(setting: SceneSetting, role: CharacterRole): boolean {
     || setting === 'SkyGauntlet'
     || setting === 'TankArena'
     || setting === 'DoorwaySet'
+    || setting === 'Bedroom'
+    || setting === 'LivingRoom'
+    || setting === 'Kitchen'
+    || setting === 'SweetShop'
     || setting === 'Battlefield'
     || setting === 'PalaceCourt'
     || setting === 'ModernCity'
     || setting === 'Village'
     || setting === 'Archive';
+}
+
+function isDomesticOrComedySetting(setting: SceneSetting): boolean {
+  return setting === 'ComedyStage'
+    || setting === 'ChaiStall'
+    || setting === 'SkyGauntlet'
+    || setting === 'TankArena'
+    || setting === 'DoorwaySet'
+    || setting === 'Bedroom'
+    || setting === 'LivingRoom'
+    || setting === 'Kitchen'
+    || setting === 'SweetShop'
+    || setting === 'ModernCity';
 }
 
 function getRolePalette(role: CharacterRole, robeHex: string | null | undefined, accentHex: string): {
@@ -284,17 +308,19 @@ function createCrownOrHair(
     lock.position.set(-headR * 0.12, headR * 0.78, headR * 0.68);
     headPivot.add(lock);
 
-    const band = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.90, headR * 0.065, 10, 24), goldMat);
-    band.rotation.x = Math.PI / 2 - 0.34;
-    band.position.set(0, headR * 0.55, headR * 0.06);
-    headPivot.add(band);
+    if (!isDomesticOrComedySetting(setting)) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.90, headR * 0.065, 10, 24), goldMat);
+      band.rotation.x = Math.PI / 2 - 0.34;
+      band.position.set(0, headR * 0.55, headR * 0.06);
+      headPivot.add(band);
 
-    const emerald = new THREE.Mesh(
-      new THREE.OctahedronGeometry(headR * 0.13, 0),
-      new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x059669, emissiveIntensity: 0.6 }),
-    );
-    emerald.position.set(0, headR * 0.62, headR * 0.92);
-    headPivot.add(emerald);
+      const emerald = new THREE.Mesh(
+        new THREE.OctahedronGeometry(headR * 0.13, 0),
+        new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x059669, emissiveIntensity: 0.6 }),
+      );
+      emerald.position.set(0, headR * 0.62, headR * 0.92);
+      headPivot.add(emerald);
+    }
     return undefined;
   }
 
@@ -329,16 +355,27 @@ function createCrownOrHair(
     return undefined;
   }
 
-  // Default Scholar / Comedy character hair (+ stylized quiff)
-  if (setting === 'ComedyStage' || setting === 'ChaiStall') {
+  // Default Scholar / Comedy character hair (+ contrasting silhouette for ComicBobble vs partner)
+  if (role === 'ComicBobble' || isDomesticOrComedySetting(setting)) {
     const hair = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.03, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.47), hairMat);
     hair.scale.set(1.01, 1.11, 0.99);
     hair.rotation.x = -0.35;
     headPivot.add(hair);
-    const quiff = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.36, 12, 10), hairMat);
-    quiff.scale.set(1.25, 0.68, 1.35);
-    quiff.position.set(0, headR * 0.95, headR * 0.36);
-    headPivot.add(quiff);
+    if (role === 'ComicBobble') {
+      // MJO-style playful spiky hair tufts on comic lead
+      for (const ang of [-0.35, 0, 0.35]) {
+        const tuft = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.14, headR * 0.38, 8), hairMat);
+        tuft.position.set(ang * headR * 0.85, headR * 1.05, headR * 0.18);
+        tuft.rotation.z = -ang * 0.65;
+        tuft.rotation.x = 0.22;
+        headPivot.add(tuft);
+      }
+    } else {
+      const quiff = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.34, 12, 10), hairMat);
+      quiff.scale.set(1.2, 0.64, 1.3);
+      quiff.position.set(0, headR * 0.94, headR * 0.34);
+      headPivot.add(quiff);
+    }
   } else {
     const hair = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.03, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.48), hairMat);
     hair.scale.set(1.01, 1.11, 0.99);
@@ -481,6 +518,9 @@ function buildComedyMascotRig(
   let cannonBarrel: THREE.Mesh | undefined;
   let propPivot: THREE.Group | undefined;
 
+  let leftHip: THREE.Group | undefined;
+  let rightHip: THREE.Group | undefined;
+
   if (role === 'CartoonTank') {
     // Treads & road wheels
     for (const sx of [-0.36, 0.36]) {
@@ -519,15 +559,21 @@ function buildComedyMascotRig(
     headPivot.position.set(0, 0.10, 0);
     turretGroup.add(headPivot);
   } else if (role === 'BrainrotLog') {
-    for (const side of [-1, 1]) {
+    const buildMascotLeg = (side: -1 | 1): THREE.Group => {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.14, -0.05, 0);
+      torsoGroup.add(hip);
       const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.28, 6, 8), bodyMat);
-      leg.position.set(side * 0.14, -0.22, 0);
-      torsoGroup.add(leg);
+      leg.position.set(0, -0.17, 0);
+      hip.add(leg);
       const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.10, 10, 8), trimMat);
       shoe.scale.set(0.9, 0.5, 1.5);
-      shoe.position.set(side * 0.14, -0.39, 0.05);
-      torsoGroup.add(shoe);
-    }
+      shoe.position.set(0, -0.34, 0.05);
+      hip.add(shoe);
+      return hip;
+    };
+    leftHip = buildMascotLeg(-1);
+    rightHip = buildMascotLeg(1);
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.25, 0.96, 18), bodyMat);
     trunk.position.y = 0.44;
     trunk.castShadow = true;
@@ -544,15 +590,21 @@ function buildComedyMascotRig(
     torsoGroup.add(headPivot);
   } else {
     // CupDancer: expressive tapered ceramic mug with golden rim & coffee top
-    for (const side of [-1, 1]) {
+    const buildCupLeg = (side: -1 | 1): THREE.Group => {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.13, -0.05, 0);
+      torsoGroup.add(hip);
       const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.30, 6, 8), darkMat);
-      leg.position.set(side * 0.13, -0.22, 0);
-      torsoGroup.add(leg);
+      leg.position.set(0, -0.17, 0);
+      hip.add(leg);
       const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), trimMat);
       shoe.scale.set(0.95, 0.5, 1.45);
-      shoe.position.set(side * 0.13, -0.39, 0.05);
-      torsoGroup.add(shoe);
-    }
+      shoe.position.set(0, -0.34, 0.05);
+      hip.add(shoe);
+      return hip;
+    };
+    leftHip = buildCupLeg(-1);
+    rightHip = buildCupLeg(1);
     const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.22, 0.62, 24), bodyMat);
     cup.position.y = 0.34;
     cup.castShadow = true;
@@ -602,6 +654,24 @@ function buildComedyMascotRig(
   const leftArm = buildArm(-1);
   const rightArm = buildArm(1);
 
+  // Removable 3D snack/rabdi bowl prop attached to right hand (visible during 'eating' action!)
+  const snackProp = new THREE.Group();
+  snackProp.position.set(0, -0.25, 0.06);
+  const snackBowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.07, 0.08, 14),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 }),
+  );
+  snackProp.add(snackBowl);
+  const snackSweet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.45 }),
+  );
+  snackSweet.scale.set(1.1, 0.55, 1.1);
+  snackSweet.position.y = 0.035;
+  snackProp.add(snackSweet);
+  snackProp.visible = false;
+  rightArm.elbow.add(snackProp);
+
   if (role === 'BrainrotLog') {
     propPivot = new THREE.Group();
     propPivot.position.set(0, -0.22, 0.04);
@@ -623,6 +693,10 @@ function buildComedyMascotRig(
     leftElbow: leftArm.elbow,
     rightShoulder: rightArm.shoulder,
     rightElbow: rightArm.elbow,
+    leftHip,
+    rightHip,
+    snackProp,
+    headY: role === 'CartoonTank' ? 1.05 : 1.35,
     leftEyelid: face.leftEye.eyelid,
     rightEyelid: face.rightEye.eyelid,
     leftBrow: face.leftEye.brow,
@@ -669,7 +743,9 @@ export function createCharacterRig(
   const bodyPivot = new THREE.Group();
   root.add(bodyPivot);
 
-  const childScale = role === 'ChildDevotee' ? 0.86 : 1.0;
+  const isComedyEnv = isDomesticOrComedySetting(setting);
+  const isModernComedy = isComedyEnv && (role === 'Scholar' || role === 'ComicBobble' || role === 'ChildDevotee');
+  const childScale = role === 'ChildDevotee' && !isModernComedy ? 0.86 : 1.0;
   bodyPivot.scale.setScalar(childScale);
 
   const robeMat = new THREE.MeshStandardMaterial({ color: robe, roughness: 0.58, metalness: 0.08 });
@@ -678,49 +754,82 @@ export function createCharacterRig(
   const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.48, metalness: 0.02 });
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xf7be38, metalness: 0.85, roughness: 0.22 });
 
-  // Ground halo / active speaker ring
+  // Ground halo / active speaker ring (disabled in domestic/comedy sets so bedrooms & kitchens stay grounded)
   const auraRing = new THREE.Mesh(
     new THREE.RingGeometry(0.46, 0.58, 36),
-    new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: isModernComedy ? 0 : 0.22, side: THREE.DoubleSide, depthWrite: false }),
   );
   auraRing.rotation.x = -Math.PI / 2;
   auraRing.position.y = 0.012;
+  auraRing.visible = !isModernComedy;
   root.add(auraRing);
 
   const auraDisc = new THREE.Mesh(
     new THREE.CircleGeometry(0.45, 32),
-    new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: isModernComedy ? 0 : 0.08, side: THREE.DoubleSide, depthWrite: false }),
   );
   auraDisc.rotation.x = -Math.PI / 2;
   auraDisc.position.y = 0.01;
+  auraDisc.visible = !isModernComedy;
   root.add(auraDisc);
 
   let pedestalGlow: THREE.Mesh | undefined;
+  let leftHip: THREE.Group | undefined;
+  let rightHip: THREE.Group | undefined;
+  let leftKnee: THREE.Group | undefined;
+  let rightKnee: THREE.Group | undefined;
   let hipY = 0.14;
+
+  const trouserMat = isModernComedy
+    ? new THREE.MeshStandardMaterial({ color: facingSign > 0 ? 0x1e293b : 0x312e81, roughness: 0.72 })
+    : robeDarkMat;
 
   if (standing) {
     hipY = 0.66;
-    const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.245, 16, 12), robeDarkMat);
+    const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.245, 16, 12), trouserMat);
     pelvis.scale.set(1.06, 0.65, 0.88);
     pelvis.position.set(0, hipY - 0.01, 0);
     pelvis.castShadow = true;
     bodyPivot.add(pelvis);
 
-    const legGeo = new THREE.CapsuleGeometry(0.108, 0.48, 8, 12);
-    const shoeMat = new THREE.MeshStandardMaterial({ color: 0x3b2416, roughness: 0.55 });
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(legGeo, robeDarkMat);
-      leg.position.set(side * 0.13, 0.39, 0);
-      leg.castShadow = true;
-      leg.receiveShadow = true;
-      bodyPivot.add(leg);
+    const thighGeo = new THREE.CapsuleGeometry(0.104, 0.20, 6, 10);
+    const shinGeo = new THREE.CapsuleGeometry(0.092, 0.18, 6, 10);
+    const shoeMat = new THREE.MeshStandardMaterial({ color: isModernComedy ? 0xf8fafc : 0x3b2416, roughness: 0.45 });
+    const buildLeg = (side: -1 | 1): { hip: THREE.Group; knee: THREE.Group } => {
+      const hip = new THREE.Group();
+      hip.position.set(side * 0.13, hipY - 0.04, 0);
+      bodyPivot.add(hip);
+
+      const thigh = new THREE.Mesh(thighGeo, trouserMat);
+      thigh.position.set(0, -0.15, 0);
+      thigh.castShadow = true;
+      thigh.receiveShadow = true;
+      hip.add(thigh);
+
+      const knee = new THREE.Group();
+      knee.position.set(0, -0.30, 0);
+      hip.add(knee);
+
+      const shin = new THREE.Mesh(shinGeo, trouserMat);
+      shin.position.set(0, -0.14, 0);
+      shin.castShadow = true;
+      shin.receiveShadow = true;
+      knee.add(shin);
 
       const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.105, 12, 8), shoeMat);
       shoe.scale.set(0.95, 0.55, 1.55);
-      shoe.position.set(side * 0.13, 0.055, 0.05);
+      shoe.position.set(0, -0.265, 0.05);
       shoe.castShadow = true;
-      bodyPivot.add(shoe);
-    }
+      knee.add(shoe);
+
+      return { hip, knee };
+    };
+    const lLeg = buildLeg(-1);
+    const rLeg = buildLeg(1);
+    leftHip = lLeg.hip;
+    leftKnee = lLeg.knee;
+    rightHip = rLeg.hip;
+    rightKnee = rLeg.knee;
   } else {
     const lotus = createLotusPedestal(accentColor);
     pedestalGlow = lotus.glowMesh;
@@ -747,11 +856,8 @@ export function createCharacterRig(
   torsoMesh.receiveShadow = true;
   torsoGroup.add(torsoMesh);
 
-  const isModernComedy = (setting === 'ComedyStage' || setting === 'ChaiStall' || setting === 'ModernCity')
-    && (role === 'Scholar');
-
   if (!isModernComedy) {
-    // Diagonal silk Uttariya / sash hugging chest contour
+    // Diagonal silk Uttariya / sash hugging chest contour (devotional & classical sets only)
     const sashCurve = new THREE.CatmullRomCurve3([
       new THREE.Vector3(-0.18, 0.53, 0.10),
       new THREE.Vector3(0.0, 0.33, 0.21),
@@ -773,11 +879,19 @@ export function createCharacterRig(
     mala.position.set(0, 0.57, 0.04);
     torsoGroup.add(mala);
   } else {
-    // Clean modern collar + pocket square / jacket accent for comedy & tapri scenes
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.024, 8, 20), sashMat);
+    // Crisp modern hoodie/tee collar + trouser waistband for comedy & household characters
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.132, 0.026, 8, 20), sashMat);
     collar.rotation.x = Math.PI / 2 + 0.2;
     collar.position.set(0, 0.58, 0.03);
     torsoGroup.add(collar);
+
+    const waistTrim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.255, 0.022, 8, 22),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.65 }),
+    );
+    waistTrim.rotation.x = Math.PI / 2;
+    waistTrim.position.y = 0.04;
+    torsoGroup.add(waistTrim);
   }
 
   // Narada's 3D Veena or Warrior Shield/Spear
@@ -809,36 +923,40 @@ export function createCharacterRig(
     torsoGroup.add(tip);
   }
 
-  // Two Articulated Arms (Left & Right shoulders -> elbows -> hands)
-  const upperArmGeo = new THREE.CapsuleGeometry(0.068, 0.22, 6, 10);
-  const forearmGeo = new THREE.CapsuleGeometry(0.056, 0.20, 6, 10);
+  // Two Articulated Arms (Left & Right shoulders -> elbows -> hands) with seamless joint spheres
+  const upperArmGeo = new THREE.CapsuleGeometry(0.072, 0.21, 6, 10);
+  const forearmGeo = new THREE.CapsuleGeometry(0.060, 0.19, 6, 10);
 
   const buildArm = (side: -1 | 1): { shoulder: THREE.Group; elbow: THREE.Group } => {
     const shoulder = new THREE.Group();
-    shoulder.position.set(side * 0.23, 0.51, 0);
+    shoulder.position.set(side * 0.245, 0.52, 0);
     torsoGroup.add(shoulder);
 
-    const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), robeMat);
+    const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.088, 12, 10), robeMat);
     shoulderCap.castShadow = true;
     shoulder.add(shoulderCap);
 
     const upper = new THREE.Mesh(upperArmGeo, robeMat);
-    upper.position.y = -0.14;
+    upper.position.y = -0.13;
     upper.castShadow = true;
     shoulder.add(upper);
 
     const elbow = new THREE.Group();
-    elbow.position.y = -0.28;
+    elbow.position.y = -0.26;
     shoulder.add(elbow);
 
+    const elbowCap = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), robeMat);
+    elbowCap.castShadow = true;
+    elbow.add(elbowCap);
+
     const lower = new THREE.Mesh(forearmGeo, robeMat);
-    lower.position.y = -0.12;
+    lower.position.y = -0.115;
     lower.castShadow = true;
     elbow.add(lower);
 
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.064, 12, 10), skinMat);
-    hand.scale.set(0.95, 1.18, 0.78);
-    hand.position.y = -0.25;
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.066, 12, 10), skinMat);
+    hand.scale.set(0.95, 1.15, 0.80);
+    hand.position.y = -0.24;
     hand.castShadow = true;
     elbow.add(hand);
 
@@ -847,6 +965,24 @@ export function createCharacterRig(
 
   const leftArm = buildArm(-1);
   const rightArm = buildArm(1);
+
+  // Removable 3D snack/rabdi bowl prop attached to right hand (visible during 'eating' action!)
+  const snackProp = new THREE.Group();
+  snackProp.position.set(0, -0.25, 0.06);
+  const snackBowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.07, 0.08, 14),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 }),
+  );
+  snackProp.add(snackBowl);
+  const snackSweet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.45 }),
+  );
+  snackSweet.scale.set(1.1, 0.55, 1.1);
+  snackSweet.position.y = 0.035;
+  snackProp.add(snackSweet);
+  snackProp.visible = false;
+  rightArm.elbow.add(snackProp);
 
   // Neck + Sculpted Expressive 3D Head
   const headR = role === 'ComicBobble' ? 0.345 : role === 'ChildDevotee' ? 0.265 : 0.245;
@@ -875,10 +1011,12 @@ export function createCharacterRig(
     ear.scale.set(0.5, 1.2, 0.8);
     ear.position.set(s * headR * 0.96, -headR * 0.04, 0);
     headPivot.add(ear);
-    const kundal = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.1, headR * 0.025, 8, 14), goldMat);
-    kundal.rotation.y = Math.PI / 2;
-    kundal.position.set(s * headR * 0.98, -headR * 0.2, 0.01);
-    headPivot.add(kundal);
+    if (!isModernComedy) {
+      const kundal = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.1, headR * 0.025, 8, 14), goldMat);
+      kundal.rotation.y = Math.PI / 2;
+      kundal.position.set(s * headR * 0.98, -headR * 0.2, 0.01);
+      headPivot.add(kundal);
+    }
   }
 
   // Tilak / Bindi (for devotional / cultural roles; omitted on casual modern comedy hosts)
@@ -952,6 +1090,12 @@ export function createCharacterRig(
     leftElbow: leftArm.elbow,
     rightShoulder: rightArm.shoulder,
     rightElbow: rightArm.elbow,
+    leftHip,
+    rightHip,
+    leftKnee,
+    rightKnee,
+    snackProp,
+    headY: standing ? 1.54 : 1.04,
     leftEyelid: face.leftEye.eyelid,
     rightEyelid: face.rightEye.eyelid,
     leftBrow: face.leftEye.brow,
@@ -974,6 +1118,7 @@ export function createCharacterRig(
     name: profile.name,
     facingSign,
     standing,
+    hasFloorAura: !isModernComedy,
     seedOffset,
   };
 }
@@ -985,22 +1130,121 @@ export function updateCharacterRig(
   speechLevel: number,
   emotion: EmotionKind,
   isTitleOrGreeting: boolean,
+  action: ActionKind | string = 'none',
+  turnLocal = 0.5,
+  snapPose = false,
 ): void {
   const lt = t + rig.seedOffset;
-
-  // Breathing + squash-and-stretch comic bounce
+  const act = (action || 'none') as ActionKind;
   const isComedyMascot = rig.role === 'BrainrotLog' || rig.role === 'CupDancer' || rig.role === 'CartoonTank' || rig.role === 'ComicBobble';
+
+  if (rig.snackProp) {
+    rig.snackProp.visible = act === 'eating';
+  }
+
+  // Smooth baseline reset before applying action posture
+  let targetBodyRotX = 0;
+  let targetBodyRotZ = 0;
+  let targetBodyY = 0;
+  let targetTorsoRotX = 0;
+  let targetTorsoRotZ = 0;
+  let targetLeftHipX = 0;
+  let targetRightHipX = 0;
+  let targetLeftKneeX = 0;
+  let targetRightKneeX = 0;
+
+  // Breathing & idle/speech bounce
   const breath = Math.sin(lt * 2.1) * (isSpeaking ? 0.018 : 0.008);
   rig.torsoGroup.position.y = rig.baseTorsoY + breath;
 
-  const bounce = isSpeaking && rig.standing ? Math.abs(Math.sin(lt * (isComedyMascot ? 9.2 : 7.2))) * (isComedyMascot ? 0.055 : 0.035) : 0;
-  rig.bodyPivot.position.y = bounce;
+  const showAura = rig.hasFloorAura !== false;
 
-  if (isComedyMascot && isSpeaking) {
-    const sy = 1 + bounce * 1.1;
-    const sx = 1 - bounce * 0.45;
+  if (act === 'sleeping') {
+    targetBodyRotX = -Math.PI * 0.48;
+    targetBodyY = rig.standing ? 0.06 : 0.16;
+    targetLeftHipX = 0.14;
+    targetRightHipX = 0.08;
+    targetLeftKneeX = 0.28;
+    targetRightKneeX = 0.16;
+    rig.auraRing.visible = false;
+    rig.auraDisc.visible = false;
+  } else {
+    rig.auraRing.visible = showAura;
+    rig.auraDisc.visible = showAura;
+    if (act === 'wakingUp') {
+      const w = Math.max(0, Math.min(1, (turnLocal - 0.04) / 0.36));
+      const eased = 1 - Math.pow(1 - w, 3);
+      targetBodyRotX = -Math.PI * 0.48 * (1 - eased) - 0.10 * Math.sin(w * Math.PI);
+      targetBodyY = (rig.standing ? 0.06 : 0.16) * (1 - eased) + Math.sin(w * Math.PI) * 0.12;
+      targetTorsoRotX = -0.14 * Math.sin(w * Math.PI);
+    } else if (act === 'sitting') {
+      targetBodyY = rig.standing ? -0.26 : 0;
+      targetLeftHipX = -Math.PI * 0.46;
+      targetRightHipX = -Math.PI * 0.46;
+      targetLeftKneeX = Math.PI * 0.46;
+      targetRightKneeX = Math.PI * 0.46;
+      targetTorsoRotX = isSpeaking ? Math.sin(lt * 3.8) * 0.08 : -0.05;
+    } else if (act === 'walking' || act === 'running') {
+      const freq = act === 'running' ? 14.0 : 7.5;
+      const stride = Math.sin(t * freq);
+      const amp = act === 'running' ? 0.85 : 0.52;
+      const kneeAmp = act === 'running' ? 1.05 : 0.55;
+      targetLeftHipX = stride * amp;
+      targetRightHipX = -stride * amp;
+      targetLeftKneeX = Math.max(0, -stride) * kneeAmp;
+      targetRightKneeX = Math.max(0, stride) * kneeAmp;
+      targetBodyY = Math.abs(Math.cos(t * freq)) * (act === 'running' ? 0.095 : 0.045);
+      targetTorsoRotX = act === 'running' ? 0.24 : 0.10;
+      targetTorsoRotZ = stride * 0.06;
+    } else if (act === 'praying') {
+      targetTorsoRotX = 0.16 + Math.sin(lt * 2.2) * 0.035;
+      targetBodyY = 0;
+    } else if (act === 'shockedFall') {
+      const k = Math.max(0, Math.min(1, turnLocal / 0.35));
+      targetBodyRotX = 0.18 * Math.sin(k * Math.PI * 0.7);
+      targetBodyRotZ = rig.facingSign * -0.05 * k;
+      targetBodyY = k < 0.35 ? Math.sin((k / 0.35) * Math.PI) * 0.12 : -0.04 * k;
+      targetLeftHipX = -0.18 * k;
+      targetRightHipX = 0.14 * k;
+      targetLeftKneeX = 0.24 * k;
+    } else if (act === 'jumping' || act === 'dancing') {
+      const hop = Math.abs(Math.sin(lt * (act === 'dancing' ? 8.5 : 6.2)));
+      targetBodyY = hop * (act === 'jumping' ? 0.22 : 0.10);
+      targetBodyRotZ = act === 'dancing' ? Math.sin(lt * 4.25) * 0.12 : 0;
+      targetLeftHipX = act === 'dancing' ? Math.sin(lt * 8.5) * 0.25 : -hop * 0.35;
+      targetRightHipX = act === 'dancing' ? -Math.sin(lt * 8.5) * 0.25 : -hop * 0.35;
+      targetLeftKneeX = hop * 0.55;
+      targetRightKneeX = hop * 0.55;
+    } else if (act === 'pointing') {
+      targetTorsoRotX = 0.14 + Math.sin(lt * 6.5) * 0.04;
+      targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 7.5)) * 0.035 : 0;
+    } else {
+      targetBodyY = isSpeaking && rig.standing
+        ? Math.abs(Math.sin(lt * (isComedyMascot ? 9.2 : 7.2))) * (isComedyMascot ? 0.055 : 0.035)
+        : 0;
+    }
+  }
+
+  // Smooth exponential tracking for lower body & posture so transitions are crisp yet fluid (and snap on scene cuts / frame 0)
+  const blend = snapPose ? 1 : act === 'wakingUp' || act === 'shockedFall' || act === 'walking' || act === 'running' ? 0.45 : 0.28;
+  rig.bodyPivot.rotation.x += (targetBodyRotX - rig.bodyPivot.rotation.x) * blend;
+  rig.bodyPivot.rotation.z += (targetBodyRotZ - rig.bodyPivot.rotation.z) * blend;
+  rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * blend;
+  rig.torsoGroup.rotation.x += (targetTorsoRotX - rig.torsoGroup.rotation.x) * blend;
+  rig.torsoGroup.rotation.z += (targetTorsoRotZ - rig.torsoGroup.rotation.z) * blend;
+  if (rig.leftHip) rig.leftHip.rotation.x += (targetLeftHipX - rig.leftHip.rotation.x) * blend;
+  if (rig.rightHip) rig.rightHip.rotation.x += (targetRightHipX - rig.rightHip.rotation.x) * blend;
+  if (rig.leftKnee) rig.leftKnee.rotation.x += (targetLeftKneeX - rig.leftKnee.rotation.x) * blend;
+  if (rig.rightKnee) rig.rightKnee.rotation.x += (targetRightKneeX - rig.rightKnee.rotation.x) * blend;
+
+  if (act === 'sleeping') {
+    const breatheScale = 1 + Math.sin(lt * 2.2) * 0.025;
+    rig.bodyPivot.scale.set(1, breatheScale, 1);
+  } else if (isComedyMascot && isSpeaking) {
+    const sy = 1 + Math.max(0, rig.bodyPivot.position.y) * 0.85;
+    const sx = 1 - Math.max(0, rig.bodyPivot.position.y) * 0.35;
     rig.bodyPivot.scale.set(sx, sy, sx);
-  } else if (rig.role === 'ChildDevotee') {
+  } else if (rig.role === 'ChildDevotee' && rig.hasFloorAura !== false) {
     rig.bodyPivot.scale.setScalar(0.86);
   } else {
     rig.bodyPivot.scale.setScalar(1);
@@ -1009,6 +1253,7 @@ export function updateCharacterRig(
   // Tank turret swivel + cannon recoil punch on angry/proud beats
   if (rig.turretGroup) {
     rig.turretGroup.rotation.y = isSpeaking ? Math.sin(lt * 2.4) * 0.18 : rig.facingSign * -0.15;
+    rig.turretGroup.rotation.x = act === 'sleeping' ? 0.28 : 0;
   }
   if (rig.cannonBarrel) {
     const recoil = isSpeaking && (emotion === 'angry' || emotion === 'proud')
@@ -1020,32 +1265,45 @@ export function updateCharacterRig(
     rig.propPivot.rotation.x = isSpeaking ? Math.sin(lt * 8.5) * 0.65 : Math.sin(lt * 2.0) * 0.12;
   }
 
-  // Expressive bulging googly eye pop on surprised / angry / confused!
-  const eyePop = emotion === 'surprised' ? 1.38 : emotion === 'angry' ? 1.18 : 1.0;
+  // Expressive bulging googly eye pop on surprised / angry / confused / waking up / shocked!
+  const isWideShock = emotion === 'surprised' || act === 'shockedFall' || (act === 'wakingUp' && turnLocal > 0.25);
+  const eyePop = isWideShock ? 1.38 : emotion === 'angry' ? 1.18 : 1.0;
   rig.leftSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
   rig.rightSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
-  const pupilDartX = emotion === 'confused' ? Math.sin(lt * 9.0) * 0.014 : 0;
-  const pupilScale = emotion === 'surprised' ? 0.65 : 1.0;
+  const pupilDartX = (emotion === 'confused' || act === 'slapForehead') ? Math.sin(lt * 9.0) * 0.016 : 0;
+  const pupilScale = isWideShock ? 0.65 : 1.0;
   rig.leftPupil.scale.set(pupilScale, pupilScale, 0.65);
   rig.rightPupil.scale.set(pupilScale, pupilScale, 0.65);
   rig.leftPupil.rotation.y = pupilDartX * 8;
   rig.rightPupil.rotation.y = -pupilDartX * 8;
 
-  // Head nod + gaze toward conversation partner vs viewer
-  const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.075 : Math.sin(lt * 1.4) * 0.025;
-  const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.06 : 0;
-  rig.headPivot.rotation.x = talkNod;
-  rig.headPivot.rotation.z = sideTilt;
-  rig.headPivot.rotation.y = rig.facingSign * (isSpeaking ? -0.14 : 0.1);
+  // Head orientation per action & dialogue speech
+  if (act === 'sleeping') {
+    rig.headPivot.rotation.set(0.18, rig.facingSign * 0.28, 0.24);
+  } else if (act === 'eating') {
+    rig.headPivot.rotation.set(0.14 + Math.sin(lt * 5.4) * 0.12, 0, Math.sin(lt * 2.7) * 0.08);
+  } else if (act === 'slapForehead') {
+    rig.headPivot.rotation.set(0.18, rig.facingSign * -0.1, -0.22 + Math.sin(lt * 6.5) * 0.06);
+  } else {
+    const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.085 : Math.sin(lt * 1.4) * 0.025;
+    const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.065 : 0;
+    rig.headPivot.rotation.x = talkNod;
+    rig.headPivot.rotation.z = sideTilt;
+    rig.headPivot.rotation.y = act === 'walking' || act === 'running'
+      ? Math.sin(lt * 3.0) * 0.08
+      : rig.facingSign * (isSpeaking ? -0.14 : 0.1);
+  }
 
-  // Eyeblinks & emotion eyelids
+  // Eyeblinks & emotion/sleep eyelids
   const blinkPhase = (lt * 0.28) % 1;
   const blinking = blinkPhase > 0.955;
   let lidClose = -Math.PI * 0.48;
-  if (blinking) lidClose = 0.15;
+  if (act === 'sleeping' || act === 'praying') lidClose = 0.26;
+  else if (act === 'wakingUp' && turnLocal < 0.2) lidClose = 0.24;
+  else if (blinking) lidClose = 0.15;
   else if (emotion === 'laughing') lidClose = 0.04;
   else if (emotion === 'sad') lidClose = -Math.PI * 0.28;
-  else if (emotion === 'surprised') lidClose = -Math.PI * 0.62;
+  else if (isWideShock) lidClose = -Math.PI * 0.64;
   rig.leftEyelid.rotation.x = lidClose;
   rig.rightEyelid.rotation.x = lidClose;
 
@@ -1053,41 +1311,91 @@ export function updateCharacterRig(
   const baseBrowY = 0.085;
   let lift = isSpeaking ? 0.012 : 0;
   let browTilt = 0;
-  if (emotion === 'surprised') {
-    lift = 0.032;
-    browTilt = 0.16;
+  if (isWideShock) {
+    lift = 0.042;
+    browTilt = -0.06;
   } else if (emotion === 'angry') {
-    lift = -0.015;
-    browTilt = -0.32;
-  } else if (emotion === 'sad') {
-    lift = 0.01;
-    browTilt = 0.25;
+    lift = -0.016;
+    browTilt = 0.34;
+  } else if (emotion === 'sad' || act === 'slapForehead') {
+    lift = 0.012;
+    browTilt = -0.26;
   } else if (emotion === 'laughing' || emotion === 'happy') {
-    lift = 0.024;
-    browTilt = 0.12;
+    lift = 0.028;
+    browTilt = 0;
   }
   rig.leftBrow.position.y = baseBrowY + lift;
   rig.rightBrow.position.y = baseBrowY + lift;
   rig.leftBrow.rotation.z = Math.PI / 2 - browTilt;
   rig.rightBrow.rotation.z = Math.PI / 2 + browTilt;
 
-  // Lip-sync driven strictly by audio envelope + multi-viseme shape modulation
-  const openAmt = isSpeaking ? Math.min(1, speechLevel * 1.35) : 0;
-  const vowelWave = 0.5 + 0.5 * Math.sin(t * 21.0 + rig.seedOffset);
-  const mouthOpen = openAmt > 0.04 ? 0.12 + openAmt * (0.55 + 0.35 * vowelWave) : 0.03;
-  const mouthWide = openAmt > 0.04 ? 0.85 + 0.35 * (1 - vowelWave) : (emotion === 'happy' || emotion === 'laughing' ? 1.22 : 0.95);
+  // Lip-sync driven strictly by real audio envelope so mouth only articulates when voice audio is active
+  const activeSpeech = isSpeaking && speechLevel > 0.028;
+  const openAmt = activeSpeech ? Math.min(1, speechLevel * 1.45) : 0;
+  const vowelWave = 0.5 + 0.5 * Math.sin(t * 24.0 + rig.seedOffset);
+  let mouthOpen = activeSpeech ? 0.12 + openAmt * (0.68 + 0.32 * vowelWave) : 0.02;
+  if (act === 'sleeping' && !activeSpeech) {
+    mouthOpen = 0.04 + 0.14 * Math.max(0, Math.sin(lt * 2.1));
+  } else if (act === 'eating' && !activeSpeech) {
+    mouthOpen = 0.08 + 0.32 * Math.max(0, Math.sin(lt * 5.2));
+  } else if (isWideShock && !isSpeaking && turnLocal < 0.42) {
+    mouthOpen = 0.58;
+  }
+  const mouthWide = activeSpeech ? 0.88 + 0.34 * (1 - vowelWave) : (emotion === 'happy' || emotion === 'laughing' ? 1.24 : 0.96);
 
-  rig.mouthCavity.scale.set(1.05 * mouthWide, mouthOpen, 0.5);
+  rig.mouthCavity.scale.set(1.12 * mouthWide, mouthOpen, 0.55);
   rig.upperLip.position.y = rig.mouthBaseY + mouthOpen * 0.024;
   rig.lowerLip.position.y = rig.mouthBaseY - mouthOpen * 0.048;
 
-  // Expressive two-arm skeletal animation
-  if (isTitleOrGreeting && !rig.standing) {
+  // Expressive two-arm skeletal animation per action
+  if (act === 'sleeping') {
+    rig.leftShoulder.rotation.set(-0.2, 0, 0.25);
+    rig.leftElbow.rotation.set(-0.6, 0, -0.35);
+    rig.rightShoulder.rotation.set(-0.2, 0, -0.25);
+    rig.rightElbow.rotation.set(-0.6, 0, 0.35);
+  } else if (act === 'wakingUp' || act === 'shockedFall') {
+    const flail = Math.sin(lt * 14) * 0.22;
+    rig.leftShoulder.rotation.set(-1.38 + flail, 0.25, 0.62);
+    rig.leftElbow.rotation.set(-0.55, 0, 0);
+    rig.rightShoulder.rotation.set(-1.38 - flail, -0.25, -0.62);
+    rig.rightElbow.rotation.set(-0.55, 0, 0);
+  } else if (act === 'praying' || (isTitleOrGreeting && !rig.standing)) {
     // Serene Namaste folded hands
     rig.leftShoulder.rotation.set(-0.95, 0.25, -0.42);
     rig.leftElbow.rotation.set(-1.35, 0, -0.5);
     rig.rightShoulder.rotation.set(-0.95, -0.25, 0.42);
     rig.rightElbow.rotation.set(-1.35, 0, 0.5);
+  } else if (act === 'slapForehead') {
+    // One hand slaps right onto forehead, other hand on waist
+    rig.rightShoulder.rotation.set(-1.85, -0.35, 0.32);
+    rig.rightElbow.rotation.set(-1.45, 0, 0.45);
+    rig.leftShoulder.rotation.set(-0.25, 0.2, 0.42);
+    rig.leftElbow.rotation.set(-0.9, 0, -0.55);
+  } else if (act === 'eating') {
+    const scoop = 0.5 + 0.5 * Math.sin(lt * 5.2);
+    rig.rightShoulder.rotation.set(-0.55 - scoop * 0.78, -0.22, 0.22);
+    rig.rightElbow.rotation.set(-0.85 - scoop * 0.72, 0, 0.24);
+    rig.leftShoulder.rotation.set(-0.32, 0.15, 0.22);
+    rig.leftElbow.rotation.set(-0.85, 0, -0.2);
+  } else if (act === 'walking' || act === 'running') {
+    const freq = act === 'running' ? 14.0 : 7.5;
+    const armSwing = Math.sin(t * freq) * (act === 'running' ? 0.95 : 0.55);
+    rig.leftShoulder.rotation.set(-armSwing, 0.1, 0.16);
+    rig.leftElbow.rotation.set(act === 'running' ? -1.45 : -0.45, 0, 0);
+    rig.rightShoulder.rotation.set(armSwing, -0.1, -0.16);
+    rig.rightElbow.rotation.set(act === 'running' ? -1.45 : -0.45, 0, 0);
+  } else if (act === 'pointing') {
+    const jab = Math.sin(lt * 8.5) * 0.14;
+    rig.rightShoulder.rotation.set(-1.42 + jab, -0.15 * rig.facingSign, -0.22);
+    rig.rightElbow.rotation.set(-0.22, 0, 0);
+    rig.leftShoulder.rotation.set(-0.25, 0.18, 0.42);
+    rig.leftElbow.rotation.set(-0.95, 0, -0.48);
+  } else if (act === 'dancing' || act === 'jumping') {
+    const groove = Math.sin(lt * 8.5) * 0.48;
+    rig.leftShoulder.rotation.set(-1.4 + groove, 0.2, 0.48);
+    rig.leftElbow.rotation.set(-0.6, 0, 0.2);
+    rig.rightShoulder.rotation.set(-1.4 - groove, -0.2, -0.48);
+    rig.rightElbow.rotation.set(-0.6, 0, -0.2);
   } else if (isSpeaking) {
     if (emotion === 'surprised') {
       rig.leftShoulder.rotation.set(-1.3, 0.2, 0.55);
@@ -1116,13 +1424,15 @@ export function updateCharacterRig(
     rig.rightElbow.rotation.set(-0.85, 0, 0.25);
   }
 
-  // Aura rings + divine chakra rotation
-  const ringMat = rig.auraRing.material as THREE.MeshBasicMaterial;
-  const discMat = rig.auraDisc.material as THREE.MeshBasicMaterial;
-  ringMat.opacity = isSpeaking ? 0.55 + 0.15 * Math.sin(lt * 5) : 0.18;
-  discMat.opacity = isSpeaking ? 0.22 : 0.06;
-  const pulseScale = isSpeaking ? 1.08 + 0.06 * Math.sin(lt * 4.5) : 0.92;
-  rig.auraRing.scale.setScalar(pulseScale);
+  // Aura rings + divine chakra rotation (when enabled for devotional/cinematic sets)
+  if (showAura) {
+    const ringMat = rig.auraRing.material as THREE.MeshBasicMaterial;
+    const discMat = rig.auraDisc.material as THREE.MeshBasicMaterial;
+    ringMat.opacity = isSpeaking ? 0.55 + 0.15 * Math.sin(lt * 5) : 0.18;
+    discMat.opacity = isSpeaking ? 0.22 : 0.06;
+    const pulseScale = isSpeaking ? 1.08 + 0.06 * Math.sin(lt * 4.5) : 0.92;
+    rig.auraRing.scale.setScalar(pulseScale);
+  }
 
   if (rig.haloGroup && rig.haloMaterial) {
     rig.haloGroup.rotation.z = t * 0.45;

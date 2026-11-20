@@ -39,6 +39,11 @@ export function updateCameraRig(
   rightX: number,
   emotion: EmotionKind,
   isTitleHook: boolean,
+  cameraShot = 'auto',
+  action = 'none',
+  turnChanged = false,
+  turnLocal = 0.5,
+  speakerHeadY = 1.38,
 ): void {
   const isPortrait = job.height > job.width;
   const defaultZ = isPortrait ? 6.4 : 4.8;
@@ -104,6 +109,60 @@ export function updateCameraRig(
     rollZ = Math.sin(t * 7.5) * 0.024;
   }
 
+  // Situational MJO-style cinematography overrides driven by script/action cues
+  const hasTemplateLock = !!job.stageLayout?.templateBackdrop;
+  if (!hasTemplateLock && !isTitleHook) {
+    const activeX = activeSlot === 'Left' ? leftX : activeSlot === 'Right' ? rightX : (leftX + rightX) * 0.5;
+    if (cameraShot === 'closeUpSpeaker' && activeSlot !== 'Narrator') {
+      targetX = activeX;
+      targetY = Math.max(0.92, speakerHeadY * 0.96);
+      targetZ = isPortrait ? 3.25 : 2.55;
+      lookX = activeX;
+      lookY = Math.max(0.76, speakerHeadY * 0.88);
+    } else if (cameraShot === 'crashPunch' && activeSlot !== 'Narrator') {
+      const punch = Math.max(0, 1 - Math.min(1, turnLocal / 0.28));
+      targetX = activeX;
+      targetY = Math.max(0.92, speakerHeadY * 0.96);
+      targetZ = (isPortrait ? 3.05 : 2.35) - punch * 0.28;
+      lookX = activeX;
+      lookY = Math.max(0.78, speakerHeadY * 0.88);
+      rollZ += Math.sin(t * 28) * 0.025 * punch;
+      shakeX += Math.cos(t * 42) * 0.028 * punch;
+      shakeY += Math.sin(t * 36) * 0.022 * punch;
+    } else if (cameraShot === 'reactionZoom') {
+      const reactX = activeSlot === 'Left' ? rightX : leftX;
+      targetX = reactX * 0.88;
+      targetY = 1.28;
+      targetZ = isPortrait ? 2.85 : 2.28;
+      lookX = reactX;
+      lookY = 1.24;
+    } else if (cameraShot === 'wideEstablishing') {
+      targetX = (leftX + rightX) * 0.25;
+      targetY = isPortrait ? 1.48 : 1.44;
+      targetZ = isPortrait ? 5.75 : 4.45;
+      lookX = (leftX + rightX) * 0.35;
+      lookY = isPortrait ? 0.86 : 0.92;
+    } else if (cameraShot === 'lowDramatic') {
+      targetX = activeX * 0.45;
+      targetY = 0.68;
+      targetZ = isPortrait ? 3.55 : 2.95;
+      lookX = activeX * 0.8;
+      lookY = Math.max(1.12, speakerHeadY * 0.9);
+    } else if (cameraShot === 'overShoulder' && activeSlot !== 'Narrator') {
+      const oppX = activeSlot === 'Left' ? rightX : leftX;
+      targetX = oppX * 0.9;
+      targetY = 1.38;
+      targetZ = isPortrait ? 3.45 : 2.75;
+      lookX = activeX;
+      lookY = Math.max(0.9, speakerHeadY * 0.9);
+    }
+
+    if (action === 'walking' || action === 'running') {
+      targetX = activeX * 0.65;
+      lookX = activeX * 0.85;
+    }
+  }
+
   let targetPos = new THREE.Vector3(targetX + shakeX, targetY + shakeY, targetZ);
   let targetLook = new THREE.Vector3(lookX, lookY, 0);
 
@@ -124,11 +183,16 @@ export function updateCameraRig(
     }
   }
 
-  // Comedy uses rapid smash-cut blocking; standard uses smooth exponential camera glide
-  const speed = comedy ? 13.0 : 3.4;
-  const alpha = 1 - Math.exp(-speed / Math.max(1, job.fps));
-  rig.currentPos.lerp(targetPos, alpha);
-  rig.currentLook.lerp(targetLook, alpha);
+  // Comedy smash-cut snaps cleanly on turn/scene change instead of sluggish gliding
+  if (turnChanged && !hasTemplateLock && (comedy || cameraShot === 'crashPunch' || cameraShot === 'closeUpSpeaker')) {
+    rig.currentPos.lerp(targetPos, 0.94);
+    rig.currentLook.lerp(targetLook, 0.94);
+  } else {
+    const speed = comedy ? 13.0 : (cameraShot === 'wideEstablishing' ? 4.2 : 6.4);
+    const alpha = 1 - Math.exp(-speed / Math.max(1, job.fps));
+    rig.currentPos.lerp(targetPos, alpha);
+    rig.currentLook.lerp(targetLook, alpha);
+  }
 
   rig.camera.position.copy(rig.currentPos);
   rig.camera.lookAt(rig.currentLook);

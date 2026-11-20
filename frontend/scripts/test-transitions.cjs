@@ -54,6 +54,9 @@ assert.equal(transitionPreviewFrame('CircleCrop', 0.5, true).clipPath, 'circle(0
 assert.equal(transitionPreviewFrame('CircleClose', 0.5, false).zIndex, 2);
 assert.match(transitionPreviewFrame('DiagonalWipe', 0.25, true).clipPath, /polygon/);
 assert.match(transitionPreviewFrame('SlideUp', 0.5, true).transform, /translateY\(50%\)/);
+assert.match(transitionPreviewFrame('SmoothLeft', 0.5, true).transform, /translateX/);
+assert.match(transitionPreviewFrame('HorzOpen', 0.5, true).clipPath, /inset/);
+assert.match(transitionPreviewFrame('Radial', 0.5, true).clipPath, /circle/);
 assert.match(transitionPreviewFrame('ZoomIn', 0.5, true).transform, /scale/);
 
 const cuts = [{ key: 'a', seconds: 3 }, { key: 'b', seconds: 8 }];

@@ -275,11 +275,14 @@ public static partial class AutomationFactVerifier
         {
             var panchangDateMatches = string.Equals(ExtractIsoDateKey(p.DateKey), effectiveDate, StringComparison.Ordinal);
             var hasCore = !string.IsNullOrWhiteSpace(p.Tithi) && !string.IsNullOrWhiteSpace(p.Nakshatra) && !string.IsNullOrWhiteSpace(p.Sunrise);
+            var tithiExtra = string.IsNullOrWhiteSpace(p.TithiEndTime)
+                ? string.Empty
+                : string.IsNullOrWhiteSpace(p.NextTithi) ? $" ({p.TithiEndTime})" : $" ({p.TithiEndTime} → {p.NextTithi})";
             checks.Add(new SignalVerificationCheck(
                 Category: "Panchang",
                 Status: panchangDateMatches && hasCore ? StatusVerified : StatusWarning,
                 Message: panchangDateMatches && hasCore
-                    ? $"Verified astronomical Panchang for {effectiveDate} ({p.Tithi} • {p.Nakshatra}, {p.Location})."
+                    ? $"Verified astronomical Panchang for {effectiveDate} ({p.Tithi}{tithiExtra} • {p.Nakshatra}, {p.Location})."
                     : $"Panchang date/fields need check (returned DateKey '{p.DateKey}' for requested '{effectiveDate}').",
                 SourceName: p.SourceName ?? "Lahiri Chitrapaksha Ephemeris",
                 SourceUrl: p.SourceUrl ?? "https://panchang.keshavsingh.in",
@@ -412,15 +415,33 @@ public static partial class AutomationFactVerifier
             case AutomationSourceType.HinduPanchang:
             {
                 sourceName ??= liveSignals?.Panchang?.SourceName ?? "Lahiri Chitrapaksha Ephemeris";
-                sourceUrl ??= liveSignals?.Panchang?.SourceUrl ?? "https://www.drikpanchang.com/";
+                sourceUrl ??= liveSignals?.Panchang?.SourceUrl ?? "https://panchang.keshavsingh.in";
+                var keyParts = (post.SourceItemKey ?? string.Empty).Split(':');
+                var itemDate = keyParts.Length >= 2 ? ExtractIsoDateKey(keyParts[1]) : null;
+                if (itemDate is not null && !string.Equals(itemDate, effectiveDate, StringComparison.Ordinal))
+                {
+                    status = StatusMismatch;
+                    issues.Add($"Panchang date mismatch: post is dated '{effectiveDate}' while source key targets '{itemDate}'.");
+                }
                 if (liveSignals?.Panchang is { } p && string.Equals(ExtractIsoDateKey(p.DateKey), effectiveDate, StringComparison.Ordinal))
                 {
-                    if (!string.IsNullOrWhiteSpace(p.Tithi) && !post.Title.Contains(p.Tithi, StringComparison.OrdinalIgnoreCase)
-                        && !post.Script.Contains(p.Tithi, StringComparison.OrdinalIgnoreCase))
+                    var hasTithi = !string.IsNullOrWhiteSpace(p.Tithi)
+                        && (post.Title.Contains(p.Tithi, StringComparison.OrdinalIgnoreCase)
+                            || post.Script.Contains(p.Tithi, StringComparison.OrdinalIgnoreCase));
+                    var hasNextTithi = !string.IsNullOrWhiteSpace(p.NextTithi)
+                        && (post.Title.Contains(p.NextTithi, StringComparison.OrdinalIgnoreCase)
+                            || post.Script.Contains(p.NextTithi, StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrWhiteSpace(p.Tithi) && !hasTithi && !hasNextTithi)
                     {
                         status = StatusMismatch;
-                        issues.Add($"Panchang mismatch for {effectiveDate}: verified Tithi is '{p.Tithi}' ({p.Nakshatra}), which differs from this post.");
+                        issues.Add($"Panchang mismatch for {effectiveDate}: verified Tithi is '{p.Tithi}'{(string.IsNullOrWhiteSpace(p.NextTithi) ? "" : $" / {p.NextTithi}")} ({p.Nakshatra}), which differs from this post.");
                     }
+                }
+                var bannerDates = ExtractInlineIsoDates(post.HeaderBannerText);
+                if (bannerDates.Any(d => !string.Equals(d, effectiveDate, StringComparison.Ordinal)))
+                {
+                    status = StatusMismatch;
+                    issues.Add($"Panchang banner date mismatch: header cites '{bannerDates.First(d => d != effectiveDate)}' instead of '{effectiveDate}'.");
                 }
                 break;
             }
@@ -428,20 +449,61 @@ public static partial class AutomationFactVerifier
             case AutomationSourceType.HinduFestival:
             {
                 sourceName ??= "Lahiri Chitrapaksha Tithi Engine";
-                sourceUrl ??= "https://www.drikpanchang.com/";
                 // SourceItemKey format: festival:{yyyy-MM-dd}:{id}
                 var keyParts = (post.SourceItemKey ?? string.Empty).Split(':');
-                var festDate = keyParts.Length >= 2 ? ExtractIsoDateKey(keyParts[1]) : null;
-                if (festDate is not null && liveSignals?.UpcomingFestivals is { Count: > 0 } upcoming)
+                var keyDate = keyParts.Length >= 2 ? ExtractIsoDateKey(keyParts[1]) : null;
+                var keyId = keyParts.Length >= 3 ? string.Join(':', keyParts.Skip(2)) : null;
+
+                EcosystemFestivalSignal? matchingFest = null;
+                if (liveSignals?.UpcomingFestivals is { Count: > 0 } upcoming)
                 {
-                    var matchingFest = upcoming.FirstOrDefault(f =>
-                        string.Equals(f.DateKey, festDate, StringComparison.Ordinal)
-                        || (!string.IsNullOrWhiteSpace(post.SourceTitle)
-                            && post.SourceTitle.Contains(f.NameEnglish, StringComparison.OrdinalIgnoreCase)));
-                    if (matchingFest is not null && !string.Equals(matchingFest.DateKey, festDate, StringComparison.Ordinal))
+                    // Match festival identity FIRST (by ID, then by NameEnglish/NameHindi), never purely by date first.
+                    matchingFest = (!string.IsNullOrWhiteSpace(keyId)
+                            ? upcoming.FirstOrDefault(f => string.Equals(f.Id, keyId, StringComparison.OrdinalIgnoreCase))
+                            : null)
+                        ?? upcoming.FirstOrDefault(f =>
+                            (!string.IsNullOrWhiteSpace(f.NameEnglish)
+                                && ((post.SourceTitle?.Contains(f.NameEnglish, StringComparison.OrdinalIgnoreCase) == true)
+                                    || post.Title.Contains(f.NameEnglish, StringComparison.OrdinalIgnoreCase)))
+                            || (!string.IsNullOrWhiteSpace(f.NameHindi)
+                                && ((post.SourceTitle?.Contains(f.NameHindi, StringComparison.OrdinalIgnoreCase) == true)
+                                    || post.Title.Contains(f.NameHindi, StringComparison.OrdinalIgnoreCase))))
+                        ?? (keyDate is not null
+                            ? upcoming.FirstOrDefault(f => string.Equals(f.DateKey, keyDate, StringComparison.Ordinal))
+                            : null);
+                }
+
+                var canonicalDate = matchingFest?.DateKey ?? keyDate;
+                var festLabel = matchingFest is not null
+                    ? (!string.IsNullOrWhiteSpace(matchingFest.NameHindi) ? $"{matchingFest.NameHindi} ({matchingFest.NameEnglish})" : matchingFest.NameEnglish)
+                    : (post.SourceTitle ?? post.Title);
+
+                if (!string.IsNullOrWhiteSpace(matchingFest?.VerificationUrl))
+                    sourceUrl = matchingFest.VerificationUrl;
+                else if (string.IsNullOrWhiteSpace(sourceUrl) || sourceUrl.Equals("https://www.drikpanchang.com/", StringComparison.OrdinalIgnoreCase))
+                    sourceUrl = "https://panchang.keshavsingh.in/festivals";
+
+                if (keyDate is not null && !string.Equals(keyDate, effectiveDate, StringComparison.Ordinal))
+                {
+                    status = StatusMismatch;
+                    issues.Add($"Festival date mismatch: card date/schedule is {effectiveDate}, whereas '{festLabel}' falls on {keyDate}.");
+                }
+                else if (matchingFest is not null && !string.Equals(matchingFest.DateKey, effectiveDate, StringComparison.Ordinal))
+                {
+                    status = StatusMismatch;
+                    issues.Add($"Festival date mismatch: Lahiri Chitrapaksha Tithi Engine places '{festLabel}' on {matchingFest.DateKey}, not {effectiveDate}.");
+                }
+                else if (canonicalDate is not null)
+                {
+                    var contradictingDates = ExtractInlineIsoDates(post.HeaderBannerText)
+                        .Concat(ExtractInlineIsoDates(post.Title))
+                        .Where(d => !string.Equals(d, canonicalDate, StringComparison.Ordinal))
+                        .Distinct(StringComparer.Ordinal)
+                        .ToList();
+                    if (contradictingDates.Count > 0)
                     {
                         status = StatusMismatch;
-                        issues.Add($"Festival date mismatch: '{matchingFest.NameEnglish}' falls on {matchingFest.DateKey}, not {festDate}.");
+                        issues.Add($"Festival banner/title cites '{contradictingDates[0]}', contradicting verified festival date '{canonicalDate}'.");
                     }
                 }
                 break;
@@ -482,8 +544,23 @@ public static partial class AutomationFactVerifier
         return wa.Any(wb.Contains);
     }
 
+    private static IReadOnlyList<string> ExtractInlineIsoDates(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        return
+        [
+            .. InlineIsoDateRegex().Matches(text)
+                .Select(m => m.Value)
+                .Where(v => DateOnly.TryParseExact(v, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+                .Distinct(StringComparer.Ordinal)
+        ];
+    }
+
     [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}")]
     private static partial Regex IsoDatePrefixRegex();
+
+    [GeneratedRegex(@"\b\d{4}-\d{2}-\d{2}\b")]
+    private static partial Regex InlineIsoDateRegex();
 
     [GeneratedRegex(@"^\d{2}-\d{2}$")]
     private static partial Regex MonthDayRegex();

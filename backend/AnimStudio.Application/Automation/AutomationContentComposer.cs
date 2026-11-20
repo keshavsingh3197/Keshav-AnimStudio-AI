@@ -21,7 +21,8 @@ public sealed record ComposedAutomationContent(
     string? CommunityPostText = null,
     IReadOnlyList<string>? CommunityPollOptions = null,
     string? HeaderBannerText = null,
-    string? EventColorHex = null);
+    string? EventColorHex = null,
+    string? EventDateKey = null);
 
 /// <summary>
 /// Builds rich bilingual YouTube & Shorts packages (Title, Narration Script, AI Video Prompt,
@@ -107,9 +108,19 @@ public static class AutomationContentComposer
         string ratioLabel,
         bool isHindi)
     {
+        var hasNextTithi = !string.IsNullOrWhiteSpace(p.NextTithi)
+            && !string.Equals(p.NextTithi.Trim(), p.Tithi.Trim(), StringComparison.OrdinalIgnoreCase);
+        var tithiTitleSuffix = hasNextTithi ? $"{p.Tithi} / {p.NextTithi}" : p.Tithi;
+        var tithiDetailHi = string.IsNullOrWhiteSpace(p.TithiEndTime)
+            ? (hasNextTithi ? $"{p.Tithi} (उपरांत {p.NextTithi})" : p.Tithi)
+            : (hasNextTithi ? $"{p.Tithi} ({p.TithiEndTime} तक, फिर {p.NextTithi})" : $"{p.Tithi} ({p.TithiEndTime} तक)");
+        var tithiDetailEn = string.IsNullOrWhiteSpace(p.TithiEndTime)
+            ? (hasNextTithi ? $"{p.Tithi} (followed by {p.NextTithi})" : p.Tithi)
+            : (hasNextTithi ? $"{p.Tithi} ({p.TithiEndTime}, then {p.NextTithi})" : $"{p.Tithi} ({p.TithiEndTime})");
+
         var title = isHindi
-            ? Truncate($"आज का पंचांग {p.DateKey} | {p.Tithi} • {p.Nakshatra} • शुभ मुहूर्त व राहुकाल", MaxTitleLength)
-            : Truncate($"Today's Hindu Panchang {p.DateKey} | {p.Tithi}, {p.Nakshatra} & Shubh Muhurat", MaxTitleLength);
+            ? Truncate($"आज का पंचांग {p.DateKey} | {tithiTitleSuffix} • {p.Nakshatra} • शुभ मुहूर्त व राहुकाल", MaxTitleLength)
+            : Truncate($"Today's Hindu Panchang {p.DateKey} | {tithiTitleSuffix}, {p.Nakshatra} & Shubh Muhurat", MaxTitleLength);
 
         var sutraLine = !string.IsNullOrWhiteSpace(p.DailySanskritSutra)
             ? $"\nआज का श्लोक: {p.DailySanskritSutra} ({p.DailySutraMeaning})"
@@ -128,7 +139,7 @@ public static class AutomationContentComposer
                 ? $"""
                   [सूत्रधार]: आज {p.DateKey} को {p.Location} में नक्षत्र-ग्रहों की स्थिति और शुभ मुहूर्त क्यों विशेष हैं, आइए गुरु और शिष्य के संवाद से पूरा पंचांग समझते हैं।
                   [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को {p.Location} के अनुसार पंचांग में कौन सा शुभ योग बन रहा है?
-                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"} है। तिथि {p.Tithi}{(string.IsNullOrWhiteSpace(p.TithiEndTime) ? "" : $" ({p.TithiEndTime} तक)")} और पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} रहेगा।
+                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"} है। तिथि {tithiDetailHi} और पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} रहेगा।
                   [{speakerB}]: आचार्य, दैनिक पूजा व कार्य सिद्धि के लिए आज का नक्षत्र, योग और सूर्योदय-सूर्यास्त का समय भी स्पष्ट बताइए।
                   [{speakerA}]: आज नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है, योग {p.Yoga} तथा करण {p.Karana} है। सूर्योदय {p.Sunrise} और सूर्यास्त {p.Sunset} पर होगा।
                   [{speakerB}]: नया शुभ कार्य शुरू करने के लिए आज सबसे श्रेष्ठ मुहूर्त कौन सा रहेगा और किस समय सावधान रहें?
@@ -139,7 +150,7 @@ public static class AutomationContentComposer
                 : $"""
                   [सूत्रधार]: आइए जानते हैं {p.DateKey} ({p.Location}) का संपूर्ण दैनिक पंचांग व शुभ मुहूर्त।
                   [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को कौन सा शुभ योग और तिथि है?
-                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"}, तिथि {p.Tithi}{(string.IsNullOrWhiteSpace(p.TithiEndTime) ? "" : $" ({p.TithiEndTime} तक)")}, पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} व नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है। योग {p.Yoga}, करण {p.Karana}, सूर्योदय {p.Sunrise} व सूर्यास्त {p.Sunset} है।
+                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"}, तिथि {tithiDetailHi}, पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} व नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है। योग {p.Yoga}, करण {p.Karana}, सूर्योदय {p.Sunrise} व सूर्यास्त {p.Sunset} है।
                   [{speakerB}]: आज नया कार्य करने का शुभ समय और राहुकाल क्या है?
                   [{speakerA}]: अभिजीत मुहूर्त {p.AbhijitMuhurat} और ब्रह्म मुहूर्त {p.BrahmaMuhurat} श्रेष्ठ हैं; राहुकाल {p.RahuKaal} में शुभ आरंभ टालें।{sutraDialogue}
                   [सूत्रधार]: जीवन सीख — शुभ समय का सम्मान और सद्कर्म दिन को सफल बनाते हैं। पूरा पंचांग व चौघड़िया देखें: {primaryLink}
@@ -151,7 +162,7 @@ public static class AutomationContentComposer
             script = $"""
                 [HOOK 0-4s] हर हर महादेव! आइए जानते हैं {p.DateKey} ({p.Location}) का संपूर्ण दैनिक पंचांग और आज का सबसे शुभ मुहूर्त।
                 [CORE PANCHANG 4-35s]
-                • तिथि: {p.Tithi}{(string.IsNullOrWhiteSpace(p.TithiEndTime) ? "" : $" ({p.TithiEndTime} तक)")} | पक्ष: {p.Paksha ?? "शुक्ल/कृष्ण"}
+                • तिथि: {tithiDetailHi} | पक्ष: {p.Paksha ?? "शुक्ल/कृष्ण"}
                 • नक्षत्र: {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} | योग: {p.Yoga} | करण: {p.Karana}
                 • सूर्योदय: {p.Sunrise} | सूर्यास्त: {p.Sunset}
                 • आज का शुभ अभिजीत मुहूर्त: {p.AbhijitMuhurat} | ब्रह्म मुहूर्त: {p.BrahmaMuhurat}
@@ -166,7 +177,7 @@ public static class AutomationContentComposer
                 ? $"""
                   [Narrator]: Welcome to today's complete Vedic Panchang guide for {p.DateKey} in {p.Location} — let us understand both the sacred timings and the dharma wisdom behind the day.
                   [{speakerB}]: Teacher, what is today's Tithi, Paksha, and planetary alignment for {p.DateKey}?
-                  [{speakerA}]: Today is {p.Vaara ?? "a sacred day"} under Tithi {p.Tithi}, Nakshatra {p.Nakshatra}, Yoga {p.Yoga}, and Karana {p.Karana}. Sunrise is at {p.Sunrise} and Sunset is at {p.Sunset}.
+                  [{speakerA}]: Today is {p.Vaara ?? "a sacred day"} under Tithi {tithiDetailEn}, Nakshatra {p.Nakshatra}, Yoga {p.Yoga}, and Karana {p.Karana}. Sunrise is at {p.Sunrise} and Sunset is at {p.Sunset}.
                   [{speakerB}]: Which windows are most auspicious for prayers, study, and new beginnings, and when should we pause?
                   [{speakerA}]: Abhijit Muhurat ({p.AbhijitMuhurat}), Brahma Muhurat ({p.BrahmaMuhurat}), and Amrit Kaal ({p.AmritKaal}) carry uplifting harmony. Pause important starts during Rahu Kaal ({p.RahuKaal}).
                   [Narrator]: Moral of the day — aligning action with clarity, gratitude, and mindful timing turns ordinary hours into sacred progress.
@@ -175,7 +186,7 @@ public static class AutomationContentComposer
                 : $"""
                   [HOOK 0-4s] Namaste! Here is today's authentic Vedic Panchang for {p.DateKey} ({p.Location}).
                   [CORE PANCHANG 4-35s]
-                  • Tithi: {p.Tithi} | Nakshatra: {p.Nakshatra} | Yoga: {p.Yoga} | Karana: {p.Karana}
+                  • Tithi: {tithiDetailEn} | Nakshatra: {p.Nakshatra} | Yoga: {p.Yoga} | Karana: {p.Karana}
                   • Sunrise: {p.Sunrise} | Sunset: {p.Sunset}
                   • Best Auspicious Window (Abhijit Muhurat): {p.AbhijitMuhurat}
                   • Brahma Muhurat: {p.BrahmaMuhurat} | Amrit Kaal: {p.AmritKaal}
@@ -192,7 +203,7 @@ public static class AutomationContentComposer
         var tags = MergeTags(["Hindu Panchang", "Aaj Ka Panchang", p.Tithi, p.Nakshatra, "Shubh Muhurat", "Rahu Kaal", "Sanatan Dharma", "Daily Panchang", "Shorts"], baseTags, baseHashtags);
         var description = BuildDescription(rule,
             $"📅 दिनांक / Date: {p.DateKey} ({p.Location})\n" +
-            $"🔱 तिथि: {p.Tithi} | नक्षत्र: {p.Nakshatra} | योग: {p.Yoga} | करण: {p.Karana}\n" +
+            $"🔱 तिथि: {tithiDetailHi} | नक्षत्र: {p.Nakshatra} | योग: {p.Yoga} | करण: {p.Karana}\n" +
             $"🌅 सूर्योदय: {p.Sunrise} | सूर्यास्त: {p.Sunset}\n" +
             $"✨ अभिजीत मुहूर्त (शुभ): {p.AbhijitMuhurat} | ⛔ राहुकाल: {p.RahuKaal}\n" +
             (!string.IsNullOrWhiteSpace(p.DailySanskritSutra) ? $"📜 सुभाषित: {p.DailySanskritSutra} — {p.DailySutraMeaning}" : string.Empty),
@@ -207,9 +218,9 @@ public static class AutomationContentComposer
 
         return new ComposedAutomationContent(
             $"panchang:{dateKey}",
-            $"Panchang {p.DateKey} - {p.Tithi}",
-            $"{p.Vaara} • {p.Tithi} • {p.Nakshatra}",
-            title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
+            $"Panchang {p.DateKey} - {tithiTitleSuffix}",
+            $"{p.Vaara} • {tithiDetailEn} • {p.Nakshatra}",
+            title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links, EventDateKey: p.DateKey);
     }
 
     private static IReadOnlyList<ComposedAutomationContent> ComposeFestivals(
@@ -240,6 +251,8 @@ public static class AutomationContentComposer
         return [.. matching.Select(f =>
         {
             var isToday = string.Equals(f.DateKey, dateKey, StringComparison.OrdinalIgnoreCase);
+            var festLinks = isToday ? links : RetargetLinksDate(links, dateKey, f.DateKey);
+            var festPrimaryLink = festLinks.FirstOrDefault()?.TrackedUrl ?? primaryLink;
             var whenLabel = isToday ? (isHindi ? "आज" : "Today") : f.DateKey;
             var displayName = !string.IsNullOrWhiteSpace(f.NameHindi) ? $"{f.NameHindi} ({f.NameEnglish})" : f.NameEnglish;
 
@@ -254,22 +267,24 @@ public static class AutomationContentComposer
             var script = isHindi && rule.EnableCharacterDialogue
                 ? (festFull
                     ? $"""
-                       [सूत्रधार]: {whenLabel} ({f.DateKey}) को भारत भर में {displayName} का पावन पर्व मनाया जा रहा है। आइए जानते हैं इसकी पौराणिक पृष्ठभूमि, संपूर्ण पूजा विधि और आध्यात्मिक संदेश।
-                       [{festB}]: जय श्री हरि पंडित जी! {displayName} किस वैदिक तिथि को आता है और इसके पीछे की कथा व महत्व क्या है?
-                       [{festA}]: शुभ कल्याण हो! यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
-                       [{festB}]: घर में भक्ति व श्रद्धा के साथ पूजा और व्रत किस विधि से करना चाहिए?
-                       [{festA}]: {festVidhiHi}
-                       [{festB}]: पंडित जी, इस पर्व का मुख्य जीवन संदेश क्या है जो हर परिवार को अपनाना चाहिए?
-                       [{festA}]: हर व्रत-त्योहार हमें संयम, कृतज्ञता, परोपकार और सत्य के मार्ग पर स्थिर रहने की प्रेरणा देता है।
-                       [सूत्रधार]: आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। संपूर्ण व्रत कथा व आरती समय देखें: {primaryLink}
+                       [सूत्रधार]: (waving) {whenLabel} ({f.DateKey}) को भारत भर में {displayName} का पावन पर्व मनाया जा रहा है। आइए जानते हैं इसकी पौराणिक पृष्ठभूमि, संपूर्ण पूजा विधि और आध्यात्मिक संदेश।
+                       [SCENE]: temple | dawn | serene
+                       [{festB}]: (praying) जय श्री हरि पंडित जी! {displayName} किस वैदिक तिथि को आता है और इसके पीछे की कथा व महत्व क्या है?
+                       [{festA}]: (proud) शुभ कल्याण हो! यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
+                       [{festB}]: (sitting) घर में भक्ति व श्रद्धा के साथ पूजा और व्रत किस विधि से करना चाहिए?
+                       [{festA}]: (praying) {festVidhiHi}
+                       [{festB}]: (confused) पंडित जी, इस पर्व का मुख्य जीवन संदेश क्या है जो हर परिवार को अपनाना चाहिए?
+                       [{festA}]: (praying) हर व्रत-त्योहार हमें संयम, कृतज्ञता, परोपकार और सत्य के मार्ग पर स्थिर रहने की प्रेरणा देता है।
+                       [सूत्रधार]: (praying) आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। संपूर्ण व्रत कथा व आरती समय देखें: {festPrimaryLink}
                        """
                     : $"""
-                       [सूत्रधार]: {whenLabel} ({f.DateKey}) को {displayName} का पावन पर्व है — आइए जानें इसका महत्व व पूजा विधि।
-                       [{festB}]: जय श्री हरि पंडित जी! {displayName} का विशेष पौराणिक महत्व क्या है?
-                       [{festA}]: यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
-                       [{festB}]: आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
-                       [{festA}]: {festVidhiHi}
-                       [सूत्रधार]: जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। संपूर्ण व्रत कथा व पारण समय देखें: {primaryLink}
+                       [सूत्रधार]: (waving) {whenLabel} ({f.DateKey}) को {displayName} का पावन पर्व है — आइए जानें इसका महत्व व पूजा विधि।
+                       [SCENE]: temple | dawn | serene
+                       [{festB}]: (praying) जय श्री हरि पंडित जी! {displayName} का विशेष पौराणिक महत्व क्या है?
+                       [{festA}]: (proud) यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
+                       [{festB}]: (sitting) आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
+                       [{festA}]: (praying) {festVidhiHi}
+                       [सूत्रधार]: (praying) जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। संपूर्ण व्रत कथा व पारण समय देखें: {festPrimaryLink}
                        """)
                 : isHindi
                     ? $"""
@@ -279,7 +294,7 @@ public static class AutomationContentComposer
                        • महत्व: {f.Description}
                        • पूजा व व्रत नियम: {f.RitualsAndPujaVidhi ?? f.FastingRules ?? "प्रातः स्नान के बाद दीप प्रज्वलन और भगवान का स्मरण करें।"}
                        [MORAL] सीख — भक्ति, संयम और करुणा हर पर्व को सार्थक बनाते हैं।
-                       [WEBSITE CTA 40-52s] पूरी व्रत कथा, आरती, और सटीक पारण/पूजा समय देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
+                       [WEBSITE CTA 40-52s] पूरी व्रत कथा, आरती, और सटीक पारण/पूजा समय देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {festPrimaryLink}
                        """
                     : $"""
                        [HOOK 0-4s] {whenLabel} marks the sacred occasion of {displayName}! Let us explore its story, rituals, and lasting wisdom.
@@ -288,7 +303,7 @@ public static class AutomationContentComposer
                        • Why it matters: {f.Description}
                        • Puja Vidhi & Observance: {f.RitualsAndPujaVidhi ?? f.FastingRules ?? "Morning prayers, diya lighting, and mindful charity."}
                        [MORAL] Takeaway — Sacred festivals remind us to cultivate gratitude, discipline, and kindness toward all beings.
-                       [WEBSITE CTA 40-52s] Read the full Puja Vidhi & Muhurat table on our Panchang website: {primaryLink}
+                       [WEBSITE CTA 40-52s] Read the full Puja Vidhi & Muhurat table on our Panchang website: {festPrimaryLink}
                        """;
 
             var prompt = ApplyPromptOverride(rule,
@@ -303,17 +318,17 @@ public static class AutomationContentComposer
                 $"📖 महत्व: {f.Description}\n" +
                 (!string.IsNullOrWhiteSpace(f.RitualsAndPujaVidhi) ? $"🙏 पूजा विधि: {f.RitualsAndPujaVidhi}\n" : string.Empty) +
                 (!string.IsNullOrWhiteSpace(f.FastingRules) ? $"✨ नियम: {f.FastingRules}" : string.Empty),
-                links, tags);
+                festLinks, tags);
 
             var comment = rule.IncludePinnedComment
-                ? BuildPinnedComment($"🪔 {displayName} की संपूर्ण पूजा विधि और शुभ मुहूर्त यहाँ देखें 👇\n🔗 {primaryLink}", links)
+                ? BuildPinnedComment($"🪔 {displayName} की संपूर्ण पूजा विधि और शुभ मुहूर्त यहाँ देखें 👇\n🔗 {festPrimaryLink}", festLinks)
                 : null;
 
             return new ComposedAutomationContent(
                 $"festival:{f.DateKey}:{f.Id}",
                 displayName,
                 f.Description,
-                title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
+                title, script.Trim(), prompt, thumbPrompt, description, comment, tags, festPrimaryLink, festLinks, EventDateKey: f.DateKey);
         })];
     }
 
@@ -835,34 +850,48 @@ public static class AutomationContentComposer
 
         string memeMid(string key, string caption) => includeMemes ? $"[MEME]: {key} | {caption}\n" : string.Empty;
 
-        if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha)
+        if (tone is AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha or AnimStudio.Domain.Stories.ComedyToneStyle.DesiKhadiSitcom)
         {
-            return slot switch
+            return (slot % 3) switch
             {
                 0 => $"""
                     [CAST]: {speakerA} | scholar | bright orange hoodie, tousled hair, cheeky grin
                     [CAST]: {speakerB} | child | mustard kurta, funky scarf, mischievous look
                     [CAST]: {bystander} | villager | white apron, towel on shoulder, deadpan stare
-                    [SCENE]: chai stall | day | playful | IMAGE: lively North Indian roadside chai tapri, steaming brass kettle, wooden bench, sunlit village market backdrop, 3D cartoon background plate, no people
-                    [{speakerA}]: (proud) {bystander}, दो बढ़िया अदरक की चाय और गरम समोसे ठोक दे — इब म्हारा भाई बिल देगा!
-                    [{speakerB}]: (confused) अरे बावले, तेरी जेब फटी पड़ी सै और नाम म्हारा लगावै?
-                    [{speakerA}]: (mischievous) इब देख तमाशा! पहले समोसा अंदर कर, पैसे का जुगाड़ तो टैम पे देख्या जावैगा!
-                    {memeMid("shocked_face", "अरे बावले, यो के बोल दिया!")}[SCENE]: comedy stage | sunset | excited | IMAGE: humorous bright village square tapri corner, warm dusk spotlights, exaggerated props, 3D cartoon style, no people
-                    [{bystander}]: (sarcastic) यारा, थारा पिछला चार सौ रुपया का उधार खाता दीवार पे टँगा सै — किसे मूर्ख बनावै सै!
-                    [{speakerB}]: (laughing) ले इब कर ले जुगाड़ — बर्तन मांजने की ड्यूटी पक्की तेरी!
-                    {(isFull ? $"[{speakerA}]: (surprised) अबे बबलू रुक! मेरी चप्पल तो उठा ले, दौड़ने का टैम आ गया!" : string.Empty)}
+                    [SCENE]: bedroom | day | playful
+                    [{speakerA}]: (sleeping) ख्र्र्र... बस पाँच मिनट और सोने दे यार, आज रविवार है...
+                    [{speakerB}]: (angry, pointing) अबे सुन बावले! ग्यारह बज गए — तू अभी तक पलंग पे ही सो रहा है क्या?!
+                    [{speakerA}]: (waking up, surprised) अरे बाप रे! ग्यारह बज गए?! गरम समोसे खत्म हो जाएँगे, जल्दी चल!
+                    {memeMid("shocked_face", "अरे बावले, यो के बोल दिया!")}[SCENE]: chai stall | day | playful
+                    [{speakerA}]: (walking) {bystander}, दो बढ़िया अदरक की चाय और गरम समोसे ठोक दे — इब म्हारा भाई बिल देगा!
+                    [{bystander}]: (pointing) यारा, थारा पिछला चार सौ रुपया का उधार खाता दीवार पे टँगा सै — किसे मूर्ख बनावै सै!
+                    [{speakerB}]: (facepalm, laughing) ले इब कर ले जुगाड़ — बर्तन मांजने की ड्यूटी पक्की तेरी!
+                    {(isFull ? $"[{speakerA}]: (running, surprised) अबे बबलू रुक! मेरी चप्पल तो उठा ले, दौड़ने का टैम आ गया!" : string.Empty)}
                     {memeMid("khatam_tata_bye", "इब बोल... मोये मोये हो गया!")}
+                    """,
+                1 => $"""
+                    [CAST]: {speakerA} | scholar | vibrant yellow sweater, messy hair, oversized specs
+                    [CAST]: {speakerB} | child | teal jacket, backwards cap, smug smile
+                    [SCENE]: bedroom | night | playful
+                    [{speakerA}]: (sleeping) ख्र्र्र... रसोई से गरम रबड़ी की खुशबू आ रही है...
+                    [{speakerB}]: (waking up, confused) अरे पप्पू! आधी रात को ये रसोई में कड़ाही कौन खड़का रहा है?!
+                    [SCENE]: kitchen | night | mischievous
+                    [{speakerA}]: (eating, proud) आहाहा! आज गरम कड़ाही की सारी मलाईदार रबड़ी अकेले साफ कर दूँगा!
+                    {memeMid("shocked_face", "रबड़ी कांड रंगे हाथ पकड़ा गया!")}[{speakerB}]: (angry, pointing) पकड़ लिया बे बावले! सारी रबड़ी अकेले चट कर गया नालायक?!
+                    [{speakerA}]: (shocked) अरे नहीं यार! मैं तो बस चेक कर रहा था कि दूध ठंडा हुआ या नहीं!
+                    [{speakerB}]: (facepalm, laughing) अबे पूरी कड़ाही चाट के टेम्परेचर चेक होता है क्या?!
+                    {memeMid("run_comedy", "रबड़ी ग़ायब, बहाना तैयार!")}
                     """,
                 _ => $"""
                     [CAST]: {speakerA} | scholar | yellow sweater, messy hair, oversized specs
                     [CAST]: {speakerB} | child | teal jacket, backwards cap, smug smile
-                    [SCENE]: village | dawn | playful | IMAGE: colorful Indian village courtyard at morning mist, neem tree and charpai cot, bright sunlit 3D cartoon background, no people
-                    [{speakerB}]: (sarcastic) ताऊ की कसम खा के बोला था पाँच बजे जिम फोड़ूँगा — इब ग्यारह बज गए बावले!
-                    [{speakerA}]: (proud) पांच बजे आंख तो खुली थी, पर दिमाग़ ने बोल्या टैम खोटा मत कर — आज छोले-भटूरे का मुहूर्त सै!
-                    {memeMid("confused_math", "ताऊ का अलार्म फेल हो गया!")}[SCENE]: chai stall | day | laughing | IMAGE: vibrant Indian street breakfast stall with steaming karahi, warm comic sunlight, 3D cartoon background, no people
-                    [{speakerB}]: (laughing) यो के जुगाड़ सै? बॉडी बनानी थी और पेट का गुंबद खड़ा कर लिया!
-                    [{speakerA}]: (mischievous) चुपचाप प्लेट पकड़ — डंबल से भारी तो अपना यह भटूरा सै!
-                    {memeMid("run_comedy", "बॉडी नहीं, भटूरा चैंपियन!")}
+                    [SCENE]: living room | dawn | playful
+                    [{speakerA}]: (sitting) ताऊ की कसम खा के बोला था पाँच बजे जिम फोड़ूँगा — अब सोफे पे कमर सीधी कर लूँ!
+                    [{speakerB}]: (sarcastic, pointing) अरे बावले! ग्यारह बज गए और हाथ में समोसा दबा के जिम हो रहा है?!
+                    {memeMid("confused_math", "ताऊ का अलार्म फेल हो गया!")}[SCENE]: sweet shop | day | laughing
+                    [{speakerB}]: (laughing) यो के जुगाड़ सै? बॉडी बनानी थी और हलवाई की दुकान पे लड्डू फोड़ रहा है!
+                    [{speakerA}]: (eating) चुपचाप प्लेट पकड़ — डंबल से भारी तो अपना यह मलाई लड्डू सै!
+                    {memeMid("run_comedy", "बॉडी नहीं, मिठाई चैंपियन!")}
                     """
             };
         }
@@ -889,13 +918,14 @@ public static class AutomationContentComposer
                 [CAST]: {speakerA} | scholar | vibrant orange jacket, wild spiky hair, smug shades
                 [CAST]: {speakerB} | child | lime hoodie, raised eyebrow, cheeky smile
                 [CAST]: {bystander} | villager | white apron, steaming tea kettle prop, stern look
-                [SCENE]: chai stall | day | playful | IMAGE: lively colorful Indian chai tapri, brass boiler steaming, wooden stools, crisp daylight, 3D cartoon background, no people
-                [{speakerB}]: (angry) अबे सुन पप्पू, सुबह से दस बार फ़ोन कर चुका — दो मिनट बोल के घर पे ही सो रहा क्या?
-                [{speakerA}]: (proud) अबे तू चुप बैठ! इंडिया में 'दो मिनट' का मतलब आधा घंटा होता है — तेरा दिमाग़ घुटनों में है क्या?
-                {memeMid("dimag_hang", "भाई का टाइम ज़ोन ही अलग है!")}[SCENE]: comedy stage | sunset | excited | IMAGE: funny urban street tea corner under glowing street lamps, exaggerated shadows, vibrant 3D cartoon background, no people
-                [{bystander}]: (sarcastic) तेरे इसी दो मिनट के चक्कर में इसकी चार चाय ठंडी हो गई — आज बिल तेरे नाम!
-                [{speakerB}]: (laughing) अबे निकल ले चुपचाप! बड़ा आया घड़ी का मालिक — अब समोसा भी खिला!
-                {(isFull ? $"[{speakerA}]: (surprised) अरे ठहर यार, मेरा यूपीआई नेटवर्क सिर्फ़ तब काम करता है जब सामने वाला बिल दे!" : string.Empty)}
+                [SCENE]: bedroom | day | playful
+                [{speakerA}]: (sleeping) ख्र्र्र... बस आ रहा हूँ भाई, रास्ते में ट्रैफिक बहुत है...
+                [{speakerB}]: (angry, pointing) अबे सुन पप्पू! दस बार फ़ोन कर चुका — दो मिनट बोल के अभी तक पलंग पे ही सो रहा है क्या?!
+                [{speakerA}]: (waking up, surprised) अरे बाप रे! इंडिया में 'दो मिनट' का मतलब आधा घंटा होता है, आ रहा हूँ!
+                {memeMid("dimag_hang", "भाई का टाइम ज़ोन ही अलग है!")}[SCENE]: chai stall | sunset | excited
+                [{bystander}]: (walking, sarcastic) तेरे इसी दो मिनट के चक्कर में इसकी चार चाय ठंडी हो गई — आज बिल तेरे नाम!
+                [{speakerB}]: (facepalm, laughing) अबे निकल ले चुपचाप! बड़ा आया घड़ी का मालिक — अब समोसा भी खिला!
+                {(isFull ? $"[{speakerA}]: (running, surprised) अरे ठहर यार, मेरा यूपीआई नेटवर्क सिर्फ़ तब काम करता है जब सामने वाला बिल दे!" : string.Empty)}
                 {memeMid("khatam_tata_bye", "ख़त्म... टाटा... बाय-बाय!")}
                 """,
             1 => $"""
@@ -968,12 +998,15 @@ public static class AutomationContentComposer
             return $"""
                 [CAST]: {speakerA} | log | carved wooden buddy, expressive giant eyes, sports bat
                 [CAST]: {speakerB} | cup | pastel espresso dancer, golden rim, cheeky grin
-                [SCENE]: doorway set | day | slapstick | IMAGE: vibrant 3D cartoon hallway with peek-a-boo doorway frame and checkerboard floor, no people
-                [{speakerA}]: (proud) Zero noise, maximum stealth — grabbing that golden trophy before anyone blinks!
-                [{speakerB}]: (surprised) Wait... why did you just walk straight back into your own reflection?!
-                {memeMid("brain_buffering", "LOOK BEHIND THE DOOR!")}[SCENE]: sky gauntlet | sunset | excited | IMAGE: glowing 3D floating sky bridge obstacle course above sunlit clouds, no people
-                [{speakerA}]: (angry) Who put a slippery banana trap right on the CLEAN obstacle door?!
-                [{speakerB}]: (laughing) Spoiler alert: both doors lead to the bouncy trampoline anyway!
+                [SCENE]: bedroom | day | slapstick
+                [{speakerA}]: (sleeping) Zzz... nobody knows my secret trophy heist plan yet...
+                [{speakerB}]: (angry, pointing) Wake up sleepyhead — the alarm went off twenty minutes ago!
+                [{speakerA}]: (waking up, surprised) Whoa!! Zero noise, maximum stealth — time to run for that golden trophy!
+                [SCENE]: doorway set | day | slapstick
+                [{speakerA}]: (walking) Tip-toe past the door without anyone noticing...
+                {memeMid("brain_buffering", "LOOK BEHIND THE DOOR!")}[SCENE]: sky gauntlet | sunset | excited
+                [{speakerB}]: (laughing) Spoiler alert: both doors lead straight onto the bouncy sky bridge!
+                [{speakerA}]: (shocked, dancing) Who put a trampoline right behind the exit door?!
                 {memeMid("shocked_face", "INSTANT REPLAY LOOP!")}
                 """;
         }
@@ -1214,24 +1247,30 @@ public static class AutomationContentComposer
             var title = Truncate($"भक्त ध्रुव और देवर्षि नारद मुनि की संपूर्ण कथा | ध्रुव तारा की अमिट तपस्या", MaxTitleLength);
             var script = fullStory
                 ? $"""
-                   [सूत्रधार]: यह पावन कथा महाराज उत्तानपाद के पाँच वर्षीय नन्हे राजकुमार ध्रुव की है। एक दिन राजसभा में पिता की गोद में बैठने पर सौतेली माता रानी सुरुचि के कठोर वचनों से आहत होकर बालक ध्रुव रोते हुए अपनी माता सुनीति के पास पहुँचा।
-                   [रानी सुनीति]: रोओ मत पुत्र ध्रुव! किसी के प्रति क्रोध मत रखो। जो स्थान ब्रह्मा और इंद्र से भी ऊपर तथा अटल है, वह राजसिंहासन से नहीं बल्कि केवल भगवान श्रीहरि विष्णु की भक्ति से मिलता है।
-                   [{speakerA}]: माता, अब मैं उसी परमपिता श्रीहरि को पाने के लिए अभी उत्तर दिशा के वन की ओर जा रहा हूँ!
+                   [सूत्रधार]: (waving) यह पावन कथा महाराज उत्तानपाद के पाँच वर्षीय नन्हे राजकुमार ध्रुव की है। एक दिन राजसभा में पिता की गोद में बैठने पर सौतेली माता रानी सुरुचि के कठोर वचनों से आहत होकर बालक ध्रुव रोते हुए अपनी माता सुनीति के पास पहुँचा।
+                   [SCENE]: palace court | day | tense
+                   [रानी सुनीति]: (sitting, sad) रोओ मत पुत्र ध्रुव! किसी के प्रति क्रोध मत रखो। जो स्थान ब्रह्मा और इंद्र से भी ऊपर तथा अटल है, वह राजसिंहासन से नहीं बल्कि केवल भगवान श्रीहरि विष्णु की भक्ति से मिलता है।
+                   [{speakerA}]: (walking) माता, अब मैं उसी परमपिता श्रीहरि को पाने के लिए अभी उत्तर दिशा के वन की ओर जा रहा हूँ!
+                   [SCENE]: forest ashram | dawn | serene
                    [सूत्रधार]: नन्हा बालक ध्रुव राजमहल का वैभव त्यागकर घने उत्तर वन पथ पर निकल पड़ा। मार्ग में आकाश मार्ग से विचरते देवर्षि नारद मुनि उसके सामने प्रकट हुए।
-                   [{speakerB}]: ठहरो बालक ध्रुव! अभी तुम्हारी उम्र खेलने की है। यह घोर मधुवन और कठोर तपस्या तुम्हारे बस की नहीं, लौट जाओ राजकुमार।
-                   [{speakerA}]: हे देवर्षि नारद मुनि! स्वाभिमान और सत्य की अग्नि मेरे हृदय में प्रज्वलित है। मुझे ऐसा अटल पद चाहिए जो कभी न डगमगाए। कृपया मुझे भक्ति का सही मार्ग व मंत्र दीजिए।
-                   [{speakerB}]: बालक ध्रुव, तुम्हारा संकल्प हिमालय जैसा अटल है! तो सुनो — यमुना तट स्थित पावन मधुवन में जाकर एकाग्र मन से द्वादशाक्षर महामंत्र जपो: {mantra}।
-                   [सूत्रधार]: नारद मुनि से मंत्र दीक्षा पाकर बालक ध्रुव ने मधुवन में निरंतर छह मास तक एक पैर पर खड़े होकर, शीत-गर्मी व भूख की परवाह किए बिना अखंड तपस्या की। उसके तेज से तीनों लोक आलोकित हो उठे!
-                   [भगवान श्रीहरि विष्णु]: उठो प्यारे वत्स ध्रुव! मैं तुम्हारे निश्छल समर्पण से अत्यंत प्रसन्न हूँ। आज मैं तुम्हें आकाश मंडल में सप्तर्षियों से भी ऊपर अटल 'ध्रुव तारा' का अमर स्थान वरदान में देता हूँ, जो युगों-युगों तक दिशा दिखाएगा!
-                   [{speakerA}]: हे प्रभो नारायण! आज मेरा जीवन सफल हुआ। जब भक्त निष्ठा से पुकारता है, तो आप स्वयं दर्शन देते हैं।
-                   [सूत्रधार]: आज की पावन कथा की सीख — उम्र चाहे छोटी हो या परिस्थिति कितनी भी कठिन, सच्ची श्रद्धा, गुरु का मार्गदर्शन और अडिग संकल्प असंभव को भी संभव बना देता है। पूरी कथा व दैनिक पंचांग पढ़े: {primaryLink}
+                   [{speakerB}]: (pointing) ठहरो बालक ध्रुव! अभी तुम्हारी उम्र खेलने की है। यह घोर मधुवन और कठोर तपस्या तुम्हारे बस की नहीं, लौट जाओ राजकुमार।
+                   [{speakerA}]: (praying) हे देवर्षि नारद मुनि! स्वाभिमान और सत्य की अग्नि मेरे हृदय में प्रज्वलित है। मुझे ऐसा अटल पद चाहिए जो कभी न डगमगाए। कृपया मुझे भक्ति का सही मार्ग व मंत्र दीजिए।
+                   [{speakerB}]: (proud) बालक ध्रुव, तुम्हारा संकल्प हिमालय जैसा अटल है! तो सुनो — यमुना तट स्थित पावन मधुवन में जाकर एकाग्र मन से द्वादशाक्षर महामंत्र जपो: {mantra}।
+                   [SCENE]: cosmos | night | radiant
+                   [सूत्रधार]: (sitting) नारद मुनि से मंत्र दीक्षा पाकर बालक ध्रुव ने मधुवन में निरंतर छह मास तक अखंड तपस्या की। उसके तेज से तीनों लोक आलोकित हो उठे!
+                   [भगवान श्रीहरि विष्णु]: (proud, closeup) उठो प्यारे वत्स ध्रुव! मैं तुम्हारे निश्छल समर्पण से अत्यंत प्रसन्न हूँ। आज मैं तुम्हें आकाश मंडल में सप्तर्षियों से भी ऊपर अटल 'ध्रुव तारा' का अमर स्थान वरदान में देता हूँ, जो युगों-युगों तक दिशा दिखाएगा!
+                   [{speakerA}]: (praying) हे प्रभो नारायण! आज मेरा जीवन सफल हुआ। जब भक्त निष्ठा से पुकारता है, तो आप स्वयं दर्शन देते हैं।
+                   [सूत्रधार]: (praying) आज की पावन कथा की सीख — उम्र चाहे छोटी हो या परिस्थिति कितनी भी कठिन, सच्ची श्रद्धा, गुरु का मार्गदर्शन और अडिग संकल्प असंभव को भी संभव बना देता है। पूरी कथा व दैनिक पंचांग पढ़े: {primaryLink}
                    """
                 : $"""
-                   [सूत्रधार]: महाराज उत्तानपाद के पाँच वर्षीय पुत्र ध्रुव जब माता सुरुचि के कठोर वचनों से आहत हुए, तो माता सुनीति ने उन्हें राजमहल के बजाय भगवान श्रीहरि से अटल पद मांगने की प्रेरणा दी।
-                   [{speakerB}]: ठहरो बालक ध्रुव! इतनी छोटी उम्र में तुम इस घोर वन की ओर क्यों जा रहे हो?
-                   [{speakerA}]: हे देवर्षि नारद मुनि! मुझे तीनों लोकों में सबसे अटल स्थान पाना है। कृपया मुझे श्रीहरि की भक्ति का सही मंत्र व मार्ग बताइए।
-                   [{speakerB}]: तुम्हारा संकल्प हिमालय जैसा अडिग है ध्रुव! यमुना तट पर मधुवन में जाकर एकाग्र मन से पावन मंत्र जपो: {mantra}।
-                   [सूत्रधार]: छह मास की अखंड तपस्या के बाद स्वयं भगवान विष्णु ने दर्शन देकर ध्रुव को आकाश में अमर 'ध्रुव तारा' बनने का वरदान दिया!
+                   [सूत्रधार]: (waving) महाराज उत्तानपाद के पाँच वर्षीय पुत्र ध्रुव जब माता सुरुचि के कठोर वचनों से आहत हुए, तो माता सुनीति ने उन्हें राजमहल के बजाय भगवान श्रीहरि से अटल पद मांगने की प्रेरणा दी।
+                   [SCENE]: palace court | day | tense
+                   [{speakerB}]: (walking, surprised) ठहरो बालक ध्रुव! इतनी छोटी उम्र में तुम इस घोर वन की ओर क्यों जा रहे हो?
+                   [SCENE]: forest ashram | dawn | serene
+                   [{speakerA}]: (praying) हे देवर्षि नारद मुनि! मुझे तीनों लोकों में सबसे अटल स्थान पाना है। कृपया मुझे श्रीहरि की भक्ति का सही मंत्र व मार्ग बताइए।
+                   [{speakerB}]: (proud) तुम्हारा संकल्प हिमालय जैसा अडिग है ध्रुव! यमुना तट पर मधुवन में जाकर एकाग्र मन से पावन मंत्र जपो: {mantra}।
+                   [SCENE]: cosmos | night | radiant
+                   [सूत्रधार]: (praying) छह मास की अखंड तपस्या के बाद स्वयं भगवान विष्णु ने दर्शन देकर ध्रुव को आकाश में अमर 'ध्रुव तारा' बनने का वरदान दिया!
                    [सूत्रधार]: कथा की सीख — उम्र या बाधा चाहे जैसी हो, निश्छल भक्ति, गुरु कृपा और अटूट संकल्प हर असंभव लक्ष्य दिलाते हैं। पूरी कथा पढ़ें: {primaryLink}
                    """;
             return (title, script);
@@ -1438,7 +1477,8 @@ public static class AutomationContentComposer
             {ctaBlock}
             """.Trim();
 
-        var bannerText = $"{palette.HeaderBadgeText} • {dateKey}";
+        var bannerDate = string.IsNullOrWhiteSpace(item.EventDateKey) ? dateKey : item.EventDateKey;
+        var bannerText = $"{palette.HeaderBadgeText} • {bannerDate}";
         return item with
         {
             CommunityPostText = communityBody,
@@ -1446,6 +1486,23 @@ public static class AutomationContentComposer
             HeaderBannerText = bannerText,
             EventColorHex = palette.PrimaryHex
         };
+    }
+
+    private static IReadOnlyList<AutomationWebsiteLink> RetargetLinksDate(
+        IReadOnlyList<AutomationWebsiteLink> links,
+        string fromDateKey,
+        string toDateKey)
+    {
+        if (string.Equals(fromDateKey, toDateKey, StringComparison.Ordinal)) return links;
+        var oldStamp = $"_{fromDateKey.Replace("-", string.Empty)}";
+        var newStamp = $"_{toDateKey.Replace("-", string.Empty)}";
+        return [.. links.Select(l => new AutomationWebsiteLink
+        {
+            Key = l.Key,
+            Label = l.Label,
+            BaseUrl = l.BaseUrl,
+            TrackedUrl = l.TrackedUrl.Replace(oldStamp, newStamp, StringComparison.Ordinal)
+        })];
     }
 
     private static string Truncate(string input, int maxLen) =>

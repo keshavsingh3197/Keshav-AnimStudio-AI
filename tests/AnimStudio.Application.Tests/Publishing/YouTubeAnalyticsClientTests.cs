@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using AnimStudio.Application.Publishing;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -89,6 +91,35 @@ public class YouTubeAnalyticsClientTests
         using var client = new YouTubeAnalyticsClient(NullLogger<YouTubeAnalyticsClient>.Instance, new Answer(HttpStatusCode.OK, "{}"));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             client.GetVideoTotalsAsync(["abc,def;ghi"], new DateOnly(2026, 1, 1), new DateOnly(2026, 2, 1), "token", CancellationToken.None));
+    }
+
+    [Fact]
+    public void Channel_refresh_unlocks_shortly_after_analytics_error_instead_of_30_minute_lockout()
+    {
+        var fetched = new DateTime(2026, 11, 20, 6, 27, 9, DateTimeKind.Utc);
+        var channel = new YouTubeConnectionStatus(
+            "UC1234567890123456789012", "OMKAR SHIV Bhakti", "@omkar", null,
+            fetched.AddDays(-5), null, false, CanComment: true, CanReadAnalytics: true);
+
+        var errored = new YouTubeChannelAnalysis
+        {
+            ChannelId = channel.ChannelId,
+            FetchedAtUtc = fetched,
+            UpdatedAtUtc = fetched,
+            FetchError = null,
+            AnalyticsError = "The YouTube Analytics API isn't switched on for this server's Google project.",
+            AnalyticsFetchedAtUtc = null
+        };
+
+        var retryAt = YouTubeChannelAnalysisService.ComputeNextRefreshAtUtc(channel, errored);
+        Assert.Equal(fetched + YouTubeChannelAnalysisService.AnalyticsRetryCooldown, retryAt);
+        Assert.True(YouTubeChannelAnalysisService.NeedsAnalyticsRetry(channel, errored));
+
+        errored.AnalyticsError = null;
+        errored.AnalyticsFetchedAtUtc = fetched.AddMinutes(1);
+        var settledAt = YouTubeChannelAnalysisService.ComputeNextRefreshAtUtc(channel, errored);
+        Assert.Equal(fetched + YouTubeChannelAnalysisService.MinRefresh, settledAt);
+        Assert.False(YouTubeChannelAnalysisService.NeedsAnalyticsRetry(channel, errored));
     }
 
     private sealed class Answer(HttpStatusCode status, string body) : HttpMessageHandler

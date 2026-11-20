@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 import { ApiResponse } from '../models/api.models';
 
 export interface Song {
@@ -61,8 +62,12 @@ export class SongsService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/api/songs`;
 
-  list(): Observable<SongList> {
-    return this.unwrap(this.http.get<ApiResponse<SongList>>(this.base));
+  list(background = false): Observable<SongList> {
+    return this.unwrap(
+      this.http.get<ApiResponse<SongList>>(this.base, {
+        context: background ? silentHttpContext() : undefined,
+      }),
+    );
   }
 
   writeLyrics(body: { theme: string; language: 'hi' | 'en'; style: string; mood?: string | null }): Observable<SongLyricsDraft> {

@@ -466,6 +466,7 @@ public sealed class ClipsController(
         TransitionOverride = request.TransitionOverride,
         TransitionSeconds = request.TransitionSeconds,
         Motion = request.Motion,
+        Atmosphere = request.Atmosphere,
         KeepClipAudio = request.KeepClipAudio,
         ExportName = request.ExportName,
         Width = request.Width,

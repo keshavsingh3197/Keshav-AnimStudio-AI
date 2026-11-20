@@ -523,4 +523,96 @@ public class AutoShortPlannerTests
             });
         }
     }
+
+    [Fact]
+    public void Divine_style_animates_every_picture_varies_transitions_and_emits_only_sacred_atmosphere()
+    {
+        AutoShortSource[] imagesOnly =
+        [
+            .. Enumerable.Range(0, 8).Select(i => new AutoShortSource($"krishna_{i}", AssetKind.Image, null)),
+        ];
+
+        var plan = AutoShortPlanner.PlanBatch(Batch(sources: imagesOnly, count: 4, seconds: 24) with
+        {
+            Style = AutoShortStyle.Divine,
+            Atmosphere = AutoShortAtmosphere.Auto,
+            AutoImageDuration = true,
+            Motion = true,
+            Transitions = true,
+            Seed = 42,
+        });
+
+        Assert.All(plan.Styles!, s => Assert.Equal(AutoShortStyle.Divine, s));
+
+        string[] allowedFx = ["flowers", "petals", "sparkles", "cosmic"];
+        SceneTransition[] allowedTransitions =
+        [
+            SceneTransition.Dissolve, SceneTransition.SmoothLeft, SceneTransition.Radial,
+            SceneTransition.CircleOpen, SceneTransition.SmoothRight, SceneTransition.Fade,
+            SceneTransition.DiagonalWipe, SceneTransition.SmoothUp, SceneTransition.HorzOpen,
+            SceneTransition.ZoomIn, SceneTransition.None,
+        ];
+
+        var seenFx = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in plan.Shorts)
+        {
+            var shots = Shots(s);
+            Assert.True(shots.Count >= 4);
+
+            for (var k = 0; k < shots.Count; k++)
+            {
+                var tr = shots[k].Transform!;
+                Assert.NotEqual("none", tr.Motion);
+                Assert.NotEqual("handheld", tr.Motion);
+                Assert.InRange(tr.MotionIntensity, 0.16, 0.25);
+                Assert.True(tr.Vignette);
+                Assert.Contains(tr.Look, new[] { "warm", "cinematic" });
+                if (k > 0) Assert.NotEqual(shots[k - 1].Transform!.Motion, tr.Motion);
+            }
+
+            Assert.All(s.Junctions!, j => Assert.Contains(j.Transition, allowedTransitions));
+            for (var k = 1; k < s.Junctions!.Count; k++)
+            {
+                if (s.Junctions[k].Transition != SceneTransition.None)
+                    Assert.NotEqual(s.Junctions[k - 1].Transition, s.Junctions[k].Transition);
+            }
+
+            var fx = Assert.Single(s.TimelineItems!, i => i.Type == "celebration");
+            Assert.Contains(fx.Src, allowedFx);
+            Assert.DoesNotContain(fx.Src, new[] { "hearts", "confetti", "cannon", "balloons" });
+            seenFx.Add(fx.Src);
+        }
+
+        Assert.Equal(4, seenFx.Count);
+    }
+
+    [Fact]
+    public void Atmosphere_setting_supports_None_explicit_sacred_and_SacredMix()
+    {
+        var none = AutoShortPlanner.Plan(Batch(count: 2) with
+        {
+            Style = AutoShortStyle.Divine,
+            Atmosphere = AutoShortAtmosphere.None,
+        });
+        Assert.All(none, s => Assert.DoesNotContain(s.TimelineItems!, i => i.Type == "celebration"));
+
+        var flowers = AutoShortPlanner.Plan(Batch(count: 2) with
+        {
+            Style = AutoShortStyle.Energetic,
+            Atmosphere = AutoShortAtmosphere.Flowers,
+        });
+        Assert.All(flowers, s =>
+        {
+            var fx = Assert.Single(s.TimelineItems!, i => i.Type == "celebration");
+            Assert.Equal("flowers", fx.Src);
+        });
+
+        var mix = AutoShortPlanner.Plan(Batch(count: 4) with
+        {
+            Style = AutoShortStyle.Calm,
+            Atmosphere = AutoShortAtmosphere.SacredMix,
+        });
+        var kinds = mix.Select(s => s.TimelineItems!.Single(i => i.Type == "celebration").Src).ToList();
+        Assert.Equal(4, kinds.Distinct().Count());
+    }
 }

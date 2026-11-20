@@ -28,7 +28,38 @@ export type SceneSetting =
   | 'ComedyStage'
   | 'SkyGauntlet'
   | 'TankArena'
-  | 'DoorwaySet';
+  | 'DoorwaySet'
+  | 'Bedroom'
+  | 'LivingRoom'
+  | 'Kitchen'
+  | 'SweetShop';
+
+export type ActionKind =
+  | 'none'
+  | 'sleeping'
+  | 'wakingUp'
+  | 'walking'
+  | 'running'
+  | 'sitting'
+  | 'praying'
+  | 'pointing'
+  | 'shockedFall'
+  | 'slapForehead'
+  | 'eating'
+  | 'dancing'
+  | 'jumping'
+  | 'waving'
+  | 'laughing';
+
+export type CameraShotKind =
+  | 'auto'
+  | 'wideEstablishing'
+  | 'twoShot'
+  | 'closeUpSpeaker'
+  | 'reactionZoom'
+  | 'crashPunch'
+  | 'overShoulder'
+  | 'lowDramatic';
 
 export type SceneTimeOfDay = 'Auto' | 'Dawn' | 'Day' | 'Sunset' | 'Night';
 
@@ -65,6 +96,14 @@ export interface CharacterProfileJson {
   robeHex?: string | null;
 }
 
+export interface MemeCueJson {
+  afterTurnIndex: number;
+  name: string;
+  caption?: string | null;
+  seconds: number;
+  startSeconds: number;
+}
+
 export interface DialogueTurnJson {
   index: number;
   startSeconds: number;
@@ -76,6 +115,10 @@ export interface DialogueTurnJson {
   speakerRole?: CharacterRole | null;
   sceneBackdropCue?: string | null;
   emotion?: string | null;
+  action?: ActionKind | string | null;
+  listenerAction?: ActionKind | string | null;
+  cameraShot?: CameraShotKind | string | null;
+  stageTarget?: string | null;
 }
 
 export interface SceneRunJson {
@@ -132,6 +175,7 @@ export interface RenderJobJson {
   rightCharacter?: CharacterProfileJson | null;
   supportingCast: CharacterProfileJson[];
   turns: DialogueTurnJson[];
+  memeCues?: MemeCueJson[] | null;
   sceneRuns: SceneRunJson[];
   speechEnvelope?: number[] | null;
   backdropCount: number;

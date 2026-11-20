@@ -241,7 +241,7 @@ export class CheckupVideoEditorComponent {
     const id = this.video().videoId;
     // Only a validated id goes into a fixed youtube-nocookie URL, so the trusted URL can't point anywhere else.
     return VIDEO_ID.test(id)
-      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${id}?rel=0`)
       : null;
   });
 

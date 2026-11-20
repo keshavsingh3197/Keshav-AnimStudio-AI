@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, filter, map, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { silentHttpContext } from '../interceptors/loading.interceptor';
 import { ApiResponse } from '../models/api.models';
 import { EffectClip, EffectQuery, EffectUpdate, EffectUpload, EffectUseResult } from '../models/effects.models';
 import { MediaTicketService } from './media-ticket.service';
@@ -14,13 +15,18 @@ export class EffectsService {
   private readonly base = environment.apiUrl;
   private readonly media = inject(MediaTicketService);
 
-  list(query: EffectQuery = {}): Observable<EffectClip[]> {
+  list(query: EffectQuery = {}, background = false): Observable<EffectClip[]> {
     let params = new HttpParams();
     if (query.category) params = params.set('category', query.category);
     if (query.kind) params = params.set('kind', query.kind);
     if (query.q?.trim()) params = params.set('q', query.q.trim());
     if (query.favorites) params = params.set('favorites', 'true');
-    return this.unwrap(this.http.get<ApiResponse<EffectClip[]>>(`${this.base}/api/effects`, { params }));
+    return this.unwrap(
+      this.http.get<ApiResponse<EffectClip[]>>(`${this.base}/api/effects`, {
+        params,
+        context: background ? silentHttpContext() : undefined,
+      }),
+    );
   }
 
   upload(body: EffectUpload, onProgress?: (percent: number) => void): Observable<EffectClip> {

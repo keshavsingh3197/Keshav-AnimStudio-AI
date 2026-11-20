@@ -587,6 +587,169 @@ public sealed class ScheduledPostThumbnailAndNavTests
         Assert.False(string.IsNullOrWhiteSpace(published.QueueItemId));
     }
 
+    [Fact]
+    public async Task HinduFestival_detects_cross_day_date_mismatch_blocks_upload_and_fixes_to_canonical_date()
+    {
+        var ct = CancellationToken.None;
+        const string userId = "u-fest-mismatch";
+        var repo = new FakeAutomationRepository();
+        var connRepo = new FakeYouTubeConnectionRepository();
+        var queueRepo = new FakePublishQueueRepository();
+        var renderRepo = new FakeRenderJobRepository();
+        var projectRepo = new FakeProjectRepository();
+        var store = new InMemoryObjectStore();
+
+        EcosystemSignalsSnapshot SignalsFor(string dKey) => new(
+            DateKey: dKey,
+            Location: "New Delhi, India",
+            Panchang: new EcosystemPanchangSignal(
+                DateKey: dKey,
+                Location: "New Delhi, India",
+                Tithi: "Shukla Dashami",
+                TithiEndTime: "Until 07:15 AM",
+                Nakshatra: "Purva Bhadrapada",
+                NakshatraEndTime: "Until 04:00 PM",
+                Yoga: "Vajra",
+                Karana: "Gara",
+                Vaara: "Shukravara (Friday)",
+                Paksha: "Shukla Paksha",
+                MonthPurnimanta: "Kartika",
+                VikramSamvat: "2083",
+                Sunrise: "06:48 AM",
+                Sunset: "05:25 PM",
+                AbhijitMuhurat: "11:45 AM - 12:28 PM",
+                BrahmaMuhurat: "05:05 AM - 05:53 AM",
+                AmritKaal: "07:30 AM - 09:05 AM",
+                RahuKaal: "10:45 AM - 12:06 PM",
+                DailySanskritSutra: "सत्यमेव जयते",
+                DailySutraMeaning: "Truth alone triumphs",
+                NextTithi: "Shukla Ekadashi",
+                NextNakshatra: "Uttara Bhadrapada"),
+            UpcomingFestivals:
+            [
+                new EcosystemFestivalSignal(
+                    "dyn-devutthana", "देवउठनी एकादशी", "Devutthana Ekadashi", "2026-11-20",
+                    "Kartika Shukla Ekadashi", "Kartika", "Awakening of Lord Vishnu after Chaturmas.",
+                    "Evening Tulsi puja and Vishnu Sahasranama.", "Ekadashi Vrat", true, "Major"),
+                new EcosystemFestivalSignal(
+                    "dyn-tulsi-vivah", "तुलसी विवाह", "Tulsi Vivah", "2026-11-21",
+                    "Kartika Shukla Dwadashi", "Kartika", "Sacred ceremonial union of Tulsi and Shaligram.",
+                    "Decorate Tulsi courtyard with sugarcane.", "Dwadashi Parana", true, "Major")
+            ],
+            DailyKatha: null,
+            HistoricalIncidents: [],
+            Competitions: [],
+            FunnelCampaigns: [],
+            Warnings: [],
+            FetchedAtUtc: DateTimeOffset.UtcNow);
+
+        using var harness = BuildHarness(
+            repo, connRepo, queueRepo, renderRepo, projectRepo, store,
+            signalsClient: new DateAwareSignalsClient(SignalsFor));
+        await SeedChannelAndRenderAsync(harness.Provider, userId, "UC5234567890123456789012", "proj-5", "job-5", store, renderRepo);
+
+        var festRule = new AutomationRule
+        {
+            Id = "rule-fest",
+            UserId = userId,
+            Name = "Festivals",
+            SourceType = AutomationSourceType.HinduFestival,
+            FestivalLeadDays = 1,
+            TargetChannelId = "UC5234567890123456789012",
+            Language = "hi",
+            PreferredPublishTime = "08:00",
+            TimeZoneId = "Asia/Kolkata"
+        };
+        await repo.UpsertRuleAsync(festRule, ct);
+
+        // Stale Tulsi Vivah card stamped with 2026-11-20 (from pre-fix lead day handling)
+        var brokenFestPost = new AutomationPost
+        {
+            Id = "ap_tulsi_wrong_date",
+            UserId = userId,
+            RuleId = "rule-fest",
+            RuleName = "Festivals",
+            SourceType = AutomationSourceType.HinduFestival,
+            DateKey = "2026-11-20",
+            Fingerprint = "2026-11-20:rule-fest:festival:2026-11-21:dyn-tulsi-vivah",
+            SourceItemKey = "festival:2026-11-21:dyn-tulsi-vivah",
+            SourceTitle = "तुलसी विवाह (Tulsi Vivah)",
+            Title = "2026-11-21 तुलसी विवाह | व्रत विधि • Tulsi Vivah",
+            HeaderBannerText = "FESTIVAL & VRAT SPECIAL • 2026-11-20",
+            Script = "[सूत्रधार]: 2026-11-21 को कार्तिक शुक्ल द्वादशी पर तुलसी विवाह है।",
+            Description = "दिनांक: 2026-11-21",
+            Tags = ["Tulsi Vivah"],
+            CategoryId = "22",
+            Privacy = "public",
+            TargetChannelId = "UC5234567890123456789012",
+            AttachedRenderJobId = "job-5",
+            Status = AutomationPostStatus.Approved,
+            ScheduledAtUtc = DateTime.UtcNow.AddHours(2),
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+        await repo.UpsertPostAsync(brokenFestPost, ct);
+
+        var svc = harness.Provider.GetRequiredService<EcosystemAutomationService>();
+
+        // 1. Overview immediately detects 2026-11-20 vs 2026-11-21 festival mismatch
+        var overview = await svc.GetOverviewAsync(userId, "2026-11-20", ct);
+        var loaded = Assert.Single(overview.Posts);
+        Assert.Equal(AutomationFactVerifier.StatusMismatch, loaded.VerificationStatus);
+        Assert.Contains("2026-11-21", loaded.VerificationSummary ?? string.Empty);
+
+        // 2. Attempting to publish the mismatched festival card is blocked cleanly
+        var ex = await Assert.ThrowsAsync<EditingException>(
+            () => svc.ApproveAndPublishAsync(userId, brokenFestPost.Id, publishNow: true, scheduledAtUtc: null, ct));
+        Assert.Equal("fact-verification-mismatch", ex.Code);
+
+        // 3. Re-Verify & Fix moves the Tulsi Vivah card to its canonical 2026-11-21 date & banner
+        var fixedPost = await svc.ReverifyAndFixPostAsync(userId, brokenFestPost.Id, ct);
+        Assert.Equal("2026-11-21", fixedPost.DateKey);
+        Assert.Contains("2026-11-21", fixedPost.HeaderBannerText ?? string.Empty);
+        Assert.Equal(AutomationFactVerifier.StatusVerified, fixedPost.VerificationStatus);
+
+        // 4. Fresh Prepare with FestivalLeadDays=1 creates Devutthana on 2026-11-20 and Tulsi Vivah on 2026-11-21 separately
+        var panchangRule = new AutomationRule
+        {
+            Id = "rule-panchang",
+            UserId = userId,
+            Name = "Daily Panchang",
+            SourceType = AutomationSourceType.HinduPanchang,
+            TargetChannelId = "UC5234567890123456789012",
+            Language = "hi",
+            PreferredPublishTime = "06:30",
+            TimeZoneId = "Asia/Kolkata"
+        };
+        await repo.UpsertRuleAsync(panchangRule, ct);
+
+        var prep = await svc.PrepareForDateAsync(userId, "2026-11-20", ruleId: null, forceRegenerate: true, ct);
+        var devutthana = prep.Posts.FirstOrDefault(p => p.SourceTitle.Contains("Devutthana", StringComparison.OrdinalIgnoreCase));
+        var tulsi = prep.Posts.FirstOrDefault(p => p.SourceTitle.Contains("Tulsi Vivah", StringComparison.OrdinalIgnoreCase));
+        var panchang = prep.Posts.FirstOrDefault(p => p.SourceType == AutomationSourceType.HinduPanchang);
+
+        Assert.NotNull(devutthana);
+        Assert.Equal("2026-11-20", devutthana!.DateKey);
+        Assert.Contains("2026-11-20", devutthana.HeaderBannerText ?? string.Empty);
+        Assert.Equal(AutomationFactVerifier.StatusVerified, devutthana.VerificationStatus);
+
+        Assert.NotNull(tulsi);
+        Assert.Equal("2026-11-21", tulsi!.DateKey);
+        Assert.Contains("2026-11-21", tulsi.HeaderBannerText ?? string.Empty);
+        Assert.Equal(AutomationFactVerifier.StatusVerified, tulsi.VerificationStatus);
+
+        Assert.NotNull(panchang);
+        Assert.Contains("Shukla Dashami", panchang!.Script);
+        Assert.Contains("Shukla Ekadashi", panchang.Script);
+        Assert.Contains("Until 07:15 AM", panchang.Script);
+    }
+
+    private sealed class DateAwareSignalsClient(Func<string, EcosystemSignalsSnapshot> factory) : IEcosystemSignalsClient
+    {
+        public Task<EcosystemSignalsSnapshot> FetchAsync(string dateKey, string? location = null, string? panchangOverrideUrl = null, string? socialOverrideUrl = null, string? pratiyogitaOverrideUrl = null, CancellationToken ct = default) =>
+            Task.FromResult(factory(dateKey));
+    }
+
     private static HttpResponseMessage JsonOk(object payload) =>
         new(HttpStatusCode.OK)
         {

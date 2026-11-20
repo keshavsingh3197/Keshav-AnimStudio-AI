@@ -75,7 +75,10 @@
           </div>
         </div>
       } @else if (c.analyticsError) {
-        <div class="notice warn" role="status">{{ c.analyticsError }} The public numbers below are still current.</div>
+        <div class="notice warn" role="status">
+          {{ c.analyticsError }} The public numbers below are still current.
+          @if (c.canRefresh) { <strong>Click Refresh numbers above to retry Analytics now.</strong> }
+        </div>
       }
 
       @if (c.insights; as i) {
@@ -423,7 +426,8 @@
                     </div>
                     <div class="ca-pick-actions">
                       <button type="button" class="ca-ghost" (click)="openVideo(pv)">How it did day by day</button>
-                      <a [href]="pv.url" target="_blank" rel="noopener noreferrer" class="ca-ghost">Open on YouTube ↗</a>
+                      <a [href]="'https://studio.youtube.com/video/' + pv.videoId + '/editor'" target="_blank" rel="noopener noreferrer" class="ca-ghost" title="Open safely in YouTube Studio (recommended — avoids self-watch invalid views)">Studio (Safe) ↗</a>
+                      <a [href]="pv.url" target="_blank" rel="noopener noreferrer" class="ca-ghost" title="Public share URL — avoid rewatching your own uploads from this same Google account, device, or Wi-Fi">Public Link ↗</a>
                       <button type="button" class="ca-ghost" (click)="findInTable(pv)">Show in table</button>
                       <button type="button" class="ca-ghost" (click)="followUp(pv)">Make a Part 2</button>
                       <button type="button" class="ca-ghost" (click)="pickedId.set(null)">Close</button>

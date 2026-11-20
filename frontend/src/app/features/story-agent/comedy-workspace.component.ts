@@ -170,7 +170,7 @@ export class ComedyWorkspaceComponent {
   });
 
   constructor() {
-    this.effects.list().subscribe({
+    this.effects.list({}, true).subscribe({
       next: (list) => {
         const sorted = [...list].sort((a, b) => Number(b.category === 'Reaction') - Number(a.category === 'Reaction'));
         this.memeLibrary.set(sorted);
@@ -189,7 +189,7 @@ export class ComedyWorkspaceComponent {
       if (key === this.lastAuthKey) return;
       this.lastAuthKey = key;
       if (authed) {
-        void this.loadWorkspaceData(false);
+        void this.loadWorkspaceData(true);
       } else {
         this.overview.set(null);
         this.songs.set([]);
@@ -217,9 +217,9 @@ export class ComedyWorkspaceComponent {
       if (!this.selectedChannelId() && ov.connectedChannels.length > 0) {
         this.pickDefaultChannelForTrack(this.audienceTrack(), ov.connectedChannels);
       }
-      if (!background) {
+      if (this.songs().length === 0 || !background) {
         try {
-          const songRes = await firstValueFrom(this.songsApi.list());
+          const songRes = await firstValueFrom(this.songsApi.list(background));
           this.songs.set(songRes.songs ?? []);
         } catch {
           /* songs list optional */
@@ -292,11 +292,18 @@ export class ComedyWorkspaceComponent {
       this.comedyStyle.set('GlobalSlapstick');
       this.speakerAName.set('Woody Buddy');
       this.speakerBName.set('Cuppy Mug');
-      this.title.set('Sneaky Doorway Trophy Heist 😂 | #Shorts');
+      this.title.set('Midnight Trophy Heist 😂 | #Shorts');
       this.material.set(
-        'Woody Buddy tip-toes past a glowing doorway frame to snatch a golden trophy, but Cuppy Mascot swaps the door with a bouncy spring wall into a sky-bridge obstacle twist!',
+        '[SCENE]: bedroom | night | playful\n' +
+        '[Woody Buddy]: (sleeping) Zzz... sneaking out for the golden trophy in five minutes...\n' +
+        '[Cuppy Mug]: (angry, pointing) Wake up! Why are your shoes already by the door?!\n' +
+        '[Woody Buddy]: (waking up, surprised) Whoa! Caught red-handed before I even left the bed!\n' +
+        '[SCENE]: doorway set | day | slapstick\n' +
+        '[Woody Buddy]: (walking) Okay okay, tip-toeing silently through the hallway now...\n' +
+        '[MEME]: brain_buffering | LOOK BEHIND THE DOOR!\n' +
+        '[Cuppy Mug]: (laughing) Spoiler alert: both doors open straight onto the bouncy sky bridge!',
       );
-      this.notice.set('Applied International 3D Slapstick Loop preset (English Global SEO).');
+      this.notice.set('Applied International 3D Slapstick Loop preset (multi-scene action blocking).');
     } else if (track === 'tank') {
       this.selectAudienceTrack('international');
       this.comedyStyle.set('TankSeries');
@@ -304,7 +311,12 @@ export class ComedyWorkspaceComponent {
       this.speakerBName.set('Blitz Tank');
       this.title.set('KV-Mini vs Mega Cannon Trap | Cartoon Tank Series | EP 01');
       this.material.set(
-        'Two googly-eyed cartoon tanks brag across the canyon arena before a colossal super-cannon misfires a single squeaky rubber duck!',
+        '[SCENE]: tank arena | sunset | dramatic\n' +
+        '[KV-Tiny Tank]: (proud) Step aside tiny tank — one blast from this mega cannon ends the whole episode!\n' +
+        '[Blitz Tank]: (surprised) Bro wait, did you check what ammo you actually loaded in that barrel?!\n' +
+        '[MEME]: shocked_face | WRONG AMMO LOADED!\n' +
+        '[KV-Tiny Tank]: (confused) Wait... why did my super cannon shoot a bouncy rubber duck?!\n' +
+        '[Blitz Tank]: (laughing) Victory by rubber ducky — see you next episode!',
       );
       this.notice.set('Applied International Cartoon Tank Series (| EP XX) preset.');
     } else {
@@ -312,11 +324,19 @@ export class ComedyWorkspaceComponent {
       this.comedyStyle.set('DesiKhadiSitcom');
       this.speakerAName.set('पप्पू भैया');
       this.speakerBName.set('बबलू यार');
-      this.title.set('टपरी पर दोस्ती और उधार कांड 😂 | EP 01');
+      this.title.set('आधी रात का रबड़ी कांड 😂 | EP 01');
       this.material.set(
-        'पप्पू भैया पूरे कॉन्फिडेंस के साथ बबलू यार को चाय-समोसे की पार्टी देने टपरी पर ले जाते हैं, बबलू उन्हें खड़ी भाषा में चिढ़ाता है, बीच में उधार वाली पुरानी डायरी खुल जाती है और दोनों में से किसी के पास पैसे नहीं निकलते!',
+        '[SCENE]: bedroom | night | playful\n' +
+        '[पप्पू भैया]: (sleeping) ख्र्र्र... बस पाँच मिनट... रसोई से गरम रबड़ी की खुशबू आ रही है...\n' +
+        '[बबलू यार]: (waking up, confused) अरे पप्पू! आधी रात को ये रसोई में कड़ाही कौन खड़का रहा है?!\n' +
+        '[SCENE]: kitchen | night | mischievous\n' +
+        '[पप्पू भैया]: (walking, eating) आहाहा! आज मलाईदार रबड़ी अकेले साफ कर दूँगा...\n' +
+        '[MEME]: shocked_face | रबड़ी चोर लाइव पकड़ा गया!\n' +
+        '[बबलू यार]: (angry, pointing) पकड़ लिया बे! सारी रबड़ी अकेले चट कर गया नालायक?!\n' +
+        '[पप्पू भैया]: (shocked) अरे नहीं यार! मैं तो बस चेक कर रहा था कि कड़ाही गरम है या ठंडी!\n' +
+        '[बबलू यार]: (facepalm, laughing) अबे पूरी रबड़ी चाट के टेम्परेचर चेक होता है क्या?!',
       );
-      this.notice.set('Applied Desi Khadi-Bhasha MJO-Style Sitcom preset (Tu-Tadak + Auto Memes).');
+      this.notice.set('Applied Desi MJO-Style Multi-Scene Action Sitcom preset (Bedroom -> Kitchen + SFX).');
     }
     const autoPick = this.memeLibrary().slice(0, 6).map((c) => c.name);
     if (autoPick.length) this.selectedMemeNames.set(autoPick);
@@ -675,10 +695,15 @@ export class ComedyWorkspaceComponent {
   policyReport(post: AutomationPost): PolicyCheckResult {
     const channel = this.connectedChannels().find((c) => c.channelId === post.targetChannelId) ?? this.selectedChannel();
     const tagsLen = (post.tags ?? []).join(',').length;
+    const hashtagsCount = (post.description.match(/#[^\s#]+/g) ?? []).length;
+    const hasSpamBait = /(sub4sub|sub 4 sub|sub for sub|subscribe back|watch4watch|buy views|free views|bit\.ly\/|tinyurl\.com\/)/i
+      .test(`${post.title} ${post.description}`);
     const confirmed = !!this.policyConfirmedByPost()[post.id];
     const checks: { label: string; ok: boolean; hint?: string }[] = [
       { label: `Title <= 100 chars (${post.title.length}/100)`, ok: post.title.trim().length >= 3 && post.title.trim().length <= 100 },
       { label: 'Original description & hub link present', ok: post.description.trim().length >= 20, hint: 'Click Auto-Fill SEO' },
+      { label: `Hashtag hygiene <= 15 (${hashtagsCount}/15)`, ok: hashtagsCount <= 15, hint: 'Keep 3–8 focused hashtags; >15 triggers YouTube spam rejection' },
+      { label: 'Zero engagement-bait / URL-shortener spam', ok: !hasSpamBait, hint: 'Remove sub4sub, view-exchange bait, or bit.ly/tinyurl links' },
       { label: `YouTube tags limit <= 500 chars (${tagsLen}/500)`, ok: tagsLen <= 500 },
       { label: 'Non-Made-For-Kids classification checked', ok: !post.madeForKids, hint: 'Roast/satire comedy should stay general audience (not Made for Kids)' },
       { label: 'Rendered MP4 attached', ok: !!post.attachedRenderJobId || !!post.attachedHandoffId, hint: 'Click Generate 3D Comedy Video above' },
@@ -687,7 +712,11 @@ export class ComedyWorkspaceComponent {
         ok: !!channel && !channel.needsReconnect,
         hint: channel?.needsReconnect ? 'Reconnect channel on /youtube' : 'Connect channel on /youtube',
       },
-      { label: 'Creator originality & Ad/YouTube policy confirmed', ok: confirmed, hint: 'Tick confirmation checkbox before upload' },
+      {
+        label: 'Originality, Ad Policy & Invalid-Traffic (no self-watch on own account/device/Wi-Fi) confirmed',
+        ok: confirmed,
+        hint: 'Tick confirmation checkbox — review via local MP4/Studio rather than public rewatch',
+      },
     ];
     return {
       readyToPublish: checks.every((c) => c.ok),

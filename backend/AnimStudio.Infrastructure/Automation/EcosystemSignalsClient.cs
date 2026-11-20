@@ -138,7 +138,9 @@ public sealed class EcosystemSignalsClient(
                 SourceUrl: "https://panchang.keshavsingh.in",
                 VerificationNote: panchangMatches
                     ? $"Calculated for exact date {effectiveDate} ({pr.Location ?? effectiveLoc})."
-                    : $"Panchang date mismatch: returned {resolvedPDate}, expected {effectiveDate}.");
+                    : $"Panchang date mismatch: returned {resolvedPDate}, expected {effectiveDate}.",
+                NextTithi: pr.Extended?.NextTithi,
+                NextNakshatra: pr.Extended?.NextNakshatra);
         }
 
         var festivals = (festivalsTask.Result ?? [])
@@ -484,7 +486,12 @@ public sealed class EcosystemSignalsClient(
         string? AmritKaal,
         string? RahuKaal,
         string? DailySanskritSutra,
-        string? DailySutraMeaning);
+        string? DailySutraMeaning,
+        PanchangExtendedPayload? Extended);
+
+    private sealed record PanchangExtendedPayload(
+        string? NextTithi,
+        string? NextNakshatra);
 
     private sealed record FestivalPayload(
         string? Id,

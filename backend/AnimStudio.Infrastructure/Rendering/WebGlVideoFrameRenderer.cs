@@ -91,6 +91,7 @@ internal static class WebGlVideoFrameRenderer
             rightCharacter = dialoguePlan.RightCharacter,
             supportingCast = dialoguePlan.Supporting,
             turns = dialoguePlan.Turns,
+            memeCues = dialoguePlan.Memes,
             sceneRuns = runs.Select(r => new
             {
                 startSeconds = r.Start,

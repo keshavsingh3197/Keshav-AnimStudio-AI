@@ -4,9 +4,9 @@ import { Subject, catchError, debounceTime, forkJoin, map, of, switchMap } from 
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
-  AUTO_SHORT_STYLES, AutoShortLanguage, AutoShortLayout, AutoShortOrder, AutoShortPackagingBody, AutoShortPartLabel,
-  AutoShortStyle, AutoShortTextMode, AutoShortTopMode, AutoShortsBody, AutoShortsPreview, AutoShortsResult, Clip, ClipFit,
-  ExportQuality,
+  AUTO_SHORT_ATMOSPHERES, AUTO_SHORT_STYLES, AutoShortAtmosphere, AutoShortLanguage, AutoShortLayout,
+  AutoShortOrder, AutoShortPackagingBody, AutoShortPartLabel, AutoShortStyle, AutoShortTextMode,
+  AutoShortTopMode, AutoShortsBody, AutoShortsPreview, AutoShortsResult, Clip, ClipFit, ExportQuality,
 } from '../../../../core/models/api.models';
 import { EffectClip } from '../../../../core/models/effects.models';
 import { EffectsService } from '../../../../core/services/effects.service';
@@ -29,7 +29,8 @@ const FORMATS: readonly ShortFormat[] = [
 ];
 
 const STYLE_HINTS: Record<AutoShortStyle, { icon: string; hint: string }> = {
-  Auto: { icon: '✨', hint: 'Suits your length and picks' },
+  Auto: { icon: '✨', hint: 'Balanced mix (Divine & Cinematic)' },
+  Divine: { icon: '🪔', hint: 'Golden devotional sweeps, pure sacred FX & flowing cuts' },
   Mixed: { icon: '🎲', hint: 'A different style per short' },
   Viral: { icon: '🚀', hint: 'Whip cuts, punch-ins, yellow captions' },
   DirectResponse: { icon: '🌌', hint: 'Cosmic glass pills, 1-word pop, Order Now CTA' },
@@ -60,8 +61,9 @@ interface StylePreview {
 }
 
 const STYLE_PREVIEWS: Record<AutoShortStyle, StylePreview> = {
-  Auto: { cut: 1.2, kind: 'slide', grade: 'none', shots: 'Chosen for your length and picks', transitions: 'From the chosen styles', moves: 'From the chosen styles', look: 'From the chosen styles', text: 'Hook on top, captions under each shot' },
-  Mixed: { cut: 1.2, kind: 'fade', grade: 'none', shots: 'Each short gets a different style', transitions: 'Varies per short', moves: 'Varies per short', look: 'Varies per short', text: 'Hook on top, captions under each shot' },
+  Auto: { cut: 1.3, kind: 'fade', grade: 'saturate(1.08)', shots: 'Chosen for your length & picks (biases Divine & Cinematic)', transitions: 'Varied smooth cuts & dissolves', moves: 'Alternating camera motion on every picture', look: 'Auto colour + sacred FX when Divine is drawn', text: 'Optional hook & captions' },
+  Divine: { cut: 1.4, kind: 'fade', grade: 'sepia(0.18) saturate(1.18) brightness(1.04)', shots: '2.6-4.6s, captivating Bhakti / devotional music flow', transitions: 'Dissolves, Radial sweep, Smooth glides, Circle open, Horz open, Diagonal', moves: 'Alternating push-in, pan, pull-out, drift & breathe (every still feels alive)', look: 'Warm golden aura + soft focus vignette · Pure Flowers/Petals/Sparkles/Cosmic (Zero Hearts)', text: 'Clean ivory-gold captions (only if lines are added)' },
+  Mixed: { cut: 1.2, kind: 'fade', grade: 'none', shots: 'Each short gets a different style', transitions: 'Varies per short', moves: 'Varies per short', look: 'Varies per short', text: 'Optional hook & captions' },
   Viral: { cut: 0.7, kind: 'up', grade: 'saturate(1.4) contrast(1.05)', bold: true, shots: '1.4-2.8s, fast like creator Shorts', transitions: 'Whip up / down, zoom-through, slide', moves: 'Punch-in and punch-out zooms, handheld', look: 'Vivid colour', text: 'White-box hook, big YELLOW words per shot' },
   DirectResponse: { cut: 0.85, kind: 'slide', grade: 'contrast(1.12) saturate(1.25)', bold: true, shots: '1.8-3.5s, high-retention ad pacing', transitions: 'Slide & push entrances, zoom-through', moves: 'Subtle slow push-in (Ken Burns) & punch zooms', look: 'Cosmic starry FX, neon glass cards', text: 'Glassmorphic hook, [accent] highlights & Order Now CTA' },
   Explainer: { cut: 1.1, kind: 'slide', grade: 'contrast(1.08) saturate(1.15)', shots: '2.0-4.0s, clear showcase cuts', transitions: 'Clean horizontal & vertical slides', moves: 'Steady slow push-in and pan', look: 'Crisp high-clarity grade', text: 'Structured pill cards & kinetic word pop' },
@@ -99,11 +101,13 @@ interface Preset {
 
 /** One click to a sensible batch; every setting stays editable afterwards. */
 const PRESETS: readonly Preset[] = [
+  { id: 'divine-30', icon: '🪔', label: 'Divine 30s', hint: 'Devotional 30s shorts with sweeping picture motion, radial/dissolve cuts & pure sacred FX', layout: 'Spread', seconds: 30, count: 0, style: 'Divine', order: 'VideosFirst' },
+  { id: 'divine-60', icon: '🛕', label: 'Divine 60s', hint: 'Devotional 60s YouTube Shorts with smooth image choreography & sacred overlays', layout: 'Spread', seconds: 60, count: 0, style: 'Divine', order: 'VideosFirst' },
+  { id: 'viral', icon: '🚀', label: 'Viral 30s', hint: 'Videos first, whip cuts, yellow captions', layout: 'Spread', seconds: 30, count: 0, style: 'Viral', order: 'VideosFirst' },
   { id: 'direct-ad', icon: '🌌', label: 'Direct Ad 30s', hint: 'Cosmic glass hook, 1-word pop & CTA in exact order', layout: 'Spread', seconds: 30, count: 0, style: 'DirectResponse', order: 'InOrder' },
   { id: 'teaser', icon: '🔥', label: 'Teasers 15s', hint: 'Five quick-cut 15s hooks', layout: 'FitLength', seconds: 15, count: 5, style: 'Hype', order: 'VideoFirst' },
   { id: 'reels', icon: '⚡', label: 'Reels 30s', hint: 'Exact 30s shorts, picks shared out', layout: 'Spread', seconds: 30, count: 0, style: 'Energetic', order: 'VideosFirst' },
   { id: 'shorts', icon: '▶️', label: 'Shorts 60s', hint: 'Exact 60s shorts, picks shared out', layout: 'Spread', seconds: 60, count: 0, style: 'Auto', order: 'VideosFirst' },
-  { id: 'viral', icon: '🚀', label: 'Viral 30s', hint: 'Videos first, whip cuts, yellow captions', layout: 'Spread', seconds: 30, count: 0, style: 'Viral', order: 'VideosFirst' },
   { id: 'story', icon: '🎬', label: 'Story 90s', hint: 'Exact 90s, longer picture holds', layout: 'Spread', seconds: 90, count: 0, style: 'Cinematic', order: 'VideosFirst', imageSeconds: 7 },
 ];
 
@@ -165,23 +169,44 @@ const LANGUAGES: readonly { id: AutoShortLanguage; label: string; hint: string }
 ];
 
 const FRAMING_MODES: readonly { id: ClipFit; icon: string; label: string; hint: string }[] = [
-  { id: 'BlurredBackdrop', icon: '✨', label: 'Blurred Backdrop (Smart)', hint: 'Same video/photo soft blurred in background (Zero crop)' },
-  { id: 'Cover', icon: '🔍', label: 'Cover (Zoom & Fill)', hint: 'Crops gently to fill edge-to-edge' },
-  { id: 'Contain', icon: '⬛', label: 'Contain (Letterbox/Pillarbox)', hint: 'Full uncropped frame with dark clean bars' },
+  { id: 'BlurredBackdrop', icon: '✨', label: 'Blurred Backdrop', hint: 'Soft blur behind full uncropped photo/video' },
+  { id: 'Cover', icon: '🔍', label: 'Fill & Crop', hint: 'Zooms gently to fill edge-to-edge' },
+  { id: 'Contain', icon: '⬛', label: 'Full Frame', hint: 'Uncropped inside frame with dark bars' },
+];
+
+const ATMOSPHERE_OPTIONS: readonly { id: AutoShortAtmosphere; label: string; hint: string }[] = [
+  { id: 'Auto', label: '✨ Auto (Sacred FX for Divine)', hint: 'Automatically applies pure Flowers, Petals, Sparkles or Cosmic in Divine mode — never Hearts or inappropriate visuals' },
+  { id: 'SacredMix', label: '🪔 Pure Sacred Mix (Rotate FX)', hint: 'Cycles Flower Shower, Rose Petals, Golden Sparkles & Cosmic Starlight across shorts' },
+  { id: 'Flowers', label: '🌼 Pushpa / Flower Shower', hint: 'Golden marigold & sacred floral shower over every short' },
+  { id: 'Petals', label: '🌸 Soft Rose Petals', hint: 'Gentle drifting petals for serene darshan & bhakti clips' },
+  { id: 'Sparkles', label: '✨ Golden Sparkles', hint: 'Soft divine golden sparkles shimmering gently' },
+  { id: 'Cosmic', label: '🌌 Cosmic Starlight', hint: 'Starry celestial aura for spiritual & ad stories' },
+  { id: 'None', label: '🚫 Clean (No Particles)', hint: 'Pure visuals without falling particles' },
 ];
 
 const TRANSITION_OVERRIDES: readonly { id: string | null; label: string }[] = [
-  { id: null, label: 'Auto (Match chosen style)' },
+  { id: null, label: '✨ Auto Variety (Match style — never repeats)' },
   { id: 'Dissolve', label: 'Dissolve / Crossfade' },
-  { id: 'Fade', label: 'Fade to Black' },
+  { id: 'Radial', label: 'Radial Light Sweep' },
+  { id: 'SmoothLeft', label: 'Smooth Glide Left' },
+  { id: 'SmoothRight', label: 'Smooth Glide Right' },
+  { id: 'SmoothUp', label: 'Smooth Glide Up' },
+  { id: 'SmoothDown', label: 'Smooth Glide Down' },
+  { id: 'CircleOpen', label: 'Iris Circle Open' },
+  { id: 'HorzOpen', label: 'Curtain Split Open' },
+  { id: 'VertOpen', label: 'Vertical Gate Open' },
+  { id: 'DiagonalWipe', label: 'Diagonal Light Wipe' },
+  { id: 'Blur', label: 'Dreamy Motion Blur' },
+  { id: 'ZoomIn', label: 'Zoom Through' },
+  { id: 'Fade', label: 'Soft Crossfade' },
+  { id: 'FadeBlack', label: 'Dip to Black' },
+  { id: 'FadeWhite', label: 'Soft Light Flash' },
   { id: 'SlideLeft', label: 'Slide Left' },
   { id: 'SlideRight', label: 'Slide Right' },
-  { id: 'SlideUp', label: 'Slide Up' },
-  { id: 'SlideDown', label: 'Slide Down' },
+  { id: 'SlideUp', label: 'Whip Up' },
+  { id: 'SlideDown', label: 'Whip Down' },
   { id: 'WipeLeft', label: 'Wipe Left' },
   { id: 'WipeRight', label: 'Wipe Right' },
-  { id: 'ZoomIn', label: 'Zoom In' },
-  { id: 'CircleOpen', label: 'Circle Open' },
 ];
 
 const PART_LABELS: readonly { id: AutoShortPartLabel; label: string }[] = [
@@ -229,6 +254,7 @@ export class AutoShortsComponent {
 
   readonly formats = FORMATS;
   readonly framingModes = FRAMING_MODES;
+  readonly atmosphereOptions = ATMOSPHERE_OPTIONS;
   readonly transitionOverrides = TRANSITION_OVERRIDES;
   readonly styles = AUTO_SHORT_STYLES;
   readonly styleHints = STYLE_HINTS;
@@ -311,7 +337,7 @@ export class AutoShortsComponent {
   readonly maxClipSeconds = signal<number | null>(null);
   readonly formatId = signal('9:16');
   readonly format = computed(() => FORMATS.find((f) => f.id === this.formatId()) ?? FORMATS[0]);
-  readonly style = signal<AutoShortStyle>('Auto');
+  readonly style = signal<AutoShortStyle>('Divine');
   readonly stylePreview = computed(() => STYLE_PREVIEWS[this.style()]);
   /** The latest finished short in each style: this project's first, then any project's. */
   readonly styleExamples = signal<ReadonlyMap<string, StyleExample>>(new Map());
@@ -327,20 +353,24 @@ export class AutoShortsComponent {
   // --- whole clips and packaging ---
   /** Videos play start to finish - never trimmed, split or reused for another stretch. */
   readonly keepWhole = signal(true);
-  /** 'none', 'auto' or a design id. */
-  readonly design = signal('auto');
-  readonly top = signal<AutoShortTopMode>('Auto');
+  /** 'none', 'auto' or a design id. Default 'none' keeps Divine / full-bleed visuals uncluttered. */
+  readonly design = signal('none');
+  readonly top = signal<AutoShortTopMode>('None');
   readonly topHint = computed(() => TOP_MODES.find((t) => t.id === this.top())?.hint ?? '');
   readonly language = signal<AutoShortLanguage>('English');
   readonly languageHint = computed(() => LANGUAGES.find((l) => l.id === this.language())?.hint ?? '');
   /** Each cut is rendered once per language. */
   readonly languageVersions = computed(() => (this.language() === 'Both' ? 2 : 1));
   readonly title = signal('');
-  readonly numberParts = signal(true);
+  readonly numberParts = signal(false);
   readonly partLabel = signal<AutoShortPartLabel>('Number');
   readonly countDown = signal(false);
-  readonly cta = signal(true);
+  readonly cta = signal(false);
   readonly ctaText = signal('');
+  readonly showPackaging = signal(false);
+  readonly hasPackagingActive = computed(() =>
+    this.design() !== 'none' || this.top() !== 'None' || this.numberParts() || this.cta()
+    || this.title().trim().length > 0 || this.lines().length > 0 || this.memeIds().size > 0);
   readonly handle = signal('');
   readonly handleError = computed(() =>
     this.handle().trim() && !HANDLE_PATTERN.test(this.handle().trim())
@@ -383,6 +413,9 @@ export class AutoShortsComponent {
   readonly transitionOverride = signal<string | null>(null);
   readonly transitionSeconds = signal<number | null>(null);
   readonly motion = signal(true);
+  readonly atmosphere = signal<AutoShortAtmosphere>('Auto');
+  readonly atmosphereHint = computed(() =>
+    ATMOSPHERE_OPTIONS.find((a) => a.id === this.atmosphere())?.hint ?? '');
   readonly keepClipAudio = signal(true);
   readonly watermark = signal(true);
   readonly outro = signal(false);
@@ -444,6 +477,7 @@ export class AutoShortsComponent {
       transitionOverride: this.transitions() ? this.transitionOverride() : null,
       transitionSeconds: this.transitions() ? this.transitionSeconds() : null,
       motion: this.motion(),
+      atmosphere: this.atmosphere(),
       keepClipAudio: this.keepClipAudio(),
       exportName: this.name().trim() || null,
       width: f.width,
@@ -734,12 +768,47 @@ export class AutoShortsComponent {
     else this.autoImageDuration.set(true);
     this.motion.set(true);
     this.transitions.set(true);
+    this.transitionOverride.set(null);
+    this.transitionSeconds.set(null);
+
+    if (p.style === 'DirectResponse') {
+      this.atmosphere.set('Cosmic');
+      this.design.set('cosmic-glass');
+      this.top.set(this.lines().length > 0 ? 'Hook' : 'None');
+      this.numberParts.set(false);
+      this.cta.set(true);
+      this.showPackaging.set(true);
+    } else {
+      this.atmosphere.set('Auto');
+      this.design.set('none');
+      this.top.set('None');
+      this.numberParts.set(false);
+      this.countDown.set(false);
+      this.cta.set(false);
+    }
     if (this.lines().length > 0 && this.textMode() === 'None') this.textMode.set('Hook');
   }
 
   /**
-   * Settings that suit the picks: shared out, exact length, videos first, and a length the
-   * picks can fill - 60s when they run that long, else 30s (90s for a 16:9 video).
+   * One-click pure devotional / Bhakti setup: sweeping motion on every still photo, varied smooth
+   * junctions, warm golden light, and family-safe Flowers/Petals/Sparkles/Cosmic FX (never Hearts).
+   */
+  divineSetup(): void {
+    this.keepWhole.set(true);
+    this.autoImageDuration.set(true);
+    this.setMaxClipSeconds(null);
+    const natural = this.pickedClips().reduce((sum, c) => sum + (this.kindOf(c) === 'video'
+      ? c.durationSeconds ?? 0
+      : 3.6), 0);
+    const seconds = this.formatId() === '16:9' && natural >= 90 ? 90 : natural >= 60 ? 60 : 30;
+    this.applyPreset({ ...PRESETS[0], seconds });
+    this.showPackaging.set(false);
+    this.reshuffle();
+  }
+
+  /**
+   * Settings that suit the picks: defaults to pure Divine devotional flow with alternating
+   * camera motion, rich smooth transitions, and natural duration (30s / 60s / 90s).
    */
   autoSetup(): void {
     this.autoImageDuration.set(true);
@@ -748,7 +817,7 @@ export class AutoShortsComponent {
       ? c.durationSeconds ?? 0
       : 4), 0);
     const seconds = this.formatId() === '16:9' && natural >= 90 ? 90 : natural >= 60 ? 60 : 30;
-    this.applyPreset({ ...PRESETS[2], seconds });
+    this.applyPreset({ ...PRESETS[0], seconds });
     this.reshuffle();
   }
 
@@ -820,11 +889,13 @@ export class AutoShortsComponent {
     this.exact.set(false);
     this.order.set(this.state.timelineOrderedAssetIds().length > 0 ? 'InOrder' : 'VideosFirst');
     this.style.set('Energetic');
+    this.atmosphere.set('None');
     this.design.set('auto');
     this.top.set('Poll');
     this.numberParts.set(true);
     this.countDown.set(true);
     this.cta.set(true);
+    this.showPackaging.set(true);
     if ((this.memeOptions() ?? []).length > 0 && this.memeIds().size === 0) this.pickAllMemes(true);
     this.reshuffle();
   }
@@ -881,15 +952,18 @@ export class AutoShortsComponent {
   private readPackaging(): void {
     try {
       const p = JSON.parse(localStorage.getItem(PACKAGING_KEY) ?? '{}') as {
-        handle?: string; design?: string; language?: AutoShortLanguage; top?: AutoShortTopMode; cta?: string;
+        v?: number; handle?: string; design?: string; language?: AutoShortLanguage; top?: AutoShortTopMode; cta?: string;
       };
       if (typeof p.handle === 'string' && HANDLE_PATTERN.test(p.handle)) this.handle.set(p.handle);
-      if (p.design === 'auto' || p.design === 'none' || DESIGNS.some((d) => d.id === p.design)) this.design.set(p.design!);
       const language = LANGUAGES.find((l) => l.id === p.language);
       if (language) this.language.set(language.id);
-      const top = TOP_MODES.find((t) => t.id === p.top);
-      if (top) this.top.set(top.id);
       if (typeof p.cta === 'string') this.ctaText.set(p.cta.slice(0, 80));
+      // Only restore explicit framing bands from v2 prefs so old Auto-Poll defaults don't override Divine mode.
+      if (p.v === 2) {
+        if (p.design === 'auto' || p.design === 'none' || DESIGNS.some((d) => d.id === p.design)) this.design.set(p.design!);
+        const top = TOP_MODES.find((t) => t.id === p.top);
+        if (top) this.top.set(top.id);
+      }
     } catch {
       // Storage blocked or unreadable: the defaults do.
     }
@@ -898,7 +972,7 @@ export class AutoShortsComponent {
   private savePackaging(): void {
     try {
       localStorage.setItem(PACKAGING_KEY, JSON.stringify({
-        handle: this.handle().trim(), design: this.design(), language: this.language(), top: this.top(), cta: this.ctaText().trim(),
+        v: 2, handle: this.handle().trim(), design: this.design(), language: this.language(), top: this.top(), cta: this.ctaText().trim(),
       }));
     } catch {
       // Storage blocked: the choice lasts for this visit only.

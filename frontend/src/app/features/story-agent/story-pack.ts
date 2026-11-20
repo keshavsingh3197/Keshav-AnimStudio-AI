@@ -17,6 +17,7 @@ export const STORY_CAMERA_SPEEDS = ['slow', 'normal', 'fast'] as const;
 export const STORY_TRANSITIONS = [
   'cut', 'fade', 'dissolve', 'slideLeft', 'slideRight', 'slideUp', 'slideDown', 'zoomIn', 'wipeLeft', 'wipeRight',
   'circleOpen', 'circleClose', 'circleCrop', 'fadeBlack', 'fadeWhite', 'blur', 'diagonalWipe',
+  'radial', 'smoothLeft', 'smoothRight', 'smoothUp', 'smoothDown', 'horzOpen', 'vertOpen',
 ] as const;
 
 /** The built-in genres that tell the storyteller's own story (no scripture citations). */

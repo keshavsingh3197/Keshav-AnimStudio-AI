@@ -742,6 +742,7 @@ public sealed record AutoShortsRequest
     [EnumDataType(typeof(SceneTransition))] public SceneTransition? TransitionOverride { get; init; }
     [Range(0.2, 2.0)] public double? TransitionSeconds { get; init; }
     public bool Motion { get; init; } = true;
+    [EnumDataType(typeof(AutoShortAtmosphere))] public AutoShortAtmosphere Atmosphere { get; init; } = AutoShortAtmosphere.Auto;
     public bool KeepClipAudio { get; init; } = true;
 
     [StringLength(180)] public string? ExportName { get; init; }

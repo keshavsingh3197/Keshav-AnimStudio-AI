@@ -366,6 +366,54 @@ public static partial class YouTubeMonetizationPolicyAudit
                 $"Read the full official guidelines: {OfficialPolicyUrl}"
             ]));
 
+        items.Add(new(
+            "verify-invalid-traffic-self-watch",
+            "verify",
+            "Invalid Traffic & Self-Watch Shield",
+            "Do not watch your own public videos/Shorts or click ads from the same account, device, or Wi-Fi",
+            "YouTube & AdSense invalid-traffic systems monitor logged-in Google accounts, browser sessions, devices, and shared IPs. Repeatedly watching, looping, or refreshing your own public uploads to check quality or push views can freeze view counts, trigger AdSense ad-serving limits, or disable monetization.",
+            [
+                "Never rewatch, loop, auto-refresh, or mute-play your own public YouTube videos/Shorts from the same Google account, browser, phone, or Wi-Fi.",
+                "Always review your video inside AnimStudio's local MP4 preview BEFORE uploading, or open YouTube Studio → Editor (studio.youtube.com) — avoid youtube.com/watch self-views.",
+                "Never click any ads on your own videos or websites (keshavsingh.in, panchang, blog), and strictly avoid view/subscriber exchange groups, bots, or VPN loops."
+            ]));
+
+        // 7. Automated Spam Burst & Fake-Engagement / Phishing Phrase Guard
+        var burst24h = MaxUploadsInRollingWindow(videos, TimeSpan.FromHours(24));
+        if (burst24h >= 12)
+        {
+            score -= 12;
+            items.Add(new(
+                "policy-upload-burst",
+                "wrong",
+                "Spam & Upload Cadence",
+                $"{burst24h} uploads published within a single 24-hour window",
+                "Dropping dozens of videos back-to-back within 24 hours triggers YouTube's automated spam throttle and reduces Shorts/Home feed notifications.",
+                [
+                    "Space scheduled uploads evenly across the day (1–3 spaced slots/day works best for notifications and Browse impressions).",
+                    "Focus on higher retention & unique thumbnails rather than rapid bulk dumps."
+                ]));
+        }
+
+        var engagementSpamVideos = videos
+            .Where(v => ContainsBannedEngagementSpam($"{v.Title} {v.Description}"))
+            .ToList();
+        if (engagementSpamVideos.Count > 0)
+        {
+            score -= Math.Min(18, engagementSpamVideos.Count * 6 + 6);
+            items.Add(new(
+                "policy-engagement-spam",
+                "wrong",
+                "Fake Engagement & Link Spam",
+                $"{engagementSpamVideos.Count} video(s) contain banned sub-for-sub, fake-view, or link-shortener spam phrases",
+                "YouTube strictly prohibits sub4sub, view-exchange bait, misleading free-money/hack claims, and disguised URL shorteners under its Spam, Deceptive Practices & Fake Engagement policy.",
+                [
+                    "Remove all sub4sub / follow-back / free-views phrases and URL shorteners (bit.ly, tinyurl) from titles and descriptions immediately.",
+                    "Link directly to clean HTTPS pages you own (such as https://panchang.keshavsingh.in or https://keshavsingh.in)."
+                ],
+                AffectedVideoIds: [.. engagementSpamVideos.Select(v => v.VideoId)]));
+        }
+
         score = Math.Clamp(score, 20, 100);
         var wrongCount = items.Count(i => i.Verdict == "wrong");
         var overallStatus = score >= 82 && wrongCount == 0
@@ -393,6 +441,38 @@ public static partial class YouTubeMonetizationPolicyAudit
         foreach (var item in report.Items)
             b.Append($"- [{item.Verdict.ToUpperInvariant()}] {item.Category}: {item.Title} — {item.Detail}\n");
         return b.ToString().TrimEnd();
+    }
+
+    private static int MaxUploadsInRollingWindow(IReadOnlyList<YouTubePolicyVideoInput> videos, TimeSpan window)
+    {
+        var dates = videos
+            .Where(v => v.PublishedAtUtc is not null)
+            .Select(v => v.PublishedAtUtc!.Value)
+            .OrderBy(d => d)
+            .ToList();
+        var max = 0;
+        var left = 0;
+        for (var right = 0; right < dates.Count; right++)
+        {
+            while (dates[right] - dates[left] > window) left++;
+            var count = right - left + 1;
+            if (count > max) max = count;
+        }
+        return max;
+    }
+
+    private static readonly string[] BannedEngagementSpamTokens =
+    [
+        "sub4sub", "sub 4 sub", "sub for sub", "subscribe back", "subscribe to get back",
+        "watch4watch", "watch 4 watch", "watch for watch", "buy views", "free views",
+        "free subscribers", "bit.ly/", "tinyurl.com/", "shorturl.at/", "mod apk", "unlimited money hack"
+    ];
+
+    private static bool ContainsBannedEngagementSpam(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var lower = text.ToLowerInvariant();
+        return BannedEngagementSpamTokens.Any(t => lower.Contains(t, StringComparison.Ordinal));
     }
 
     private static string NormalizeTemplateStem(string? title)
