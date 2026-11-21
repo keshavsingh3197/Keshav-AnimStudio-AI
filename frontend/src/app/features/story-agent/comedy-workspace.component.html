@@ -66,19 +66,22 @@
               }
             </select>
             @if (selectedChannel(); as sc) {
-              <span class="pill" [class.ok]="!sc.needsReconnect" [class.err]="sc.needsReconnect">
-                {{ sc.needsReconnect ? '⚠ Reconnect on /youtube' : '✓ OAuth Ready' }}
+              <span class="pill" [class.ok]="!sc.needsReconnect && !isSeriousChannelSelected()" [class.err]="sc.needsReconnect" [class.warn]="!sc.needsReconnect && isSeriousChannelSelected()">
+                {{ sc.needsReconnect ? '⚠ Reconnect on /youtube' : isSeriousChannelSelected() ? '⚠ Devotional channel selected — pick comedy/world channel' : '✓ Comedy Channel Ready' }}
               </span>
             }
             <a routerLink="/youtube" class="cw-pill">Manage Channels ↗</a>
           }
         </div>
-        @if (activePostId(); as draftId) {
-          <div class="yt-strip-right">
+        <div class="yt-strip-right">
+          @if (activePostId(); as draftId) {
             <span class="pill cw-info-pill">Editing Draft: {{ draftId }}</span>
             <button type="button" class="secondary small" (click)="startNewEpisode()">+ New Episode</button>
-          </div>
-        }
+          }
+          <button type="button" class="secondary small" (click)="showStudioSection.set(!showStudioSection())">
+            {{ showStudioSection() ? 'Hide 3D Studio ▲' : 'Show 3D Studio ▼' }}
+          </button>
+        </div>
       </div>
     }
   </header>
@@ -90,8 +93,9 @@
     <div class="notice notice-info" role="status">{{ message }}</div>
   }
 
-  <!-- MAIN DESKTOP 2-COLUMN STUDIO WORKSPACE -->
-  <div class="cw-studio-grid">
+  <!-- MAIN DESKTOP 2-COLUMN STUDIO WORKSPACE (COLLAPSIBLE) -->
+  @if (showStudioSection()) {
+    <div class="cw-studio-grid">
     <!-- LEFT COLUMN: TRACK, ENGINE & FORMAT CONTROLS -->
     <section class="card cw-section">
       <div class="section-head">
@@ -418,53 +422,132 @@
         <small class="muted cta-hint">Tip: Click a Starter Preset on the left or enter an Episode Title (3+ chars) above to unlock 3D MP4 rendering.</small>
       }
     </section>
-  </div>
+    </div>
+  }
 
   <!-- SECTION 3: COMEDY QUEUE, MP4 PREVIEW, POLICY CHECK & PUBLISHING -->
   @if (auth.isAuthenticated()) {
     <section class="card cw-section">
       <div class="section-head">
         <div>
-          <h2>3. Comedy Queue, Policy Compliance &amp; YouTube Publishing ({{ comedyPosts().length }})</h2>
-          <p class="muted">Preview rendered MP4s, inspect YouTube &amp; Ad Policy checks, generate thumbnails, compile Highlights, schedule or publish.</p>
+          <h2>3. Comedy Queue, Policy Compliance &amp; YouTube Publishing ({{ filteredComedyPosts().length }}/{{ comedyPosts().length }})</h2>
+          <p class="muted">Cards stay compact &amp; collapsed by default for fast browsing. Check live YouTube status to re-upload deleted videos, pick peak release slots, and auto-comply with AdSense/YouTube policies.</p>
+        </div>
+        <div class="cw-actions">
+          <label class="inline-check">
+            <input type="checkbox" [checked]="autoConfirmPolicy()" (change)="autoConfirmPolicy.set($any($event.target).checked)" />
+            <small>Auto-Confirm Policy Compliance</small>
+          </label>
+          <button type="button" class="secondary small" (click)="expandAllQueueCards()">Expand Page</button>
+          <button type="button" class="secondary small" (click)="collapseAllQueueCards()">Collapse All</button>
         </div>
       </div>
 
-      @if (renderedComedyPosts().length >= 2) {
-        <div class="compile-bar">
-          <strong>🔥 Compile &lt;3m "Best-Of" Highlights ({{ compileSelectedIds().length }} selected)</strong>
-          <div class="cw-form-grid">
-            <label>
-              <span>Compilation Title</span>
-              <input type="text" maxlength="120" [ngModel]="compileTitle()" (ngModelChange)="compileTitle.set($event)" />
-            </label>
-            <label>
-              <span>Max Length (seconds)</span>
-              <input type="number" min="30" max="180" [ngModel]="compileMaxSeconds()" (ngModelChange)="compileMaxSeconds.set(+$event)" />
-            </label>
+      <!-- Collapsible Best-Of Compiler & Peak Publish Guidance -->
+      <div class="cw-collapsible-tools">
+        @if (renderedComedyPosts().length >= 2) {
+          <details class="tool-drawer" [open]="showCompilePanel()">
+            <summary (click)="$event.preventDefault(); showCompilePanel.set(!showCompilePanel())">
+              <strong>🔥 Compile &lt;3m "Best-Of" Highlights ({{ compileSelectedIds().length }} selected)</strong>
+              <span class="muted"> — Turn top Shorts into higher-RPM compilation episodes</span>
+            </summary>
+            <div class="compile-bar" style="margin-top:0.65rem;">
+              <div class="cw-form-grid">
+                <label>
+                  <span>Compilation Title</span>
+                  <input type="text" maxlength="120" [ngModel]="compileTitle()" (ngModelChange)="compileTitle.set($event)" />
+                </label>
+                <label>
+                  <span>Max Length (seconds)</span>
+                  <input type="number" min="30" max="180" [ngModel]="compileMaxSeconds()" (ngModelChange)="compileMaxSeconds.set(+$event)" />
+                </label>
+              </div>
+              <div>
+                <button type="button" [disabled]="busy() || compileSelectedIds().length < 2" (click)="compileBestOfVideo()">
+                  @if (busyAction() === 'compile') { <span class="btn-spin" aria-hidden="true"></span> Merging Clips… }
+                  @else { 🎞️ Compile Selected Clips into Highlights MP4 }
+                </button>
+              </div>
+            </div>
+          </details>
+        }
+
+        <details class="tool-drawer">
+          <summary (click)="!publishAdvice() && loadPublishAdvice()">
+            <strong>⏰ Peak Upload Times &amp; Where to Promote for Maximum Views</strong>
+            @if (bestPublishSlot(); as leadSlot) {
+              <span class="pill ok" style="margin-left:0.5rem;">Best: {{ leadSlot.localLabel }} ({{ leadSlot.expectedReachTier }})</span>
+            }
+          </summary>
+          <div class="advice-panel">
+            @if (loadingAdvice()) {
+              <p class="muted">Calculating peak audience times from your channel…</p>
+            } @else if (publishAdvice(); as adv) {
+              <div class="advice-grid">
+                <div>
+                  <strong>Recommended Peak Time Slots ({{ adv.timeZoneId }}):</strong>
+                  <ul class="advice-list">
+                    @for (slot of adv.slots; track slot.atUtc) {
+                      <li><span class="pill ok">{{ slot.expectedReachTier }}</span> <strong>{{ slot.localLabel }}</strong> — <small class="muted">{{ slot.reason }}</small></li>
+                    }
+                  </ul>
+                </div>
+                <div>
+                  <strong>Where to Publish &amp; Cross-Promote:</strong>
+                  <ul class="advice-list">
+                    @for (promo of adv.promotions; track promo.platform) {
+                      <li><span class="pill cw-info-pill">{{ promo.platform }}</span> <strong>{{ promo.title }}</strong> <small class="muted">({{ promo.timingHint }}) — {{ promo.actionSummary }}</small></li>
+                    }
+                  </ul>
+                </div>
+              </div>
+            } @else {
+              <button type="button" class="secondary small" (click)="loadPublishAdvice()">⚡ Load Recommended Peak Times</button>
+            }
           </div>
-          <div>
-            <button type="button" [disabled]="busy() || compileSelectedIds().length < 2" (click)="compileBestOfVideo()">
-              @if (busyAction() === 'compile') { <span class="btn-spin" aria-hidden="true"></span> Merging Clips… }
-              @else { 🎞️ Compile Selected Clips into Highlights MP4 }
-            </button>
-          </div>
+        </details>
+      </div>
+
+      <!-- Queue Filter + Pagination Toolbar -->
+      <div class="queue-toolbar">
+        <div class="queue-filter-pills">
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'all'" (click)="setQueueFilter('all')">All ({{ comedyPosts().length }})</button>
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'ready'" (click)="setQueueFilter('ready')">Ready / Drafts</button>
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'removed'" (click)="setQueueFilter('removed')">Deleted on YT</button>
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'published'" (click)="setQueueFilter('published')">Published</button>
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'rendering'" (click)="setQueueFilter('rendering')">Rendering</button>
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'failed'" (click)="setQueueFilter('failed')">Failed</button>
         </div>
-      }
+        <div class="queue-pager-controls">
+          <input type="search" class="queue-search" placeholder="Search title or channel..."
+                 [ngModel]="queueQuery()" (ngModelChange)="queueQuery.set($event); queuePage.set(0)" />
+          <label class="inline-check">
+            <small>Per page:</small>
+            <select class="page-size-select" [ngModel]="queuePageSize()" (ngModelChange)="setQueuePageSize($event)">
+              <option [ngValue]="6">6</option>
+              <option [ngValue]="12">12</option>
+              <option [ngValue]="24">24</option>
+            </select>
+          </label>
+        </div>
+      </div>
 
       @if (loadingWorkspace()) {
         <p class="muted"><span class="btn-spin" aria-hidden="true"></span> Loading comedy queue…</p>
-      } @else if (comedyPosts().length === 0) {
-        <div class="notice notice-info">No Comedy episodes queued yet. Pick a preset or enter a Title above and click <strong>🎬 Create &amp; Generate 3D Comedy Video (MP4)</strong>.</div>
+      } @else if (filteredComedyPosts().length === 0) {
+        <div class="notice notice-info">No Comedy episodes match the current filter. Adjust filters above or create a new 3D Comedy video!</div>
       } @else {
         <div class="queue-grid">
-          @for (post of comedyPosts(); track post.id) {
+          @for (post of pagedComedyPosts(); track post.id) {
             @let policy = policyReport(post);
-            <article class="queue-card" [class.rendering]="post.status === 'GeneratingVideo' || post.status === 'Publishing'">
-              <div class="queue-top">
+            @let expanded = isCardExpanded(post.id);
+            @let policyOpen = isPolicyExpanded(post.id);
+            @let wasDeleted = !!(post.removedVideos?.length && !post.publishedVideoId);
+            <article class="queue-card" [class.rendering]="post.status === 'GeneratingVideo' || post.status === 'Publishing'" [class.collapsed]="!expanded">
+              <div class="queue-top" (click)="toggleCardExpanded(post.id)" style="cursor:pointer;">
                 <div class="queue-badges">
                   <span class="pill" [class.ok]="post.language === 'hi'" [class.cw-info-pill]="post.language === 'en'">
-                    {{ post.language === 'en' ? '🌍 International EN' : '🇮🇳 Local HI' }}
+                    {{ post.language === 'en' ? '🌍 EN' : '🇮🇳 HI' }}
                   </span>
                   <span class="pill"
                         [class.ok]="post.status === 'VideoReadyForReview' || post.status === 'Published'"
@@ -473,117 +556,192 @@
                     {{ post.status }}
                     @if (post.storyProgressPercent) { · {{ post.storyProgressPercent }}% }
                   </span>
+                  @if (wasDeleted) {
+                    <span class="pill warn" title="Deleted from YouTube — Re-upload enabled below">⚠ Deleted on YT</span>
+                  }
                   @if (post.targetChannelHandle || post.targetChannelTitle) {
                     <span class="pill">📺 {{ post.targetChannelHandle || post.targetChannelTitle }}</span>
                   }
+                  <span class="pill" [class.ok]="policy.readyToPublish" [class.warn]="!policy.readyToPublish">
+                    {{ policy.readyToPublish ? '✓ Policy 9/9' : '⚠ Policy Review' }}
+                  </span>
                 </div>
-                <label class="inline-check">
-                  <input type="checkbox"
-                         [disabled]="!post.attachedRenderJobId"
-                         [checked]="compileSelectedIds().includes(post.id)"
-                         (change)="toggleCompilePost(post.id)" />
-                  <small>Best-Of</small>
-                </label>
+                <div style="display:flex;align-items:center;gap:0.45rem;" (click)="$event.stopPropagation()">
+                  <label class="inline-check">
+                    <input type="checkbox"
+                           [disabled]="!post.attachedRenderJobId"
+                           [checked]="compileSelectedIds().includes(post.id)"
+                           (change)="toggleCompilePost(post.id)" />
+                    <small>Best-Of</small>
+                  </label>
+                  <button type="button" class="secondary small" (click)="toggleCardExpanded(post.id)">
+                    {{ expanded ? 'Collapse ▲' : 'Details ▼' }}
+                  </button>
+                </div>
               </div>
 
-              <h3>{{ post.title }}</h3>
-              @if (post.storyStageSummary) {
-                <p class="muted"><small>{{ post.storyStageSummary }}</small></p>
-              }
+              <h3 class="queue-card-title" (click)="toggleCardExpanded(post.id)" style="cursor:pointer;">{{ post.title }}</h3>
+
               @if (post.lastError) {
                 <div class="notice error">{{ post.lastError }}</div>
               }
 
-              @if (post.attachedRenderJobId || post.thumbnailStorageKey) {
-                <div class="media-preview-row">
-                  @if (post.attachedRenderJobId; as jobId) {
-                    <video class="video-player" [src]="previewVideoUrl(jobId)" controls playsinline preload="metadata"></video>
-                  }
-                  @if (post.thumbnailStorageKey) {
-                    <img class="post-thumb" [src]="postThumbUrl(post)" alt="Video thumbnail" />
-                  }
-                </div>
-              }
-
-              <!-- YOUTUBE & AD POLICY READINESS CHECKLIST -->
-              <div class="policy-box">
-                <div class="section-head">
-                  <strong>🛡️ YouTube &amp; Ad Policy Check</strong>
-                  <span class="pill" [class.ok]="policy.readyToPublish" [class.warn]="!policy.readyToPublish">
-                    {{ policy.readyToPublish ? '✓ Policy Ready' : 'Review Items' }}
-                  </span>
-                </div>
-                <ul class="policy-list">
-                  @for (chk of policy.checks; track chk.label) {
-                    <li [class.ok]="chk.ok" [class.pending]="!chk.ok">
-                      <span>{{ chk.ok ? '✅' : '⚠️' }} {{ chk.label }}</span>
-                      @if (!chk.ok && chk.hint) { <small class="muted"> — {{ chk.hint }}</small> }
-                    </li>
-                  }
-                </ul>
-                <label class="inline-check policy-consent">
-                  <input type="checkbox"
-                         [checked]="isPolicyConfirmed(post.id)"
-                         (change)="setPolicyConfirmed(post.id, $any($event.target).checked)" />
-                  <span>I confirm original 3D character/script rights &amp; adherence to YouTube / AdSense policies (<a routerLink="/terms">Terms</a>).</span>
-                </label>
-              </div>
-
-              <div class="cw-actions">
-                <button type="button" class="secondary small" (click)="loadPostIntoStudio(post)">↙ Load</button>
-                <button type="button" class="secondary small" [disabled]="busy()" (click)="autoFillPostSeo(post)">✨ Auto-Fill SEO</button>
-                <button type="button" class="secondary small" [disabled]="busy()" (click)="generatePostThumbnail(post)">🖼️ Thumbnail</button>
-                <button type="button" class="secondary small" [disabled]="busy()" (click)="verifyPostCompliance(post)">🛡️ Verify</button>
-                <button type="button" class="secondary small" (click)="openPostEditor(post.id)">
-                  {{ expandedPostId() === post.id ? 'Hide ▲' : 'Edit ▼' }}
+              <!-- Always-available compact action strip (including Check Live on YouTube & Re-Upload) -->
+              <div class="cw-actions compact-actions">
+                <button type="button" class="secondary small" [disabled]="busy()" (click)="verifyPostCompliance(post)"
+                        [title]="post.publishedVideoId ? 'Verify if video still exists on YouTube — if deleted, re-enables Upload' : 'Verify policy & readiness'">
+                  @if (busyAction() === 'verify-' + post.id) { <span class="btn-spin" aria-hidden="true"></span> Checking… }
+                  @else if (post.publishedVideoId) { 🔍 Check Live YouTube }
+                  @else { 🛡️ Verify }
                 </button>
-                @if (post.attachedRenderJobId; as jobId) {
-                  <a class="cw-pill" [href]="downloadVideoUrl(jobId)" download>⬇ MP4</a>
-                }
                 @if (post.status !== 'Published') {
-                  <button type="button" class="secondary small" [disabled]="busy() || !policy.readyToPublish" (click)="publishPostToYouTube(post, false)">
-                    📅 Schedule
-                  </button>
+                  @if (bestPublishSlot(); as bestSlot) {
+                    <button type="button" class="secondary small" [disabled]="busy() || !policy.readyToPublish"
+                            (click)="schedulePostAtPeakSlot(post, bestSlot.atUtc, true)"
+                            [title]="'Upload Private now -> YouTube auto-publishes at ' + bestSlot.localLabel">
+                      ⏰ Peak ({{ bestSlot.localLabel }})
+                    </button>
+                  } @else {
+                    <button type="button" class="secondary small" [disabled]="busy() || !policy.readyToPublish"
+                            (click)="publishPostToYouTube(post, false, false)">
+                      📅 Schedule
+                    </button>
+                  }
                   <button type="button" class="small" [disabled]="busy() || !policy.readyToPublish" (click)="publishPostToYouTube(post, true)">
-                    🚀 Publish YouTube
+                    🚀 {{ wasDeleted ? 'Re-Upload YouTube' : 'Publish YouTube' }}
                   </button>
-                } @else if (post.publishedVideoUrl) {
-                  <a class="cta-link-btn" [href]="post.publishedVideoUrl" target="_blank" rel="noopener noreferrer">▶ Watch Live ↗</a>
+                } @else {
+                  @if (post.publishedVideoUrl) {
+                    <a class="cta-link-btn" [href]="post.publishedVideoUrl" target="_blank" rel="noopener noreferrer">▶ Watch Live ↗</a>
+                  }
+                  <button type="button" class="secondary small" [disabled]="busy()" (click)="markDeletedAndSwitchChannel(post, selectedChannelId(), false)"
+                          title="Mark deleted or switch channel to re-upload">
+                    🔁 Re-Upload / Switch
+                  </button>
                 }
+                <button type="button" class="secondary small" (click)="openPostEditor(post.id)">
+                  {{ expandedPostId() === post.id ? 'Hide Edit ▲' : 'Edit / Schedule ▼' }}
+                </button>
               </div>
 
-              @if (expandedPostId() === post.id) {
-                <div class="post-editor">
-                  <label>
-                    <span>YouTube Title (max 100 chars)</span>
-                    <input type="text" maxlength="100" [ngModel]="editDraftTitle()" (ngModelChange)="editDraftTitle.set($event)" />
-                  </label>
-                  <label>
-                    <span>YouTube Description</span>
-                    <textarea rows="3" [ngModel]="editDraftDescription()" (ngModelChange)="editDraftDescription.set($event)"></textarea>
-                  </label>
-                  <div class="cw-form-grid">
-                    <label>
-                      <span>Comma-Separated Tags</span>
-                      <input type="text" [ngModel]="editDraftTags()" (ngModelChange)="editDraftTags.set($event)" />
-                    </label>
-                    <label>
-                      <span>Scheduled Time</span>
-                      <input type="datetime-local" [ngModel]="editDraftScheduledAt()" (ngModelChange)="editDraftScheduledAt.set($event)" />
-                    </label>
+              @if (expanded) {
+                @if (post.storyStageSummary) {
+                  <p class="muted"><small>{{ post.storyStageSummary }}</small></p>
+                }
+                @if (post.scheduledAtUtc) {
+                  <p class="muted"><small>🕒 Scheduled: <strong>{{ post.scheduledAtUtc | date:'medium' }}</strong></small></p>
+                }
+
+                @if (post.attachedRenderJobId || post.thumbnailStorageKey) {
+                  <div class="media-preview-row">
+                    @if (post.attachedRenderJobId; as jobId) {
+                      <video class="video-player" [src]="previewVideoUrl(jobId)" controls playsinline preload="metadata"></video>
+                    }
+                    @if (post.thumbnailStorageKey) {
+                      <img class="post-thumb" [src]="postThumbUrl(post)" alt="Video thumbnail" />
+                    }
                   </div>
-                  <label class="inline-check">
-                    <input type="checkbox" [ngModel]="editDraftMadeForKids()" (ngModelChange)="editDraftMadeForKids.set($event)" />
-                    <span>Made for Kids (leave unchecked for general roast/comedy)</span>
-                  </label>
-                  <div class="cw-actions">
-                    <button type="button" class="small" [disabled]="busy()" (click)="savePostDetails(post)">💾 Save Metadata &amp; Schedule</button>
+                }
+
+                <!-- COLLAPSIBLE YOUTUBE & AD POLICY READINESS CHECKLIST (COLLAPSED BY DEFAULT) -->
+                <div class="policy-box">
+                  <div class="section-head" style="align-items:center;">
+                    <strong>🛡️ YouTube &amp; Ad Policy Check</strong>
+                    <div style="display:flex;gap:0.4rem;align-items:center;">
+                      <span class="pill" [class.ok]="policy.readyToPublish" [class.warn]="!policy.readyToPublish">
+                        {{ policy.readyToPublish ? '✓ Policy Ready' : 'Review Items' }}
+                      </span>
+                      <button type="button" class="secondary small" (click)="togglePolicyExpanded(post.id)">
+                        {{ policyOpen ? 'Hide Checklist ▲' : 'Inspect Rules ▼' }}
+                      </button>
+                    </div>
                   </div>
+                  @if (policyOpen) {
+                    <ul class="policy-list">
+                      @for (chk of policy.checks; track chk.label) {
+                        <li [class.ok]="chk.ok" [class.pending]="!chk.ok">
+                          <span>{{ chk.ok ? '✅' : '⚠️' }} {{ chk.label }}</span>
+                          @if (!chk.ok && chk.hint) { <small class="muted"> — {{ chk.hint }}</small> }
+                        </li>
+                      }
+                    </ul>
+                    <label class="inline-check policy-consent">
+                      <input type="checkbox"
+                             [checked]="isPolicyConfirmed(post.id)"
+                             (change)="setPolicyConfirmed(post.id, $any($event.target).checked)" />
+                      <span>I confirm original 3D character/script rights &amp; adherence to YouTube / AdSense policies (<a routerLink="/terms">Terms</a>).</span>
+                    </label>
+                  }
                 </div>
+
+                <div class="cw-actions">
+                  <button type="button" class="secondary small" (click)="loadPostIntoStudio(post)">↙ Load into Studio</button>
+                  <button type="button" class="secondary small" [disabled]="busy()" (click)="autoFillPostSeo(post)">✨ Auto-Fill Compliant SEO</button>
+                  <button type="button" class="secondary small" [disabled]="busy()" (click)="generatePostThumbnail(post)">🖼️ Generate Thumbnail</button>
+                  @if (post.attachedRenderJobId; as jobId) {
+                    <a class="cw-pill" [href]="downloadVideoUrl(jobId)" download>⬇ Download MP4</a>
+                  }
+                </div>
+
+                @if (expandedPostId() === post.id) {
+                  <div class="post-editor">
+                    <label>
+                      <span>Target YouTube Channel</span>
+                      <select [ngModel]="editDraftTargetChannelId()" (ngModelChange)="editDraftTargetChannelId.set($event)">
+                        @for (ch of connectedChannels(); track ch.channelId) {
+                          <option [value]="ch.channelId">{{ ch.channelTitle }} {{ ch.channelHandle ? '(' + ch.channelHandle + ')' : '' }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label>
+                      <span>YouTube Title (max 100 chars)</span>
+                      <input type="text" maxlength="100" [ngModel]="editDraftTitle()" (ngModelChange)="editDraftTitle.set($event)" />
+                    </label>
+                    <label>
+                      <span>YouTube Description</span>
+                      <textarea rows="3" [ngModel]="editDraftDescription()" (ngModelChange)="editDraftDescription.set($event)"></textarea>
+                    </label>
+                    <div class="cw-form-grid">
+                      <label>
+                        <span>Comma-Separated Tags</span>
+                        <input type="text" [ngModel]="editDraftTags()" (ngModelChange)="editDraftTags.set($event)" />
+                      </label>
+                      <label>
+                        <span>Scheduled Time (Peak Slots Available Above)</span>
+                        <input type="datetime-local" [ngModel]="editDraftScheduledAt()" (ngModelChange)="editDraftScheduledAt.set($event)" />
+                      </label>
+                    </div>
+                    @if (publishAdvice(); as adv) {
+                      <div class="peak-chips-row">
+                        <small class="muted">⚡ 1-Click Peak Slots:</small>
+                        @for (sl of adv.slots; track sl.atUtc) {
+                          <button type="button" class="secondary small" (click)="schedulePostAtPeakSlot(post, sl.atUtc, true)">
+                            {{ sl.localLabel }} ({{ sl.expectedReachTier }})
+                          </button>
+                        }
+                      </div>
+                    }
+                    <label class="inline-check">
+                      <input type="checkbox" [ngModel]="editDraftMadeForKids()" (ngModelChange)="editDraftMadeForKids.set($event)" />
+                      <span>Made for Kids (leave unchecked for general roast/comedy)</span>
+                    </label>
+                    <div class="cw-actions">
+                      <button type="button" class="small" [disabled]="busy()" (click)="savePostDetails(post)">💾 Save Metadata &amp; Channel</button>
+                    </div>
+                  </div>
+                }
               }
             </article>
           }
         </div>
+
+        @if (totalQueuePages() > 1) {
+          <div class="queue-pagination">
+            <button type="button" class="secondary small" [disabled]="clampedQueuePage() === 0" (click)="prevQueuePage()">← Previous</button>
+            <span class="muted">Page {{ clampedQueuePage() + 1 }} of {{ totalQueuePages() }} ({{ filteredComedyPosts().length }} total)</span>
+            <button type="button" class="secondary small" [disabled]="clampedQueuePage() >= totalQueuePages() - 1" (click)="nextQueuePage()">Next →</button>
+          </div>
+        }
       }
     </section>
   }

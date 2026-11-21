@@ -17,6 +17,50 @@ public sealed partial class EcosystemAutomationService
         CancellationToken ct)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+
+        // If this post records a YouTube upload, verify live presence via YouTube videos.list right now so
+        // videos deleted in YouTube Studio immediately re-enable scheduling & upload buttons (keeping the MP4).
+        if (!string.IsNullOrWhiteSpace(post.PublishedVideoId)
+            && AnimStudio.Application.Publishing.YouTubeRelatedVideos.IsVideoId(post.PublishedVideoId))
+        {
+            var channelId = post.PublishedChannelId ?? post.TargetChannelId;
+            if (!string.IsNullOrWhiteSpace(channelId))
+            {
+                try
+                {
+                    var token = await connections.GetAccessTokenAsync(userId, channelId, ct).ConfigureAwait(false);
+                    var found = await videoClient.GetAsync([post.PublishedVideoId!], token, ct).ConfigureAwait(false);
+                    post.YouTubeCheckedAtUtc = UtcNow;
+
+                    if (!found.ContainsKey(post.PublishedVideoId!))
+                    {
+                        var deletedVideoId = post.PublishedVideoId!;
+                        var channelTitle = post.PublishedChannelTitle ?? post.TargetChannelTitle;
+                        await MarkPublicationRemovedAsync(userId, deletedVideoId, deletedByApp: false, ct).ConfigureAwait(false);
+                        await TryUnlistFromPanchangAsync(post, ct).ConfigureAwait(false);
+                        if (catalogWriter is not null)
+                            await catalogWriter.MarkRemovedAsync(deletedVideoId, ct).ConfigureAwait(false);
+                        ResetAfterYouTubeRemoval(
+                            post,
+                            channelId,
+                            channelTitle,
+                            deletedByApp: false,
+                            $"YouTube check confirmed video {deletedVideoId} is no longer on YouTube ({channelTitle ?? channelId}). Re-upload enabled.");
+                        post.LastError = "Video was deleted from YouTube. Re-upload or switch channels anytime below.";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(post.LastError)
+                        && post.LastError.Contains("removed from YouTube", StringComparison.OrdinalIgnoreCase))
+                    {
+                        post.LastError = null;
+                    }
+                }
+                catch (AnimStudio.Infrastructure.Publishing.YouTubePublishException ex)
+                {
+                    logger.LogWarning("Live YouTube check for post {PostId} skipped: {Code}", post.Id, ex.Code);
+                }
+            }
+        }
+
         var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
         var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var signals = await FetchSignalsForPostAsync(post, rule, settings, ct).ConfigureAwait(false);

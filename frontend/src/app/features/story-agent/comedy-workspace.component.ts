@@ -19,6 +19,7 @@ import {
   AutomationNarrativeMode,
   AutomationOverview,
   AutomationPost,
+  AutomationPublishAdvice,
   AutomationService,
   AutomationStageSettings,
   AutomationStorageCatalog,
@@ -108,6 +109,22 @@ export class ComedyWorkspaceComponent {
   readonly songs = signal<Song[]>([]);
   readonly loadingWorkspace = signal(false);
 
+  // UI Collapsibility, Filtering & Pagination (handles large libraries smoothly; cards & policy collapsed by default)
+  readonly showStudioSection = signal(true);
+  readonly showCompilePanel = signal(false);
+  readonly expandedCardIds = signal<Record<string, boolean>>({});
+  readonly expandedPolicyIds = signal<Record<string, boolean>>({});
+  readonly autoConfirmPolicy = signal(true);
+  readonly queueQuery = signal('');
+  readonly queueFilter = signal<'all' | 'ready' | 'removed' | 'published' | 'rendering' | 'failed'>('all');
+  readonly queuePageSize = signal(6);
+  readonly queuePage = signal(0);
+
+  // Peak Time & Cross-Promotion Suggestions
+  readonly publishAdvice = signal<AutomationPublishAdvice | null>(null);
+  readonly bestPublishSlot = computed(() => this.publishAdvice()?.slots?.[0] ?? null);
+  readonly loadingAdvice = signal(false);
+
   // Inline post editor & Policy / Publishing controls
   readonly expandedPostId = signal<string | null>(null);
   readonly policyConfirmedByPost = signal<Record<string, boolean>>({});
@@ -116,6 +133,7 @@ export class ComedyWorkspaceComponent {
   readonly editDraftTags = signal('');
   readonly editDraftScheduledAt = signal('');
   readonly editDraftMadeForKids = signal(false);
+  readonly editDraftTargetChannelId = signal('');
   readonly compileSelectedIds = signal<string[]>([]);
   readonly compileTitle = signal('Best 3D Comedy Highlights Compilation 😂');
   readonly compileMaxSeconds = signal(150);
@@ -155,6 +173,37 @@ export class ComedyWorkspaceComponent {
       .sort((a, b) => new Date(b.updatedAtUtc).getTime() - new Date(a.updatedAtUtc).getTime())
   );
 
+  readonly filteredComedyPosts = computed(() => {
+    const q = this.queueQuery().trim().toLowerCase();
+    const filter = this.queueFilter();
+    return this.comedyPosts().filter((p) => {
+      if (filter === 'ready' && !(p.status === 'VideoReadyForReview' || p.status === 'Approved' || p.status === 'PreparedPreview')) return false;
+      if (filter === 'removed' && !(p.removedVideos && p.removedVideos.length > 0 && !p.publishedVideoId)) return false;
+      if (filter === 'published' && p.status !== 'Published') return false;
+      if (filter === 'rendering' && !(p.status === 'GeneratingVideo' || p.status === 'Publishing')) return false;
+      if (filter === 'failed' && p.status !== 'Failed') return false;
+      if (q) {
+        const hay = `${p.title} ${p.targetChannelHandle ?? ''} ${p.targetChannelTitle ?? ''} ${p.language}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  });
+
+  readonly totalQueuePages = computed(() =>
+    Math.max(1, Math.ceil(this.filteredComedyPosts().length / Math.max(1, this.queuePageSize())))
+  );
+
+  readonly clampedQueuePage = computed(() =>
+    Math.min(this.queuePage(), Math.max(0, this.totalQueuePages() - 1))
+  );
+
+  readonly pagedComedyPosts = computed(() => {
+    const size = Math.max(1, this.queuePageSize());
+    const start = this.clampedQueuePage() * size;
+    return this.filteredComedyPosts().slice(start, start + size);
+  });
+
   readonly renderedComedyPosts = computed(() =>
     this.comedyPosts().filter((p) => !!p.attachedRenderJobId)
   );
@@ -167,6 +216,12 @@ export class ComedyWorkspaceComponent {
     const id = this.selectedChannelId();
     const list = this.connectedChannels();
     return (id ? list.find((c) => c.channelId === id) : null) ?? list[0] ?? null;
+  });
+
+  readonly isSeriousChannelSelected = computed(() => {
+    const ch = this.selectedChannel();
+    if (!ch) return false;
+    return this.isDevotionalHandleOrTitle(ch.channelHandle, ch.channelTitle);
   });
 
   constructor() {
@@ -217,6 +272,9 @@ export class ComedyWorkspaceComponent {
       if (!this.selectedChannelId() && ov.connectedChannels.length > 0) {
         this.pickDefaultChannelForTrack(this.audienceTrack(), ov.connectedChannels);
       }
+      if (!this.publishAdvice()) {
+        void this.loadPublishAdvice(true);
+      }
       if (this.songs().length === 0 || !background) {
         try {
           const songRes = await firstValueFrom(this.songsApi.list(background));
@@ -256,22 +314,51 @@ export class ComedyWorkspaceComponent {
     this.pickDefaultChannelForTrack(track, this.connectedChannels());
   }
 
+  private isDevotionalHandleOrTitle(handle?: string | null, title?: string | null): boolean {
+    const hay = `${handle ?? ''} ${title ?? ''}`.toLowerCase();
+    return ['bhakti', 'panchang', 'sanatan', 'katha', 'purana', 'mantra', 'aarti', 'mandir', 'devotional', 'shiv', 'krishna']
+      .some((tok) => hay.includes(tok));
+  }
+
   private pickDefaultChannelForTrack(track: ComedyAudienceTrack, channels: YouTubeChannel[]): void {
     if (!channels.length) return;
+    // 1. Prefer configured FunnyComedy rule channel (when it is not a devotional channel)
+    const rule = this.comedyRules().find((r) =>
+      track === 'international'
+        ? r.language === 'en'
+        : r.language !== 'en'
+    );
+    if (rule?.targetChannelId) {
+      const configured = channels.find((c) => c.channelId === rule.targetChannelId);
+      if (configured && !this.isDevotionalHandleOrTitle(configured.channelHandle, configured.channelTitle)) {
+        this.selectedChannelId.set(configured.channelId);
+        return;
+      }
+    }
+
     if (track === 'international') {
       const intl = channels.find((c) => {
         const hay = `${c.channelHandle ?? ''} ${c.channelTitle}`.toLowerCase();
-        return (hay.includes('global') || hay.includes('tank') || hay.includes('toon') || hay.includes('world') || hay.includes('en'))
+        return !this.isDevotionalHandleOrTitle(c.channelHandle, c.channelTitle)
+          && (hay.includes('global') || hay.includes('tank') || hay.includes('toon') || hay.includes('world') || hay.includes('en'))
           && !hay.includes('keshav-anim-ff');
-      }) ?? channels.find((c) => !`${c.channelHandle ?? ''} ${c.channelTitle}`.toLowerCase().includes('bhakti'));
-      if (intl) this.selectedChannelId.set(intl.channelId);
+      }) ?? channels.find((c) => !this.isDevotionalHandleOrTitle(c.channelHandle, c.channelTitle));
+      if (intl) {
+        this.selectedChannelId.set(intl.channelId);
+        return;
+      }
     } else {
       const desi = channels.find((c) => {
         const hay = `${c.channelHandle ?? ''} ${c.channelTitle}`.toLowerCase();
-        return hay.includes('keshav-anim-ff') || hay.includes('comedy') || hay.includes('anim');
-      }) ?? channels[0];
-      if (desi) this.selectedChannelId.set(desi.channelId);
+        return !this.isDevotionalHandleOrTitle(c.channelHandle, c.channelTitle)
+          && (hay.includes('keshav-anim-ff') || hay.includes('comedy') || hay.includes('funny') || hay.includes('anim'));
+      }) ?? channels.find((c) => !this.isDevotionalHandleOrTitle(c.channelHandle, c.channelTitle));
+      if (desi) {
+        this.selectedChannelId.set(desi.channelId);
+        return;
+      }
     }
+    this.selectedChannelId.set(channels[0].channelId);
   }
 
   toggleMemeName(name: string): void {
@@ -628,6 +715,110 @@ export class ComedyWorkspaceComponent {
 
   // ---------------------------------------------------------------- Queue Editor, SEO, Policy & YouTube Publishing
 
+  isCardExpanded(postId: string): boolean {
+    return !!this.expandedCardIds()[postId];
+  }
+
+  toggleCardExpanded(postId: string): void {
+    const cur = this.expandedCardIds();
+    this.expandedCardIds.set({ ...cur, [postId]: !cur[postId] });
+  }
+
+  expandAllQueueCards(): void {
+    const next: Record<string, boolean> = {};
+    for (const p of this.pagedComedyPosts()) next[p.id] = true;
+    this.expandedCardIds.set(next);
+  }
+
+  collapseAllQueueCards(): void {
+    this.expandedCardIds.set({});
+    this.expandedPolicyIds.set({});
+  }
+
+  isPolicyExpanded(postId: string): boolean {
+    return !!this.expandedPolicyIds()[postId];
+  }
+
+  togglePolicyExpanded(postId: string): void {
+    const cur = this.expandedPolicyIds();
+    this.expandedPolicyIds.set({ ...cur, [postId]: !cur[postId] });
+  }
+
+  setQueueFilter(filter: 'all' | 'ready' | 'removed' | 'published' | 'rendering' | 'failed'): void {
+    this.queueFilter.set(filter);
+    this.queuePage.set(0);
+  }
+
+  setQueuePageSize(size: number): void {
+    this.queuePageSize.set(Math.max(1, Number(size) || 6));
+    this.queuePage.set(0);
+  }
+
+  prevQueuePage(): void {
+    this.queuePage.set(Math.max(0, this.clampedQueuePage() - 1));
+  }
+
+  nextQueuePage(): void {
+    this.queuePage.set(Math.min(this.totalQueuePages() - 1, this.clampedQueuePage() + 1));
+  }
+
+  async loadPublishAdvice(quiet = false): Promise<void> {
+    if (!this.auth.isAuthenticated()) return;
+    if (!quiet) this.loadingAdvice.set(true);
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+      const advice = await firstValueFrom(
+        this.automation.getPublishAdvice('FunnyComedy', this.format(), this.selectedChannel()?.channelId ?? null, tz),
+      );
+      this.publishAdvice.set(advice);
+    } catch {
+      /* advice optional */
+    } finally {
+      if (!quiet) this.loadingAdvice.set(false);
+    }
+  }
+
+  async schedulePostAtPeakSlot(post: AutomationPost, atUtc: string, scheduleOnYouTube: boolean): Promise<void> {
+    if (!this.requireSignIn('schedule videos to YouTube')) return;
+    const report = this.policyReport(post);
+    if (!report.readyToPublish) {
+      const missing = report.checks.filter((c) => !c.ok).map((c) => c.label).join('; ');
+      this.error.set(`Resolve before scheduling: ${missing}`);
+      return;
+    }
+    await this.runBusy(`pub-${post.id}`, async () => {
+      await firstValueFrom(this.automation.publishPost(post.id, {
+        publishNow: false,
+        scheduledAtUtc: atUtc,
+        scheduleOnYouTube,
+      }));
+      await this.loadWorkspaceData(false);
+      const localLabel = new Date(atUtc).toLocaleString();
+      this.notice.set(
+        scheduleOnYouTube
+          ? `Uploaded "${post.title}" as Private to YouTube — YouTube will auto-publish it at peak time (${localLabel})!`
+          : `Queued "${post.title}" for automated upload at peak time (${localLabel}).`,
+      );
+    });
+  }
+
+  async markDeletedAndSwitchChannel(post: AutomationPost, newChannelId?: string | null, republishNow = false): Promise<void> {
+    if (!this.requireSignIn('manage YouTube uploads')) return;
+    await this.runBusy(`switch-${post.id}`, async () => {
+      await firstValueFrom(this.automation.removeFromYouTube(post.id, {
+        deleteOnYouTube: false,
+        targetChannelId: newChannelId || null,
+        republishNow,
+      }));
+      await this.loadWorkspaceData(false);
+      this.notice.set(
+        republishNow
+          ? `Reset removed video & re-uploading "${post.title}" now!`
+          : `Re-enabled upload for "${post.title}". Pick a channel & click Publish / Schedule below.`,
+      );
+    });
+  }
+
   openPostEditor(postId: string): void {
     const post = this.comedyPosts().find((p) => p.id === postId);
     if (!post) return;
@@ -635,11 +826,13 @@ export class ComedyWorkspaceComponent {
       this.expandedPostId.set(null);
       return;
     }
+    this.expandedCardIds.set({ ...this.expandedCardIds(), [postId]: true });
     this.expandedPostId.set(postId);
     this.editDraftTitle.set(post.title);
     this.editDraftDescription.set(post.description);
     this.editDraftTags.set((post.tags ?? []).join(', '));
     this.editDraftMadeForKids.set(!!post.madeForKids);
+    this.editDraftTargetChannelId.set(post.targetChannelId ?? this.selectedChannel()?.channelId ?? '');
     this.editDraftScheduledAt.set(post.scheduledAtUtc ? post.scheduledAtUtc.slice(0, 16) : '');
   }
 
@@ -654,12 +847,13 @@ export class ComedyWorkspaceComponent {
         description: this.editDraftDescription().trim() || post.description,
         tags,
         madeForKids: this.editDraftMadeForKids(),
+        targetChannelId: this.editDraftTargetChannelId() || post.targetChannelId || null,
         scheduledAtUtc: this.editDraftScheduledAt()
           ? new Date(this.editDraftScheduledAt()).toISOString()
           : post.scheduledAtUtc ?? null,
       }));
       await this.loadWorkspaceData(false);
-      this.notice.set(`Saved metadata for "${this.editDraftTitle().trim() || post.title}".`);
+      this.notice.set(`Saved metadata & channel for "${this.editDraftTitle().trim() || post.title}".`);
     });
   }
 
@@ -686,9 +880,17 @@ export class ComedyWorkspaceComponent {
 
   async verifyPostCompliance(post: AutomationPost): Promise<void> {
     await this.runBusy(`verify-${post.id}`, async () => {
-      await firstValueFrom(this.automation.verifyPost(post.id));
+      const updated = await firstValueFrom(this.automation.verifyPost(post.id));
       await this.loadWorkspaceData(false);
-      this.notice.set('Completed policy/verification check on post.');
+      if (post.publishedVideoId && !updated.publishedVideoId) {
+        this.notice.set(`Detected "${updated.title}" was deleted from YouTube — upload options have been re-enabled!`);
+      } else {
+        this.notice.set(
+          updated.publishedVideoId
+            ? `Verified: "${updated.title}" is still live on YouTube & compliant.`
+            : 'Completed policy & fact verification check on post.',
+        );
+      }
     });
   }
 
@@ -698,10 +900,10 @@ export class ComedyWorkspaceComponent {
     const hashtagsCount = (post.description.match(/#[^\s#]+/g) ?? []).length;
     const hasSpamBait = /(sub4sub|sub 4 sub|sub for sub|subscribe back|watch4watch|buy views|free views|bit\.ly\/|tinyurl\.com\/)/i
       .test(`${post.title} ${post.description}`);
-    const confirmed = !!this.policyConfirmedByPost()[post.id];
+    const confirmed = this.isPolicyConfirmed(post.id);
     const checks: { label: string; ok: boolean; hint?: string }[] = [
       { label: `Title <= 100 chars (${post.title.length}/100)`, ok: post.title.trim().length >= 3 && post.title.trim().length <= 100 },
-      { label: 'Original description & hub link present', ok: post.description.trim().length >= 20, hint: 'Click Auto-Fill SEO' },
+      { label: 'Original description & hub link present', ok: post.description.trim().length >= 20, hint: 'Auto-populated via Policy Sanitizer' },
       { label: `Hashtag hygiene <= 15 (${hashtagsCount}/15)`, ok: hashtagsCount <= 15, hint: 'Keep 3–8 focused hashtags; >15 triggers YouTube spam rejection' },
       { label: 'Zero engagement-bait / URL-shortener spam', ok: !hasSpamBait, hint: 'Remove sub4sub, view-exchange bait, or bit.ly/tinyurl links' },
       { label: `YouTube tags limit <= 500 chars (${tagsLen}/500)`, ok: tagsLen <= 500 },
@@ -715,7 +917,7 @@ export class ComedyWorkspaceComponent {
       {
         label: 'Originality, Ad Policy & Invalid-Traffic (no self-watch on own account/device/Wi-Fi) confirmed',
         ok: confirmed,
-        hint: 'Tick confirmation checkbox — review via local MP4/Studio rather than public rewatch',
+        hint: 'Confirm once (or leave Standing Policy Attestation enabled)',
       },
     ];
     return {
@@ -725,14 +927,15 @@ export class ComedyWorkspaceComponent {
   }
 
   isPolicyConfirmed(postId: string): boolean {
-    return !!this.policyConfirmedByPost()[postId];
+    const explicit = this.policyConfirmedByPost()[postId];
+    return explicit !== undefined ? explicit : this.autoConfirmPolicy();
   }
 
   setPolicyConfirmed(postId: string, val: boolean): void {
     this.policyConfirmedByPost.set({ ...this.policyConfirmedByPost(), [postId]: val });
   }
 
-  async publishPostToYouTube(post: AutomationPost, publishNow: boolean): Promise<void> {
+  async publishPostToYouTube(post: AutomationPost, publishNow: boolean, scheduleOnYouTube = false): Promise<void> {
     if (!this.requireSignIn('publish videos to YouTube')) return;
     const report = this.policyReport(post);
     if (!report.readyToPublish) {
@@ -740,16 +943,22 @@ export class ComedyWorkspaceComponent {
       this.error.set(`Please resolve before publishing: ${missing}`);
       return;
     }
+    const chosenSlot = publishNow
+      ? null
+      : (post.scheduledAtUtc ?? this.publishAdvice()?.recommendedAtUtc ?? null);
     await this.runBusy(`pub-${post.id}`, async () => {
       await firstValueFrom(this.automation.publishPost(post.id, {
         publishNow,
-        scheduledAtUtc: publishNow ? null : (post.scheduledAtUtc ?? null),
+        scheduledAtUtc: chosenSlot,
+        scheduleOnYouTube,
       }));
       await this.loadWorkspaceData(false);
       this.notice.set(
         publishNow
           ? `Uploading "${post.title}" directly to ${post.targetChannelHandle || post.targetChannelTitle || 'YouTube'}!`
-          : `Scheduled "${post.title}" on your YouTube publishing queue.`,
+          : scheduleOnYouTube
+            ? `Uploaded "${post.title}" Private -> YouTube will auto-publish at peak slot!`
+            : `Scheduled "${post.title}" on your YouTube publishing queue.`,
       );
     });
   }

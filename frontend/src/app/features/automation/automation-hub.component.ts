@@ -11,6 +11,7 @@ import {
   AutomationPost,
   AutomationPostMode,
   AutomationPostStatus,
+  AutomationPublishAdvice,
   AutomationRule,
   AutomationService,
   AutomationSourceType,
@@ -26,6 +27,8 @@ import {
   AutomationWorkspaceConfig,
   AutomationYouTubeRemoval,
   ComedyToneStyle,
+  DailyRashiForecast,
+  DailyRashifalReport,
   SubtitleMotionPreset,
 } from '../../core/services/automation.service';
 import { StatusService } from '../../core/services/status.service';
@@ -41,11 +44,12 @@ import {
   summarizeSceneUploadPlan,
 } from '../../shared/scene-batch-media';
 
-type HubTab = 'queue' | 'rules' | 'settings';
+type HubTab = 'queue' | 'rashifal' | 'rules' | 'settings';
 type QueueStatusFilter = 'all' | 'pending' | 'ready' | 'generating' | 'published' | 'failed';
 
 const SOURCE_LABELS: Record<AutomationSourceType, { label: string; icon: string; badge: string; color: string; banner: string }> = {
   HinduPanchang: { label: 'Hindu Panchang', icon: 'ॐ', badge: 'Hindu / Spiritual', color: '#F59E0B', banner: "TODAY'S HINDU PANCHANG" },
+  DailyRashifal: { label: 'Daily Rashifal (12 Rashis)', icon: '♈', badge: 'Zodiac & Upay', color: '#8B5CF6', banner: 'AAJ KA RASHIFAL • 12 RASHIS' },
   HinduFestival: { label: 'Hindu Festival / Vrat', icon: '🪔', badge: 'Festival Alert', color: '#EC4899', banner: 'FESTIVAL & VRAT SPECIAL' },
   DailyKatha: { label: 'Daily Vedic Katha', icon: '📿', badge: 'Sacred Story', color: '#A855F7', banner: 'PAURANIK KATHA & DIALOGUE' },
   AajKaItihaas: { label: 'Aaj Ka Itihaas', icon: '🌍', badge: 'World / History', color: '#E11D48', banner: 'AAJ KA ITIHAAS • ON THIS DAY' },
@@ -232,96 +236,124 @@ const FULL_VIDEO_MAX_SECONDS = 600;
       }
 
       @if (overview(); as ov) {
-        <!-- Live Fact & Date Verification Banner -->
+        <!-- Live Fact & Date Verification Banner (collapsed by default unless Mismatch) -->
         @if (ov.signals.verification; as ver) {
           <section class="verify-ribbon" [class.has-mismatch]="ver.overallStatus === 'Mismatch'" [class.has-warn]="ver.overallStatus === 'NeedsReview'" aria-label="Live date and fact verification">
             <div class="verify-ribbon-head">
               <strong>
                 {{ ver.overallStatus === 'Mismatch' ? '🚫 Fact &amp; Date Verification Alert' : ver.overallStatus === 'NeedsReview' ? '⚠ Fact Verification Notes' : '✓ Live Date &amp; Fact Verification Passed' }}
               </strong>
-              <span class="pill" [class.ok]="ver.overallStatus === 'Verified'" [class.err]="ver.overallStatus === 'Mismatch'" [class.warn]="ver.overallStatus !== 'Verified' && ver.overallStatus !== 'Mismatch'">
-                {{ ver.summary }}
-              </span>
+              <div class="toolbar-right">
+                <span class="pill" [class.ok]="ver.overallStatus === 'Verified'" [class.err]="ver.overallStatus === 'Mismatch'" [class.warn]="ver.overallStatus !== 'Verified' && ver.overallStatus !== 'Mismatch'">
+                  {{ ver.summary }}
+                </span>
+                <button type="button" class="btn tiny ghost" (click)="showVerificationDetails.set(!showVerificationDetails())">
+                  {{ (showVerificationDetails() || ver.overallStatus === 'Mismatch') ? 'Hide Checks ▲' : 'Show Checks (' + ver.checks.length + ') ▼' }}
+                </button>
+              </div>
             </div>
-            <div class="verify-checks-grid">
-              @for (chk of ver.checks; track chk.category) {
-                <div class="verify-check-pill" [class.err]="chk.status === 'Mismatch'" [class.warn]="chk.status === 'NeedsReview' || chk.status === 'Unverified'">
-                  <div class="vcp-top">
-                    <span class="vcp-cat">{{ chk.status === 'Verified' ? '✓' : chk.status === 'Mismatch' ? '🚫' : '⚠' }} {{ chk.category }}</span>
-                    <div class="vcp-links">
-                      @if (chk.sourceUrl) {
-                        <a class="verify-ext-link" [href]="chk.sourceUrl" target="_blank" rel="noopener">{{ chk.sourceName || 'Source' }} ↗</a>
-                      }
-                      @if (chk.verifySearchUrl) {
-                        <a class="verify-ext-link" [href]="chk.verifySearchUrl" target="_blank" rel="noopener">Google Check ↗</a>
-                      }
+            @if (showVerificationDetails() || ver.overallStatus === 'Mismatch') {
+              <div class="verify-checks-grid">
+                @for (chk of ver.checks; track chk.category) {
+                  <div class="verify-check-pill" [class.err]="chk.status === 'Mismatch'" [class.warn]="chk.status === 'NeedsReview' || chk.status === 'Unverified'">
+                    <div class="vcp-top">
+                      <span class="vcp-cat">{{ chk.status === 'Verified' ? '✓' : chk.status === 'Mismatch' ? '🚫' : '⚠' }} {{ chk.category }}</span>
+                      <div class="vcp-links">
+                        @if (chk.sourceUrl) {
+                          <a class="verify-ext-link" [href]="chk.sourceUrl" target="_blank" rel="noopener">{{ chk.sourceName || 'Source' }} ↗</a>
+                        }
+                        @if (chk.verifySearchUrl) {
+                          <a class="verify-ext-link" [href]="chk.verifySearchUrl" target="_blank" rel="noopener">Google Check ↗</a>
+                        }
+                      </div>
                     </div>
+                    <small class="vcp-msg">{{ chk.message }}</small>
                   </div>
-                  <small class="vcp-msg">{{ chk.message }}</small>
-                </div>
-              }
-            </div>
+                }
+              </div>
+            }
           </section>
         }
 
-        <!-- Live Signals Ribbon -->
-        <section class="signals-ribbon" aria-label="Live ecosystem signals">
-          <div class="sig-card">
-            <div class="sig-head">ॐ Panchang ({{ ov.signals.location }})</div>
-            @if (ov.signals.panchang; as p) {
-              <div class="sig-main">
-                {{ p.tithi }}
-                @if (p.tithiEndTime) {
-                  <small class="sig-sub"> ({{ p.tithiEndTime }}@if (p.nextTithi) { &rarr; {{ p.nextTithi }} })</small>
-                }
-                • {{ p.nakshatra }}
-              </div>
-              <div class="sig-meta">Abhijit: {{ p.abhijitMuhurat }} | Rahu: {{ p.rahuKaal }}</div>
-            } @else {
-              <div class="sig-muted">Panchang signal unavailable for this date</div>
+        <!-- Live Signals Ribbon (collapsed by default to compact bar) -->
+        <section class="signals-summary-bar" aria-label="Live ecosystem signals">
+          <div class="ssb-left">
+            <span class="pill subtle">ॐ {{ ov.signals.panchang?.tithi || 'Panchang' }}</span>
+            @if (ov.signals.panchang; as panchang) {
+              @if (panchang.moonSign) {
+                <span class="pill info">🌙 Chandra: {{ panchang.moonSign }}</span>
+              }
             }
+            <span class="pill subtle">🪔 {{ ov.signals.upcomingFestivals.length }} Festivals</span>
+            <span class="pill subtle">🎬 {{ ov.unusedDriveClipsCount }} Drive • {{ ov.connectedChannels.length }} Channels</span>
           </div>
-
-          <div class="sig-card">
-            <div class="sig-head">🪔 Festivals &amp; Katha</div>
-            <div class="sig-main">
-              {{ ov.signals.upcomingFestivals.length }} upcoming •
-              {{ ov.signals.dailyKatha ? ov.signals.dailyKatha.title : 'No katha signal' }}
-            </div>
-            <div class="sig-meta">
-              @if (ov.signals.upcomingFestivals[0]; as f) {
-                Next: {{ f.nameHindi || f.nameEnglish }} ({{ f.dateKey }})
-              } @else {
-                Check Spiritual channel pipelines
-              }
-            </div>
-          </div>
-
-          <div class="sig-card">
-            <div class="sig-head">🌍 History &amp; Contests</div>
-            <div class="sig-main">
-              {{ ov.signals.historicalIncidents.length }} Aaj Ka Itihaas •
-              {{ ov.signals.competitions.length }} Pratiyogita
-            </div>
-            <div class="sig-meta">
-              @if (ov.signals.historicalIncidents[0]; as h) {
-                Lead: {{ h.year }} — {{ h.title }}
-              } @else {
-                Ready for world/GK channels
-              }
-            </div>
-          </div>
-
-          <div class="sig-card">
-            <div class="sig-head">🎬 Media &amp; Channels Ready</div>
-            <div class="sig-main">
-              {{ ov.unusedDriveClipsCount }} Unused Drive • {{ ov.finishedRendersCount }} Studio Renders
-            </div>
-            <div class="sig-meta">
-              {{ ov.connectedChannels.length }} YouTube connected • {{ ov.websites.length }} tracked sites
-            </div>
-          </div>
+          <button type="button" class="btn tiny ghost" (click)="showSignalsCards.set(!showSignalsCards())">
+            {{ showSignalsCards() ? 'Collapse Signals ▲' : 'Expand Live Signals ▼' }}
+          </button>
         </section>
+
+        @if (showSignalsCards()) {
+          <section class="signals-ribbon" aria-label="Live ecosystem signal details">
+            <div class="sig-card">
+              <div class="sig-head">ॐ Panchang ({{ ov.signals.location }})</div>
+              @if (ov.signals.panchang; as p) {
+                <div class="sig-main">
+                  {{ p.tithi }}
+                  @if (p.tithiEndTime) {
+                    <small class="sig-sub"> ({{ p.tithiEndTime }}@if (p.nextTithi) { &rarr; {{ p.nextTithi }} })</small>
+                  }
+                  • {{ p.nakshatra }}
+                </div>
+                <div class="sig-meta">
+                  Abhijit: {{ p.abhijitMuhurat }} | Rahu: {{ p.rahuKaal }}
+                  @if (p.moonSign) { | Moon: {{ p.moonSign }} }
+                </div>
+              } @else {
+                <div class="sig-muted">Panchang signal unavailable for this date</div>
+              }
+            </div>
+
+            <div class="sig-card">
+              <div class="sig-head">🪔 Festivals &amp; Katha</div>
+              <div class="sig-main">
+                {{ ov.signals.upcomingFestivals.length }} upcoming •
+                {{ ov.signals.dailyKatha ? ov.signals.dailyKatha.title : 'No katha signal' }}
+              </div>
+              <div class="sig-meta">
+                @if (ov.signals.upcomingFestivals[0]; as f) {
+                  Next: {{ f.nameHindi || f.nameEnglish }} ({{ f.dateKey }})
+                } @else {
+                  Check Spiritual channel pipelines
+                }
+              </div>
+            </div>
+
+            <div class="sig-card">
+              <div class="sig-head">🌍 History &amp; Contests</div>
+              <div class="sig-main">
+                {{ ov.signals.historicalIncidents.length }} Aaj Ka Itihaas •
+                {{ ov.signals.competitions.length }} Pratiyogita
+              </div>
+              <div class="sig-meta">
+                @if (ov.signals.historicalIncidents[0]; as h) {
+                  Lead: {{ h.year }} — {{ h.title }}
+                } @else {
+                  Ready for world/GK channels
+                }
+              </div>
+            </div>
+
+            <div class="sig-card">
+              <div class="sig-head">🎬 Media &amp; Channels Ready</div>
+              <div class="sig-main">
+                {{ ov.unusedDriveClipsCount }} Unused Drive • {{ ov.finishedRendersCount }} Studio Renders
+              </div>
+              <div class="sig-meta">
+                {{ ov.connectedChannels.length }} YouTube connected • {{ ov.websites.length }} tracked sites
+              </div>
+            </div>
+          </section>
+        }
 
         @if (ov.signals.warnings.length > 0) {
           <div class="warn-strip">
@@ -349,6 +381,9 @@ const FULL_VIDEO_MAX_SECONDS = 600;
         <div class="hub-tabs" role="tablist">
           <button type="button" role="tab" [class.active]="activeTab() === 'queue'" (click)="activeTab.set('queue')">
             Prepared Post List ({{ postsForSelectedDate().length }})
+          </button>
+          <button type="button" role="tab" [class.active]="activeTab() === 'rashifal'" (click)="activeTab.set('rashifal'); loadRashifal()">
+            ♈ Daily Rashifal &amp; 2D Panchang (12 Rashis)
           </button>
           <button type="button" role="tab" [class.active]="activeTab() === 'rules'" (click)="activeTab.set('rules')">
             Channel Routing Pipelines ({{ ov.rules.length }})
@@ -383,14 +418,25 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             </div>
 
             <div class="toolbar-right">
+              <input type="search" class="queue-search-input"
+                     placeholder="Search title, channel, category…"
+                     [ngModel]="queueSearchQuery()"
+                     (ngModelChange)="setQueueSearchQuery($event)" />
+              <select class="queue-page-size" [ngModel]="queuePageSize()" (ngModelChange)="setQueuePageSize(+$event)">
+                <option [ngValue]="8">8 / page</option>
+                <option [ngValue]="16">16 / page</option>
+                <option [ngValue]="32">32 / page</option>
+              </select>
+              <button type="button" class="btn tiny ghost" (click)="expandAllQueueCards()">Expand Page</button>
+              <button type="button" class="btn tiny ghost" (click)="collapseAllQueueCards()">Collapse All</button>
               @if (highlightedSource()) {
                 <button type="button" class="btn tiny ghost" (click)="highlightedSource.set(null)">
                   Clear source filter: {{ sourceInfo(highlightedSource()!).label }} ×
                 </button>
               }
               <label class="toggle-inline">
-                <input type="checkbox" [ngModel]="showAllDates()" (ngModelChange)="showAllDates.set($event)" />
-                <span>Show all prepared dates ({{ ov.posts.length }})</span>
+                <input type="checkbox" [ngModel]="showAllDates()" (ngModelChange)="showAllDates.set($event); queuePage.set(0)" />
+                <span>Show all dates ({{ ov.posts.length }})</span>
               </label>
             </div>
           </div>
@@ -423,7 +469,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             </div>
           } @else {
             <div class="posts-grid">
-              @for (post of filteredPosts(); track post.id) {
+              @for (post of pagedPosts(); track post.id) {
                 <article class="post-card compact" [class.is-published]="post.status === 'Published'"
                          [style.border-top]="'3px solid ' + postEventColor(post)"
                          tabindex="0" role="button" [attr.aria-label]="'Open details: ' + post.title"
@@ -432,6 +478,9 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     <span class="event-dot" [style.background]="postEventColor(post)"></span>
                     <span class="banner-text">{{ postHeaderBanner(post) }}</span>
                     <span class="date-tag">{{ post.dateKey }}</span>
+                    <button type="button" class="btn tiny ghost" (click)="$event.stopPropagation(); toggleQueueCardExpanded(post.id)">
+                      {{ isQueueCardExpanded(post.id) ? '▲' : '▼' }}
+                    </button>
                   </div>
 
                   <div class="badges-wrap">
@@ -443,6 +492,9 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     </span>
                     <span class="pill" [ngClass]="'tone-' + statusInfo(post.status).tone">{{ statusInfo(post.status).label }}</span>
                     <span class="pill subtle">{{ post.format }} • {{ post.language.toUpperCase() }}</span>
+                    @if (post.scheduledAtUtc && post.status !== 'Published') {
+                      <span class="pill info" [title]="'UTC: ' + post.scheduledAtUtc">🕒 {{ formatLocalSchedule(post.scheduledAtUtc) }}</span>
+                    }
                     @if (post.sourceType === 'FunnyComedy' && post.attachedRenderJobId) {
                       <label class="pill subtle" style="cursor:pointer;" (click)="$event.stopPropagation()">
                         <input type="checkbox" [checked]="isComedySelected(post.id)" (change)="toggleComedySelect(post.id)" style="margin-right:4px;" />
@@ -461,16 +513,55 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     } @else {
                       <span class="chan-missing">No YouTube channel assigned</span>
                     }
-                  </div>
-
-                  <div class="compact-video" [class.has-video]="!!(post.attachedHandoffId || post.attachedRenderJobId)">
-                    <span class="compact-video-label">{{ post.attachedVideoSourceLabel || 'No video yet' }}</span>
-                    @if (post.status === 'GeneratingVideo' || ((post.storyProgressPercent ?? 0) > 0 && (post.storyProgressPercent ?? 0) < 100)) {
-                      <div class="story-progress-track">
-                        <div class="story-progress-fill" [style.width.%]="post.storyProgressPercent ?? 5"></div>
-                      </div>
+                    @if (!isQueueCardExpanded(post.id)) {
+                      <span class="muted-note">• {{ post.attachedHandoffId || post.attachedRenderJobId ? '🎬 Video Ready' : 'Draft Only' }} • {{ hasPostThumbnail(post) ? '🖼 Thumb ✓' : 'No Thumb' }}</span>
                     }
                   </div>
+
+                  @if (isQueueCardExpanded(post.id)) {
+                    <div class="compact-video" [class.has-video]="!!(post.attachedHandoffId || post.attachedRenderJobId)">
+                      <span class="compact-video-label">{{ post.attachedVideoSourceLabel || 'No video yet' }}</span>
+                      @if (post.status === 'GeneratingVideo' || ((post.storyProgressPercent ?? 0) > 0 && (post.storyProgressPercent ?? 0) < 100)) {
+                        <div class="story-progress-track">
+                          <div class="story-progress-fill" [style.width.%]="post.storyProgressPercent ?? 5"></div>
+                        </div>
+                      }
+                    </div>
+
+                    @if (post.format !== 'CommunityPost' && post.status !== 'Published') {
+                      <div class="card-readiness-row">
+                        @if (post.verificationStatus === 'Mismatch') {
+                          <span class="mini-chip err" [title]="post.verificationSummary || 'Date/fact mismatch'">
+                            🚫 Fact/Date Mismatch
+                          </span>
+                        } @else if (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified') {
+                          <span class="mini-chip warn" [title]="post.verificationSummary || 'Needs review'">
+                            ⚠ Fact Check
+                          </span>
+                        } @else {
+                          <span class="mini-chip ok" [title]="post.verificationSummary || 'Facts & date verified'">
+                            ✓ Verified
+                          </span>
+                        }
+                        @if (hasPostThumbnail(post)) {
+                          <span class="mini-chip ok" [title]="post.thumbnailSource || 'Thumbnail configured'">
+                            🖼 Thumb ✓
+                          </span>
+                        } @else {
+                          <span class="mini-chip warn" title="No YouTube thumbnail set yet — open Details to upload or template generate">
+                            ⚠ No thumb
+                          </span>
+                        }
+                        @if (postReadiness(post).missingCount > 0) {
+                          <span class="mini-chip warn" [title]="postReadiness(post).summary">
+                            ⚠ {{ postReadiness(post).missingCount }} detail{{ postReadiness(post).missingCount > 1 ? 's' : '' }} needed
+                          </span>
+                        } @else {
+                          <span class="mini-chip ok">✓ Ready</span>
+                        }
+                      </div>
+                    }
+                  }
 
                   @if (post.verificationStatus === 'Mismatch') {
                     <div class="err-note verify-alert-card" (click)="$event.stopPropagation()">
@@ -487,45 +578,6 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                           Verify Source ↗
                         </a>
                       </div>
-                    </div>
-                  }
-
-                  @if (post.format !== 'CommunityPost' && post.status !== 'Published') {
-                    <div class="card-readiness-row">
-                      @if (post.verificationStatus === 'Mismatch') {
-                        <span class="mini-chip err" [title]="post.verificationSummary || 'Date/fact mismatch'">
-                          🚫 Fact/Date Mismatch
-                        </span>
-                      } @else if (post.verificationStatus === 'NeedsReview' || post.verificationStatus === 'Unverified') {
-                        <span class="mini-chip warn" [title]="post.verificationSummary || 'Needs review'">
-                          ⚠ Fact Check
-                        </span>
-                      } @else {
-                        <span class="mini-chip ok" [title]="post.verificationSummary || 'Facts & date verified'">
-                          ✓ Verified
-                        </span>
-                      }
-                      @if (post.scheduledAtUtc) {
-                        <span class="mini-chip info" [title]="'UTC: ' + post.scheduledAtUtc">
-                          🕒 {{ formatLocalSchedule(post.scheduledAtUtc) }}
-                        </span>
-                      }
-                      @if (hasPostThumbnail(post)) {
-                        <span class="mini-chip ok" [title]="post.thumbnailSource || 'Thumbnail configured'">
-                          🖼 Thumb ✓
-                        </span>
-                      } @else {
-                        <span class="mini-chip warn" title="No YouTube thumbnail set yet — open Details to upload or AI generate">
-                          ⚠ No thumb
-                        </span>
-                      }
-                      @if (postReadiness(post).missingCount > 0) {
-                        <span class="mini-chip warn" [title]="postReadiness(post).summary">
-                          ⚠ {{ postReadiness(post).missingCount }} detail{{ postReadiness(post).missingCount > 1 ? 's' : '' }} needed
-                        </span>
-                      } @else {
-                        <span class="mini-chip ok">✓ Ready</span>
-                      }
                     </div>
                   }
 
@@ -559,6 +611,13 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                         Publish
                       </button>
                     }
+                    @if (post.publishedVideoId && post.status === 'Published') {
+                      <button type="button" class="btn tiny ghost" [disabled]="busy()"
+                              title="Verify on live YouTube API whether this video still exists — if deleted on YouTube, re-enables upload options"
+                              (click)="verifyPostFacts(post)">
+                        {{ busyAction() === 'verify:' + post.id ? 'Checking…' : '🔍 Check YouTube' }}
+                      </button>
+                    }
                     @if (post.publishedVideoId && post.status === 'Published' && post.format !== 'CommunityPost') {
                       @if (post.syncedToEcosystemAtUtc) {
                         <button type="button" class="btn tiny ghost" [disabled]="busy()"
@@ -585,7 +644,94 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 </article>
               }
             </div>
+            @if (totalQueuePages() > 1) {
+              <div class="queue-pagination">
+                <button type="button" class="btn tiny ghost" [disabled]="clampedQueuePage() === 0" (click)="prevQueuePage()">
+                  ← Prev
+                </button>
+                <span class="muted-note">
+                  Page {{ clampedQueuePage() + 1 }} / {{ totalQueuePages() }} ({{ filteredPosts().length }} total posts)
+                </span>
+                <button type="button" class="btn tiny ghost" [disabled]="clampedQueuePage() + 1 >= totalQueuePages()" (click)="nextQueuePage()">
+                  Next →
+                </button>
+              </div>
+            }
           }
+        }
+
+        <!-- TAB 1B: DAILY RASHIFAL & FAST 2D PANCHANG GENERATOR (12 RASHIS) -->
+        @if (activeTab() === 'rashifal') {
+          <section class="rashifal-panel" aria-label="Daily Rashifal all 12 zodiac signs">
+            <div class="rashifal-banner">
+              <div>
+                <h2>♈ Aaj Ka Daily Rashifal &amp; 2D Panchang (Verified Gochar)</h2>
+                @if (rashifalReport(); as rep) {
+                  <p class="muted-note">
+                    {{ rep.dateKey }} • {{ rep.location }} •
+                    <strong>Tithi:</strong> {{ rep.tithi }} •
+                    <strong>Nakshatra:</strong> {{ rep.nakshatra }} •
+                    <strong>Chandra Rashi:</strong> {{ rep.moonSign || 'Verified' }} •
+                    <strong>Abhijit:</strong> {{ rep.abhijitMuhurat }}
+                  </p>
+                } @else {
+                  <p class="muted-note">Verified MoonSign, Nakshatra, Meaning, Today's Forecast, and Aacharan / Upay for all 12 Rashis.</p>
+                }
+              </div>
+              <div class="toolbar-right">
+                <label class="toggle-inline">
+                  <input type="checkbox" [ngModel]="rashifalRenderVideos()" (ngModelChange)="rashifalRenderVideos.set($event)" />
+                  <span>Fast 2D Motion Shorts (no slow 3D wait)</span>
+                </label>
+                <label class="toggle-inline">
+                  <input type="checkbox" [ngModel]="rashifalShowWatermark()" (ngModelChange)="rashifalShowWatermark.set($event)" />
+                  <span>Show Watermark</span>
+                </label>
+                <button type="button" class="btn ghost" [disabled]="loadingRashifal() || busy()" (click)="loadRashifal()">
+                  {{ loadingRashifal() ? 'Refreshing…' : '↻ Refresh Verified Gochar' }}
+                </button>
+                <button type="button" class="btn primary" [disabled]="busy() || loadingRashifal()" (click)="generateRashifalShorts()">
+                  {{ busyAction() === 'rashifal-all' ? 'Generating 12 Shorts…' : '⚡ Generate All 12 Rashi 2D Shorts' }}
+                </button>
+              </div>
+            </div>
+
+            @if (loadingRashifal()) {
+              <app-loading-state mode="cards" [count]="4" title="Computing verified Jyotish Gochar for all 12 Rashis…" />
+            } @else if (rashifalReport(); as rep) {
+              <div class="rashifal-grid">
+                @for (r of rep.rashis; track r.key) {
+                  <article class="rashi-card" [class.shubh]="r.isShubhChandrabalam">
+                    <div class="rashi-card-head">
+                      <div>
+                        <strong>{{ r.symbol }} {{ r.hindiName }} ({{ r.englishName }})</strong>
+                        <small>{{ r.rulerHindi }} • {{ r.elementHindi }} • Gochar Bhava {{ r.gocharHouseFromMoon }}</small>
+                      </div>
+                      <span class="pill" [ngClass]="r.isShubhChandrabalam ? 'tone-ok' : 'tone-info'">
+                        {{ r.statusBadge }} ({{ r.favorabilityScore }}%)
+                      </span>
+                    </div>
+                    <div class="rashi-meaning"><strong>अर्थ / स्वभाव:</strong> {{ r.meaningSummary }}</div>
+                    <div class="rashi-body">
+                      <p><strong>आज क्या हो रहा है (Forecast):</strong> {{ r.todayPredictionHindi }}</p>
+                      <p class="rashi-en">{{ r.todayPredictionEnglish }}</p>
+                      <p><strong>🙏 आज का आचरण एवं उपाय (Aacharan):</strong> {{ r.aacharanUpayHindi }}</p>
+                    </div>
+                    <div class="rashi-foot">
+                      <div class="badges-wrap">
+                        <span class="pill subtle">🎨 {{ r.luckyColor }}</span>
+                        <span class="pill subtle">🔢 शुभ अंक {{ r.luckyNumber }}</span>
+                        <span class="pill subtle" [title]="r.mantra">🕉️ {{ r.mantra }}</span>
+                      </div>
+                      <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="generateRashifalShorts([r.key])">
+                        {{ busyAction() === 'rashifal:' + r.key ? 'Rendering…' : '⚡ Create ' + r.englishName + ' Short' }}
+                      </button>
+                    </div>
+                  </article>
+                }
+              </div>
+            }
+          </section>
         }
 
         <!-- TAB 2: CHANNEL ROUTING PIPELINES -->
@@ -706,6 +852,56 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 <span>Pratiyogita API Base URL (optional override)</span>
                 <input type="url" [(ngModel)]="settingsForm()!.pratiyogitaApiBaseUrl" name="pratiyogitaApiBaseUrl" placeholder="Auto-discovered or https://..." />
               </label>
+            </div>
+
+            <div class="verify-detail-box">
+              <strong>🕉️ 2D Panchang &amp; Daily Rashifal Defaults (No Watermark • Fast 2D • Default Backgrounds)</strong>
+              <div class="settings-grid" style="margin-top: 8px;">
+                <label class="check-tile">
+                  <input type="checkbox" [(ngModel)]="settingsForm()!.panchangShowWatermark" name="panchangShowWatermark" />
+                  <div>
+                    <strong>Show Bottom Watermark on Panchang &amp; Rashifal</strong>
+                    <small>Unchecked by default for clean devotional 2D templates without lower corner watermark.</small>
+                  </div>
+                </label>
+                <label class="check-tile">
+                  <input type="checkbox" [(ngModel)]="settingsForm()!.panchangUseFast2DAnimation" name="panchangUseFast2DAnimation" />
+                  <div>
+                    <strong>Ultra-Fast 2D Motion Animation (CpuFast)</strong>
+                    <small>Skips heavy 3D frame queues so daily Panchang &amp; 12-Rashi Shorts render in seconds.</small>
+                  </div>
+                </label>
+              </div>
+              <div class="form-2col" style="margin-top: 10px;">
+                <label class="field">
+                  <span>Fixed Thumbnail Title Template</span>
+                  <input type="text" [(ngModel)]="settingsForm()!.panchangThumbnailTitleTemplate" name="panchangThumbnailTitleTemplate" placeholder="आज का पंचांग | Aaj Ka Panchang" />
+                </label>
+                <label class="field">
+                  <span>Fixed Thumbnail Subtitle Template</span>
+                  <input type="text" [(ngModel)]="settingsForm()!.panchangThumbnailSubtitleTemplate" name="panchangThumbnailSubtitleTemplate" placeholder="तिथि • नक्षत्र • राहुकाल • शुभ मुहूर्त" />
+                </label>
+                <div class="field">
+                  <span>Default Panchang / Rashifal Background Image</span>
+                  <div class="sched-input-row">
+                    <span class="pill subtle">{{ settingsForm()!.panchangDefaultBackgroundAssetId ? 'Asset: ' + settingsForm()!.panchangDefaultBackgroundAssetId!.slice(0, 8) + '…' : 'None (Auto gradient)' }}</span>
+                    <button type="button" class="btn tiny ghost" (click)="openStoragePicker({ kind: 'settings-bg' })">🖼 Choose Background</button>
+                    @if (settingsForm()!.panchangDefaultBackgroundAssetId) {
+                      <button type="button" class="btn tiny danger-ghost" (click)="settingsForm()!.panchangDefaultBackgroundAssetId = null">Clear</button>
+                    }
+                  </div>
+                </div>
+                <div class="field">
+                  <span>Default Panchang Fixed Thumbnail Asset</span>
+                  <div class="sched-input-row">
+                    <span class="pill subtle">{{ settingsForm()!.panchangDefaultThumbnailAssetId ? 'Asset: ' + settingsForm()!.panchangDefaultThumbnailAssetId!.slice(0, 8) + '…' : 'None (Auto Fixed Template)' }}</span>
+                    <button type="button" class="btn tiny ghost" (click)="openStoragePicker({ kind: 'settings-thumb' })">🖼 Choose Default Thumb</button>
+                    @if (settingsForm()!.panchangDefaultThumbnailAssetId) {
+                      <button type="button" class="btn tiny danger-ghost" (click)="settingsForm()!.panchangDefaultThumbnailAssetId = null">Clear</button>
+                    }
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="form-footer">
@@ -1029,7 +1225,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                           @if (post.status !== 'Publishing') {
                             <div class="readiness-head-actions">
                               <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="verifyPostFacts(post)">
-                                {{ busyAction() === 'verify:' + post.id ? 'Checking…' : '↻ Verify Now' }}
+                                {{ busyAction() === 'verify:' + post.id ? 'Checking…' : (post.status === 'Published' ? '🔍 Verify Live on YouTube' : '↻ Verify Now') }}
                               </button>
                               @if (post.status !== 'Published') {
                                 <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="reverifyAndFixPost(post)"
@@ -1719,13 +1915,16 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                   </select>
                 </label>
-                <label class="field">
+                <div class="field">
                   <span>Scheduled Upload Time (Local)</span>
                   <div class="sched-input-row">
                     <input type="datetime-local" [(ngModel)]="editingScheduledLocal" />
                     <button type="button" class="btn tiny ghost" title="Clear schedule time" (click)="editingScheduledLocal = ''">Clear</button>
+                    <button type="button" class="btn tiny primary" [disabled]="loadingAdvice()" (click)="loadPublishAdvice(draft.sourceType, draft.format, draft.targetChannelId)">
+                      {{ loadingAdvice() ? 'Loading…' : '⏰ Peak Times & Promo' }}
+                    </button>
                   </div>
-                </label>
+                </div>
                 <label class="field">
                   <span>YouTube Category</span>
                   <select [(ngModel)]="draft.categoryId">
@@ -1804,6 +2003,54 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 <span>Enable animated 2-character dialogue stage in 3D Auto Video</span>
               </label>
 
+              <div class="settings-grid">
+                <label class="toggle-inline">
+                  <input type="checkbox" [ngModel]="postShowWatermark(draft)" (ngModelChange)="setPostShowWatermark(draft, $event)" />
+                  <span>Show Bottom Watermark (uncheck for clean Panchang / Rashifal look)</span>
+                </label>
+                <label class="toggle-inline">
+                  <input type="checkbox" [(ngModel)]="draft.preferFast2DAnimation" />
+                  <span>Ultra-Fast 2D Motion Animation (CpuFast)</span>
+                </label>
+              </div>
+
+              @if (publishAdvice(); as adv) {
+                <div class="advice-box">
+                  <div class="advice-head">
+                    <strong>⏰ Recommended Peak Upload Times &amp; Where to Promote ({{ adv.timeZoneId }})</strong>
+                    <button type="button" class="link-btn" (click)="publishAdvice.set(null)">Hide ×</button>
+                  </div>
+                  <div class="advice-slots">
+                    @for (slot of adv.slots; track slot.atUtc) {
+                      <div class="advice-slot-chip">
+                        <div>
+                          <strong>{{ slot.localLabel }}</strong>
+                          <small>{{ slot.expectedReachTier }} • {{ slot.reason }}</small>
+                        </div>
+                        <div class="sched-input-row">
+                          <button type="button" class="btn tiny ghost" (click)="useSuggestedSlot(slot.atUtc)">Pick Time</button>
+                          <button type="button" class="btn tiny primary"
+                                  [disabled]="busy() || (!draft.attachedHandoffId && !draft.attachedRenderJobId) || !draft.targetChannelId"
+                                  title="Upload Private to YouTube now with native YouTube publishAt schedule"
+                                  (click)="schedulePostOnYouTube(draft, slot.atUtc)">
+                            🚀 Schedule on YT
+                          </button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                  <div class="advice-promos">
+                    @for (promo of adv.promotions; track promo.platform + promo.title) {
+                      <div class="advice-promo-item">
+                        <span class="pill subtle">{{ promo.platform }} • {{ promo.priority }}</span>
+                        <strong>{{ promo.title }}</strong>
+                        <small>{{ promo.timingHint }} — {{ promo.actionSummary }}</small>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+
               <label class="field">
                 <span>YouTube Community Post Copy</span>
                 <textarea rows="3" [(ngModel)]="draft.communityPostText"></textarea>
@@ -1875,6 +2122,47 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                         </button>
                       }
                     </div>
+
+                    <details class="tpl-thumb-box" [open]="draft.sourceType === 'HinduPanchang' || draft.sourceType === 'DailyRashifal'">
+                      <summary>📐 Fixed 2D Template Thumbnail (&lt;1s Instant Render — Editable Date, Title, Subtitle &amp; BG)</summary>
+                      <div class="form-2col" style="margin-top: 8px;">
+                        <label class="field">
+                          <span>Date / Vara Stamp</span>
+                          <input type="text" [ngModel]="templateDateText()" (ngModelChange)="templateDateText.set($event)" />
+                        </label>
+                        <label class="field">
+                          <span>Main Overlay Title</span>
+                          <input type="text" [ngModel]="templateTitleText()" (ngModelChange)="templateTitleText.set($event)" />
+                        </label>
+                        <label class="field">
+                          <span>Subtitle / Tithi Line</span>
+                          <input type="text" [ngModel]="templateSubtitleText()" (ngModelChange)="templateSubtitleText.set($event)" />
+                        </label>
+                        <div class="field">
+                          <span>Background Image (Default or Picked)</span>
+                          <div class="sched-input-row">
+                            <span class="pill subtle">{{ templateBgAssetId() ? 'BG: ' + templateBgAssetId().slice(0, 8) + '…' : 'Gradient Theme BG' }}</span>
+                            <button type="button" class="btn tiny ghost" (click)="openStoragePicker({ kind: 'template-thumb', post: draft })">🖼 Pick BG</button>
+                            @if (templateBgAssetId()) {
+                              <button type="button" class="btn tiny danger-ghost" (click)="templateBgAssetId.set('')">Clear</button>
+                            }
+                          </div>
+                        </div>
+                      </div>
+                      <div class="sched-input-row" style="margin-top: 8px; flex-wrap: wrap;">
+                        <label class="toggle-inline">
+                          <input type="checkbox" [ngModel]="templateShowWatermark()" (ngModelChange)="templateShowWatermark.set($event)" />
+                          <span>Show Watermark</span>
+                        </label>
+                        <label class="toggle-inline">
+                          <input type="checkbox" [ngModel]="templateSaveDefaultBg()" (ngModelChange)="templateSaveDefaultBg.set($event)" />
+                          <span>Save BG as Default</span>
+                        </label>
+                        <button type="button" class="btn tiny primary" [disabled]="busy() || thumbnailBusyId() === draft.id" (click)="applyFixedTemplateThumbnail(draft)">
+                          {{ thumbnailBusyId() === 'tpl:' + draft.id ? 'Rendering…' : '⚡ Render Fixed Template PNG' }}
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </div>
               }
@@ -2045,15 +2333,22 @@ const FULL_VIDEO_MAX_SECONDS = 600;
           <div class="modal-card large" (click)="$event.stopPropagation()">
             <div class="modal-head">
               <h2>
-                {{ spTarget.kind === 'thumbnail' ? 'Pick Thumbnail Image for ' + spTarget.post.sourceTitle : 'Pick Storage Images for ' + (spTarget.kind === 'post' ? spTarget.post.sourceTitle : spTarget.rule.name) }}
+                {{
+                  spTarget.kind === 'thumbnail' ? 'Pick Thumbnail Image for ' + spTarget.post.sourceTitle
+                  : spTarget.kind === 'template-thumb' ? 'Pick Background Image for Fixed Template'
+                  : spTarget.kind === 'settings-bg' ? 'Pick Default Panchang / Rashifal Background Image'
+                  : spTarget.kind === 'settings-thumb' ? 'Pick Default Panchang / Rashifal Thumbnail Image'
+                  : spTarget.kind === 'post' ? 'Pick Storage Images for ' + spTarget.post.sourceTitle
+                  : 'Pick Storage Images for ' + (spTarget.kind === 'rule' ? spTarget.rule.name : '')
+                }}
               </h2>
               <button type="button" class="link-btn" (click)="storagePickerTarget.set(null)">Close ×</button>
             </div>
 
             <div class="modal-body">
               <p class="muted-note">
-                @if (spTarget.kind === 'thumbnail') {
-                  Click an image from your Studio Storage library to use as the YouTube thumbnail for this post.
+                @if (isSingleStoragePicker(spTarget)) {
+                  Click an image from your Studio Storage library to select it.
                 } @else {
                   Selected images are animated scene-by-scene in Story Mode or crossfaded as backdrops in Enhanced 3D Mode.
                   ({{ storageSelectedIds().length }} selected)
@@ -2102,8 +2397,8 @@ const FULL_VIDEO_MAX_SECONDS = 600;
             <div class="modal-foot">
               <button type="button" class="btn ghost" (click)="storageSelectedIds.set([])">Clear All</button>
               <button type="button" class="btn ghost" (click)="storagePickerTarget.set(null)">Cancel</button>
-              <button type="button" class="btn primary" [disabled]="busy() || (storagePickerTarget()?.kind === 'thumbnail' && storageSelectedIds().length === 0)" (click)="applyStoragePicker()">
-                {{ storagePickerTarget()?.kind === 'thumbnail' ? 'Use as Thumbnail' : 'Use Selected (' + storageSelectedIds().length + ')' }}
+              <button type="button" class="btn primary" [disabled]="busy() || (isSingleStoragePicker(spTarget) && storageSelectedIds().length === 0)" (click)="applyStoragePicker()">
+                {{ isSingleStoragePicker(spTarget) ? 'Use Selected Image' : 'Use Selected (' + storageSelectedIds().length + ')' }}
               </button>
             </div>
           </div>
@@ -2267,6 +2562,17 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                 <input type="checkbox" [(ngModel)]="rDraft.enableCharacterDialogue" />
                 <span>Enable animated 2-character dialogue stage on 3D Auto Videos for this pipeline</span>
               </label>
+
+              <div class="settings-grid">
+                <label class="toggle-inline">
+                  <input type="checkbox" [ngModel]="postShowWatermark(rDraft)" (ngModelChange)="setPostShowWatermark(rDraft, $event)" />
+                  <span>Show Bottom Watermark (uncheck for clean Panchang / Rashifal look)</span>
+                </label>
+                <label class="toggle-inline">
+                  <input type="checkbox" [(ngModel)]="rDraft.preferFast2DAnimation" />
+                  <span>Prefer Ultra-Fast 2D Motion Animation (CpuFast)</span>
+                </label>
+              </div>
 
               <div class="field-group">
                 <span class="group-label">Days of Week (leave all unchecked for Daily)</span>
@@ -2696,6 +3002,63 @@ const FULL_VIDEO_MAX_SECONDS = 600;
     .template-wait { display: flex; align-items: center; gap: 10px; padding: 18px; border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px dashed var(--border-bright); color: var(--text-dim); font-size: 13px; }
     .tpl-step { display: flex; flex-direction: column; gap: 6px; }
     .tpl-text { width: 100%; box-sizing: border-box; background: var(--sunk-2); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); padding: 9px 11px; font-size: 12.5px; font-family: ui-monospace, monospace; line-height: 1.45; resize: vertical; }
+    .signals-summary-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 8px 14px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border);
+    }
+    .ssb-left { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .queue-search-input {
+      padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--sunk-2); color: var(--text); font-size: 12.5px; min-width: 190px;
+    }
+    .queue-page-size {
+      padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--text); font-size: 12px;
+    }
+    .queue-pagination {
+      display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 0 4px;
+    }
+    .rashifal-panel { display: flex; flex-direction: column; gap: 16px; }
+    .rashifal-banner {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 16px 18px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border);
+    }
+    .rashifal-banner h2 { margin: 0 0 4px; font-size: 18px; }
+    .rashifal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 14px; }
+    .rashi-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .rashi-card.shubh { border-color: var(--ok); }
+    .rashi-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .rashi-card-head small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+    .rashi-meaning { font-size: 12px; padding: 6px 9px; border-radius: 6px; background: var(--sunk-1); color: var(--text-dim); }
+    .rashi-body p { margin: 0 0 6px; font-size: 12.5px; line-height: 1.45; }
+    .rashi-body p:last-child { margin-bottom: 0; }
+    .rashi-en { color: var(--muted); font-style: italic; }
+    .rashi-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
+    .advice-box {
+      padding: 12px 14px; border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border-bright);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .advice-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .advice-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+    .advice-slot-chip {
+      display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--surface-2); font-size: 12px;
+    }
+    .advice-slot-chip small { display: block; color: var(--muted); }
+    .advice-promos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+    .advice-promo-item {
+      padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--border); background: var(--surface);
+      display: flex; flex-direction: column; gap: 3px; font-size: 12px;
+    }
+    .advice-promo-item small { color: var(--text-dim); }
+    .tpl-thumb-box {
+      margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-sm);
+      background: var(--sunk-1); border: 1px dashed var(--border-bright); font-size: 12px;
+    }
+    .tpl-thumb-box summary { cursor: pointer; font-weight: 700; color: var(--brand-bright); }
     @media (max-width: 680px) {
       .auto-page { padding: 14px 12px 48px; }
       .posts-grid { grid-template-columns: 1fr; }
@@ -2761,9 +3124,32 @@ export class AutomationHubComponent implements OnInit {
     | { kind: 'post'; post: AutomationPost }
     | { kind: 'rule'; rule: AutomationRule }
     | { kind: 'thumbnail'; post: AutomationPost }
+    | { kind: 'settings-thumb' | 'settings-bg' | 'template-thumb'; post?: AutomationPost }
     | null
   >(null);
   readonly storageSelectedIds = signal<string[]>([]);
+
+  // UI Scalability (collapse by default + search + pagination)
+  readonly showVerificationDetails = signal(false);
+  readonly showSignalsCards = signal(false);
+  readonly expandedQueueCardIds = signal<Record<string, boolean>>({});
+  readonly queueSearchQuery = signal('');
+  readonly queuePageSize = signal(8);
+  readonly queuePage = signal(0);
+
+  // Daily Rashifal & 2D Fixed Thumbnail Template + Peak Publish Advice
+  readonly rashifalReport = signal<DailyRashifalReport | null>(null);
+  readonly loadingRashifal = signal(false);
+  readonly rashifalRenderVideos = signal(true);
+  readonly rashifalShowWatermark = signal(false);
+  readonly publishAdvice = signal<AutomationPublishAdvice | null>(null);
+  readonly loadingAdvice = signal(false);
+  readonly templateDateText = signal('');
+  readonly templateTitleText = signal('');
+  readonly templateSubtitleText = signal('');
+  readonly templateBgAssetId = signal('');
+  readonly templateShowWatermark = signal(false);
+  readonly templateSaveDefaultBg = signal(false);
 
   /** The one post whose full details are open in the pop-up; looked up live so polling refreshes it. */
   readonly detailPostId = signal<string | null>(null);
@@ -2851,6 +3237,7 @@ export class AutomationHubComponent implements OnInit {
   ];
   readonly sourceTypes: AutomationSourceType[] = [
     'HinduPanchang',
+    'DailyRashifal',
     'HinduFestival',
     'DailyKatha',
     'AajKaItihaas',
@@ -2881,12 +3268,33 @@ export class AutomationHubComponent implements OnInit {
     const srcFilter = this.highlightedSource();
     const afterSrc = srcFilter ? base.filter((p) => p.sourceType === srcFilter) : base;
     const f = this.statusFilter();
-    if (f === 'all') return afterSrc;
-    if (f === 'pending') return afterSrc.filter((p) => p.status === 'PreparedPreview' || p.status === 'Approved');
-    if (f === 'ready') return afterSrc.filter((p) => p.status === 'VideoReadyForReview');
-    if (f === 'generating') return afterSrc.filter((p) => p.status === 'GeneratingVideo' || p.status === 'Publishing');
-    if (f === 'published') return afterSrc.filter((p) => p.status === 'Published');
-    return afterSrc.filter((p) => p.status === 'Failed' || p.status === 'Skipped');
+    let byStatus = afterSrc;
+    if (f === 'pending') byStatus = afterSrc.filter((p) => p.status === 'PreparedPreview' || p.status === 'Approved');
+    else if (f === 'ready') byStatus = afterSrc.filter((p) => p.status === 'VideoReadyForReview');
+    else if (f === 'generating') byStatus = afterSrc.filter((p) => p.status === 'GeneratingVideo' || p.status === 'Publishing');
+    else if (f === 'published') byStatus = afterSrc.filter((p) => p.status === 'Published');
+    else if (f === 'failed') byStatus = afterSrc.filter((p) => p.status === 'Failed' || p.status === 'Skipped');
+
+    const q = this.queueSearchQuery().trim().toLowerCase();
+    if (!q) return byStatus;
+    return byStatus.filter((p) =>
+      `${p.title} ${p.sourceTitle ?? ''} ${p.targetChannelTitle ?? ''} ${p.targetChannelHandle ?? ''} ${p.sourceType}`
+        .toLowerCase()
+        .includes(q));
+  });
+
+  readonly totalQueuePages = computed(() =>
+    Math.max(1, Math.ceil(this.filteredPosts().length / Math.max(1, this.queuePageSize())))
+  );
+
+  readonly clampedQueuePage = computed(() =>
+    Math.min(this.queuePage(), Math.max(0, this.totalQueuePages() - 1))
+  );
+
+  readonly pagedPosts = computed(() => {
+    const size = Math.max(1, this.queuePageSize());
+    const start = this.clampedQueuePage() * size;
+    return this.filteredPosts().slice(start, start + size);
   });
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -3940,6 +4348,18 @@ export class AutomationHubComponent implements OnInit {
     });
     this.editingTagsCsv = post.tags.join(', ');
     this.editingScheduledLocal = this.toLocalDateTimeInput(post.scheduledAtUtc);
+
+    const cfg = this.overview()?.settings;
+    this.templateDateText.set(post.dateKey);
+    this.templateTitleText.set(post.title);
+    this.templateSubtitleText.set(post.headerBannerText || post.sourceTitle || '');
+    this.templateBgAssetId.set((post.attachedAssetIds?.[0]) || cfg?.panchangDefaultBackgroundAssetId || '');
+    const defaultWm = post.sourceType === 'HinduPanchang' || post.sourceType === 'DailyRashifal'
+      ? (cfg?.panchangShowWatermark ?? false)
+      : true;
+    this.templateShowWatermark.set(post.showWatermark ?? defaultWm);
+    this.templateSaveDefaultBg.set(false);
+    this.publishAdvice.set(null);
   }
 
   async savePostEdits(): Promise<void> {
@@ -4177,10 +4597,13 @@ export class AutomationHubComponent implements OnInit {
   }
 
   async verifyPostFacts(post: AutomationPost): Promise<void> {
+    const hadPublishedVideo = !!post.publishedVideoId;
     await this.runAction(`verify:${post.id}`, async () => {
       const updated = await firstValueFrom(this.api.verifyPost(post.id));
       this.syncUpdatedPostState(updated, true);
-      if (updated.verificationStatus === 'Mismatch') {
+      if (hadPublishedVideo && !updated.publishedVideoId && updated.status !== 'Published') {
+        this.status.showNotice('Detected video was deleted on YouTube — upload & schedule buttons re-enabled!');
+      } else if (updated.verificationStatus === 'Mismatch') {
         this.status.showError(updated.verificationSummary || 'Date/fact mismatch detected.');
       } else {
         this.status.showNotice(updated.verificationSummary || `Facts verified for "${updated.title}".`);
@@ -4298,15 +4721,41 @@ export class AutomationHubComponent implements OnInit {
     await this.savePostAnimationPrefs(post);
   }
 
+  isSingleStoragePicker(
+    target:
+      | { kind: 'post'; post: AutomationPost }
+      | { kind: 'rule'; rule: AutomationRule }
+      | { kind: 'thumbnail'; post: AutomationPost }
+      | { kind: 'settings-thumb' | 'settings-bg' | 'template-thumb'; post?: AutomationPost }
+      | null
+  ): boolean {
+    return !!target && (
+      target.kind === 'thumbnail'
+      || target.kind === 'settings-thumb'
+      || target.kind === 'settings-bg'
+      || target.kind === 'template-thumb'
+    );
+  }
+
   async openStoragePicker(
-    target: { kind: 'post'; post: AutomationPost } | { kind: 'rule'; rule: AutomationRule } | { kind: 'thumbnail'; post: AutomationPost }
+    target:
+      | { kind: 'post'; post: AutomationPost }
+      | { kind: 'rule'; rule: AutomationRule }
+      | { kind: 'thumbnail'; post: AutomationPost }
+      | { kind: 'settings-thumb' | 'settings-bg' | 'template-thumb'; post?: AutomationPost }
   ): Promise<void> {
     const current =
       target.kind === 'post'
         ? (target.post.attachedAssetIds ?? [])
         : target.kind === 'rule'
           ? (target.rule.attachedAssetIds ?? [])
-          : [];
+          : target.kind === 'template-thumb' && this.templateBgAssetId()
+            ? [this.templateBgAssetId()]
+            : target.kind === 'settings-bg' && this.settingsForm()?.panchangDefaultBackgroundAssetId
+              ? [this.settingsForm()!.panchangDefaultBackgroundAssetId!]
+              : target.kind === 'settings-thumb' && this.settingsForm()?.panchangDefaultThumbnailAssetId
+                ? [this.settingsForm()!.panchangDefaultThumbnailAssetId!]
+                : [];
     this.storageSelectedIds.set([...current]);
     this.storagePickerTarget.set(target);
     if (this.storageCatalog()) return;
@@ -4326,7 +4775,7 @@ export class AutomationHubComponent implements OnInit {
   }
 
   toggleStorageAsset(assetId: string): void {
-    if (this.storagePickerTarget()?.kind === 'thumbnail') {
+    if (this.isSingleStoragePicker(this.storagePickerTarget())) {
       this.storageSelectedIds.set([assetId]);
       return;
     }
@@ -4343,6 +4792,26 @@ export class AutomationHubComponent implements OnInit {
     if (!target) return;
     const picked = [...this.storageSelectedIds()];
     this.storagePickerTarget.set(null);
+
+    if (target.kind === 'settings-bg') {
+      const assetId = picked[0] ?? null;
+      this.settingsForm.update((f) => (f ? { ...f, panchangDefaultBackgroundAssetId: assetId } : f));
+      this.status.showNotice('Default Panchang / Rashifal background selected (remember to click Save Global Settings).');
+      return;
+    }
+
+    if (target.kind === 'settings-thumb') {
+      const assetId = picked[0] ?? null;
+      this.settingsForm.update((f) => (f ? { ...f, panchangDefaultThumbnailAssetId: assetId } : f));
+      this.status.showNotice('Default Panchang / Rashifal fixed thumbnail selected (remember to click Save Global Settings).');
+      return;
+    }
+
+    if (target.kind === 'template-thumb') {
+      this.templateBgAssetId.set(picked[0] ?? '');
+      this.status.showNotice('Background image selected for Fixed 2D Template.');
+      return;
+    }
 
     if (target.kind === 'thumbnail') {
       const assetId = picked[0];
@@ -4368,6 +4837,8 @@ export class AutomationHubComponent implements OnInit {
       }
       return;
     }
+
+    if (target.kind !== 'post') return;
 
     target.post.attachedAssetIds = picked;
     if (picked.length > 0 && (!target.post.visualEngine || target.post.visualEngine === 'Auto')) {
@@ -4593,13 +5064,19 @@ export class AutomationHubComponent implements OnInit {
   applyFunnyRuleAutoConfig(rule: AutomationRule): void {
     const comedyHints = ['keshav-anim-ff', 'ploptoonz', 'gigglebot', 'kaleshadda', 'gappatoonz', 'funny', 'comedy', 'meme', 'roast', 'hasya', 'tapri'];
     const intlHints = ['keshav-anim-ff', 'ploptoonz', 'gigglebot', 'zanyloop', 'global', 'tank'];
+    const devHints = ['panchang', 'bhakti', 'devotional', 'shiv', 'krishna', 'ram', 'aarti', 'katha', 'rashifal'];
+    const isDevotional = (s?: string | null) => {
+      const lower = (s ?? '').toLowerCase();
+      return !!lower && devHints.some((h) => lower.includes(h));
+    };
     const isComedyHint = (s?: string | null) => {
       const lower = (s ?? '').toLowerCase();
-      return !!lower && !lower.includes('panchang') && !lower.includes('bhakti') && comedyHints.some((h) => lower.includes(h));
+      return !!lower && !isDevotional(lower) && comedyHints.some((h) => lower.includes(h));
     };
-    const comedyChannel = (this.overview()?.connectedChannels ?? []).find(
-      (c) => isComedyHint(c.channelHandle) || isComedyHint(c.channelTitle),
-    );
+    const channels = this.overview()?.connectedChannels ?? [];
+    const comedyChannel =
+      channels.find((c) => isComedyHint(c.channelHandle) || isComedyHint(c.channelTitle))
+      ?? channels.find((c) => !isDevotional(c.channelHandle) && !isDevotional(c.channelTitle));
     if (comedyChannel) {
       rule.targetChannelId = comedyChannel.channelId;
       rule.targetChannelHandle = comedyChannel.channelHandle ?? null;
@@ -4695,6 +5172,161 @@ export class AutomationHubComponent implements OnInit {
   copyText(text: string, label: string): void {
     void navigator.clipboard?.writeText(text);
     this.status.showNotice(label);
+  }
+
+  postShowWatermark(item: { showWatermark?: boolean | null; sourceType: AutomationSourceType }): boolean {
+    if (item.showWatermark !== null && item.showWatermark !== undefined) {
+      return item.showWatermark;
+    }
+    const cfg = this.overview()?.settings;
+    if (item.sourceType === 'HinduPanchang' || item.sourceType === 'DailyRashifal') {
+      return cfg?.panchangShowWatermark ?? false;
+    }
+    return true;
+  }
+
+  setPostShowWatermark(item: { showWatermark?: boolean | null }, value: boolean): void {
+    item.showWatermark = value;
+  }
+
+  isQueueCardExpanded(postId: string): boolean {
+    return !!this.expandedQueueCardIds()[postId];
+  }
+
+  toggleQueueCardExpanded(postId: string): void {
+    this.expandedQueueCardIds.update((cur) => ({ ...cur, [postId]: !cur[postId] }));
+  }
+
+  expandAllQueueCards(): void {
+    const next = { ...this.expandedQueueCardIds() };
+    for (const p of this.pagedPosts()) {
+      next[p.id] = true;
+    }
+    this.expandedQueueCardIds.set(next);
+  }
+
+  collapseAllQueueCards(): void {
+    this.expandedQueueCardIds.set({});
+  }
+
+  setQueueSearchQuery(q: string): void {
+    this.queueSearchQuery.set(q);
+    this.queuePage.set(0);
+  }
+
+  setQueuePageSize(size: number): void {
+    this.queuePageSize.set(Math.max(4, size || 8));
+    this.queuePage.set(0);
+  }
+
+  prevQueuePage(): void {
+    this.queuePage.set(Math.max(0, this.clampedQueuePage() - 1));
+  }
+
+  nextQueuePage(): void {
+    this.queuePage.set(Math.min(Math.max(0, this.totalQueuePages() - 1), this.clampedQueuePage() + 1));
+  }
+
+  async loadRashifal(): Promise<void> {
+    this.loadingRashifal.set(true);
+    try {
+      const report = await firstValueFrom(
+        this.api.getDailyRashifal(this.selectedDate(), this.overview()?.settings.defaultLocation),
+      );
+      this.rashifalReport.set(report);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Could not load Daily Rashifal report.'));
+    } finally {
+      this.loadingRashifal.set(false);
+    }
+  }
+
+  async generateRashifalShorts(rashiKeys?: string[]): Promise<void> {
+    const actionKey = rashiKeys && rashiKeys.length === 1 ? `rashifal:${rashiKeys[0]}` : 'rashifal-all';
+    await this.runAction(actionKey, async () => {
+      const cfg = this.overview()?.settings;
+      const res = await firstValueFrom(
+        this.api.generateRashifalShorts({
+          dateKey: this.selectedDate(),
+          location: cfg?.defaultLocation,
+          language: 'hi',
+          rashiKeys: rashiKeys ?? null,
+          renderVideosNow: this.rashifalRenderVideos(),
+          showWatermark: this.rashifalShowWatermark(),
+          backgroundAssetId: cfg?.panchangDefaultBackgroundAssetId ?? null,
+          autoSchedulePeakSlots: true,
+        }),
+      );
+      this.status.showNotice(
+        `Prepared ${res.posts.length} Rashifal Short(s) (${res.renderedCount} fast 2D video(s) attached).`,
+      );
+      await this.loadOverview(true);
+      this.highlightedSource.set('DailyRashifal');
+      this.activeTab.set('queue');
+      this.queuePage.set(0);
+    });
+  }
+
+  async loadPublishAdvice(
+    sourceType: AutomationSourceType,
+    format: AutomationVideoFormat,
+    channelId?: string | null,
+  ): Promise<void> {
+    this.loadingAdvice.set(true);
+    try {
+      const adv = await firstValueFrom(this.api.getPublishAdvice(sourceType, format, channelId));
+      this.publishAdvice.set(adv);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Could not compute peak publish slots.'));
+    } finally {
+      this.loadingAdvice.set(false);
+    }
+  }
+
+  useSuggestedSlot(atUtc: string): void {
+    const draft = this.editingPost();
+    if (!draft) return;
+    draft.scheduledAtUtc = atUtc;
+    this.editingScheduledLocal = this.toLocalDateTimeInput(atUtc);
+  }
+
+  async schedulePostOnYouTube(post: AutomationPost, atUtc?: string | null): Promise<void> {
+    const targetUtc = atUtc ?? this.fromLocalDateTimeInput(this.editingScheduledLocal) ?? post.scheduledAtUtc ?? null;
+    await this.runAction(`yt-schedule:${post.id}`, async () => {
+      await firstValueFrom(
+        this.api.publishPost(post.id, {
+          publishNow: false,
+          scheduledAtUtc: targetUtc,
+          scheduleOnYouTube: true,
+        }),
+      );
+      this.status.showNotice('Uploaded to YouTube (Private -> Auto-Public at scheduled peak time)!');
+      this.editingPost.set(null);
+      await this.loadOverview(true);
+    });
+  }
+
+  async applyFixedTemplateThumbnail(post: AutomationPost): Promise<void> {
+    this.thumbnailBusyId.set(`tpl:${post.id}`);
+    try {
+      const updated = await firstValueFrom(
+        this.api.renderTemplateThumbnail(post.id, {
+          dateText: this.templateDateText(),
+          titleText: this.templateTitleText(),
+          subtitleText: this.templateSubtitleText(),
+          backgroundAssetId: this.templateBgAssetId() || null,
+          showWatermark: this.templateShowWatermark(),
+          saveAsDefaultBackground: this.templateSaveDefaultBg(),
+        }),
+      );
+      this.syncUpdatedPostState(updated, true);
+      this.status.showNotice(`Rendered instant Fixed 2D Template thumbnail for "${updated.title}".`);
+      await this.loadOverview(true);
+    } catch (err: unknown) {
+      this.status.showError(this.readErr(err, 'Fixed 2D template thumbnail generation failed.'));
+    } finally {
+      this.thumbnailBusyId.set(null);
+    }
   }
 
   private async runAction(actionName: string, work: () => Promise<void>): Promise<void> {

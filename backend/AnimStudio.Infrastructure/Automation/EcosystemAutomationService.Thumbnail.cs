@@ -20,9 +20,100 @@ namespace AnimStudio.Infrastructure.Automation;
 /// Pre-schedule readiness helpers, custom/AI/frame thumbnail management, auto-fill of missing YouTube
 /// metadata, and live synchronization into queued <see cref="PublishQueueItem"/> records.
 /// </summary>
+public sealed record RenderTemplateThumbnailDto(
+    string? DateText = null,
+    string? TitleText = null,
+    string? SubtitleText = null,
+    string? BackgroundAssetId = null,
+    bool? ShowWatermark = null,
+    string? WatermarkText = null,
+    bool SaveAsDefaultBackground = false);
+
 public sealed partial class EcosystemAutomationService
 {
     private static readonly TimeSpan AiThumbnailBudget = TimeSpan.FromSeconds(150);
+
+    public async Task<AutomationPost> RenderFixedTemplateThumbnailAsync(
+        string userId,
+        string postId,
+        RenderTemplateThumbnailDto request,
+        CancellationToken ct)
+    {
+        if (fixedThumbnailGenerator is null)
+            throw EditingException.Conflict("thumbnail-generator-unavailable", "Fixed thumbnail generator is not available.");
+
+        var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
+        EnsurePostEditable(post);
+        var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
+
+        var bgAssetId = !string.IsNullOrWhiteSpace(request.BackgroundAssetId)
+            ? request.BackgroundAssetId.Trim()
+            : post.Stage?.BackgroundTemplateAssetId ?? settings.PanchangDefaultBackgroundAssetId;
+
+        byte[]? bgBytes = null;
+        if (!string.IsNullOrWhiteSpace(bgAssetId) && assets is not null && await IsOwnedImageAsync(userId, bgAssetId, ct).ConfigureAwait(false))
+        {
+            var found = await assets.GetManyAsync([bgAssetId], ct).ConfigureAwait(false);
+            if (found.FirstOrDefault() is { StorageKey.Length: > 0 } asset)
+            {
+                await using var stream = await objectStore.OpenAsync(asset.StorageKey, ct).ConfigureAwait(false);
+                if (stream is not null)
+                {
+                    using var ms = new MemoryStream();
+                    await stream.CopyToAsync(ms, ct).ConfigureAwait(false);
+                    bgBytes = ms.ToArray();
+                }
+            }
+        }
+
+        if (request.SaveAsDefaultBackground && !string.IsNullOrWhiteSpace(bgAssetId))
+        {
+            settings.PanchangDefaultBackgroundAssetId = bgAssetId;
+            await SaveWorkspaceConfigAsync(settings, userId, ct).ConfigureAwait(false);
+        }
+
+        var dateText = !string.IsNullOrWhiteSpace(request.DateText) ? request.DateText.Trim() : post.DateKey;
+        var titleText = !string.IsNullOrWhiteSpace(request.TitleText)
+            ? request.TitleText.Trim()
+            : !string.IsNullOrWhiteSpace(settings.PanchangThumbnailTitleTemplate) && post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+                ? settings.PanchangThumbnailTitleTemplate.Trim()
+                : post.Title;
+        var subtitleText = !string.IsNullOrWhiteSpace(request.SubtitleText)
+            ? request.SubtitleText.Trim()
+            : !string.IsNullOrWhiteSpace(settings.PanchangThumbnailSubtitleTemplate) && post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+                ? settings.PanchangThumbnailSubtitleTemplate.Trim()
+                : post.SourceSummary;
+
+        var showWatermark = request.ShowWatermark
+            ?? post.ShowWatermark
+            ?? (post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+                ? settings.PanchangShowWatermark
+                : true);
+        var watermarkText = showWatermark
+            ? (!string.IsNullOrWhiteSpace(request.WatermarkText) ? request.WatermarkText.Trim() : post.TrackedFunnelUrls.FirstOrDefault()?.Label)
+            : null;
+
+        var isPortrait = post.Format == AutomationVideoFormat.Vertical;
+        var (imgBytes, _) = await fixedThumbnailGenerator.RenderAsync(
+            new ProceduralFixedThumbnailGenerator.FixedThumbnailSpec(
+                DateText: dateText,
+                TitleText: titleText,
+                SubtitleText: subtitleText,
+                EventType: post.SourceType.ToString(),
+                BackgroundImageBytes: bgBytes,
+                ShowWatermark: showWatermark,
+                WatermarkText: watermarkText,
+                Width: isPortrait ? 720 : post.Format == AutomationVideoFormat.CommunityPost ? 1080 : 1280,
+                Height: isPortrait ? 1280 : post.Format == AutomationVideoFormat.CommunityPost ? 1080 : 720),
+            ct).ConfigureAwait(false);
+
+        var sourceLabel = showWatermark ? "Fixed Template" : "Fixed Template (No Watermark)";
+        await SaveCustomThumbnailBytesAsync(post, imgBytes, sourceLabel, ct).ConfigureAwait(false);
+        post.UpdatedAtUtc = UtcNow;
+        await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+        await SyncQueuedItemAsync(userId, post, includeSchedule: false, ct).ConfigureAwait(false);
+        return post;
+    }
 
     public async Task<(byte[] Bytes, string ContentType)?> GetPostThumbnailBytesAsync(
         string userId,
@@ -312,6 +403,23 @@ public sealed partial class EcosystemAutomationService
                 post.ThumbnailSource = $"Auto Video Frame ({post.ThumbnailFrameAtSeconds:0.#}s)";
             }
         }
+
+        // Enforce all YouTube & AdSense policy rules automatically (title <= 100, clean description, <= 8 hashtags, <= 500-char tags)
+        var sanitized = YouTubePolicyComplianceSanitizer.Sanitize(
+            rawTitle: post.Title,
+            rawDescription: post.Description,
+            rawTags: post.Tags,
+            rawPinnedComment: post.PinnedComment,
+            fallbackTopicTitle: post.SourceTitle,
+            primaryDestinationUrl: post.PrimaryDestinationUrl ?? post.TrackedFunnelUrls.FirstOrDefault()?.TrackedUrl,
+            requestedMadeForKids: false,
+            isShort: post.Format == AutomationVideoFormat.Vertical,
+            language: post.Language);
+        post.Title = sanitized.Title;
+        post.Description = sanitized.Description;
+        post.Tags = [.. sanitized.Tags];
+        post.PinnedComment = sanitized.PinnedComment;
+        post.MadeForKids = sanitized.MadeForKids;
 
         post.UpdatedAtUtc = UtcNow;
         await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);

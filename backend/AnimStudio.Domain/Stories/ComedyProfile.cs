@@ -58,8 +58,44 @@ public static class ComedyChannelMatcher
 
     private static readonly string[] SeriousExclusions =
     [
-        "panchang", "bhakti", "sanatan", "katha", "purana", "gita", "mantra", "aarti", "mandir"
+        "panchang", "bhakti", "sanatan", "katha", "purana", "gita", "mantra", "aarti", "mandir", "devotional", "shiv", "krishna", "ram"
     ];
+
+    public static bool IsDevotionalOrSeriousChannelHint(params string?[] candidates) =>
+        candidates.Any(c => !string.IsNullOrWhiteSpace(c)
+            && SeriousExclusions.Any(c.Trim().ToLowerInvariant().Contains));
+
+    /// <summary>
+    /// Selects the highest-priority channel for Comedy workflows: explicit BrandChannel comedy flag first,
+    /// then comedy handle/title matches, then general entertainment/creator channels (never falling back
+    /// onto devotional/Panchang channels when a non-devotional channel is available).
+    /// </summary>
+    public static T? PickBestComedyChannel<T>(
+        IEnumerable<T> items,
+        Func<T, (string? Handle, string? Title, bool IsExplicitComedy)> selector,
+        bool international)
+    {
+        var list = items.ToList();
+        if (list.Count == 0) return default;
+
+        return list
+            .Select(item =>
+            {
+                var (handle, title, isExplicit) = selector(item);
+                var isSerious = IsDevotionalOrSeriousChannelHint(handle, title);
+                var isIntlHint = IsInternationalComedyHint(handle, title);
+                var isComedyHint = IsComedyChannelHint(handle, title);
+                var matchesTrack = international ? isIntlHint : isComedyHint && !isIntlHint;
+                var score =
+                    (isExplicit ? 100 : 0)
+                    + (matchesTrack ? 60 : isComedyHint ? 40 : 0)
+                    + (!isSerious ? 20 : -50);
+                return (Item: item, Score: score);
+            })
+            .OrderByDescending(x => x.Score)
+            .First()
+            .Item;
+    }
 
     public static ComedyToneStyle ParseTone(string? raw, ComedyToneStyle fallback = ComedyToneStyle.Auto)
     {

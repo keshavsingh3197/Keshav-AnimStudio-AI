@@ -26,7 +26,11 @@ public sealed record EcosystemPanchangSignal(
     string? SourceUrl = null,
     string? VerificationNote = null,
     string? NextTithi = null,
-    string? NextNakshatra = null);
+    string? NextNakshatra = null,
+    string? MoonSign = null,
+    string? SunSign = null,
+    string? PanchakStatus = null,
+    IReadOnlyList<string>? ChandrabalamGoodRashis = null);
 
 public sealed record EcosystemFestivalSignal(
     string Id,

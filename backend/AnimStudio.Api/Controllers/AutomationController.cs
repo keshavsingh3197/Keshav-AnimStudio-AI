@@ -54,7 +54,8 @@ public sealed record AutomationTemplateProject(string ProjectId);
 
 public sealed record PublishAutomationPostRequest(
     bool PublishNow = true,
-    DateTime? ScheduledAtUtc = null);
+    DateTime? ScheduledAtUtc = null,
+    bool ScheduleOnYouTube = false);
 
 public sealed record SetAutomationThumbnailRequest(
     string? ImageBase64 = null,
@@ -532,8 +533,62 @@ public sealed class AutomationController(
             id,
             request?.PublishNow ?? true,
             request?.ScheduledAtUtc,
-            ct);
+            ct,
+            scheduleOnYouTube: request?.ScheduleOnYouTube ?? false);
         return Ok(ApiResponse<AutomationPost>.Ok(post));
+    }
+
+    [HttpPost("queue/{id}/thumbnail/template")]
+    [RequestSizeLimit(32 * 1024)]
+    public async Task<ActionResult<ApiResponse<AutomationPost>>> RenderTemplateThumbnail(
+        string id,
+        [FromBody] RenderTemplateThumbnailDto? request = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPost>() is { } denied) return denied;
+        var updated = await automation.RenderFixedTemplateThumbnailAsync(
+            currentUser.UserId,
+            id,
+            request ?? new RenderTemplateThumbnailDto(),
+            ct);
+        return Ok(ApiResponse<AutomationPost>.Ok(updated));
+    }
+
+    [HttpGet("publish-advice")]
+    public async Task<ActionResult<ApiResponse<AutomationPublishAdvice>>> GetPublishAdvice(
+        [FromQuery] AutomationSourceType sourceType = AutomationSourceType.FunnyComedy,
+        [FromQuery] AutomationVideoFormat format = AutomationVideoFormat.Vertical,
+        [FromQuery] string? channelId = null,
+        [FromQuery] string? timeZone = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationPublishAdvice>() is { } denied) return denied;
+        var advice = await automation.GetPublishAdviceAsync(currentUser.UserId, sourceType, format, channelId, timeZone, ct);
+        return Ok(ApiResponse<AutomationPublishAdvice>.Ok(advice));
+    }
+
+    [HttpGet("rashifal")]
+    public async Task<ActionResult<ApiResponse<DailyRashifalReport>>> GetDailyRashifal(
+        [FromQuery] string? date = null,
+        [FromQuery] string? location = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<DailyRashifalReport>() is { } denied) return denied;
+        var report = await automation.GetDailyRashifalAsync(date, location, ct);
+        return Ok(ApiResponse<DailyRashifalReport>.Ok(report));
+    }
+
+    [HttpPost("rashifal/generate")]
+    public async Task<ActionResult<ApiResponse<GenerateRashifalShortsResult>>> GenerateRashifalShorts(
+        [FromBody] GenerateRashifalShortsDto? request = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<GenerateRashifalShortsResult>() is { } denied) return denied;
+        var result = await automation.GenerateRashifalShortsBatchAsync(
+            currentUser.UserId,
+            request ?? new GenerateRashifalShortsDto(),
+            ct);
+        return Ok(ApiResponse<GenerateRashifalShortsResult>.Ok(result));
     }
 
     /// <summary>

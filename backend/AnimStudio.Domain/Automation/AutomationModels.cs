@@ -10,7 +10,8 @@ public enum AutomationSourceType
     Pratiyogita = 4,
     EcosystemSpotlight = 5,
     CustomPrompt = 6,
-    FunnyComedy = 7
+    FunnyComedy = 7,
+    DailyRashifal = 8
 }
 
 /// <summary>Whether the rule stops in the Preview List or proceeds autonomously to YouTube.</summary>
@@ -161,6 +162,12 @@ public sealed class AutomationRule
     public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; set; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
     public bool AutoInsertMemes { get; set; } = true;
 
+    /// <summary>When false (default option for 2D Panchang/Rashifal), hides corner/footer branding watermark during video and template rendering.</summary>
+    public bool? ShowWatermark { get; set; }
+
+    /// <summary>When true, prefers the ultra-fast 2D CPU procedural animation engine for near-instant Daily Panchang &amp; Rashifal generation.</summary>
+    public bool PreferFast2DAnimation { get; set; }
+
     public int SortOrder { get; set; }
     public string? LastPreparedDateKey { get; set; }
     public DateTime CreatedAtUtc { get; set; }
@@ -282,6 +289,12 @@ public sealed class AutomationPost
     public List<string> AttachedAssetIds { get; set; } = [];
     public AnimStudio.Domain.Stories.ComedyToneStyle ComedyStyle { get; set; } = AnimStudio.Domain.Stories.ComedyToneStyle.Auto;
     public bool AutoInsertMemes { get; set; } = true;
+
+    /// <summary>When false, omits corner/footer watermark overlays on 2D Panchang/Rashifal videos and templates.</summary>
+    public bool? ShowWatermark { get; set; }
+
+    /// <summary>When true, prefers ultra-fast 2D procedural animation (<c>CpuFast</c>) instead of launching WebGL 3D.</summary>
+    public bool PreferFast2DAnimation { get; set; }
 
     /// <summary>Enhanced 3D stage choices for this post: background template, character spots, music and voice pacing.</summary>
     public AutomationStageSettings? Stage { get; set; }
@@ -436,5 +449,24 @@ public sealed class AutomationWorkspaceConfig
     public string? SocialApiBaseUrl { get; set; }
     public string? PratiyogitaApiBaseUrl { get; set; }
     public bool UseAiScriptRefinement { get; set; } = true;
+
+    /// <summary>Default watermark visibility for 2D Panchang &amp; Rashifal generations (false = clean no-watermark output).</summary>
+    public bool PanchangShowWatermark { get; set; }
+
+    /// <summary>Prefer ultra-fast 2D procedural animation by default for Daily Panchang &amp; Rashifal Shorts.</summary>
+    public bool PanchangUseFast2DAnimation { get; set; } = true;
+
+    /// <summary>Studio Storage asset ID used automatically as the default thumbnail for Daily Panchang / Rashifal cards.</summary>
+    public string? PanchangDefaultThumbnailAssetId { get; set; }
+
+    /// <summary>Studio Storage asset ID used automatically as the default stage/template background for 2D Panchang &amp; Rashifal.</summary>
+    public string? PanchangDefaultBackgroundAssetId { get; set; }
+
+    /// <summary>Fixed editable headline template for Panchang thumbnails (empty = verified daily Panchang headline).</summary>
+    public string? PanchangThumbnailTitleTemplate { get; set; }
+
+    /// <summary>Fixed editable subtitle template for Panchang thumbnails.</summary>
+    public string? PanchangThumbnailSubtitleTemplate { get; set; }
+
     public DateTime UpdatedAtUtc { get; set; }
 }

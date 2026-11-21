@@ -85,6 +85,9 @@ public sealed class ProceduralVideoRequest
     public string Language { get; init; } = "hi";
     public string? FooterLabel { get; init; }
 
+    /// <summary>When false (e.g., 2D Panchang / Rashifal clean mode), omits the bottom hub/channel watermark label and card watermark.</summary>
+    public bool ShowWatermark { get; init; } = true;
+
     /// <summary>Event source key (e.g. HinduPanchang, HinduFestival, DailyKatha, AajKaItihaas, Pratiyogita) driving fixed event colors.</summary>
     public string? EventType { get; init; }
 

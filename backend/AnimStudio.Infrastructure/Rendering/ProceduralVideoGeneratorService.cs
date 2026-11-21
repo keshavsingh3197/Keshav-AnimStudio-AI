@@ -629,7 +629,7 @@ public sealed class ProceduralVideoGeneratorService(
             });
         }
 
-        if (!string.IsNullOrWhiteSpace(request.FooterLabel))
+        if (request.ShowWatermark && !string.IsNullOrWhiteSpace(request.FooterLabel))
         {
             lines.Add(new DialogueLine
             {

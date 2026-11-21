@@ -336,6 +336,7 @@ public static class DependencyInjection
         services.AddSingleton<AnimStudio.Infrastructure.Rendering.ProceduralBgmCacheService>();
         services.AddScoped<IProceduralVideoGenerator, AnimStudio.Infrastructure.Rendering.ProceduralVideoGeneratorService>();
         services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralCommunityCardGenerator>();
+        services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralFixedThumbnailGenerator>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
 
         // The user's effects library: clips, stills and sounds reused across every project.

@@ -18,7 +18,8 @@ export type AutomationSourceType =
   | 'Pratiyogita'
   | 'EcosystemSpotlight'
   | 'CustomPrompt'
-  | 'FunnyComedy';
+  | 'FunnyComedy'
+  | 'DailyRashifal';
 
 export type AutomationPostMode = 'PreviewOnly' | 'AutoVideoAndPreview' | 'FullAutopilot';
 
@@ -130,6 +131,10 @@ export interface EcosystemPanchangSignal {
   dailySutraMeaning?: string | null;
   nextTithi?: string | null;
   nextNakshatra?: string | null;
+  moonSign?: string | null;
+  sunSign?: string | null;
+  panchakStatus?: string | null;
+  chandrabalamGoodRashis?: string[] | null;
 }
 
 export interface EcosystemFestivalSignal {
@@ -268,6 +273,8 @@ export interface AutomationRule {
   attachedAssetIds?: string[];
   comedyStyle?: ComedyToneStyle;
   autoInsertMemes?: boolean;
+  showWatermark?: boolean | null;
+  preferFast2DAnimation?: boolean;
   sortOrder: number;
   lastPreparedDateKey?: string | null;
   createdAtUtc?: string;
@@ -443,6 +450,8 @@ export interface AutomationPost {
   verificationSourceUrl?: string | null;
   verificationIssues?: string[] | null;
   verifiedAtUtc?: string | null;
+  showWatermark?: boolean | null;
+  preferFast2DAnimation?: boolean;
   createdAtUtc: string;
   updatedAtUtc: string;
   publishedAtUtc?: string | null;
@@ -457,7 +466,103 @@ export interface AutomationWorkspaceConfig {
   socialApiBaseUrl?: string | null;
   pratiyogitaApiBaseUrl?: string | null;
   useAiScriptRefinement: boolean;
+  panchangShowWatermark?: boolean;
+  panchangUseFast2DAnimation?: boolean;
+  panchangDefaultThumbnailAssetId?: string | null;
+  panchangDefaultBackgroundAssetId?: string | null;
+  panchangThumbnailTitleTemplate?: string | null;
+  panchangThumbnailSubtitleTemplate?: string | null;
   updatedAtUtc: string;
+}
+
+export interface RecommendedPublishSlot {
+  atUtc: string;
+  localLabel: string;
+  reason: string;
+  expectedReachTier: string;
+}
+
+export interface PromotionDestinationAdvice {
+  platform: string;
+  title: string;
+  timingHint: string;
+  actionSummary: string;
+  priority: string;
+}
+
+export interface AutomationPublishAdvice {
+  sourceType: string;
+  timeZoneId: string;
+  recommendedAtUtc: string;
+  slots: RecommendedPublishSlot[];
+  promotions: PromotionDestinationAdvice[];
+}
+
+export interface DailyRashiForecast {
+  key: string;
+  order: number;
+  hindiName: string;
+  englishName: string;
+  symbol: string;
+  rulerHindi: string;
+  elementHindi: string;
+  meaningSummary: string;
+  todayPredictionHindi: string;
+  todayPredictionEnglish: string;
+  aacharanUpayHindi: string;
+  aacharanUpayEnglish: string;
+  luckyColor: string;
+  luckyNumber: number;
+  mantra: string;
+  isShubhChandrabalam: boolean;
+  gocharHouseFromMoon: number;
+  favorabilityScore: number;
+  statusBadge: string;
+}
+
+export interface DailyRashifalReport {
+  dateKey: string;
+  location: string;
+  moonSign?: string | null;
+  sunSign?: string | null;
+  tithi: string;
+  nakshatra: string;
+  vaara: string;
+  abhijitMuhurat: string;
+  rahuKaal: string;
+  isVerifiedPanchang: boolean;
+  rashis: DailyRashiForecast[];
+}
+
+export interface RenderTemplateThumbnailRequest {
+  dateText?: string | null;
+  titleText?: string | null;
+  subtitleText?: string | null;
+  backgroundAssetId?: string | null;
+  showWatermark?: boolean | null;
+  watermarkText?: string | null;
+  saveAsDefaultBackground?: boolean;
+}
+
+export interface GenerateRashifalShortsRequest {
+  dateKey?: string | null;
+  location?: string | null;
+  language?: string;
+  rashiKeys?: string[] | null;
+  renderVideosNow?: boolean;
+  showWatermark?: boolean | null;
+  backgroundAssetId?: string | null;
+  targetChannelId?: string | null;
+  autoSchedulePeakSlots?: boolean;
+}
+
+export interface GenerateRashifalShortsResult {
+  dateKey: string;
+  location: string;
+  createdCount: number;
+  renderedCount: number;
+  warnings: string[];
+  posts: AutomationPost[];
 }
 
 export interface AutomationVideoCandidate {
@@ -838,9 +943,41 @@ export class AutomationService {
     );
   }
 
-  publishPost(postId: string, body?: { publishNow?: boolean; scheduledAtUtc?: string | null }): Observable<AutomationPost> {
+  publishPost(postId: string, body?: { publishNow?: boolean; scheduledAtUtc?: string | null; scheduleOnYouTube?: boolean }): Observable<AutomationPost> {
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/publish`, body ?? { publishNow: true })
+    );
+  }
+
+  renderTemplateThumbnail(postId: string, body: RenderTemplateThumbnailRequest): Observable<AutomationPost> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationPost>>(`${this.base}/queue/${encodeURIComponent(postId)}/thumbnail/template`, body)
+    );
+  }
+
+  getPublishAdvice(sourceType: AutomationSourceType, format: AutomationVideoFormat, channelId?: string | null, timeZone?: string | null): Observable<AutomationPublishAdvice> {
+    let params = new HttpParams().set('sourceType', sourceType).set('format', format);
+    if (channelId) params = params.set('channelId', channelId);
+    if (timeZone) params = params.set('timeZone', timeZone);
+    return this.unwrap(
+      this.http.get<ApiResponse<AutomationPublishAdvice>>(`${this.base}/publish-advice`, { params })
+    );
+  }
+
+  getDailyRashifal(date?: string | null, location?: string | null): Observable<DailyRashifalReport> {
+    let params = new HttpParams();
+    if (date) params = params.set('date', date);
+    if (location) params = params.set('location', location);
+    return this.unwrap(
+      this.http.get<ApiResponse<DailyRashifalReport>>(`${this.base}/rashifal`, { params })
+    );
+  }
+
+  generateRashifalShorts(body: GenerateRashifalShortsRequest): Observable<GenerateRashifalShortsResult> {
+    return this.unwrap(
+      this.http.post<ApiResponse<GenerateRashifalShortsResult>>(`${this.base}/rashifal/generate`, body, {
+        context: silentHttpContext(),
+      })
     );
   }
 
