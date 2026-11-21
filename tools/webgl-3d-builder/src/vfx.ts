@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EmotionKind, SceneSetting, VfxStyle } from './types';
+import { EmotionKind, SceneSetting, VfxStyle, strikePhase } from './types';
 
 export interface VfxRig {
   group: THREE.Group;
@@ -350,7 +350,19 @@ export function updateVfxRig(
   const speakerY = activeSlot === 'Right' ? rightY : leftY;
   const speakerAct = activeSlot === 'Right' ? rightAction : leftAction;
   const showShock = memeActive || ((speakerAct === 'shockedFall' || speakerAct === 'wakingUp' || emotion === 'surprised') && turnLocalProgress < 0.42);
-  if (showShock) {
+  // Comic "POW" flash on the opponent the instant each punch / kick lands (same clock as the SFX track)
+  const leftStrike = leftAction === 'punching' || leftAction === 'kicking';
+  const rightStrike = rightAction === 'punching' || rightAction === 'kicking';
+  const strikeKind = (leftStrike ? leftAction : rightAction) as 'punching' | 'kicking';
+  const impact = leftStrike || rightStrike ? strikePhase(t, strikeKind).recoil : 0;
+  if (impact > 0.08) {
+    const victimX = leftStrike ? rightX : leftX;
+    const victimY = leftStrike ? rightY : leftY;
+    vfx.shockBurstGroup.visible = true;
+    vfx.shockBurstGroup.position.set(victimX + (leftStrike ? -0.28 : 0.28), victimY + (strikeKind === 'kicking' ? 0.95 : 1.45), -0.05);
+    vfx.shockBurstGroup.rotation.z = t * 3.1;
+    vfx.shockBurstGroup.scale.setScalar(0.45 + impact * 0.85);
+  } else if (showShock) {
     vfx.shockBurstGroup.visible = true;
     vfx.shockBurstGroup.position.set(speakerX, speakerY + 2.08, -0.18);
     vfx.shockBurstGroup.rotation.z = t * 2.2;

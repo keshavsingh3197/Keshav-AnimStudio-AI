@@ -137,6 +137,22 @@ public sealed record ProceduralEventPalette(
         PrimaryRgb: new RgbColor(249, 115, 22),
         SecondaryRgb: new RgbColor(250, 204, 21));
 
+    public static readonly ProceduralEventPalette Rashifal = new(
+        EventKey: "DailyRashifal",
+        DisplayLabel: "Daily Rashifal • Zodiac Indigo & Nakshatra Gold",
+        HeaderBadgeText: "AAJ KA RASHIFAL • 12 RASHIS",
+        RecommendedTheme: ProceduralSceneTheme.CosmosSacred3D,
+        PrimaryHex: "#8B5CF6",
+        SecondaryHex: "#FBBF24",
+        SpeakerAHex: "#FDE68A",
+        SpeakerBHex: "#C4B5FD",
+        TitleHex: "#F5F3FF",
+        TopBackdropRgb: new RgbColor(18, 14, 48),
+        MidBackdropRgb: new RgbColor(58, 30, 108),
+        BotBackdropRgb: new RgbColor(14, 10, 32),
+        PrimaryRgb: new RgbColor(139, 92, 246),
+        SecondaryRgb: new RgbColor(251, 191, 36));
+
     private static readonly IReadOnlyDictionary<string, ProceduralEventPalette> ByKey =
         new Dictionary<string, ProceduralEventPalette>(StringComparer.OrdinalIgnoreCase)
         {
@@ -151,12 +167,14 @@ public sealed record ProceduralEventPalette(
             ["Pratiyogita"] = Pratiyogita,
             ["FunnyComedy"] = Comedy,
             ["Comedy"] = Comedy,
+            ["DailyRashifal"] = Rashifal,
+            ["Rashifal"] = Rashifal,
             ["EcosystemSpotlight"] = Spotlight,
             ["CustomPrompt"] = Spotlight
         };
 
     public static IReadOnlyList<ProceduralEventPalette> All { get; } =
-        [Panchang, Festival, Katha, History, Pratiyogita, Comedy, Spotlight];
+        [Panchang, Rashifal, Festival, Katha, History, Pratiyogita, Comedy, Spotlight];
 
     public static ProceduralEventPalette Resolve(string? eventType, ProceduralSceneTheme themeFallback)
     {

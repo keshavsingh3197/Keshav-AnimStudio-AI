@@ -73,7 +73,7 @@ internal static class WebGlVideoFrameRenderer
                 || string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase),
             uniqueVariant = unchecked(seed ^ (request.EpisodeNumber * 7919)),
             topCategoryLabel = request.TopCategoryLabel,
-            footerLabel = request.FooterLabel,
+            footerLabel = request.ShowWatermark ? request.FooterLabel : null,
             title = request.Title,
             palette = new
             {

@@ -446,6 +446,19 @@ public static partial class AutomationFactVerifier
                 break;
             }
 
+            case AutomationSourceType.DailyRashifal:
+            {
+                sourceName ??= liveSignals?.Panchang?.SourceName ?? "HinduPanchang Chandra-Rashi Ephemeris";
+                sourceUrl ??= liveSignals?.Panchang?.SourceUrl ?? "https://panchang.keshavsingh.in";
+                var bannerDates = ExtractInlineIsoDates(post.HeaderBannerText);
+                if (bannerDates.Any(d => !string.Equals(d, effectiveDate, StringComparison.Ordinal)))
+                {
+                    status = StatusMismatch;
+                    issues.Add($"Rashifal date mismatch: header cites '{bannerDates.First(d => d != effectiveDate)}' instead of '{effectiveDate}'.");
+                }
+                break;
+            }
+
             case AutomationSourceType.HinduFestival:
             {
                 sourceName ??= "Lahiri Chitrapaksha Tithi Engine";

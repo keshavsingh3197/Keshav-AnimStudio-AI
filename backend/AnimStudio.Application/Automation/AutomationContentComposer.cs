@@ -1,5 +1,6 @@
 using System.Text;
 using AnimStudio.Application.Ecosystem;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Automation;
 
@@ -84,6 +85,9 @@ public static class AutomationContentComposer
 
             AutomationSourceType.FunnyComedy =>
                 [ComposeFunnyComedy(rule, dateKey, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
+
+            AutomationSourceType.DailyRashifal =>
+                ComposeDailyRashifal(rule, signals, links, primaryLink, isHindi),
 
             _ => []
         };
@@ -1096,9 +1100,30 @@ public static class AutomationContentComposer
         return result;
     }
 
+    private static IReadOnlyList<ComposedAutomationContent> ComposeDailyRashifal(
+        AutomationRule rule,
+        EcosystemSignalsSnapshot signals,
+        IReadOnlyList<AutomationWebsiteLink> links,
+        string? primaryLink,
+        bool isHindi)
+    {
+        var report = DailyRashifalEngine.BuildReport(signals);
+        if (!string.IsNullOrWhiteSpace(rule.CustomTopicPrompt))
+        {
+            var rashiMatch = report.Rashis.FirstOrDefault(r =>
+                rule.CustomTopicPrompt.Contains(r.Key, StringComparison.OrdinalIgnoreCase)
+                || rule.CustomTopicPrompt.Contains(r.EnglishName, StringComparison.OrdinalIgnoreCase)
+                || rule.CustomTopicPrompt.Contains(r.HindiName, StringComparison.OrdinalIgnoreCase));
+            if (rashiMatch is not null)
+                return [DailyRashifalEngine.ComposeSingleRashiPackage(report, rashiMatch, rule, links, primaryLink, isHindi)];
+        }
+
+        return [DailyRashifalEngine.ComposeCombinedOverviewPackage(report, rule, links, primaryLink, isHindi)];
+    }
+
     private static IReadOnlyList<string> DefaultKeysForSource(AutomationSourceType sourceType) => sourceType switch
     {
-        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha
+        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DailyRashifal
             => ["panchang", "studio"],
         AutomationSourceType.AajKaItihaas
             => ["panchang", "blog", "pratiyogita", "studio"],
@@ -1441,6 +1466,9 @@ public static class AutomationContentComposer
             AutomationSourceType.HinduPanchang => isHindi
                 ? new[] { "हां, हर हर महादेव 🙏", "सुबह शुभ मुहूर्त चेक कर लिया ✨", "पूरी पंचांग वेबसाइट देखना चाहता हूं 🔗" }
                 : new[] { "Yes — checking Muhurat daily 🙏", "Useful Shubh Muhurat timing ✨", "Visit Panchang website 🔗" },
+            AutomationSourceType.DailyRashifal => isHindi
+                ? new[] { "आज का राशिफल व उपाय बहुत सटीक लगा ♈✨", "मेरी राशि का शुभ योग अच्छा है 🙏", "सभी 12 राशियों व पंचांग देखें 🔗" }
+                : new[] { "Today's Rashi guidance feels spot on ♈✨", "Lucky transit & helpful Upay 🙏", "Check full Panchang & Rashifal 🔗" },
             AutomationSourceType.HinduFestival => isHindi
                 ? new[] { "आज पूजा और व्रत कर रहे हैं 🪔", "कल के मुहूर्त की तैयारी ✨", "आरती व पूजा विधि लिंक देखें 🔗" }
                 : new[] { "Celebrating today with Puja 🪔", "Preparing for tomorrow's Vrat ✨", "Read full Puja Vidhi 🔗" },
@@ -1479,8 +1507,26 @@ public static class AutomationContentComposer
 
         var bannerDate = string.IsNullOrWhiteSpace(item.EventDateKey) ? dateKey : item.EventDateKey;
         var bannerText = $"{palette.HeaderBadgeText} • {bannerDate}";
+
+        // Automatically sanitize & enforce all YouTube & AdSense policy rules (title <= 100, clean description + CTA,
+        // <= 8 hashtags, <= 500-char tags, zero engagement-bait / shorteners, proper MadeForKids declaration).
+        var sanitized = YouTubePolicyComplianceSanitizer.Sanitize(
+            rawTitle: item.Title,
+            rawDescription: item.Description,
+            rawTags: item.Tags,
+            rawPinnedComment: item.PinnedComment,
+            fallbackTopicTitle: item.SourceTitle,
+            primaryDestinationUrl: item.PrimaryDestinationUrl,
+            requestedMadeForKids: rule.MadeForKids,
+            isShort: rule.VideoFormat == AutomationVideoFormat.Vertical,
+            language: rule.Language);
+
         return item with
         {
+            Title = sanitized.Title,
+            Description = sanitized.Description,
+            Tags = sanitized.Tags,
+            PinnedComment = sanitized.PinnedComment,
             CommunityPostText = communityBody,
             CommunityPollOptions = poll,
             HeaderBannerText = bannerText,

@@ -323,7 +323,7 @@ public static class ProceduralAudioSynthesizer
         await fs.WriteAsync(pcmData, ct).ConfigureAwait(false);
     }
 
-    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep, TempleBell, EatingPop }
+    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep, TempleBell, EatingPop, Punch, KickThud }
 
     /// <summary>
     /// Synthesizes deterministic cartoon, cinematic &amp; situational action sound effects aligned to turns, actions,
@@ -367,6 +367,17 @@ public static class ProceduralAudioSynthesizer
             prevCue = turn.SceneBackdropCue;
 
             var action = turn.Action ?? "none";
+            if (action is "punching" or "kicking")
+            {
+                // One hit per landed strike, on the same clock the 3D engine animates them with
+                var hitKind = action == "kicking" ? ComedySfxKind.KickThud : ComedySfxKind.Punch;
+                var hits = ProceduralStrikeTiming.ImpactTimes(action, turn.StartSeconds, turn.EndSeconds);
+                for (var h = 0; h < hits.Count; h++)
+                    events.Add((hits[h] - 0.004, hitKind, (comedyIntensity ? 0.66 : 0.58) * (h % 2 == 0 ? 1.0 : 0.88)));
+                if (hits.Count > 0)
+                    events.Add((Math.Max(0.05, hits[0] - 0.14), ComedySfxKind.Whoosh, 0.22));
+                continue;
+            }
             if (turn.SpeakerRole == CharacterVisualRole.CartoonTank && turn.Emotion is "angry" or "proud")
                 events.Add((turn.StartSeconds + 0.08, ComedySfxKind.TankCannon, 0.72));
             else if (action == "wakingUp")
@@ -419,6 +430,8 @@ public static class ProceduralAudioSynthesizer
                 ComedySfxKind.RecordScratch => 0.24,
                 ComedySfxKind.Footstep => 0.11,
                 ComedySfxKind.EatingPop => 0.18,
+                ComedySfxKind.Punch => 0.22,
+                ComedySfxKind.KickThud => 0.32,
                 _ => 0.28
             };
             var len = Math.Min(totalSamples - Math.Max(0, startIdx), (int)(sfxDur * SampleRate));
@@ -442,6 +455,8 @@ public static class ProceduralAudioSynthesizer
                     ComedySfxKind.TempleBell => 528.0,
                     ComedySfxKind.EatingPop => 290.0 + 260.0 * (u / Math.Max(0.05, sfxDur)),
                     ComedySfxKind.Whoosh => 260.0 + 480.0 * Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
+                    ComedySfxKind.Punch => 150.0 * Math.Exp(-u * 30.0) + 58.0,
+                    ComedySfxKind.KickThud => 110.0 * Math.Exp(-u * 18.0) + 42.0,
                     _ => 440.0
                 };
                 phase += 2.0 * Math.PI * freq / SampleRate;
@@ -453,6 +468,8 @@ public static class ProceduralAudioSynthesizer
                     ComedySfxKind.Whoosh => Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
                     ComedySfxKind.Footstep => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 28.0),
                     ComedySfxKind.AlarmDing => Math.Min(1.0, u / 0.003) * Math.Exp(-u * 6.5),
+                    ComedySfxKind.Punch => Math.Min(1.0, u / 0.0015) * Math.Exp(-u * 22.0),
+                    ComedySfxKind.KickThud => Math.Min(1.0, u / 0.002) * Math.Exp(-u * 13.0),
                     _ => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 7.5)
                 };
                 var raw = Math.Sin(phase);
@@ -472,12 +489,20 @@ public static class ProceduralAudioSynthesizer
                     raw = 0.62 * raw + 0.28 * Math.Sin(phase2) + 0.14 * Math.Sin(phase * 2.01);
                 else if (kind == ComedySfxKind.AlarmDing)
                     raw = 0.72 * raw + 0.28 * Math.Sin(phase * 1.5);
+                else if (kind is ComedySfxKind.Punch or ComedySfxKind.KickThud)
+                {
+                    // Body thump plus a short bright "smack" transient at the very start
+                    var crack = (rng.NextDouble() * 2.0 - 1.0) * Math.Exp(-u * (kind == ComedySfxKind.Punch ? 160.0 : 110.0));
+                    raw = Math.Tanh(raw * 2.6 + crack * 1.4);
+                }
                 else if (kind == ComedySfxKind.Footstep)
                     raw = Math.Tanh(raw * 1.4 + (rng.NextDouble() * 2.0 - 1.0) * 0.28 * Math.Exp(-u * 35.0));
 
                 mix[startIdx + i] += raw * env * gain;
             }
         }
+
+        AddPlaceAmbience(mix, plan, totalSamples);
 
         var pcmBytes = new byte[totalSamples * Channels * sizeof(short)];
         var span = pcmBytes.AsSpan();
@@ -491,5 +516,137 @@ public static class ProceduralAudioSynthesizer
         }
 
         await WritePcmWavFileAsync(outputPath, pcmBytes, SampleRate, Channels, 16, ct).ConfigureAwait(false);
+    }
+
+    [Flags]
+    internal enum PlaceAmbience { None = 0, Wind = 1, Water = 2, Birds = 4, Crickets = 8, City = 16 }
+
+    /// <summary>
+    /// The natural sound bed for a place, so a story that moves from a forest to a river to a city sounds like it:
+    /// birds and breeze in the forest, flowing water at the ghat, wind on the mountain, traffic in town, crickets at
+    /// night. Indoor sets stay quiet (the music and voices carry them).
+    /// </summary>
+    internal static PlaceAmbience AmbienceFor(SceneSetting setting, SceneTimeOfDay time)
+    {
+        var night = time == SceneTimeOfDay.Night;
+        var bed = setting switch
+        {
+            SceneSetting.ForestAshram => PlaceAmbience.Wind | (night ? PlaceAmbience.None : PlaceAmbience.Birds),
+            SceneSetting.Village => PlaceAmbience.Wind | (night ? PlaceAmbience.None : PlaceAmbience.Birds),
+            SceneSetting.RiverGhat => PlaceAmbience.Water | (night ? PlaceAmbience.None : PlaceAmbience.Birds),
+            SceneSetting.Himalaya => PlaceAmbience.Wind,
+            SceneSetting.Battlefield => PlaceAmbience.Wind,
+            SceneSetting.ModernCity => PlaceAmbience.City,
+            SceneSetting.ChaiStall => PlaceAmbience.City,
+            SceneSetting.Temple or SceneSetting.PalaceCourt => night ? PlaceAmbience.None : PlaceAmbience.Birds,
+            _ => PlaceAmbience.None
+        };
+        var outdoors = setting is SceneSetting.ForestAshram or SceneSetting.Village or SceneSetting.RiverGhat
+            or SceneSetting.Himalaya or SceneSetting.Battlefield or SceneSetting.Temple or SceneSetting.PalaceCourt;
+        if (night && outdoors) bed |= PlaceAmbience.Crickets;
+        return bed;
+    }
+
+    private static void AddPlaceAmbience(double[] mix, ProceduralDialoguePlan plan, int totalSamples)
+    {
+        var turns = plan.Turns;
+        if (turns.Count == 0) return;
+        const double fade = 0.35;
+        var totalSeconds = totalSamples / (double)SampleRate;
+
+        // Group consecutive turns that share a place into one segment, so the bed doesn't restart every line.
+        var segments = new List<(double Start, double End, PlaceAmbience Bed)>();
+        for (var i = 0; i < turns.Count; i++)
+        {
+            var (setting, time) = SceneDirectives.FromCue(turns[i].SceneBackdropCue);
+            var bed = AmbienceFor(setting, time);
+            var start = i == 0 ? 0.0 : turns[i].StartSeconds;
+            var end = i + 1 < turns.Count ? turns[i + 1].StartSeconds : totalSeconds;
+            if (segments.Count > 0 && segments[^1].Bed == bed)
+                segments[^1] = (segments[^1].Start, end, bed);
+            else
+                segments.Add((start, end, bed));
+        }
+
+        for (var s = 0; s < segments.Count; s++)
+        {
+            var (start, end, bed) = segments[s];
+            if (bed == PlaceAmbience.None || end - start < 0.4) continue;
+            var rng = new Random(0xA4B1E + s * 7919);
+            var i0 = Math.Max(0, (int)(start * SampleRate));
+            var i1 = Math.Min(totalSamples, (int)(end * SampleRate));
+            double windLp = 0, waterHi = 0, waterLo = 0, cityLp = 0, birdPhase = 0, cricketPhase = 0;
+            var nextChirpAt = start + 0.4 + rng.NextDouble();
+            double chirpStart = -1, chirpBaseHz = 3200;
+            var chirpSyllables = 0;
+
+            for (var i = i0; i < i1; i++)
+            {
+                var tt = i / (double)SampleRate;
+                var env = Math.Min(1.0, Math.Min(tt - start, end - tt) / fade);
+                if (env <= 0) continue;
+                var white = rng.NextDouble() * 2.0 - 1.0;
+                var sample = 0.0;
+
+                if ((bed & PlaceAmbience.Wind) != 0)
+                {
+                    windLp += 0.012 * (white - windLp);
+                    var gust = 0.55 + 0.45 * Math.Sin(2 * Math.PI * 0.09 * tt + s) * Math.Sin(2 * Math.PI * 0.031 * tt);
+                    sample += windLp * 1.9 * gust * 0.32;
+                }
+                if ((bed & PlaceAmbience.Water) != 0)
+                {
+                    // Band-passed noise with a fast random swell: the babble of moving water
+                    waterHi += 0.30 * (white - waterHi);
+                    waterLo += 0.035 * (white - waterLo);
+                    var babble = 0.6 + 0.4 * Math.Sin(2 * Math.PI * (1.7 + 0.6 * Math.Sin(tt * 0.7)) * tt);
+                    sample += (waterHi - waterLo) * babble * 0.15;
+                }
+                if ((bed & PlaceAmbience.City) != 0)
+                {
+                    cityLp += 0.006 * (white - cityLp);
+                    sample += cityLp * 2.4 * 0.30;
+                }
+                if ((bed & PlaceAmbience.Crickets) != 0)
+                {
+                    cricketPhase += 2 * Math.PI * 4650.0 / SampleRate;
+                    var chirpGate = Math.Max(0, Math.Sin(2 * Math.PI * 29.0 * tt));
+                    var burst = (tt * 1.1 % 1.0) < 0.32 ? 1.0 : 0.0;
+                    sample += Math.Sin(cricketPhase) * chirpGate * burst * 0.022;
+                }
+                if ((bed & PlaceAmbience.Birds) != 0)
+                {
+                    if (chirpStart < 0 && tt >= nextChirpAt)
+                    {
+                        chirpStart = tt;
+                        chirpBaseHz = 2600 + rng.NextDouble() * 2200;
+                        chirpSyllables = 2 + rng.Next(3);
+                    }
+                    if (chirpStart >= 0)
+                    {
+                        const double syllable = 0.085;
+                        var local = tt - chirpStart;
+                        var idx = (int)(local / (syllable * 1.6));
+                        if (idx >= chirpSyllables)
+                        {
+                            chirpStart = -1;
+                            nextChirpAt = tt + 0.7 + rng.NextDouble() * 1.8;
+                        }
+                        else
+                        {
+                            var su = local - idx * syllable * 1.6;
+                            if (su < syllable)
+                            {
+                                var f = chirpBaseHz * (1.0 + 0.35 * (su / syllable)) * (idx % 2 == 0 ? 1.0 : 0.92);
+                                birdPhase += 2 * Math.PI * f / SampleRate;
+                                sample += Math.Sin(birdPhase) * Math.Sin(Math.PI * su / syllable) * 0.028;
+                            }
+                        }
+                    }
+                }
+
+                mix[i] += sample * env;
+            }
+        }
     }
 }

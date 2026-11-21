@@ -140,7 +140,11 @@ public sealed class EcosystemSignalsClient(
                     ? $"Calculated for exact date {effectiveDate} ({pr.Location ?? effectiveLoc})."
                     : $"Panchang date mismatch: returned {resolvedPDate}, expected {effectiveDate}.",
                 NextTithi: pr.Extended?.NextTithi,
-                NextNakshatra: pr.Extended?.NextNakshatra);
+                NextNakshatra: pr.Extended?.NextNakshatra,
+                MoonSign: pr.MoonSign,
+                SunSign: pr.SunSign,
+                PanchakStatus: pr.Extended?.PanchakStatus,
+                ChandrabalamGoodRashis: pr.Extended?.ChandrabalamGoodRashis);
         }
 
         var festivals = (festivalsTask.Result ?? [])
@@ -481,6 +485,8 @@ public sealed class EcosystemSignalsClient(
         string? AyanamsaName,
         string? Sunrise,
         string? Sunset,
+        string? MoonSign,
+        string? SunSign,
         string? AbhijitMuhurat,
         string? BrahmaMuhurat,
         string? AmritKaal,
@@ -491,7 +497,9 @@ public sealed class EcosystemSignalsClient(
 
     private sealed record PanchangExtendedPayload(
         string? NextTithi,
-        string? NextNakshatra);
+        string? NextNakshatra,
+        string? PanchakStatus,
+        List<string>? ChandrabalamGoodRashis);
 
     private sealed record FestivalPayload(
         string? Id,

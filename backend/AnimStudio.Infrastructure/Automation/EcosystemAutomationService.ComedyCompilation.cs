@@ -77,6 +77,40 @@ public sealed partial class EcosystemAutomationService
         }
     }
 
+    private async Task<AnimStudio.Infrastructure.Publishing.YouTubeConnectionStatus?> ResolveBestComedyConnectionAsync(
+        string userId,
+        IReadOnlyList<AnimStudio.Infrastructure.Publishing.YouTubeConnectionStatus> connected,
+        bool isInternational,
+        CancellationToken ct)
+    {
+        if (connected.Count == 0) return null;
+        var explicitComedyIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (aiSettingsRepo is not null)
+        {
+            var settings = await aiSettingsRepo.GetAsync(ct).ConfigureAwait(false);
+            foreach (var bc in settings?.Channels ?? [])
+            {
+                var ytId = bc.Publishing?.YouTubeChannelId;
+                var ytHandle = bc.Publishing?.YouTubeChannelHandle;
+                if (!bc.IsComedyChannel && !ComedyChannelMatcher.IsComedyChannelHint(bc.Name, ytHandle))
+                    continue;
+                if (!string.IsNullOrWhiteSpace(ytId)) explicitComedyIds.Add(ytId.Trim());
+                if (!string.IsNullOrWhiteSpace(ytHandle)) explicitComedyIds.Add(ytHandle.Trim().TrimStart('@'));
+            }
+        }
+
+        return ComedyChannelMatcher.PickBestComedyChannel(
+            connected,
+            c =>
+            {
+                var handleNorm = c.ChannelHandle?.Trim().TrimStart('@') ?? string.Empty;
+                var isExplicit = explicitComedyIds.Contains(c.ChannelId)
+                    || (!string.IsNullOrEmpty(handleNorm) && explicitComedyIds.Contains(handleNorm));
+                return (c.ChannelHandle, c.ChannelTitle, isExplicit);
+            },
+            isInternational);
+    }
+
     private async Task<AutomationRule> BuildFunnyComedyStarterRuleAsync(
         string userId,
         int sortOrder,
@@ -86,8 +120,7 @@ public sealed partial class EcosystemAutomationService
         CancellationToken ct)
     {
         var connected = await connections.ListAsync(userId, ct).ConfigureAwait(false);
-        var matched = connected.FirstOrDefault(c =>
-            AnimStudio.Domain.Stories.ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle));
+        var matched = await ResolveBestComedyConnectionAsync(userId, connected, isInternational: false, ct).ConfigureAwait(false);
         var comedyChannel = matched is not null
             ? (matched.ChannelId, matched.ChannelTitle, matched.ChannelHandle)
             : fallbackChannel;
@@ -136,11 +169,7 @@ public sealed partial class EcosystemAutomationService
                && !ComedyChannelMatcher.IsInternationalComedyHint(r.Name));
         if (!hasLocal)
         {
-            var localMatch = connected.FirstOrDefault(c =>
-                ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle)
-                && !ComedyChannelMatcher.IsInternationalComedyHint(c.ChannelHandle, c.ChannelTitle))
-                ?? connected.FirstOrDefault(c => ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle))
-                ?? connected.FirstOrDefault();
+            var localMatch = await ResolveBestComedyConnectionAsync(userId, connected, isInternational: false, ct).ConfigureAwait(false);
             var localTuple = localMatch is null ? ((string, string, string?)?)null : (localMatch.ChannelId, localMatch.ChannelTitle, localMatch.ChannelHandle);
             var localRule = await BuildFunnyComedyStarterRuleAsync(userId, nextOrder++, localTuple, settings, now, ct).ConfigureAwait(false);
             localRule.FunnelWebsiteKeys = ["hub", "studio", "pratiyogita"];
@@ -155,11 +184,7 @@ public sealed partial class EcosystemAutomationService
             || r.ComedyStyle is AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick or AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries);
         if (!hasInternational)
         {
-            var intlMatch = connected.FirstOrDefault(c =>
-                ComedyChannelMatcher.IsInternationalComedyHint(c.ChannelHandle, c.ChannelTitle)
-                && !(c.ChannelHandle ?? string.Empty).Contains("KESHAV-ANIM-FF", StringComparison.OrdinalIgnoreCase))
-                ?? connected.FirstOrDefault(c => !(c.ChannelHandle ?? string.Empty).Contains("bhakti", StringComparison.OrdinalIgnoreCase))
-                ?? connected.FirstOrDefault();
+            var intlMatch = await ResolveBestComedyConnectionAsync(userId, connected, isInternational: true, ct).ConfigureAwait(false);
             var intlTuple = intlMatch is null ? ((string, string, string?)?)null : (intlMatch.ChannelId, intlMatch.ChannelTitle, intlMatch.ChannelHandle);
             var intlRule = BuildStarterRule(
                 userId,
@@ -217,10 +242,8 @@ public sealed partial class EcosystemAutomationService
 
         var chosenChannel = !string.IsNullOrWhiteSpace(request.TargetChannelId)
             ? connected.FirstOrDefault(c => string.Equals(c.ChannelId, request.TargetChannelId.Trim(), StringComparison.Ordinal))
-            : connected.FirstOrDefault(c => isIntl
-                ? ComedyChannelMatcher.IsInternationalComedyHint(c.ChannelHandle, c.ChannelTitle)
-                : ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle));
-        chosenChannel ??= connected.FirstOrDefault();
+            : await ResolveBestComedyConnectionAsync(userId, connected, isIntl, ct).ConfigureAwait(false);
+        chosenChannel ??= await ResolveBestComedyConnectionAsync(userId, connected, isIntl, ct).ConfigureAwait(false);
 
         var existingComedyRules = (await repository.ListRulesAsync(userId, ct).ConfigureAwait(false))
             .Where(r => r.SourceType == AutomationSourceType.FunnyComedy)
@@ -265,7 +288,17 @@ public sealed partial class EcosystemAutomationService
         var composed = AutomationContentComposer.ComposeForRule(tempRule, signals, ecosystem).First();
 
         var customTitle = request.Title.Trim();
-        var safeTitle = customTitle.Length > 100 ? customTitle[..100].TrimEnd() : customTitle;
+        var sanitizedPkg = AnimStudio.Application.Publishing.YouTubePolicyComplianceSanitizer.Sanitize(
+            rawTitle: customTitle,
+            rawDescription: composed.Description,
+            rawTags: composed.Tags,
+            rawPinnedComment: composed.PinnedComment,
+            fallbackTopicTitle: composed.SourceTitle,
+            primaryDestinationUrl: composed.PrimaryDestinationUrl,
+            requestedMadeForKids: false,
+            isShort: request.Format == AutomationVideoFormat.Vertical,
+            language: effectiveLang);
+        var safeTitle = sanitizedPkg.Title;
         var customScript = string.IsNullOrWhiteSpace(request.ScriptOrIdeas)
             ? composed.Script
             : request.ScriptOrIdeas.Trim();
@@ -301,9 +334,9 @@ public sealed partial class EcosystemAutomationService
             Script = customScript,
             AiVideoPrompt = composed.AiVideoPrompt,
             AiThumbnailPrompt = composed.AiThumbnailPrompt,
-            Description = composed.Description,
-            PinnedComment = composed.PinnedComment,
-            Tags = [.. composed.Tags],
+            Description = sanitizedPkg.Description,
+            PinnedComment = sanitizedPkg.PinnedComment,
+            Tags = [.. sanitizedPkg.Tags],
             CategoryId = "23",
             Privacy = "public",
             MadeForKids = false,
@@ -575,6 +608,17 @@ public sealed partial class EcosystemAutomationService
 
             var anchor = included[0].Post;
             var chapterBlock = string.Join('\n', chapters);
+            var sanitizedComp = AnimStudio.Application.Publishing.YouTubePolicyComplianceSanitizer.Sanitize(
+                rawTitle: customTitle,
+                rawDescription: $"😂 Non-stop 3D comedy punchlines compilation ({included.Count} skits under 3 minutes)!\n\nChapters:\n{chapterBlock}\n\n#ComedyShorts #KeshavAnimFF #Funny3D",
+                rawTags: anchor.Tags.Count > 0 ? anchor.Tags : ["Comedy Shorts", "KESHAV-ANIM-FF", "Compilation"],
+                rawPinnedComment: anchor.PinnedComment,
+                fallbackTopicTitle: customTitle,
+                primaryDestinationUrl: anchor.PrimaryDestinationUrl,
+                requestedMadeForKids: false,
+                isShort: anchor.Format == AutomationVideoFormat.Vertical,
+                language: anchor.Language);
+
             var compiledPost = new AutomationPost
             {
                 Id = $"ap_comp_{Guid.NewGuid():n}"[..24],
@@ -592,12 +636,13 @@ public sealed partial class EcosystemAutomationService
                 Privacy = anchor.Privacy,
                 CategoryId = "23",
                 MadeForKids = false,
-                Title = customTitle.Length > 100 ? customTitle[..100].TrimEnd() : customTitle,
-                Description = $"😂 Non-stop 3D comedy punchlines compilation ({included.Count} skits under 3 minutes)!\n\nChapters:\n{chapterBlock}\n\n#ComedyShorts #KeshavAnimFF #Funny3D",
+                Title = sanitizedComp.Title,
+                Description = sanitizedComp.Description,
+                PinnedComment = sanitizedComp.PinnedComment,
                 Script = string.Join("\n\n", included.Select((c, idx) => $"[Clip {idx + 1}: {c.Post.Title}]\n{c.Post.Script}")),
                 AiVideoPrompt = anchor.AiVideoPrompt,
                 AiThumbnailPrompt = anchor.AiThumbnailPrompt,
-                Tags = anchor.Tags.Count > 0 ? [.. anchor.Tags] : ["Comedy Shorts", "KESHAV-ANIM-FF", "Compilation"],
+                Tags = [.. sanitizedComp.Tags],
                 PrimaryDestinationUrl = anchor.PrimaryDestinationUrl,
                 TrackedFunnelUrls = anchor.TrackedFunnelUrls,
                 AttachedRenderJobId = jobId,

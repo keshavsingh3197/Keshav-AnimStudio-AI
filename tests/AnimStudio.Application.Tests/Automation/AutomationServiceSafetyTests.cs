@@ -441,6 +441,53 @@ public sealed class AutomationServiceSafetyTests
         Assert.NotEqual(AutomationPostStatus.Failed, post.Status);
     }
 
+    [Fact]
+    public async Task Rashifal_FixedTemplateThumbnail_and_PublishAdvice_work_end_to_end()
+    {
+        var repo = new FakeAutomationRepository();
+        const string userId = "user-1";
+        await repo.UpsertPostAsync(new AutomationPost
+        {
+            Id = "ap_panchang_tpl",
+            UserId = userId,
+            RuleId = "rule-panchang",
+            RuleName = "Daily Panchang",
+            SourceType = AutomationSourceType.HinduPanchang,
+            DateKey = "2026-11-21",
+            Fingerprint = "2026-11-21:rule-panchang:main",
+            Title = "आज का पंचांग | Shukla Dwitiya",
+            HeaderBannerText = "TODAY'S HINDU PANCHANG",
+            Status = AutomationPostStatus.PreparedPreview,
+            ShowWatermark = false,
+            PreferFast2DAnimation = true
+        }, CancellationToken.None);
+
+        using var harness = BuildHarness(repo, new DelayedSignalsClient(TimeSpan.Zero), _ => new HttpResponseMessage(HttpStatusCode.OK));
+        using var scope = harness.Provider.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<EcosystemAutomationService>();
+
+        var report = await svc.GetDailyRashifalAsync("2026-11-21", "New Delhi, India", CancellationToken.None);
+        Assert.Equal(12, report.Rashis.Count);
+
+        var advice = await svc.GetPublishAdviceAsync(userId, AutomationSourceType.HinduPanchang, AutomationVideoFormat.Vertical, channelId: null, timeZoneId: null, CancellationToken.None);
+        Assert.NotEmpty(advice.Slots);
+        Assert.NotEmpty(advice.Promotions);
+
+        var updated = await svc.RenderFixedTemplateThumbnailAsync(
+            userId,
+            "ap_panchang_tpl",
+            new AnimStudio.Infrastructure.Automation.RenderTemplateThumbnailDto(
+                DateText: "21 Nov 2026",
+                TitleText: "आज का पंचांग",
+                SubtitleText: "शुक्ल द्वितीया • अभिजित मुहूर्त",
+                ShowWatermark: false),
+            CancellationToken.None);
+
+        Assert.False(string.IsNullOrWhiteSpace(updated.ThumbnailStorageKey));
+        Assert.Contains("Fixed Template (No Watermark)", updated.ThumbnailSource ?? string.Empty);
+        Assert.False(updated.ShowWatermark);
+    }
+
     private static AutomationRule KathaRule(string userId) => new()
     {
         Id = "rule-katha",
