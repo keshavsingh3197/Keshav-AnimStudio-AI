@@ -802,6 +802,70 @@ export class ComedyWorkspaceComponent {
     });
   }
 
+  /**
+   * One click from "rendered" to "on YouTube at the right time": fills SEO, tags and a thumbnail frame through the
+   * server's policy sanitizer, re-checks the policy list on the filled post, then uploads it Private now with
+   * YouTube releasing it at the earliest peak slot that leaves processing time (or publishes now if none fits).
+   */
+  async autoReadyAndPublishAtPeak(post: AutomationPost): Promise<void> {
+    if (!this.requireSignIn('publish videos to YouTube')) return;
+    await this.runBusy(`auto-${post.id}`, async () => {
+      const filled = await firstValueFrom(this.automation.autoFillDetails(post.id));
+      const report = this.policyReport(filled);
+      if (!report.readyToPublish) {
+        await this.loadWorkspaceData(false);
+        const missing = report.checks.filter((c) => !c.ok).map((c) => c.label).join('; ');
+        throw new Error(`Auto-filled SEO & thumbnail, but still needs: ${missing}`);
+      }
+
+      await this.loadPublishAdvice(true);
+      const minLeadMs = 30 * 60_000;
+      const slot = (this.publishAdvice()?.slots ?? [])
+        .map((s) => s.atUtc)
+        .filter((at) => new Date(at).getTime() - Date.now() >= minLeadMs)
+        .sort()[0] ?? null;
+
+      await firstValueFrom(this.automation.publishPost(filled.id, {
+        publishNow: !slot,
+        scheduledAtUtc: slot,
+        scheduleOnYouTube: !!slot,
+      }));
+      await this.loadWorkspaceData(false);
+      this.notice.set(slot
+        ? `"${filled.title}" is uploading Private with SEO & thumbnail — YouTube makes it public at ${new Date(slot).toLocaleString()}.`
+        : `"${filled.title}" is uploading now with SEO & thumbnail (no peak slot left in the window).`);
+    });
+  }
+
+  /** Script helper chips: tags the parser turns into 3D actions, camera moves, SFX and place ambience. */
+  readonly scriptTagChips: readonly { label: string; insert: string; hint: string }[] = [
+    { label: '👊 Punch', insert: '(punch) ', hint: 'Jab-cross combo, POW flash, punch SFX; the other character recoils' },
+    { label: '🦵 Kick', insert: '(kick) ', hint: 'Snap kick with thud SFX; the other character falls back' },
+    { label: '🤕 Ouch', insert: '(ouch) ', hint: 'Hit reaction / recoil' },
+    { label: '🏃 Run', insert: '(running) ', hint: 'Running cycle with footstep SFX' },
+    { label: '💃 Dance', insert: '(dancing) ', hint: 'Dance groove with boing SFX' },
+    { label: '🤦 Facepalm', insert: '(facepalm) ', hint: 'Forehead slap with bonk SFX & dizzy stars' },
+    { label: '😱 Shocked', insert: '(surprised) ', hint: 'Shock fall, crash zoom & vine boom' },
+    { label: '🌳 Forest scene', insert: '\n[SCENE]: forest | day | calm\n', hint: 'Forest set with birds & breeze ambience' },
+    { label: '🌊 River ghat', insert: '\n[SCENE]: river ghat | dawn | calm\n', hint: 'River ghat with flowing-water ambience' },
+    { label: '🏔️ Himalaya', insert: '\n[SCENE]: himalaya | day | dramatic\n', hint: 'Mountain set with wind ambience' },
+    { label: '🏙️ City', insert: '\n[SCENE]: city | sunset | playful\n', hint: 'City street with traffic ambience' },
+    { label: '🌙 Village night', insert: '\n[SCENE]: village | night | mysterious\n', hint: 'Village at night with crickets' },
+  ];
+
+  insertScriptTag(insert: string, textarea: HTMLTextAreaElement): void {
+    const value = this.material();
+    const start = textarea.selectionStart ?? value.length;
+    const end = textarea.selectionEnd ?? value.length;
+    const next = (value.slice(0, start) + insert + value.slice(end)).slice(0, 20000);
+    this.material.set(next);
+    queueMicrotask(() => {
+      textarea.focus();
+      const caret = Math.min(next.length, start + insert.length);
+      textarea.setSelectionRange(caret, caret);
+    });
+  }
+
   async markDeletedAndSwitchChannel(post: AutomationPost, newChannelId?: string | null, republishNow = false): Promise<void> {
     if (!this.requireSignIn('manage YouTube uploads')) return;
     await this.runBusy(`switch-${post.id}`, async () => {

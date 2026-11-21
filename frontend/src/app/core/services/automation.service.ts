@@ -459,6 +459,8 @@ export interface AutomationPost {
 
 export interface AutomationWorkspaceConfig {
   globalAutopilotEnabled: boolean;
+  /** Full autopilot uploads private now and YouTube releases at the next peak slot (default on). */
+  autopilotReleaseAtPeakTime?: boolean;
   autoPrepareDaily: boolean;
   defaultLocation: string;
   defaultTimeZone: string;

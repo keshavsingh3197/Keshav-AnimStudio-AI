@@ -815,6 +815,14 @@ const FULL_VIDEO_MAX_SECONDS = 600;
               </label>
 
               <label class="check-tile">
+                <input type="checkbox" [(ngModel)]="settingsForm()!.autopilotReleaseAtPeakTime" name="autopilotReleaseAtPeakTime" />
+                <div>
+                  <strong>Upload Private, Go Public at Peak Time</strong>
+                  <small>Autopilot fills SEO, thumbnail &amp; policy checks, uploads private at once, and YouTube releases it at the next audience peak (same day for Panchang / Rashifal / festivals).</small>
+                </div>
+              </label>
+
+              <label class="check-tile">
                 <input type="checkbox" [(ngModel)]="settingsForm()!.autoPrepareDaily" name="autoPrepareDaily" />
                 <div>
                   <strong>Auto-Prepare Daily Content List</strong>

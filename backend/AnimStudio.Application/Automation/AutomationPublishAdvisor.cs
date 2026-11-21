@@ -100,6 +100,55 @@ public static class AutomationPublishAdvisor
             Promotions: promotions);
     }
 
+    /// <summary>How far ahead autopilot may hold a video that isn't tied to one day (comedy, custom, spotlight).</summary>
+    public static readonly TimeSpan AutopilotMaxHold = TimeSpan.FromHours(36);
+
+    /// <summary>
+    /// Sources whose content is only true for <see cref="AutomationPost.DateKey"/> (today's Panchang, today's
+    /// Rashifal, a festival, "on this day"): autopilot must release them that same local day or not hold them at all.
+    /// </summary>
+    public static bool IsDateBound(AutomationSourceType sourceType) => sourceType is
+        AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+        or AutomationSourceType.HinduFestival or AutomationSourceType.AajKaItihaas;
+
+    /// <summary>
+    /// Picks the release time autopilot uses for a finished video: the earliest recommended peak slot that leaves
+    /// YouTube enough lead to process the private upload, and that still falls inside the content's window (the same
+    /// local day for date-bound content, otherwise <see cref="AutopilotMaxHold"/>). Returns <c>null</c> when no slot
+    /// fits, meaning "publish now" — a late daily video is better out immediately than held past its day.
+    /// </summary>
+    public static DateTime? PickAutopilotReleaseUtc(
+        AutomationPublishAdvice advice,
+        AutomationSourceType sourceType,
+        string? dateKey,
+        TimeZoneInfo timeZone,
+        DateTime nowUtc,
+        TimeSpan minLead)
+    {
+        ArgumentNullException.ThrowIfNull(advice);
+        ArgumentNullException.ThrowIfNull(timeZone);
+
+        var earliest = nowUtc + minLead;
+        var latest = nowUtc + AutopilotMaxHold;
+        if (IsDateBound(sourceType))
+        {
+            if (!DateOnly.TryParseExact(dateKey, "yyyy-MM-dd", out var day)) return null;
+            var endLocal = day.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+            DateTime endUtc;
+            try { endUtc = TimeZoneInfo.ConvertTimeToUtc(endLocal, timeZone); }
+            catch (ArgumentException) { return null; }
+            if (endUtc < latest) latest = endUtc;
+        }
+
+        return advice.Slots
+            .Select(s => s.AtUtc)
+            .Append(advice.RecommendedAtUtc)
+            .Where(t => t >= earliest && t < latest)
+            .OrderBy(t => t)
+            .Select(t => (DateTime?)DateTime.SpecifyKind(t, DateTimeKind.Utc))
+            .FirstOrDefault();
+    }
+
     private static (int Hour, int Minute, string Reason, string Tier)[] PeakHoursFor(
         AutomationSourceType sourceType,
         AutomationVideoFormat format) => sourceType switch

@@ -247,9 +247,21 @@
 
       <label for="cw-material">
         <span>Story Idea or Directed Script (accepts [SCENE]: &amp; [Speaker]: lines)</span>
-        <textarea id="cw-material" rows="5" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
+        <textarea #materialBox id="cw-material" rows="5" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
                   placeholder="Write your dialogue lines or plot idea here — or enter a Title and let Comedy Composer auto-generate your script!"></textarea>
       </label>
+
+      <div class="cw-tag-bar" role="toolbar" aria-label="Insert action and scene tags">
+        <span class="cw-tag-bar-label">Insert at cursor:</span>
+        @for (chip of scriptTagChips; track chip.label) {
+          <button type="button" class="secondary small chip-btn" [title]="chip.hint"
+                  (click)="insertScriptTag(chip.insert, materialBox)">{{ chip.label }}</button>
+        }
+      </div>
+      <p class="muted cw-tag-hint">
+        Actions drive the 3D moves, camera &amp; sound effects; <code>[SCENE]</code> lines switch the place and its natural
+        ambience. Fight words in the dialogue (मुक्का, लात मार, dhishoom, punch, kick) are picked up automatically too.
+      </p>
 
       <div class="cw-inline-controls">
         <label class="inline-check">
@@ -594,6 +606,13 @@
                   @else if (post.publishedVideoId) { 🔍 Check Live YouTube }
                   @else { 🛡️ Verify }
                 </button>
+                @if (post.status !== 'Published' && post.status !== 'Publishing' && (post.attachedRenderJobId || post.attachedHandoffId)) {
+                  <button type="button" class="small cw-auto-btn" [disabled]="busy()" (click)="autoReadyAndPublishAtPeak(post)"
+                          title="Auto-fill SEO, tags & thumbnail, run policy checks, upload Private now and let YouTube publish at the next peak time">
+                    @if (busyAction() === 'auto-' + post.id) { <span class="btn-spin" aria-hidden="true"></span> Preparing… }
+                    @else { ⚡ Auto SEO + Peak Upload }
+                  </button>
+                }
                 @if (post.status !== 'Published') {
                   @if (bestPublishSlot(); as bestSlot) {
                     <button type="button" class="secondary small" [disabled]="busy() || !policy.readyToPublish"

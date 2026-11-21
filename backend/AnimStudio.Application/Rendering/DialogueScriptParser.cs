@@ -746,6 +746,14 @@ public static partial class DialogueScriptParser
             {
                 action = "wakingUp";
             }
+            else if (ContainsAnyToken(lower, KickTokens))
+            {
+                action = "kicking";
+            }
+            else if (ContainsAnyToken(lower, PunchTokens) && !ContainsAnyToken(lower, "heart attack", "हार्ट अटैक"))
+            {
+                action = "punching";
+            }
             else if (ContainsAnyToken(lower, "भाग", "दौड़", "run", "running", "sprint", "chase", "flee", "चप्पल"))
             {
                 action = "running";
@@ -809,6 +817,14 @@ public static partial class DialogueScriptParser
                 listenerAction = wakeSignal ? "wakingUp" : "sleeping";
                 if (listenerAction == "wakingUp") sleepingSlot = null;
             }
+            else if (action == "punching")
+            {
+                listenerAction = "hitReact";
+            }
+            else if (action == "kicking")
+            {
+                listenerAction = "shockedFall";
+            }
             else if (action is "shockedFall" or "wakingUp")
             {
                 listenerAction = isComedy ? "laughing" : "shockedFall";
@@ -844,6 +860,8 @@ public static partial class DialogueScriptParser
         {
             if (turnInScene == 0 || action is "walking" or "running" || slot == DialogueSpeakerSlot.Narrator)
                 cameraShot = "wideEstablishing";
+            else if (action is "punching" or "kicking")
+                cameraShot = "twoShot"; // the hit only reads when attacker and target are both in frame
             else if (action is "shockedFall" or "wakingUp" || (turnIndex == totalTurns - 1 && isComedy))
                 cameraShot = "crashPunch";
             else if (emotion is "angry" or "confused" || action is "slapForehead" || action is "eating")
@@ -927,6 +945,10 @@ public static partial class DialogueScriptParser
             "dance" or "dancing" or "नाचते हुए" => "dancing",
             "jump" or "jumping" or "hop" or "कूदते हुए" => "jumping",
             "wave" or "waving" or "लहराते हुए" => "waving",
+            "punch" or "punching" or "attack" or "attacking" or "fight" or "fighting" or "hit" or "dhishoom"
+                or "मुक्का मारते हुए" or "घूंसा मारते हुए" or "लड़ते हुए" or "हमला" => "punching",
+            "kick" or "kicking" or "flying kick" or "लात मारते हुए" or "किक" => "kicking",
+            "hit react" or "hurt" or "ouch" or "चोट खाकर" => "hitReact",
             _ => null
         };
     }
@@ -949,6 +971,15 @@ public static partial class DialogueScriptParser
 
     private static bool ContainsAnyToken(string haystack, params string[] tokens) =>
         tokens.Any(haystack.Contains);
+
+    // Fight cues for plain substring matching, so every token must be unable to hide inside an everyday word:
+    // no bare "पंच" (पंचांग), "लात" (हालात), "वार" (परिवार / रविवार), "मार" (बीमार) or "hit" (white).
+    private static readonly string[] KickTokens =
+        ["kick", "किक", "लात मार", "लात खा", "लात पड़"];
+
+    private static readonly string[] PunchTokens =
+        ["punch", "dhishoom", "dishoom", "attack", "fight", "smack", "मुक्का", "घूंसा", "घूँसा", "थप्पड़", "ढिशुम",
+         "धिशुम", "हमला", "लड़ाई", "मारूँगा", "मारूंगा", "मार दूँगा", "मार दूंगा"];
 
     [GeneratedRegex(@"\(([^()]{2,48})\)")]
     private static partial Regex InlineCueParenRegex();

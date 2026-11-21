@@ -202,8 +202,16 @@ public sealed class ProceduralVideoGeneratorService(
             || resolvedTheme == ProceduralSceneTheme.ComedyStage3D
             || request.EnableComedySfx;
         var hasActions = dialoguePlan.Turns.Any(t => !t.IsTitleHook && !string.IsNullOrWhiteSpace(t.Action) && t.Action != "none");
+        // A story set somewhere real (forest, river ghat, mountain, city, night) gets its natural sound bed even
+        // when nobody moves, so long narrated stories feel like a place rather than a voice over music.
+        var hasPlaceBed = dialoguePlan.Turns.Any(t =>
+        {
+            var (setting, time) = SceneDirectives.FromCue(t.SceneBackdropCue);
+            return ProceduralAudioSynthesizer.AmbienceFor(setting, time) != ProceduralAudioSynthesizer.PlaceAmbience.None;
+        });
         var hasSfx = false;
-        if ((isComedy || (request.IncludeAmbientAudio && hasActions)) && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1))
+        if ((isComedy || (request.IncludeAmbientAudio && (hasActions || hasPlaceBed)))
+            && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1 || hasPlaceBed))
         {
             var sfxDst = workspace.Resolve("in/sfx.wav");
             await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct, comedyIntensity: isComedy).ConfigureAwait(false);

@@ -49,7 +49,31 @@ export type ActionKind =
   | 'dancing'
   | 'jumping'
   | 'waving'
-  | 'laughing';
+  | 'laughing'
+  | 'punching'
+  | 'kicking'
+  | 'hitReact';
+
+/**
+ * Strike rhythm for fight actions, on the video clock (seconds since frame 0), so every render and the
+ * server's SFX track agree on when a hit lands. Mirrored in C# by ProceduralStrikeTiming — keep both in sync.
+ * A strike lands at the start of each beat + impact × (1 / rate).
+ */
+export const STRIKE_TIMING = {
+  punching: { rate: 2.2, impact: 0.35 },
+  kicking: { rate: 1.6, impact: 0.4 },
+} as const;
+
+/** 0→1 extension of a strike (peaks at the impact moment) and the 1→0 recoil after it, for the victim. */
+export function strikePhase(t: number, kind: 'punching' | 'kicking'): { extend: number; recoil: number } {
+  const { rate, impact } = STRIKE_TIMING[kind];
+  const phase = ((t * rate) % 1 + 1) % 1;
+  const extend = phase < impact
+    ? 1 - Math.pow(1 - phase / impact, 3)
+    : Math.max(0, 1 - (phase - impact) / (1 - impact)) ** 2;
+  const recoil = phase >= impact ? Math.exp(-(phase - impact) * 9) : 0;
+  return { extend, recoil };
+}
 
 export type CameraShotKind =
   | 'auto'

@@ -763,3 +763,48 @@ button.active-pill {
     width: 100%;
   }
 }
+
+/* Script tag helper: action / scene chips inserted at the cursor */
+.cw-tag-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: -0.35rem;
+}
+
+.cw-tag-bar-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.cw-tag-bar button.chip-btn {
+  padding: 0.28rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.cw-tag-hint {
+  font-size: 0.78rem;
+}
+
+.cw-tag-hint code {
+  font-size: 0.74rem;
+  padding: 0 0.25rem;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+
+/* One-click auto SEO + peak upload: the primary call to action on a rendered card */
+button.cw-auto-btn {
+  background: linear-gradient(135deg, var(--brand), #9b5cff);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .cw-tag-bar-label { width: 100%; }
+  .compact-actions button,
+  .compact-actions .cta-link-btn { flex: 1 1 calc(50% - 0.55rem); }
+}

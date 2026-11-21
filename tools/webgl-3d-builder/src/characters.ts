@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ActionKind, CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting } from './types';
+import { ActionKind, CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting, STRIKE_TIMING, strikePhase } from './types';
 
 export interface CharacterRig {
   root: THREE.Group;
@@ -1215,6 +1215,33 @@ export function updateCharacterRig(
       targetRightHipX = act === 'dancing' ? -Math.sin(lt * 8.5) * 0.25 : -hop * 0.35;
       targetLeftKneeX = hop * 0.55;
       targetRightKneeX = hop * 0.55;
+    } else if (act === 'punching') {
+      // Boxer stance: knees soft, torso lunges into each jab
+      const { extend } = strikePhase(t, 'punching');
+      targetTorsoRotX = 0.10 + extend * 0.20;
+      targetBodyRotZ = rig.facingSign * -0.05 * extend;
+      targetBodyY = -0.03 + extend * 0.02;
+      targetLeftHipX = -0.22;
+      targetRightHipX = 0.16;
+      targetLeftKneeX = 0.30;
+      targetRightKneeX = 0.22;
+    } else if (act === 'kicking') {
+      // Chamber the knee, snap the lower leg out at impact, recover
+      const { extend } = strikePhase(t, 'kicking');
+      targetRightHipX = -1.25 * extend;
+      targetRightKneeX = 1.1 * (1 - extend) * Math.min(1, extend * 3);
+      targetLeftKneeX = 0.18;
+      targetTorsoRotX = -0.16 * extend;
+      targetBodyY = 0.02 * extend;
+    } else if (act === 'hitReact') {
+      // Knocked back by each landed punch, wobbling back upright between hits
+      const { recoil } = strikePhase(t, 'punching');
+      targetBodyRotX = -0.24 * recoil;
+      targetTorsoRotX = -0.20 * recoil;
+      targetBodyRotZ = rig.facingSign * 0.10 * recoil + Math.sin(lt * 11) * 0.03;
+      targetBodyY = -0.02 * recoil;
+      targetLeftKneeX = 0.22 * recoil;
+      targetRightKneeX = 0.18 * recoil;
     } else if (act === 'pointing') {
       targetTorsoRotX = 0.14 + Math.sin(lt * 6.5) * 0.04;
       targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 7.5)) * 0.035 : 0;
@@ -1226,7 +1253,8 @@ export function updateCharacterRig(
   }
 
   // Smooth exponential tracking for lower body & posture so transitions are crisp yet fluid (and snap on scene cuts / frame 0)
-  const blend = snapPose ? 1 : act === 'wakingUp' || act === 'shockedFall' || act === 'walking' || act === 'running' ? 0.45 : 0.28;
+  const isStrike = act === 'punching' || act === 'kicking' || act === 'hitReact';
+  const blend = snapPose ? 1 : isStrike ? 0.62 : act === 'wakingUp' || act === 'shockedFall' || act === 'walking' || act === 'running' ? 0.45 : 0.28;
   rig.bodyPivot.rotation.x += (targetBodyRotX - rig.bodyPivot.rotation.x) * blend;
   rig.bodyPivot.rotation.z += (targetBodyRotZ - rig.bodyPivot.rotation.z) * blend;
   rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * blend;
@@ -1266,8 +1294,8 @@ export function updateCharacterRig(
   }
 
   // Expressive bulging googly eye pop on surprised / angry / confused / waking up / shocked!
-  const isWideShock = emotion === 'surprised' || act === 'shockedFall' || (act === 'wakingUp' && turnLocal > 0.25);
-  const eyePop = isWideShock ? 1.38 : emotion === 'angry' ? 1.18 : 1.0;
+  const isWideShock = emotion === 'surprised' || act === 'shockedFall' || act === 'hitReact' || (act === 'wakingUp' && turnLocal > 0.25);
+  const eyePop = isWideShock ? 1.38 : emotion === 'angry' || act === 'punching' || act === 'kicking' ? 1.18 : 1.0;
   rig.leftSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
   rig.rightSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
   const pupilDartX = (emotion === 'confused' || act === 'slapForehead') ? Math.sin(lt * 9.0) * 0.016 : 0;
@@ -1284,6 +1312,12 @@ export function updateCharacterRig(
     rig.headPivot.rotation.set(0.14 + Math.sin(lt * 5.4) * 0.12, 0, Math.sin(lt * 2.7) * 0.08);
   } else if (act === 'slapForehead') {
     rig.headPivot.rotation.set(0.18, rig.facingSign * -0.1, -0.22 + Math.sin(lt * 6.5) * 0.06);
+  } else if (act === 'hitReact') {
+    const { recoil } = strikePhase(t, 'punching');
+    rig.headPivot.rotation.set(-0.30 * recoil, rig.facingSign * 0.35 * recoil, rig.facingSign * 0.18 * recoil);
+  } else if (act === 'punching' || act === 'kicking') {
+    // Chin tucked, eyes locked on the opponent
+    rig.headPivot.rotation.set(0.10, rig.facingSign * -0.12, 0);
   } else {
     const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.085 : Math.sin(lt * 1.4) * 0.025;
     const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.065 : 0;
@@ -1390,6 +1424,33 @@ export function updateCharacterRig(
     rig.rightElbow.rotation.set(-0.22, 0, 0);
     rig.leftShoulder.rotation.set(-0.25, 0.18, 0.42);
     rig.leftElbow.rotation.set(-0.95, 0, -0.48);
+  } else if (act === 'punching') {
+    // Alternating jab / cross: one fist drives forward at impact while the other guards the chin
+    const beat = Math.floor(t * STRIKE_TIMING.punching.rate);
+    const { extend } = strikePhase(t, 'punching');
+    const leadRight = beat % 2 === 0;
+    const strikeShoulder = leadRight ? rig.rightShoulder : rig.leftShoulder;
+    const strikeElbow = leadRight ? rig.rightElbow : rig.leftElbow;
+    const guardShoulder = leadRight ? rig.leftShoulder : rig.rightShoulder;
+    const guardElbow = leadRight ? rig.leftElbow : rig.rightElbow;
+    const side = leadRight ? -1 : 1;
+    strikeShoulder.rotation.set(-0.9 - extend * 0.68, side * 0.18 * (1 - extend), side * -0.12);
+    strikeElbow.rotation.set(-1.55 * (1 - extend) - 0.08, 0, 0);
+    guardShoulder.rotation.set(-1.05, -side * 0.30, -side * 0.30);
+    guardElbow.rotation.set(-1.75, 0, -side * 0.25);
+  } else if (act === 'kicking') {
+    // Fists up in guard while the leg does the work
+    rig.leftShoulder.rotation.set(-1.0, 0.30, 0.38);
+    rig.leftElbow.rotation.set(-1.7, 0, 0.25);
+    rig.rightShoulder.rotation.set(-0.95, -0.30, -0.38);
+    rig.rightElbow.rotation.set(-1.7, 0, -0.25);
+  } else if (act === 'hitReact') {
+    const { recoil } = strikePhase(t, 'punching');
+    const flail = Math.sin(lt * 15) * 0.18 * recoil;
+    rig.leftShoulder.rotation.set(-0.55 - recoil * 0.75 + flail, 0.25, 0.55 + recoil * 0.35);
+    rig.leftElbow.rotation.set(-0.5, 0, 0);
+    rig.rightShoulder.rotation.set(-0.55 - recoil * 0.75 - flail, -0.25, -0.55 - recoil * 0.35);
+    rig.rightElbow.rotation.set(-0.5, 0, 0);
   } else if (act === 'dancing' || act === 'jumping') {
     const groove = Math.sin(lt * 8.5) * 0.48;
     rig.leftShoulder.rotation.set(-1.4 + groove, 0.2, 0.48);

@@ -442,6 +442,12 @@ public sealed class AutomationRemovedVideo
 public sealed class AutomationWorkspaceConfig
 {
     public bool GlobalAutopilotEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Full-autopilot videos are uploaded <b>private</b> as soon as they are ready, with SEO, thumbnail and policy
+    /// clean-up filled in, and YouTube releases them publicly at the next audience peak slot. Off = publish at once.
+    /// </summary>
+    public bool AutopilotReleaseAtPeakTime { get; set; } = true;
     public bool AutoPrepareDaily { get; set; } = true;
     public string DefaultLocation { get; set; } = "New Delhi, India";
     public string DefaultTimeZone { get; set; } = "Asia/Kolkata";

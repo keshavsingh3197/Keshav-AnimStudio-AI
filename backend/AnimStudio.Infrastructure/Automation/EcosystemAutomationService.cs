@@ -685,7 +685,7 @@ public sealed partial class EcosystemAutomationService(
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                     if (!post.ScheduledAtUtc.HasValue || post.ScheduledAtUtc.Value <= UtcNow)
                     {
-                        await ExecutePublishAsync(userId, post, publishNow: true, scheduledAtUtc: null, ct).ConfigureAwait(false);
+                        await PublishAutopilotPostAsync(post, settings, ct).ConfigureAwait(false);
                     }
                     autoQueued++;
                 }
@@ -1822,7 +1822,10 @@ public sealed partial class EcosystemAutomationService(
                 }
                 else if (post.Status == AutomationPostStatus.Approved && (!post.ScheduledAtUtc.HasValue || post.ScheduledAtUtc.Value <= UtcNow))
                 {
-                    await ExecutePublishAsync(post.UserId, post, publishNow: true, scheduledAtUtc: null, ct).ConfigureAwait(false);
+                    if (!post.ScheduledAtUtc.HasValue && await IsFullAutopilotPostAsync(post, settings, ct).ConfigureAwait(false))
+                        await PublishAutopilotPostAsync(post, settings, ct).ConfigureAwait(false);
+                    else
+                        await ExecutePublishAsync(post.UserId, post, publishNow: true, scheduledAtUtc: null, ct).ConfigureAwait(false);
                     changed++;
                 }
                 else if (post.Status == AutomationPostStatus.Publishing)

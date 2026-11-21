@@ -166,6 +166,12 @@ public static class ComedyCraftGuide
             : "- Fast Retention Pacing: Open with a provocative comic problem in the first 3 seconds, then escalate via Rule of Three (small exaggeration -> double-down -> hilarious crash).");
         sb.AppendLine("- Punchy Timing: Keep dialogue lines short (6-15 words), interrupting each other with quick comebacks and wild emotion switches (confident -> sarcastic -> shocked -> laughing).");
         sb.AppendLine("- Ending: End on a sudden comedic reversal, deadpan mic-drop, or relatable comment-bait roast — NEVER give a pious 'कथा की सीख / Moral of the story' sermon.");
+        if (isProceduralFormat)
+        {
+            sb.AppendLine("- Physical Comedy Tags: Start a line with one action tag in brackets so the 3D characters move, the camera reacts and sound effects fire: (running) (dancing) (eating) (facepalm) (surprised) (sleeping) (punch) (kick) (ouch). Use 2-4 tags per short, never on every line.");
+            sb.AppendLine("- Slapstick Only: a (punch)/(kick) beat must be cartoon slapstick between friends (bonk, dhishoom, both laugh after) — no blood, weapons, injury detail or real people, so the video stays advertiser-friendly.");
+            sb.AppendLine("- Places: a `[SCENE]: <place> | <dawn/day/sunset/night> | <mood>` line moves the story (forest, river ghat, himalaya, village, city, chai stall, kitchen, bedroom); outdoor places add their natural ambience automatically.");
+        }
 
         if (includeMidMemes)
         {
