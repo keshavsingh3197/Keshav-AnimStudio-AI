@@ -27,7 +27,7 @@ We will acknowledge receipt of your report within 48 hours and work with you to 
 
 | Secret | Configuration Key | Where It Belongs |
 | --- | --- | --- |
-| **Database Connection String** | `Mongo:ConnectionString` or `SqlServer:ConnectionString` | .NET User Secrets or environment variable (`Mongo__ConnectionString` / `SqlServer__ConnectionString`) |
+| **Database Connection String** | `Mongo:ConnectionString` | .NET User Secrets or environment variable (`Mongo__ConnectionString`) |
 | **Object Store Credentials** | `Storage:*` | .NET User Secrets or environment variable |
 | **AI Provider API Keys** | `Ai:Secrets:{providerId}` | .NET User Secrets, environment variables (e.g., `Ai__Secrets__groq`), or Admin API |
 | **Credential-Store Data Key** | `Encryption:DataKey` | .NET User Secrets or `Encryption__DataKey` |
@@ -39,11 +39,8 @@ All configuration files (`appsettings.json`, `appsettings.Development.json`) shi
 Run from `backend/AnimStudio.Api`:
 
 ```bash
-# For MongoDB:
+# MongoDB (the only database):
 dotnet user-secrets set "Mongo:ConnectionString" "mongodb://localhost:27017"
-
-# Or for SQL Server:
-dotnet user-secrets set "SqlServer:ConnectionString" "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;"
 
 # Optional: Add an AI Provider Key (e.g. Groq):
 dotnet user-secrets set "Ai:Secrets:groq" "your_groq_api_key_here"

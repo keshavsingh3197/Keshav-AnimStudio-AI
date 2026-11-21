@@ -27,7 +27,7 @@ Ensure you have the following installed on your machine:
 - **.NET 10.0 SDK** (the backend projects target `net10.0`).
 - **Node.js 22 LTS** & **npm** (for Angular frontend).
 - **FFmpeg 6.0+** (with `libass` and `libx264`).
-- **MongoDB** (6.0+) or **SQL Server** (2019+).
+- **MongoDB** (6.0+), local or Atlas.
 - **Git**.
 
 For detailed installation commands per OS (Windows, macOS, Linux), refer to [docs/SETUP.md](docs/SETUP.md).

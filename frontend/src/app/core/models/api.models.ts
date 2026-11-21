@@ -1802,6 +1802,3 @@ export interface ServerLogsResponse {
   entries: ServerLogEntry[];
 }
 
-/** Result of the admin drive-data sync between MongoDB and SQL Server. */
-export interface DriveSyncResult { name: string; copied: number; updated: number; skipped: number; }
-export interface DriveSyncReport { success: boolean; message: string; details: DriveSyncResult[]; }

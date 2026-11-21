@@ -1,14 +1,12 @@
-import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
-import { DriveSyncReport, StorageDetail, StorageFolder, formatBytes } from '../../core/models/api.models';
+import { StorageDetail, StorageFolder, formatBytes } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 import { csvCell } from '../youtube/csv';
 import { downloadText, fileStamp, parseUtc, relativeTime } from './admin-format';
 
-type Direction = 'MongoToSql' | 'SqlToMongo' | 'Both';
 type SortKey = 'bytes' | 'files' | 'name';
 
 const GB = 1024 ** 3;
@@ -27,21 +25,6 @@ interface Segment {
   width: number;
 }
 
-const DIRECTIONS: Record<Direction, { label: string; detail: string }> = {
-  Both: {
-    label: 'Sync both ways',
-    detail: 'Copies new and changed records in both directions. Where a topic or post was edited in both, the newer edit wins.',
-  },
-  MongoToSql: {
-    label: 'MongoDB → SQL Server',
-    detail: 'Copies drive folders, topics, calendar posts and Drive copies from MongoDB into SQL Server.',
-  },
-  SqlToMongo: {
-    label: 'SQL Server → MongoDB',
-    detail: 'Copies drive folders, topics, calendar posts and Drive copies from SQL Server into MongoDB.',
-  },
-};
-
 /**
  * Where the media goes: how much of the store is used, which folders hold it, and the
  * quota the project hub's storage bar fills against.
@@ -51,7 +34,7 @@ const DIRECTIONS: Record<Direction, { label: string; detail: string }> = {
  */
 @Component({
   selector: 'app-admin-storage',
-  imports: [DatePipe],
+  imports: [],
   templateUrl: './admin-storage.component.html',
   styleUrls: ['./admin-ui.css', './admin-storage.component.css'],
 })
@@ -61,8 +44,6 @@ export class AdminStorageComponent {
   readonly bytes = formatBytes;
 
   readonly presets = QUOTA_PRESETS;
-  readonly directions = DIRECTIONS;
-  readonly directionKeys: readonly Direction[] = ['Both', 'MongoToSql', 'SqlToMongo'];
 
   readonly detail = signal<StorageDetail | null>(null);
   readonly loading = signal(true);
@@ -79,13 +60,6 @@ export class AdminStorageComponent {
   readonly query = signal('');
   readonly sortKey = signal<SortKey>('bytes');
   readonly sortDesc = signal(true);
-
-  readonly syncAvailable = signal(false);
-  readonly syncReport = signal<DriveSyncReport | null>(null);
-  readonly syncAsk = signal<Direction | null>(null);
-  readonly syncRunning = signal<Direction | null>(null);
-  readonly syncFailure = signal<string | null>(null);
-  readonly syncFinishedAt = signal<number | null>(null);
 
   readonly percent = computed(() => {
     const s = this.detail()?.summary;
@@ -187,22 +161,8 @@ export class AdminStorageComponent {
     return Number.isNaN(at) ? '' : relativeTime(at, this.now());
   });
 
-  readonly syncTotals = computed(() => {
-    const report = this.syncReport();
-    if (!report) return null;
-    return {
-      copied: report.details.reduce((s, x) => s + x.copied, 0),
-      updated: report.details.reduce((s, x) => s + x.updated, 0),
-      skipped: report.details.reduce((s, x) => s + x.skipped, 0),
-    };
-  });
-
   constructor() {
     this.load(false);
-    this.api.syncDriveDataAvailable().subscribe({
-      next: (ok) => this.syncAvailable.set(ok),
-      error: () => this.syncAvailable.set(false),
-    });
   }
 
   /** `refresh` re-walks the disk instead of using the server's recent measurement. */
@@ -318,35 +278,6 @@ export class AdminStorageComponent {
 
     downloadText(`animstudio-storage-${fileStamp()}.csv`,
       [['Folder', 'Bytes', 'Files', 'Share of used %'].join(','), ...lines].join('\r\n'));
-  }
-
-  // --- database sync -------------------------------------------------------------------
-
-  askSync(direction: Direction): void {
-    this.syncFailure.set(null);
-    this.syncAsk.set(direction);
-  }
-
-  runSync(): void {
-    const direction = this.syncAsk();
-    if (!direction || this.syncRunning()) return;
-
-    this.syncAsk.set(null);
-    this.syncRunning.set(direction);
-    this.syncFailure.set(null);
-
-    this.api.syncDriveData(direction).subscribe({
-      next: (report) => {
-        this.syncRunning.set(null);
-        this.syncReport.set(report);
-        this.syncFinishedAt.set(Date.now());
-        this.status.notify([report.message]);
-      },
-      error: (failure: unknown) => {
-        this.syncRunning.set(null);
-        this.syncFailure.set(this.messageOf(failure, 'The sync could not be run.'));
-      },
-    });
   }
 
   private messageOf(failure: unknown, fallback: string): string {

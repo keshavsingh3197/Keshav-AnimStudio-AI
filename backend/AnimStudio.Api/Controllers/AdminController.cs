@@ -16,7 +16,6 @@ using AnimStudio.Application.Uploads;
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Rendering;
-using AnimStudio.Infrastructure.Persistence.SqlServer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -465,72 +464,6 @@ public sealed class AdminController(
         return Ok(ApiResponse<IReadOnlyList<AdminAuditResponse>>.Ok(
             [.. entries.Select(e => new AdminAuditResponse(
                 e.Action, e.Target, e.ActorUserId, e.RemoteAddress, e.Before, e.After, e.AtUtc))]));
-    }
-
-    // --- database migration --------------------------------------------------------------
-
-    [HttpPost("migrate-to-sql")]
-    public async Task<ActionResult<ApiResponse<MigrationReport>>> MigrateToSql(
-        [FromServices] IServiceProvider sp,
-        CancellationToken ct)
-    {
-        var migrator = sp.GetService<MongoToSqlServerMigrator>();
-        if (migrator is null)
-        {
-            return BadRequest(ApiResponse<MigrationReport>.Fail(
-                "Migration is only available when Database:Provider is 'SqlServer' and MongoDb connection is configured."));
-        }
-
-        var report = await migrator.MigrateAllAsync(ct);
-
-        await audit.RecordAsync(
-            "database.migrate_to_sql",
-            "SqlServer",
-            "MongoDB",
-            report.Success ? $"Migrated {report.Details.Sum(d => d.MigratedCount)} records" : "Failed",
-            RemoteAddress(),
-            ct);
-
-        if (!report.Success)
-        {
-            return StatusCode(500, ApiResponse<MigrationReport>.Fail(report.Message));
-        }
-
-        return Ok(ApiResponse<MigrationReport>.Ok(report));
-    }
-
-    /// <summary>Whether the local-only Mongo/SQL sync is available (false on a Mongo-only deployment).</summary>
-    [HttpGet("sync-drive-data/available")]
-    public ActionResult<ApiResponse<bool>> SyncDriveDataAvailable([FromServices] IServiceProvider sp) =>
-        Ok(ApiResponse<bool>.Ok(sp.GetService<DriveDataSyncService>() is not null));
-
-    /// <summary>Syncs drive folders, topics, plan items and Drive copy records between Mongo and SQL. Local only.</summary>
-    [HttpPost("sync-drive-data")]
-    public async Task<ActionResult<ApiResponse<DriveSyncReport>>> SyncDriveData(
-        [FromServices] IServiceProvider sp,
-        [FromQuery] SyncDirection direction = SyncDirection.Both,
-        CancellationToken ct = default)
-    {
-        var sync = sp.GetService<DriveDataSyncService>();
-        if (sync is null)
-        {
-            return BadRequest(ApiResponse<DriveSyncReport>.Fail(
-                "Drive data sync is for local use only: it needs Database:Provider 'SqlServer' plus a MongoDB connection."));
-        }
-
-        var report = await sync.SyncAsync(direction, ct);
-
-        await audit.RecordAsync(
-            "database.sync_drive_data",
-            direction.ToString(),
-            "Mongo/SqlServer",
-            report.Success ? report.Message : "Failed",
-            RemoteAddress(),
-            ct);
-
-        return report.Success
-            ? Ok(ApiResponse<DriveSyncReport>.Ok(report))
-            : StatusCode(500, ApiResponse<DriveSyncReport>.Fail(report.Message));
     }
 
     // --- branding & hallmark -------------------------------------------------------------

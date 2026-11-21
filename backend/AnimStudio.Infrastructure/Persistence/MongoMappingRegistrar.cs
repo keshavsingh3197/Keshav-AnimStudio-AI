@@ -74,7 +74,7 @@ public static class MongoMappingRegistrar
             // is what guarantees there is exactly one of it.
             MapWithLiteralId<AiSettings>();
 
-            // App-assigned GUID ids, valid on SQL Server too - not ObjectIds.
+            // App-assigned GUID ids - not ObjectIds.
             MapWithLiteralId<ProjectEdit>();
 
             // "{channelId}:{destinationId}" - the id is what keeps one key per channel per destination.
@@ -175,7 +175,7 @@ public static class MongoMappingRegistrar
 /// Stores a string id as a real ObjectId when it is one, and as a plain string otherwise.
 /// <para>
 /// Ids reach the repositories from URLs and from other records - a Drive-imported short's job
-/// id is <c>drive-&lt;fileId&gt;</c>, and SQL Server ids are GUIDs - and the plain ObjectId
+/// id is <c>drive-&lt;fileId&gt;</c>, and records migrated from the old SQL Server store keep GUID ids - and the plain ObjectId
 /// serializer throws on those, turning a simple "not found" into a 500 anywhere such an id is
 /// looked up. Written as a string, a lookup simply matches nothing. Reading accepts both.
 /// </para>

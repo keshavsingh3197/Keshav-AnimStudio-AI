@@ -822,7 +822,6 @@ public sealed class ScheduledPostThumbnailAndNavTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Database:Provider"] = "Mongo",
                 ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
                 ["Mongo:Database"] = "AnimStudioTestDb",
                 ["Storage:DataRoot"] = tempRoot,

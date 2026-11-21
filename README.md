@@ -172,7 +172,7 @@ flowchart TD
     end
 
     subgraph StorageEngine ["Persistence & Media"]
-        DB[(MongoDB / SQL Server)]
+        DB[(MongoDB)]
         Disk[(Local Storage / S3)]
         FFmpeg[FFmpeg 6/7 Engine]
     end
@@ -192,7 +192,7 @@ flowchart TD
 | Layer | Technology |
 | --- | --- |
 | **Backend** | ASP.NET Core (.NET 10.0 Web API), C# 13, Minimal APIs + Controllers |
-| **Persistence** | MongoDB (6.0+) or Microsoft SQL Server (2019+), EF Core / Dapper |
+| **Persistence** | MongoDB (6.0+) via the official MongoDB .NET driver |
 | **Media Processing** | FFmpeg (6.0+ or 7.0+ full build with `libass` & `libx264`), `yt-dlp` |
 | **Frontend** | Angular 22, TypeScript 6, Tailwind CSS & Modern CSS Custom Properties |
 | **State Management** | Angular Signals (`signal()`, `computed()`), Standalone Components |
@@ -206,7 +206,7 @@ Ensure you have the following installed:
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Node.js 22 LTS](https://nodejs.org/) & npm
 - [FFmpeg 6.0+](https://ffmpeg.org/) *(ensure `ffmpeg` and `ffprobe` are on your PATH)*
-- [MongoDB](https://www.mongodb.com/try/download/community) *(or local SQL Server)*
+- [MongoDB](https://www.mongodb.com/try/download/community) *(local install or a MongoDB Atlas cluster)*
 
 > 💡 **Tip for Windows users**: You can install everything with `winget`:
 > ```powershell
@@ -245,15 +245,10 @@ npm start
 AnimStudio AI follows strict security practices. **No secrets or credentials are ever committed to configuration files.**
 
 ### Database Setup
-To set your local MongoDB connection string:
+MongoDB is the only database. Set its connection string:
 ```bash
 cd backend/AnimStudio.Api
 dotnet user-secrets set "Mongo:ConnectionString" "mongodb://localhost:27017"
-```
-
-Or for SQL Server:
-```bash
-dotnet user-secrets set "SqlServer:ConnectionString" "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;"
 ```
 
 ### AI Provider Keys (Optional)

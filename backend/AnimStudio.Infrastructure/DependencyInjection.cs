@@ -43,7 +43,6 @@ using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Infrastructure.Releases;
 using AnimStudio.Infrastructure.Settings;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.StoryAgent;
 using AnimStudio.Infrastructure.Subtitles;
@@ -111,137 +110,46 @@ public static class DependencyInjection
         // Adapts the package's IObjectStore to the Application layer's own port.
         services.AddSingleton<AppObjectStore, KeshavObjectStoreAdapter>();
         services.AddSingleton<IStorageUsageService, LocalStorageUsageService>();
-        // --- persistence: In Production/non-Dev, single-provider routing applies ("Mongo" / "Auto").
-        // Locally in Development, SQL Server holds main Studio data (Projects, Assets, RenderJobs, etc.)
-        // while MongoDB (when configured) powers Auto-Post, Drive, Content Planning, and YouTube Publishing.
-        var mongoOptions = configuration.GetMongoOptions();
-        var resolvedConnStr = !string.IsNullOrWhiteSpace(mongoOptions.ConnectionString)
-            ? mongoOptions.ConnectionString
-            : configuration["Mongo:Uri"] ?? configuration.GetConnectionString("Mongo");
-        var hasMongoConfig = !string.IsNullOrWhiteSpace(resolvedConnStr);
-        var enableLocalMongoHybrid =
-            configuration.GetValue<bool?>("Database:EnableLocalMongoHybrid")
-            ?? configuration.GetValue<bool?>("Database:UseMongoForAutoPostAndDrive");
-        var routing = ResolveDatabaseRouting(
-            configuration["Database:Provider"],
-            hasMongoConfig,
-            isDevelopment,
-            enableLocalMongoHybrid);
+        // --- persistence: MongoDB is the only database. The connection string is a secret
+        // (user-secrets locally, Mongo__ConnectionString on Render) - fail fast without it.
+        RequireMongoConnectionString(configuration);
+        services.AddKeshavMongo(configuration);
+        MongoMappingRegistrar.Register();
 
-        if (hasMongoConfig)
-        {
-            services.AddKeshavMongo(configuration);
-            MongoMappingRegistrar.Register();
-        }
-
-        if (routing.UseSqlServer)
-        {
-            services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
-            services.AddScoped<IProjectRepository, SqlProjectRepository>();
-            services.AddScoped<ICharacterRepository, SqlCharacterRepository>();
-            services.AddScoped<ISceneRepository, SqlSceneRepository>();
-            services.AddScoped<IAssetRepository, SqlAssetRepository>();
-            services.AddScoped<IAssetFolderRepository, SqlAssetFolderRepository>();
-            services.AddScoped<IProjectEditRepository, SqlProjectEditRepository>();
-            services.AddScoped<IScriptRepository, SqlScriptRepository>();
-            services.AddScoped<IIngestRepository, SqlIngestRepository>();
-            services.AddScoped<IRenderJobRepository, SqlRenderJobRepository>();
-            services.AddScoped<IAiUsageRepository, SqlAiUsageRepository>();
-            services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
-            services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
-            services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
-            services.AddScoped<IStoryRunRepository, SqlStoryRunRepository>();
-            services.AddScoped<IStoryGenreRepository, SqlStoryGenreRepository>();
-            services.AddScoped<IYouTubeChannelAnalysisRepository, SqlYouTubeChannelAnalysisRepository>();
-            services.AddScoped<IYouTubeSavedSuggestionRepository, SqlYouTubeSavedSuggestionRepository>();
-            services.AddScoped<ILiveStreamPresetRepository, SqlLiveStreamPresetRepository>();
-            services.AddScoped<ILiveStreamHistoryRepository, SqlLiveStreamHistoryRepository>();
-            services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
-            services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
-            services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
-            services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
-            services.AddScoped<IEffectClipRepository, SqlEffectClipRepository>();
-
-            if (routing.UseMongoForAutoPostAndDrive)
-            {
-                // Local Development only: keep Auto-Post, Drive library/connections, Content Topics/Plan,
-                // and YouTube publishing/connections on MongoDB while Studio data stays on SQL Server.
-                services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
-                services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
-                services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
-                services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
-                services.AddScoped<IPublishQueueRepository, MongoPublishQueueRepository>();
-                services.AddScoped<IContentTopicRepository, MongoContentTopicRepository>();
-                services.AddScoped<IContentPlanItemRepository, MongoContentPlanItemRepository>();
-                services.AddScoped<IContentSourceLinkRepository, MongoContentSourceLinkRepository>();
-                services.AddScoped<IAutomationRepository, MongoAutomationRepository>();
-                services.AddHostedService<MongoIndexInitializer>();
-            }
-            else
-            {
-                services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
-                services.AddScoped<IYouTubePublicationRepository, SqlYouTubePublicationRepository>();
-                services.AddScoped<IGoogleDriveConnectionRepository, SqlGoogleDriveConnectionRepository>();
-                services.AddScoped<IPhoneHandoffRepository, SqlPhoneHandoffRepository>();
-                services.AddScoped<IPublishQueueRepository, SqlPublishQueueRepository>();
-                services.AddScoped<IContentTopicRepository, SqlContentTopicRepository>();
-                services.AddScoped<IContentPlanItemRepository, SqlContentPlanItemRepository>();
-                services.AddScoped<IContentSourceLinkRepository, SqlContentSourceLinkRepository>();
-                services.AddScoped<IAutomationRepository, SqlAutomationRepository>();
-            }
-
-            services.AddHostedService<SqlDatabaseInitializer>();
-
-            if (hasMongoConfig)
-            {
-                services.AddScoped<MongoToSqlServerMigrator>();
-                services.AddScoped<DriveDataSyncService>();
-            }
-        }
-        else
-        {
-            RequireMongoConnectionString(configuration);
-            if (!hasMongoConfig)
-            {
-                services.AddKeshavMongo(configuration);
-                MongoMappingRegistrar.Register();
-            }
-
-            services.AddScoped<IProjectRepository, MongoProjectRepository>();
-            services.AddScoped<ICharacterRepository, MongoCharacterRepository>();
-            services.AddScoped<ISceneRepository, MongoSceneRepository>();
-            services.AddScoped<IAssetRepository, MongoAssetRepository>();
-            services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
-            services.AddScoped<IProjectEditRepository, MongoProjectEditRepository>();
-            services.AddScoped<IScriptRepository, MongoScriptRepository>();
-            services.AddScoped<IIngestRepository, MongoIngestRepository>();
-            services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
-            services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
-            services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
-            services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
-            services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
-            services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
-            services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
-            services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
-            services.AddScoped<IPublishQueueRepository, MongoPublishQueueRepository>();
-            services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
-            services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
-            services.AddScoped<IStoryGenreRepository, MongoStoryGenreRepository>();
-            services.AddScoped<IYouTubeChannelAnalysisRepository, MongoYouTubeChannelAnalysisRepository>();
-            services.AddScoped<IYouTubeSavedSuggestionRepository, MongoYouTubeSavedSuggestionRepository>();
-            services.AddScoped<ILiveStreamPresetRepository, MongoLiveStreamPresetRepository>();
-            services.AddScoped<ILiveStreamHistoryRepository, MongoLiveStreamHistoryRepository>();
-            services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
-            services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
-            services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
-            services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
-            services.AddScoped<IContentTopicRepository, MongoContentTopicRepository>();
-            services.AddScoped<IContentPlanItemRepository, MongoContentPlanItemRepository>();
-            services.AddScoped<IContentSourceLinkRepository, MongoContentSourceLinkRepository>();
-            services.AddScoped<IEffectClipRepository, MongoEffectClipRepository>();
-            services.AddScoped<IAutomationRepository, MongoAutomationRepository>();
-            services.AddHostedService<MongoIndexInitializer>();
-        }
+        services.AddScoped<IProjectRepository, MongoProjectRepository>();
+        services.AddScoped<ICharacterRepository, MongoCharacterRepository>();
+        services.AddScoped<ISceneRepository, MongoSceneRepository>();
+        services.AddScoped<IAssetRepository, MongoAssetRepository>();
+        services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
+        services.AddScoped<IProjectEditRepository, MongoProjectEditRepository>();
+        services.AddScoped<IScriptRepository, MongoScriptRepository>();
+        services.AddScoped<IIngestRepository, MongoIngestRepository>();
+        services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
+        services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
+        services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
+        services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
+        services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
+        services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
+        services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
+        services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
+        services.AddScoped<IPublishQueueRepository, MongoPublishQueueRepository>();
+        services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
+        services.AddScoped<IStoryRunRepository, MongoStoryRunRepository>();
+        services.AddScoped<IStoryGenreRepository, MongoStoryGenreRepository>();
+        services.AddScoped<IYouTubeChannelAnalysisRepository, MongoYouTubeChannelAnalysisRepository>();
+        services.AddScoped<IYouTubeSavedSuggestionRepository, MongoYouTubeSavedSuggestionRepository>();
+        services.AddScoped<ILiveStreamPresetRepository, MongoLiveStreamPresetRepository>();
+        services.AddScoped<ILiveStreamHistoryRepository, MongoLiveStreamHistoryRepository>();
+        services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
+        services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
+        services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
+        services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
+        services.AddScoped<IContentTopicRepository, MongoContentTopicRepository>();
+        services.AddScoped<IContentPlanItemRepository, MongoContentPlanItemRepository>();
+        services.AddScoped<IContentSourceLinkRepository, MongoContentSourceLinkRepository>();
+        services.AddScoped<IEffectClipRepository, MongoEffectClipRepository>();
+        services.AddScoped<IAutomationRepository, MongoAutomationRepository>();
+        services.AddHostedService<MongoIndexInitializer>();
 
         // --- identity (local for now; see ICurrentUser)
         services.AddScoped<ICurrentUser, LocalSingleUserProvider>();
@@ -705,52 +613,5 @@ public static class DependencyInjection
             "  (run from backend/AnimStudio.Api)\n" +
             "or the environment variable Mongo__ConnectionString.\n" +
             "See SECURITY.md.");
-    }
-
-    internal sealed record DatabaseRoutingPlan(
-        bool UseSqlServer,
-        bool UseMongoForAutoPostAndDrive);
-
-    internal static bool ResolveUseSqlServer(string? configuredProvider, bool hasMongoConnectionString) =>
-        ResolveDatabaseRouting(
-            configuredProvider,
-            hasMongoConnectionString,
-            isDevelopment: false,
-            enableLocalMongoHybrid: null).UseSqlServer;
-
-    internal static DatabaseRoutingPlan ResolveDatabaseRouting(
-        string? configuredProvider,
-        bool hasMongoConnectionString,
-        bool isDevelopment,
-        bool? enableLocalMongoHybrid = null)
-    {
-        var p = configuredProvider?.Trim();
-        if (string.Equals(p, "Mongo", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(p, "MongoDb", StringComparison.OrdinalIgnoreCase))
-        {
-            return new DatabaseRoutingPlan(UseSqlServer: false, UseMongoForAutoPostAndDrive: false);
-        }
-
-        // Hybrid SQL Server + Mongo routing applies ONLY in local Development, never in Production.
-        if (!isDevelopment)
-        {
-            var prodUseSqlServer = string.Equals(p, "Auto", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(p)
-                ? !hasMongoConnectionString
-                : string.Equals(p, "SqlServer", StringComparison.OrdinalIgnoreCase);
-
-            return new DatabaseRoutingPlan(UseSqlServer: prodUseSqlServer, UseMongoForAutoPostAndDrive: false);
-        }
-
-        var devUseSqlServer = string.IsNullOrWhiteSpace(p)
-            || string.Equals(p, "Auto", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(p, "SqlServer", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(p, "LocalHybrid", StringComparison.OrdinalIgnoreCase);
-
-        var hybridEnabled = enableLocalMongoHybrid ?? true;
-        var useMongoForAutoPostAndDrive = devUseSqlServer && hasMongoConnectionString && hybridEnabled;
-
-        return new DatabaseRoutingPlan(
-            UseSqlServer: devUseSqlServer,
-            UseMongoForAutoPostAndDrive: useMongoForAutoPostAndDrive);
     }
 }

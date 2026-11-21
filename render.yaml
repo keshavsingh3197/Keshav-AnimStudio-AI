@@ -24,9 +24,7 @@ services:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
 
-      # ---- Database: Mongo (the SqlServer default only makes sense on a desktop) ----
-      - key: Database__Provider
-        value: Mongo
+      # ---- Database: MongoDB (the only database) ----
       - key: Mongo__ConnectionString
         sync: false
       - key: Mongo__Database
