@@ -56,9 +56,5 @@
 .st-share { min-width: 8rem; }
 .st-share .spark { display: inline-block; width: 4.5rem; vertical-align: middle; margin-right: 0.45rem; }
 
-.st-sync-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.st-report { margin: 0.8rem 0 0.4rem; }
-.st-sync-totals { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin: 0.4rem 0 0.7rem; font-size: 0.84rem; color: var(--muted); }
-.st-sync-totals strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) { .st-seg { transition: none; } }

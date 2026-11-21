@@ -7,8 +7,6 @@ using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
 using AnimStudio.Infrastructure.Ffmpeg;
 using KeshavSingh.Mongo.NoSql;
-using AnimStudio.Infrastructure.Persistence.SqlServer;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -46,7 +44,6 @@ public sealed class SystemHealthService(
     IObjectStore store,
     TimeProvider clock,
     ILogger<SystemHealthService> logger,
-    ISqlConnectionFactory? sqlFactory = null,
     MongoDbService? mongo = null) : ISystemHealthService
 {
     /// <summary>
@@ -177,12 +174,7 @@ public sealed class SystemHealthService(
 
     private async Task<IReadOnlyList<HealthProbe>> DatabaseProbesAsync(CancellationToken ct)
     {
-        var list = new List<HealthProbe>(2);
-
-        if (sqlFactory != null)
-        {
-            list.Add(await ProbeSqlServerAsync(sqlFactory, ct).ConfigureAwait(false));
-        }
+        var list = new List<HealthProbe>(1);
 
         if (mongo != null)
         {
@@ -195,27 +187,6 @@ public sealed class SystemHealthService(
         }
 
         return list;
-    }
-
-    private async Task<HealthProbe> ProbeSqlServerAsync(ISqlConnectionFactory factory, CancellationToken ct)
-    {
-        try
-        {
-            await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
-            await using var cmd = new SqlCommand("SELECT 1", conn);
-            var res = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            return Convert.ToInt32(res) == 1
-                ? new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Ok, "Responding on localhost.", Required: true)
-                : new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed, "Did not return expected probe result.", Required: true);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogError(ex, "SQL Server health probe failed.");
-            return new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed,
-                "Could not connect to SQL Server on localhost.",
-                "Ensure SQL Server service is running in SQL Server Configuration Manager or SSMS.",
-                Required: true);
-        }
     }
 
     private async Task<HealthProbe> ProbeMongoAsync(MongoDbService mongoClient, CancellationToken ct)

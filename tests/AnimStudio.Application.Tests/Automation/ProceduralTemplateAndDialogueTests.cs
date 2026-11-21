@@ -12,7 +12,6 @@ using AnimStudio.Domain.Scenes;
 using AnimStudio.Infrastructure;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Persistence;
-using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Rendering;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
@@ -231,136 +230,51 @@ public sealed class ProceduralTemplateAndDialogueTests
     }
 
     [Theory]
-    [InlineData("Auto", true, false)]
-    [InlineData("Auto", false, true)]
-    [InlineData("", true, false)]
-    [InlineData("", false, true)]
-    [InlineData("Mongo", false, false)]
-    [InlineData("SqlServer", true, true)]
-    public void DependencyInjection_ResolveUseSqlServer_honors_prod_Auto_and_explicit_providers(
-        string configuredProvider,
-        bool hasMongoSecret,
-        bool expectedUseSqlServer)
-    {
-        Assert.Equal(expectedUseSqlServer, DependencyInjection.ResolveUseSqlServer(configuredProvider, hasMongoSecret));
-    }
-
-    [Theory]
-    // Local Development: always keep SQL Server for Studio data unless explicitly forced to "Mongo",
-    // and enable Mongo alongside it for Auto-Post / Drive when Mongo is configured (unless opted out).
-    [InlineData("SqlServer", true, true, null, true, true)]
-    [InlineData("Auto", true, true, null, true, true)]
-    [InlineData("LocalHybrid", true, true, null, true, true)]
-    [InlineData("", true, true, null, true, true)]
-    [InlineData("SqlServer", false, true, null, true, false)]
-    [InlineData("SqlServer", true, true, false, true, false)]
-    [InlineData("Mongo", true, true, true, false, false)]
-    // Production / non-Development: NEVER enable local hybrid split rules, even if EnableLocalMongoHybrid=true.
-    [InlineData("Mongo", true, false, true, false, false)]
-    [InlineData("Auto", true, false, true, false, false)]
-    [InlineData("SqlServer", true, false, true, true, false)]
-    public void DependencyInjection_ResolveDatabaseRouting_restricts_hybrid_rule_to_local_development_only(
-        string configuredProvider,
-        bool hasMongoSecret,
-        bool isDevelopment,
-        bool? enableLocalMongoHybrid,
-        bool expectedSqlServer,
-        bool expectedMongoForAutoPostAndDrive)
-    {
-        var plan = DependencyInjection.ResolveDatabaseRouting(
-            configuredProvider,
-            hasMongoSecret,
-            isDevelopment,
-            enableLocalMongoHybrid);
-
-        Assert.Equal(expectedSqlServer, plan.UseSqlServer);
-        Assert.Equal(expectedMongoForAutoPostAndDrive, plan.UseMongoForAutoPostAndDrive);
-    }
-
-    [Fact]
-    public void AddAnimStudioInfrastructure_in_local_development_uses_SqlServer_for_studio_and_Mongo_for_autopost_and_drive()
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddAnimStudioInfrastructure_registers_MongoDB_for_every_repository(bool isDevelopment)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Database:Provider"] = "SqlServer",
-                ["Database:EnableLocalMongoHybrid"] = "true",
-                ["SqlServer:ConnectionString"] = "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;",
                 ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
                 ["Mongo:Database"] = "AnimStudioDb"
             })
             .Build();
 
         var services = new ServiceCollection();
-        services.AddAnimStudioInfrastructure(config, isDevelopment: true);
+        services.AddAnimStudioInfrastructure(config, isDevelopment);
 
-        // Main Studio data lives in local SQL Server
-        Assert.Equal(typeof(SqlProjectRepository), Impl<IProjectRepository>(services));
-        Assert.Equal(typeof(SqlAssetRepository), Impl<IAssetRepository>(services));
-        Assert.Equal(typeof(SqlRenderJobRepository), Impl<IRenderJobRepository>(services));
-        Assert.Equal(typeof(SqlSceneRepository), Impl<ISceneRepository>(services));
-        Assert.Equal(typeof(SqlStoryRunRepository), Impl<IStoryRunRepository>(services));
-        Assert.Equal(typeof(SqlWebSettingRepository), Impl<IWebSettingRepository>(services));
-
-        // Auto-Post, Drive, Content Topics/Plan, and YouTube Publishing live in MongoDB locally
+        Assert.Equal(typeof(MongoProjectRepository), Impl<IProjectRepository>(services));
+        Assert.Equal(typeof(MongoAssetRepository), Impl<IAssetRepository>(services));
+        Assert.Equal(typeof(MongoRenderJobRepository), Impl<IRenderJobRepository>(services));
+        Assert.Equal(typeof(MongoSceneRepository), Impl<ISceneRepository>(services));
+        Assert.Equal(typeof(MongoStoryRunRepository), Impl<IStoryRunRepository>(services));
+        Assert.Equal(typeof(MongoWebSettingRepository), Impl<IWebSettingRepository>(services));
         Assert.Equal(typeof(MongoAutomationRepository), Impl<IAutomationRepository>(services));
         Assert.Equal(typeof(MongoGoogleDriveConnectionRepository), Impl<IGoogleDriveConnectionRepository>(services));
         Assert.Equal(typeof(MongoPhoneHandoffRepository), Impl<IPhoneHandoffRepository>(services));
         Assert.Equal(typeof(MongoContentTopicRepository), Impl<IContentTopicRepository>(services));
         Assert.Equal(typeof(MongoContentPlanItemRepository), Impl<IContentPlanItemRepository>(services));
-        Assert.Equal(typeof(MongoContentSourceLinkRepository), Impl<IContentSourceLinkRepository>(services));
         Assert.Equal(typeof(MongoYouTubeConnectionRepository), Impl<IYouTubeConnectionRepository>(services));
-        Assert.Equal(typeof(MongoYouTubePublicationRepository), Impl<IYouTubePublicationRepository>(services));
         Assert.Equal(typeof(MongoPublishQueueRepository), Impl<IPublishQueueRepository>(services));
-
-        // Both initializers + local sync helpers are registered in Development hybrid mode
-        Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(SqlDatabaseInitializer));
         Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(MongoIndexInitializer));
-        Assert.Contains(services, d => d.ServiceType == typeof(DriveDataSyncService));
+
+        // No SQL Server implementation may sneak back in for any repository port.
+        Assert.DoesNotContain(services, d =>
+            d.ImplementationType?.Namespace?.Contains("SqlServer", StringComparison.Ordinal) == true);
     }
 
     [Fact]
-    public void AddAnimStudioInfrastructure_in_production_never_enables_local_hybrid_split()
+    public void AddAnimStudioInfrastructure_without_a_Mongo_connection_string_fails_fast()
     {
         var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Database:Provider"] = "Mongo",
-                ["Database:EnableLocalMongoHybrid"] = "true",
-                ["Mongo:ConnectionString"] = "mongodb://localhost:27017",
-                ["Mongo:Database"] = "AnimStudioDb"
-            })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Mongo:Database"] = "AnimStudioDb" })
             .Build();
 
-        var services = new ServiceCollection();
-        services.AddAnimStudioInfrastructure(config, isDevelopment: false);
-
-        Assert.Equal(typeof(MongoProjectRepository), Impl<IProjectRepository>(services));
-        Assert.Equal(typeof(MongoAutomationRepository), Impl<IAutomationRepository>(services));
-        Assert.Equal(typeof(MongoPhoneHandoffRepository), Impl<IPhoneHandoffRepository>(services));
-        Assert.DoesNotContain(services, d => d.ImplementationType == typeof(SqlDatabaseInitializer));
-        Assert.DoesNotContain(services, d => d.ServiceType == typeof(ISqlConnectionFactory));
-    }
-
-    [Fact]
-    public void AddAnimStudioInfrastructure_in_local_development_without_mongo_uses_SqlServer_for_all_repositories()
-    {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Database:Provider"] = "SqlServer",
-                ["SqlServer:ConnectionString"] = "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;"
-            })
-            .Build();
-
-        var services = new ServiceCollection();
-        services.AddAnimStudioInfrastructure(config, isDevelopment: true);
-
-        Assert.Equal(typeof(SqlProjectRepository), Impl<IProjectRepository>(services));
-        Assert.Equal(typeof(SqlAutomationRepository), Impl<IAutomationRepository>(services));
-        Assert.Equal(typeof(SqlGoogleDriveConnectionRepository), Impl<IGoogleDriveConnectionRepository>(services));
-        Assert.Equal(typeof(SqlPhoneHandoffRepository), Impl<IPhoneHandoffRepository>(services));
-        Assert.DoesNotContain(services, d => d.ImplementationType == typeof(MongoIndexInitializer));
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddAnimStudioInfrastructure(config, isDevelopment: true));
+        Assert.Contains("MongoDB is not configured", ex.Message);
     }
 
     private static Type? Impl<TService>(IServiceCollection services) =>

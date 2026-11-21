@@ -17,7 +17,7 @@ public enum PhoneHandoffState
     /// <summary>No matching upload turned up in time; the details can still be applied by hand.</summary>
     Expired,
 
-    // Appended, never inserted: SQL Server stores the state as its number.
+    // Appended, never inserted: stored documents hold the state as its number.
 
     /// <summary>A plain save to Drive (<see cref="PhoneHandoff.SaveOnly"/>) that has finished.</summary>
     Saved,

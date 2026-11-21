@@ -15,7 +15,7 @@ import {
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail, SceneTimeline,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
   WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
-  ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody, DriveSyncReport,
+  ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
 import {
   AdminAccessControl,
@@ -750,14 +750,6 @@ export class ApiService {
 
   updateAdminAccessControl(body: UpdateAccessControlRequest): Observable<AdminAccessControl> {
     return this.unwrap(this.http.put<ApiResponse<AdminAccessControl>>(`${this.admin}/access-control`, body));
-  }
-
-  syncDriveDataAvailable(): Observable<boolean> {
-    return this.unwrap(this.http.get<ApiResponse<boolean>>(`${this.admin}/sync-drive-data/available`));
-  }
-
-  syncDriveData(direction: 'MongoToSql' | 'SqlToMongo' | 'Both'): Observable<DriveSyncReport> {
-    return this.unwrap(this.http.post<ApiResponse<DriveSyncReport>>(`${this.admin}/sync-drive-data?direction=${direction}`, {}));
   }
 
   adminAllYouTubeChannels(): Observable<AdminYouTubeChannelItem[]> {
