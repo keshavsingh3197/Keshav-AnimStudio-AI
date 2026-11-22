@@ -48,17 +48,35 @@ public static class AutomationPublishAdvisor
             History: channelHistoryUtc,
             Count: Math.Max(count, 6)));
 
-        // Category-specific peak slots aligned to Indian & Global audience habits
+        // Category-specific peak slots aligned to Indian & Global audience habits.
+        // For evergreen/non-date-bound categories (e.g. Comedy), avoid stacking multiple uploads on a
+        // calendar day that already has a scheduled or live upload on the channel — roll cleanly to next open peak day!
         var peakHours = PeakHoursFor(sourceType, format);
         var combined = new List<RecommendedPublishSlot>();
         var localNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, timeZone);
+        var enforceOnePerDay = !IsDateBound(sourceType);
+        var occupiedLocalDates = new HashSet<DateTime>();
+        if (enforceOnePerDay)
+        {
+            foreach (var t in takenUtc)
+                occupiedLocalDates.Add(TimeZoneInfo.ConvertTimeFromUtc(t, timeZone).Date);
+            foreach (var h in channelHistoryUtc)
+            {
+                var hLocalDate = TimeZoneInfo.ConvertTimeFromUtc(h, timeZone).Date;
+                if (hLocalDate >= localNow.Date)
+                    occupiedLocalDates.Add(hLocalDate);
+            }
+        }
 
-        for (var day = 0; day <= 3 && combined.Count < count; day++)
+        // First pass: pick up to 1 top peak slot per free day so back-to-back uploads automatically space across days.
+        for (var day = 0; day <= 14 && combined.Count < count; day++)
         {
             var date = localNow.Date.AddDays(day);
+            if (enforceOnePerDay && occupiedLocalDates.Contains(date)) continue;
+
+            RecommendedPublishSlot? bestDaySlot = null;
             foreach (var (hour, minute, reason, tier) in peakHours)
             {
-                if (combined.Count >= count) break;
                 var local = date.AddHours(hour).AddMinutes(minute);
                 if (timeZone.IsInvalidTime(local)) continue;
                 var utc = DateTime.SpecifyKind(
@@ -68,17 +86,48 @@ public static class AutomationPublishAdvisor
                 if (takenUtc.Any(t => (t - utc).Duration() < TimeSpan.FromMinutes(90))) continue;
                 if (combined.Any(s => (s.AtUtc - utc).Duration() < TimeSpan.FromMinutes(60))) continue;
 
-                combined.Add(new RecommendedPublishSlot(
+                var dayNote = day > 0 && occupiedLocalDates.Contains(localNow.Date)
+                    ? $"Next open peak day — {reason}"
+                    : reason;
+                var cand = new RecommendedPublishSlot(
                     AtUtc: utc,
                     LocalLabel: local.ToString("ddd, dd MMM • h:mm tt"),
-                    Reason: reason,
-                    ExpectedReachTier: tier));
+                    Reason: dayNote,
+                    ExpectedReachTier: tier);
+                // Prefer highest-tier prime slot on that open day (break ties by earlier prime time)
+                if (bestDaySlot is null || (tier == "Peak A+" && bestDaySlot.ExpectedReachTier != "Peak A+"))
+                    bestDaySlot = cand;
+            }
+
+            if (bestDaySlot is not null)
+            {
+                combined.Add(bestDaySlot);
+                if (!enforceOnePerDay)
+                {
+                    // Date-bound categories (Panchang/Rashifal/etc.) can list same-day morning & evening windows too
+                    foreach (var (hour, minute, reason, tier) in peakHours)
+                    {
+                        if (combined.Count >= count) break;
+                        var local = date.AddHours(hour).AddMinutes(minute);
+                        if (timeZone.IsInvalidTime(local)) continue;
+                        var utc = DateTime.SpecifyKind(
+                            TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), timeZone),
+                            DateTimeKind.Utc);
+                        if (utc <= nowUtc.AddMinutes(15)) continue;
+                        if (takenUtc.Any(t => (t - utc).Duration() < TimeSpan.FromMinutes(90))) continue;
+                        if (combined.Any(s => (s.AtUtc - utc).Duration() < TimeSpan.FromMinutes(60))) continue;
+                        combined.Add(new RecommendedPublishSlot(utc, local.ToString("ddd, dd MMM • h:mm tt"), reason, tier));
+                    }
+                }
             }
         }
 
         foreach (var s in baseSlots)
         {
             if (combined.Count >= count) break;
+            var sDate = TimeZoneInfo.ConvertTimeFromUtc(s.At, timeZone).Date;
+            if (enforceOnePerDay && (occupiedLocalDates.Contains(sDate) || combined.Any(x => TimeZoneInfo.ConvertTimeFromUtc(x.AtUtc, timeZone).Date == sDate)))
+                continue;
             if (combined.Any(x => (x.AtUtc - s.At).Duration() < TimeSpan.FromMinutes(60))) continue;
             var local = TimeZoneInfo.ConvertTimeFromUtc(s.At, timeZone);
             combined.Add(new RecommendedPublishSlot(

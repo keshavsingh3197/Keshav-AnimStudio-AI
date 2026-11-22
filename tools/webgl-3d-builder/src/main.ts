@@ -38,7 +38,10 @@ function resolveSceneAtTime(job: RenderJobJson, t: number): {
   setting: SceneSetting;
   timeOfDay: SceneTimeOfDay;
   sceneIndex: number;
+  startSeconds: number;
   localProgress: number;
+  activeCharacters?: string[];
+  characterEntryAt?: Record<string, number>;
 } {
   const runs: SceneRunJson[] = job.sceneRuns ?? [];
   if (runs.length === 0) {
@@ -47,7 +50,7 @@ function resolveSceneAtTime(job: RenderJobJson, t: number): {
     if (job.hasCharacters && job.turns.length >= 5 && job.theme === 'VedicTempleSunrise3D') {
       setting = u < 0.34 ? 'Temple' : u < 0.68 ? 'ForestAshram' : 'Cosmos';
     }
-    return { setting, timeOfDay: 'Dawn', sceneIndex: 0, localProgress: u };
+    return { setting, timeOfDay: 'Dawn', sceneIndex: 0, startSeconds: 0, localProgress: u };
   }
 
   let idx = 0;
@@ -60,7 +63,10 @@ function resolveSceneAtTime(job: RenderJobJson, t: number): {
     setting,
     timeOfDay: run.timeOfDay === 'Auto' ? 'Dawn' : run.timeOfDay,
     sceneIndex: Math.max(0, run.sceneIndex),
+    startSeconds: run.startSeconds,
     localProgress,
+    activeCharacters: run.activeCharacters,
+    characterEntryAt: run.characterEntryAt,
   };
 }
 
@@ -127,6 +133,25 @@ function stagePositionFromNormalized(
   return { x, y, scale: Math.max(0.5, Math.min(1.8, spot.scale || 1)) };
 }
 
+function disposeThreeObject(obj: THREE.Object3D): void {
+  obj.traverse((child) => {
+    const refl = child as unknown as { isReflector?: boolean; dispose?: () => void };
+    if (refl.isReflector && refl.dispose) {
+      refl.dispose();
+    }
+    const mesh = child as THREE.Mesh;
+    if (mesh.geometry) {
+      mesh.geometry.dispose();
+    }
+    const mat = mesh.material;
+    if (Array.isArray(mat)) {
+      mat.forEach((m) => m?.dispose());
+    } else if (mat) {
+      mat.dispose();
+    }
+  });
+}
+
 async function run(): Promise<void> {
   try {
     const resp = await fetch('/job.json');
@@ -159,6 +184,56 @@ async function run(): Promise<void> {
     const isPortrait = job.height > job.width;
     const camRig = createCameraRig(job);
 
+    // Optional TV-style Studio/Channel corner logo badge when watermark is enabled (never blocks faces or captions)
+    let hudScene: THREE.Scene | null = null;
+    let hudCamera: THREE.OrthographicCamera | null = null;
+    if (job.showWatermark !== false && (job.footerLabel || job.isComedyMode)) {
+      const badgeW = Math.round(Math.max(158, Math.min(212, job.width * 0.17)));
+      const badgeH = Math.round(badgeW * 0.26);
+      const canvas2d = document.createElement('canvas');
+      canvas2d.width = 512;
+      canvas2d.height = 132;
+      const bctx = canvas2d.getContext('2d')!;
+      bctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      bctx.beginPath();
+      bctx.roundRect(6, 6, 500, 120, 26);
+      bctx.fill();
+      bctx.strokeStyle = '#f59e0b';
+      bctx.lineWidth = 4;
+      bctx.stroke();
+      // Amber circular studio crest
+      bctx.fillStyle = '#f59e0b';
+      bctx.beginPath();
+      bctx.arc(64, 66, 36, 0, Math.PI * 2);
+      bctx.fill();
+      bctx.fillStyle = '#0f172a';
+      bctx.font = 'bold 34px sans-serif';
+      bctx.textAlign = 'center';
+      bctx.textBaseline = 'middle';
+      bctx.fillText('KS', 64, 68);
+      // Channel / Studio Name
+      const brandText = (job.footerLabel && job.footerLabel.trim().length > 0 ? job.footerLabel.trim() : 'KESHAV STUDIO').toUpperCase().slice(0, 18);
+      bctx.fillStyle = '#f8fafc';
+      bctx.font = 'bold 28px sans-serif';
+      bctx.textAlign = 'left';
+      bctx.fillText(brandText, 118, 54);
+      bctx.fillStyle = '#fbbf24';
+      bctx.font = '600 18px sans-serif';
+      bctx.fillText('ANIMSTUDIO 3D', 118, 90);
+
+      const hudTex = new THREE.CanvasTexture(canvas2d);
+      hudTex.colorSpace = THREE.SRGBColorSpace;
+      const hudMat = new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthTest: false, depthWrite: false });
+      const hudMesh = new THREE.Mesh(new THREE.PlaneGeometry(badgeW, badgeH), hudMat);
+      const marginX = isPortrait ? 18 : 22;
+      const marginY = isPortrait ? 62 : 16;
+      hudMesh.position.set(job.width - badgeW * 0.5 - marginX, job.height - badgeH * 0.5 - marginY, 0);
+      hudScene = new THREE.Scene();
+      hudScene.add(hudMesh);
+      hudCamera = new THREE.OrthographicCamera(0, job.width, job.height, 0, -10, 10);
+      renderer.autoClear = false;
+    }
+
     let currentSetting: SceneSetting | null = null;
     let currentTimeOfDay: SceneTimeOfDay | null = null;
     let scene = new THREE.Scene();
@@ -173,6 +248,9 @@ async function run(): Promise<void> {
     const stageY = 0;
 
     const rebuildStage = (setting: SceneSetting, timeOfDay: SceneTimeOfDay) => {
+      if (scene) {
+        disposeThreeObject(scene);
+      }
       const nextScene = new THREE.Scene();
       const nextEnv = buildEnvironment(nextScene, job, setting, timeOfDay, backdrops);
       const nextVfx = createVfxRig(nextScene, setting, job.vfxStyle, job.palette.primaryHex, job.palette.secondaryHex, job.seed);
@@ -184,25 +262,59 @@ async function run(): Promise<void> {
       if (job.hasCharacters && job.leftCharacter && job.rightCharacter) {
         const lSpot = job.stageLayout?.left;
         const rSpot = job.stageLayout?.right;
-        const lp = lSpot ? stagePositionFromNormalized(lSpot, isPortrait) : { x: defaultLeftX, y: stageY, scale: 1 };
-        const rp = rSpot ? stagePositionFromNormalized(rSpot, isPortrait) : { x: defaultRightX, y: stageY, scale: 1 };
+        let lp = lSpot ? stagePositionFromNormalized(lSpot, isPortrait) : { x: defaultLeftX, y: stageY, scale: 1 };
+        let rp = rSpot ? stagePositionFromNormalized(rSpot, isPortrait) : { x: defaultRightX, y: stageY, scale: 1 };
+        let initLz = 0.12;
+        let initRz = 0.12;
+        let initLRot = 0.42;
+        let initRRot = -0.42;
+
+        if (setting === 'BarberShop' && !job.stageLayout?.templateBackdrop && nextEnv.spots.sofa && nextEnv.spots.counter) {
+          const leftIsBarber0 = /नाई|barber|salon|amrendra|अमरेंद्र|stylist|कटिंग मास्टर|हेयर/i.test(job.leftCharacter.name ?? '');
+          const rightIsBarber0 = /नाई|barber|salon|amrendra|अमरेंद्र|stylist|कटिंग मास्टर|हेयर/i.test(job.rightCharacter.name ?? '');
+          const barberIsLeft0 = leftIsBarber0 && !rightIsBarber0;
+          const bSpot = nextEnv.spots.counter;
+          const cSpot = nextEnv.spots.sofa;
+          lp = barberIsLeft0 ? { x: bSpot.x, y: bSpot.y, scale: 1 } : { x: cSpot.x, y: cSpot.y, scale: 1 };
+          rp = barberIsLeft0 ? { x: cSpot.x, y: cSpot.y, scale: 1 } : { x: bSpot.x, y: bSpot.y, scale: 1 };
+          initLz = barberIsLeft0 ? bSpot.z : cSpot.z;
+          initRz = barberIsLeft0 ? cSpot.z : bSpot.z;
+          initLRot = barberIsLeft0 ? (bSpot.rotY ?? -0.92) : (cSpot.rotY ?? 0.22);
+          initRRot = barberIsLeft0 ? (cSpot.rotY ?? 0.22) : (bSpot.rotY ?? -0.92);
+        }
 
         const leftFacesRight = lp.x <= rp.x ? 1 : -1;
         nextLeft = createCharacterRig(job.leftCharacter, job.palette.speakerAHex, setting, leftFacesRight, 0.0);
-        nextLeft.root.position.set(lp.x, lp.y, 0.12);
+        nextLeft.root.position.set(lp.x, lp.y, initLz);
+        nextLeft.root.rotation.y = initLRot;
         nextLeft.root.scale.setScalar(lp.scale);
         nextScene.add(nextLeft.root);
 
         nextRight = createCharacterRig(job.rightCharacter, job.palette.speakerBHex, setting, -leftFacesRight, 1.7);
-        nextRight.root.position.set(rp.x, rp.y, 0.12);
+        nextRight.root.position.set(rp.x, rp.y, initRz);
+        nextRight.root.rotation.y = initRRot;
         nextRight.root.scale.setScalar(rp.scale);
         nextScene.add(nextRight.root);
 
-        const supSlots = job.supportingCast.length === 1 ? [0] : job.supportingCast.length === 2 ? [-0.48, 0.48] : [0, -0.65, 0.65];
-        nextSupporting = job.supportingCast.slice(0, 3).map((sup, i) => {
+        const supSlots = setting === 'BarberShop'
+          ? (isPortrait
+            ? (job.supportingCast.length === 1 ? [0.78]
+              : job.supportingCast.length === 2 ? [0.68, -1.22]
+              : [0.68, -1.22, 1.08, -1.48, 0.34])
+            : (job.supportingCast.length === 1 ? [1.76]
+              : job.supportingCast.length === 2 ? [1.38, 2.12]
+              : job.supportingCast.length === 3 ? [1.14, 1.72, 2.30]
+              : [0.92, 1.40, 1.88, 2.36, 0.48]))
+          : (job.supportingCast.length === 1 ? [0]
+            : job.supportingCast.length === 2 ? [-0.48, 0.48]
+            : job.supportingCast.length === 3 ? [0, -0.68, 0.68]
+            : [-0.36, 0.36, -0.96, 0.96, 0]);
+        const supZ = setting === 'BarberShop' ? (isPortrait ? -1.62 : -1.48) : -0.86;
+        nextSupporting = job.supportingCast.slice(0, 5).map((sup, i) => {
           const rig = createCharacterRig(sup, job.palette.secondaryHex, setting, supSlots[i] <= 0 ? 1 : -1, 3.1 + i * 1.4);
-          rig.root.position.set(supSlots[i], stageY + 0.05, -0.82);
-          rig.root.scale.setScalar(0.72);
+          const rowBack = i >= 3 ? -0.34 : 0;
+          rig.root.position.set(supSlots[i], stageY + (setting === 'BarberShop' ? 0.36 : 0.05), supZ + rowBack);
+          rig.root.scale.setScalar(i >= 3 ? 0.72 : 0.76);
           nextScene.add(rig.root);
           return rig;
         });
@@ -218,9 +330,26 @@ async function run(): Promise<void> {
       currentTimeOfDay = timeOfDay;
     };
 
+    // Precompute story continuity milestones across the episode (first cutting turn, towel removal, and Takla mirror reveal)
+    const firstActiveCutTurn = job.turns.find((tr) => !tr.isTitleHook && tr.action === 'cutting')
+      ?? job.turns.find((tr) => !tr.isTitleHook && tr.listenerAction === 'cutting');
+    const towelRemoveTurn = job.turns.find((tr) => !tr.isTitleHook && (tr.action === 'removingTowel' || /तौलिया तो हटा|तौलिया हटा|remove towel/i.test(tr.text ?? '')));
+    const mirrorRevealTurn = job.turns.find((tr) => !tr.isTitleHook && (
+      tr.action === 'lookInMirror'
+      || tr.action === 'removingTowel'
+      || /टकला|कटोरा|मैदान साफ़|चाँद|चांद|शीशे में|mirror/i.test(tr.text ?? '')
+    ));
+    const firstHairCutEnd = firstActiveCutTurn ? firstActiveCutTurn.endSeconds : 9999;
+    const towelRemoveTime = towelRemoveTurn ? towelRemoveTurn.startSeconds : 9999;
+    const taklaRevealStart = mirrorRevealTurn
+      ? mirrorRevealTurn.startSeconds + 0.08
+      : Math.max(firstHairCutEnd + 2.5, job.durationSeconds * 0.56);
+
     let prevTurnIdx = -1;
     const totalFrames = Math.max(1, job.totalFrames);
-    for (let i = 0; i < totalFrames; i++) {
+    const startFrame = Math.max(0, Math.min(totalFrames, job.startFrame ?? 0));
+    const endFrame = Math.max(startFrame, Math.min(totalFrames, job.endFrame ?? totalFrames));
+    for (let i = startFrame; i < endFrame; i++) {
       const t = i / job.fps;
       const u = Math.max(0, Math.min(1, t / Math.max(1, job.durationSeconds)));
       const sceneMoment = resolveSceneAtTime(job, t);
@@ -241,6 +370,8 @@ async function run(): Promise<void> {
       const emotion = normalizeEmotion((activeTurn ?? poseTurn)?.emotion);
       const speakerAction = ((activeTurn ?? poseTurn)?.action || 'none') as string;
       const listenerAction = ((activeTurn ?? poseTurn)?.listenerAction || 'none') as string;
+      const speakerProp = (activeTurn ?? poseTurn)?.speakerProp ?? null;
+      const listenerProp = (activeTurn ?? poseTurn)?.listenerProp ?? null;
       const cameraShot = ((activeTurn ?? poseTurn)?.cameraShot || 'auto') as string;
       const stageTarget = ((activeTurn ?? poseTurn)?.stageTarget || 'default') as string;
       const refTurn = activeTurn ?? poseTurn;
@@ -262,43 +393,130 @@ async function run(): Promise<void> {
       const currentLeft = leftRig as CharacterRig | null;
       const currentRight = rightRig as CharacterRig | null;
 
-      const leftAction = poseSlot === 'Left' ? speakerAction : poseSlot === 'Right' ? listenerAction : 'none';
-      const rightAction = poseSlot === 'Right' ? speakerAction : poseSlot === 'Left' ? listenerAction : 'none';
+      let leftAction = poseSlot === 'Left' ? speakerAction : poseSlot === 'Right' ? listenerAction : 'none';
+      let rightAction = poseSlot === 'Right' ? speakerAction : poseSlot === 'Left' ? listenerAction : 'none';
+      if (sceneMoment.setting === 'PalaceCourt') {
+        const hasDanceCue = leftAction === 'dancing' || rightAction === 'dancing'
+          || leftAction === 'sufiSpin' || rightAction === 'sufiSpin'
+          || leftAction === 'adaab' || rightAction === 'adaab';
+        if (hasDanceCue) {
+          const danceLead = leftAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin'
+            ? leftAction
+            : rightAction;
+          if (leftAction === 'none') leftAction = danceLead;
+          if (rightAction === 'none') rightAction = danceLead;
+        }
+      }
+      let leftProp = poseSlot === 'Left' ? speakerProp : poseSlot === 'Right' ? listenerProp : null;
+      let rightProp = poseSlot === 'Right' ? speakerProp : poseSlot === 'Left' ? listenerProp : null;
 
-      // Dynamic internal 3D stage blocking: characters lie on bed, sit on sofa, approach counter, or walk in cleanly separated lanes.
+      const isLeftBarber = /नाई|barber|salon|amrendra|अमरेंद्र|stylist|कटिंग मास्टर|हेयर/i.test(currentLeft?.name ?? '');
+      const isRightBarber = /नाई|barber|salon|amrendra|अमरेंद्र|stylist|कटिंग मास्टर|हेयर/i.test(currentRight?.name ?? '');
+      // Guarantee ONE exclusive Barber slot per scene so Customer & Barber NEVER occupy the same stand/chair coordinate!
+      const barberSlot: 'Left' | 'Right' = isLeftBarber && !isRightBarber
+        ? 'Left'
+        : isRightBarber
+          ? 'Right'
+          : (stageTarget === 'barberStand' && poseSlot === 'Left' ? 'Left' : 'Right');
+      if (sceneMoment.setting === 'BarberShop') {
+        if (barberSlot === 'Left') {
+          if (!leftProp) leftProp = 'scissors';
+          if (rightProp === 'scissors' || rightProp === 'comb') rightProp = 'cape';
+          if (leftAction === 'lookInMirror' || rightAction === 'lookInMirror') {
+            rightAction = 'lookInMirror';
+            if (leftAction === 'lookInMirror') leftAction = 'pointing';
+          }
+        } else {
+          if (!rightProp) rightProp = 'scissors';
+          if (leftProp === 'scissors' || leftProp === 'comb') leftProp = 'cape';
+          if (leftAction === 'lookInMirror' || rightAction === 'lookInMirror') {
+            leftAction = 'lookInMirror';
+            if (rightAction === 'lookInMirror') rightAction = 'pointing';
+          }
+        }
+      }
+
+      // Dynamic internal 3D stage blocking: characters sit in barber chair, lie on bed, sit on sofa, approach counter, or walk in separated lanes.
       const resolveSlotPose = (
         slot: 'Left' | 'Right',
         act: string,
         isPoseSpeaker: boolean,
         baseX: number,
         baseRotY: number,
-      ): { x: number; y: number; z: number; rotY: number } => {
+      ): { x: number; y: number; z: number; rotY: number; seated: boolean; showCape: boolean } => {
         const baseY = stageY;
         if (job.stageLayout?.templateBackdrop) {
-          return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY };
+          return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY, seated: false, showCape: false };
         }
         const spots = env?.spots ?? {};
         const tgt = isPoseSpeaker ? stageTarget : 'default';
 
+        if (sceneMoment.setting === 'BarberShop') {
+          const isBarberSlot = slot === barberSlot;
+          if (isBarberSlot) {
+            return {
+              x: spots.counter?.x ?? -0.22,
+              y: baseY,
+              z: spots.counter?.z ?? -0.92,
+              rotY: spots.counter?.rotY ?? -0.92,
+              seated: false,
+              showCape: false,
+            };
+          }
+          if (spots.sofa) {
+            const keepCape = act !== 'removingTowel' && t < towelRemoveTime - 0.1;
+            const mirrorTurn = act === 'lookInMirror' || speakerAction === 'lookInMirror' || listenerAction === 'lookInMirror';
+            const mirrorLookRot = turnLocal < 0.45
+              ? -0.64 + Math.sin(turnLocal * Math.PI * 2.2) * 0.22
+              : 0.28;
+            return {
+              x: spots.sofa.x,
+              y: spots.sofa.y,
+              z: spots.sofa.z,
+              rotY: mirrorTurn ? mirrorLookRot : (spots.sofa.rotY ?? 0.22),
+              seated: true,
+              showCape: keepCape,
+            };
+          }
+        }
+
+        if (sceneMoment.setting === 'Courtroom') {
+          if (tgt === 'judgeBench' && spots.sofa) {
+            return { x: spots.sofa.x, y: spots.sofa.y, z: spots.sofa.z, rotY: spots.sofa.rotY ?? 0.08, seated: true, showCape: false };
+          }
+          if (tgt === 'witnessStand' && spots.counter) {
+            return { x: spots.counter.x, y: spots.counter.y, z: spots.counter.z, rotY: spots.counter.rotY ?? 0.38, seated: false, showCape: false };
+          }
+        }
+
+        if (sceneMoment.setting === 'DoctorClinic') {
+          if (tgt === 'doctorDesk' && spots.sofa) {
+            return { x: spots.sofa.x, y: spots.sofa.y, z: spots.sofa.z, rotY: spots.sofa.rotY ?? -0.35, seated: false, showCape: false };
+          }
+          if (tgt === 'patientBed' && spots.bed) {
+            return { x: spots.bed.x + 0.15, y: 0.32, z: -0.32, rotY: 0.32, seated: true, showCape: false };
+          }
+        }
+
         if (act === 'sleeping' && spots.bed) {
-          return { x: spots.bed.x, y: spots.bed.y, z: spots.bed.z, rotY: spots.bed.rotY ?? baseRotY };
+          return { x: spots.bed.x, y: spots.bed.y, z: spots.bed.z, rotY: spots.bed.rotY ?? baseRotY, seated: false, showCape: false };
         }
         if (tgt === 'bed' && (act === 'wakingUp' || act === 'sitting') && spots.bed) {
-          return { x: spots.bed.x + 0.28, y: 0.34, z: -0.05, rotY: 0.35 };
+          return { x: spots.bed.x + 0.28, y: 0.34, z: -0.05, rotY: 0.35, seated: true, showCape: false };
         }
         if ((act === 'sitting' || tgt === 'sofa') && spots.sofa) {
-          return { x: spots.sofa.x, y: spots.sofa.y, z: spots.sofa.z, rotY: spots.sofa.rotY ?? baseRotY };
+          return { x: spots.sofa.x, y: spots.sofa.y, z: spots.sofa.z, rotY: spots.sofa.rotY ?? baseRotY, seated: true, showCape: false };
         }
-        if ((tgt === 'counter' || act === 'eating') && spots.counter) {
+        if ((tgt === 'counter' || act === 'eating' || act === 'stirring') && spots.counter) {
           if (slot === 'Left') {
-            return { x: spots.counter.x, y: spots.counter.y, z: spots.counter.z, rotY: spots.counter.rotY ?? 0.30 };
+            return { x: spots.counter.x, y: spots.counter.y, z: spots.counter.z, rotY: spots.counter.rotY ?? 0.30, seated: false, showCape: false };
           }
-          return { x: Math.max(0.55, spots.counter.x + 0.96), y: spots.counter.y, z: -0.22, rotY: -0.48 };
+          return { x: Math.max(0.55, spots.counter.x + 0.96), y: spots.counter.y, z: -0.22, rotY: -0.48, seated: false, showCape: false };
         }
         if (sceneMoment.setting === 'Kitchen' || sceneMoment.setting === 'SweetShop') {
           return slot === 'Left'
-            ? { x: spots.counter?.x ?? -0.45, y: baseY, z: -0.52, rotY: 0.34 }
-            : { x: 0.60, y: baseY, z: -0.18, rotY: -0.46 };
+            ? { x: spots.counter?.x ?? -0.45, y: baseY, z: -0.52, rotY: 0.34, seated: false, showCape: false }
+            : { x: 0.60, y: baseY, z: -0.18, rotY: -0.46, seated: false, showCape: false };
         }
         if (act === 'walking' || act === 'running') {
           const walkProgress = turnLocal < 0.85 ? Math.min(1, turnLocal / 0.85) : 1;
@@ -311,26 +529,34 @@ async function run(): Promise<void> {
           const z = startZ + (endZ - startZ) * eased;
           const dx = endX - startX;
           const moveYaw = Math.abs(dx) > 0.05 ? Math.atan2(dx, endZ - startZ) * 0.65 : baseRotY;
-          return { x, y: baseY, z, rotY: moveYaw };
+          return { x, y: baseY, z, rotY: moveYaw, seated: false, showCape: false };
         }
         if (tgt === 'center' || (isPoseSpeaker && act === 'pointing')) {
-          return { x: baseX * 0.84, y: baseY, z: 0.18, rotY: baseRotY * 0.78 };
+          return { x: baseX * 0.84, y: baseY, z: 0.18, rotY: baseRotY * 0.78, seated: false, showCape: false };
         }
-        return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY };
+        return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY, seated: false, showCape: false };
       };
 
       const posBlend = 1 - Math.exp(-(job.isComedyMode ? 13.5 : 8.5) / Math.max(1, job.fps));
+      let leftSeated = false;
+      let leftShowCape = false;
       if (currentLeft && !job.stageLayout?.templateBackdrop) {
         const target = resolveSlotPose('Left', leftAction, poseSlot === 'Left', defaultLeftX, 0.42);
-        const snapL = sceneChanged || (turnChanged && (leftAction === 'sleeping' || leftAction === 'sitting')) ? 1 : posBlend;
+        leftSeated = target.seated;
+        leftShowCape = target.showCape;
+        const snapL = sceneChanged || (turnChanged && (leftAction === 'sleeping' || leftAction === 'sitting' || target.seated)) ? 1 : posBlend;
         currentLeft.root.position.x += (target.x - currentLeft.root.position.x) * snapL;
         currentLeft.root.position.y += (target.y - currentLeft.root.position.y) * snapL;
         currentLeft.root.position.z += (target.z - currentLeft.root.position.z) * snapL;
         currentLeft.root.rotation.y += (target.rotY - currentLeft.root.rotation.y) * snapL;
       }
+      let rightSeated = false;
+      let rightShowCape = false;
       if (currentRight && !job.stageLayout?.templateBackdrop) {
         const target = resolveSlotPose('Right', rightAction, poseSlot === 'Right', defaultRightX, -0.42);
-        const snapR = sceneChanged || (turnChanged && (rightAction === 'sleeping' || rightAction === 'sitting')) ? 1 : posBlend;
+        rightSeated = target.seated;
+        rightShowCape = target.showCape;
+        const snapR = sceneChanged || (turnChanged && (rightAction === 'sleeping' || rightAction === 'sitting' || target.seated)) ? 1 : posBlend;
         currentRight.root.position.x += (target.x - currentRight.root.position.x) * snapR;
         currentRight.root.position.y += (target.y - currentRight.root.position.y) * snapR;
         currentRight.root.position.z += (target.z - currentRight.root.position.z) * snapR;
@@ -342,40 +568,184 @@ async function run(): Promise<void> {
       const ly = currentLeft ? currentLeft.root.position.y : stageY;
       const ry = currentRight ? currentRight.root.position.y : stageY;
 
+      const leftEmotion: EmotionKind = leftSpeaking ? emotion : (leftAction === 'lookInMirror' || leftAction === 'shockedFall' ? 'surprised' : 'calm');
+      const rightEmotion: EmotionKind = rightSpeaking ? emotion : (rightAction === 'shockedFall' ? 'surprised' : 'calm');
+      const glassesFallback = job.turns.find((tr) => !tr.isTitleHook);
+      const glassesTurn = refTurn && !refTurn.isTitleHook ? refTurn : glassesFallback;
+      const gSlot = glassesTurn?.slot;
+      const leftGlasses = gSlot === 'Left' ? (glassesTurn?.speakerGlasses ?? null) : gSlot === 'Right' ? (glassesTurn?.listenerGlasses ?? null) : null;
+      const rightGlasses = gSlot === 'Right' ? (glassesTurn?.speakerGlasses ?? null) : gSlot === 'Left' ? (glassesTurn?.listenerGlasses ?? null) : null;
+
+      // Customer progressive haircut stage in BarberShop:
+      // 0 (full spiky hair before first cut) -> 1 (half-chopped during snipping) -> 2 (shiny Takla dome strictly on mirror/towel climax reveal!)
+      const customerHairCutStage = sceneMoment.setting !== 'BarberShop'
+        ? 0
+        : t >= taklaRevealStart || leftAction === 'lookInMirror' || rightAction === 'lookInMirror'
+          ? 2
+          : (firstActiveCutTurn ? t >= firstActiveCutTurn.startSeconds : false)
+            ? 1
+            : 0;
+      const leftHairCut = barberSlot === 'Left' ? 0 : customerHairCutStage;
+      const rightHairCut = barberSlot === 'Right' ? 0 : customerHairCutStage;
+
       if (env) {
         updateEnvironment(env, t, u, sceneMoment.sceneIndex, sceneMoment.localProgress, job.stageLayout);
       }
       if (currentLeft) {
-        updateCharacterRig(currentLeft, t, leftSpeaking, speechLevel, leftSpeaking ? emotion : 'calm', isTitleHook, leftAction, turnLocal, sceneChanged);
+        updateCharacterRig(currentLeft, t, leftSpeaking, speechLevel, leftEmotion, isTitleHook, leftAction, turnLocal, sceneChanged, leftProp, leftSeated, leftShowCape, leftGlasses, leftHairCut);
       }
       if (currentRight) {
-        updateCharacterRig(currentRight, t, rightSpeaking, speechLevel, rightSpeaking ? emotion : 'calm', isTitleHook, rightAction, turnLocal, sceneChanged);
+        updateCharacterRig(currentRight, t, rightSpeaking, speechLevel, rightEmotion, isTitleHook, rightAction, turnLocal, sceneChanged, rightProp, rightSeated, rightShowCape, rightGlasses, rightHairCut);
       }
       supportingRigs.forEach((rig, sIdx) => {
         const spk = sIdx === supIdx;
-        rig.root.position.z = spk ? -0.35 : -0.82;
-        rig.root.scale.setScalar(spk ? 0.84 : 0.72);
-        updateCharacterRig(rig, t, spk, speechLevel, spk ? emotion : 'calm', false, spk ? speakerAction : 'none', turnLocal, sceneChanged);
+        if (sceneMoment.setting === 'BarberShop') {
+          rig.root.position.z = -1.52;
+          rig.root.position.y = spk ? 0.34 : 0.30;
+          rig.root.scale.setScalar(spk ? 0.80 : 0.76);
+        } else if (sceneMoment.setting === 'PalaceCourt') {
+          const side = sIdx % 2 === 0 ? -1 : 1;
+          const rank = Math.floor(sIdx / 2);
+          rig.root.position.x = side * (1.82 + rank * 0.72);
+          rig.root.position.z = -0.68 - rank * 0.44;
+          rig.root.position.y = 0;
+          rig.root.scale.setScalar(0.94);
+        } else {
+          rig.root.position.z = spk ? -0.35 : -0.82;
+          rig.root.scale.setScalar(spk ? 0.94 : 0.88);
+        }
+        const reactEmo = spk
+          ? emotion
+          : (emotion === 'angry' || emotion === 'surprised') ? 'surprised' : (emotion === 'laughing' ? 'laughing' : 'calm');
+        const mainDancing = leftAction === 'dancing' || rightAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin';
+        const reactAct = spk
+          ? speakerAction
+          : mainDancing && sceneMoment.setting === 'PalaceCourt'
+            ? (leftAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin' ? leftAction : rightAction)
+            : (speakerAction === 'punching' || speakerAction === 'kicking') ? 'shockedFall' : 'none';
+        const supProp = spk && sceneMoment.setting !== 'BarberShop' ? speakerProp : null;
+        updateCharacterRig(rig, t, spk, speechLevel, reactEmo, false, reactAct, turnLocal, sceneChanged, supProp, sceneMoment.setting === 'BarberShop', false, 'none', 0);
       });
 
-      const activeMeme = !!job.memeCues?.some((m) => t >= m.startSeconds - 0.05 && t <= m.startSeconds + Math.min(0.75, m.seconds));
-      const speakerHeadY = activeSlot === 'Left'
+      // Multi-scene story choreography for non-comedy narratives (DailyKatha, Festival, Panchang, History):
+      // show ONLY the characters participating in the current scene at their right moment of entrance,
+      // restage them into balanced foreground positions, and aim dynamic camera framing at whoever speaks.
+      const useSceneCasting = !job.isComedyMode
+        && !job.stageLayout?.templateBackdrop
+        && (job.sceneRuns?.length ?? 0) > 1;
+
+      let camLeftX = lx;
+      let camRightX = rx;
+      let camSlot = activeSlot;
+      let camHeadY = activeSlot === 'Left'
         ? (ly + (currentLeft?.headY ?? 1.4))
         : activeSlot === 'Right'
           ? (ry + (currentRight?.headY ?? 1.4))
           : 1.38;
 
+      if (useSceneCasting) {
+        const fallbackLeadNames = (job.sceneRuns?.[1]?.activeCharacters?.slice(0, 2))
+          ?? [currentLeft?.name, currentRight?.name].filter((n): n is string => !!n);
+        const activeNames = (sceneMoment.activeCharacters?.length ?? 0) > 0
+          ? sceneMoment.activeCharacters!
+          : fallbackLeadNames;
+        const entryMap = sceneMoment.characterEntryAt ?? {};
+        const entryTimeFor = (name: string): number | null => {
+          const match = activeNames.find((a) => a.toLowerCase() === name.toLowerCase());
+          const isSpeakingNow = !!activeTurn && activeTurn.speakerName.toLowerCase() === name.toLowerCase();
+          if (!match && !isSpeakingNow) return null;
+          const exactEntry = Object.entries(entryMap).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+          return exactEntry ?? sceneMoment.startSeconds;
+        };
+
+        const allRigs: CharacterRig[] = [
+          ...(currentLeft ? [currentLeft] : []),
+          ...(currentRight ? [currentRight] : []),
+          ...supportingRigs,
+        ];
+        const visibleInMoment: { rig: CharacterRig; entryAt: number }[] = [];
+        for (const rig of allRigs) {
+          const entryAt = entryTimeFor(rig.name);
+          const vis = entryAt !== null && t >= entryAt - 0.04;
+          rig.root.visible = vis;
+          if (vis && entryAt !== null) {
+            visibleInMoment.push({ rig, entryAt });
+          }
+        }
+
+        const nVis = visibleInMoment.length;
+        const spreadX = isPortrait ? 0.56 : 0.88;
+        visibleInMoment.forEach(({ rig, entryAt }, vIdx) => {
+          let tx = 0;
+          let tz = 0.14;
+          let troty = 0;
+          if (nVis === 1) {
+            tx = 0;
+            tz = 0.16;
+            troty = 0.12;
+          } else if (nVis === 2) {
+            tx = vIdx === 0 ? -spreadX : spreadX;
+            tz = 0.16;
+            troty = vIdx === 0 ? 0.42 : -0.42;
+          } else {
+            const slots3 = [-spreadX * 1.15, 0.04, spreadX * 1.15];
+            tx = slots3[vIdx] ?? ((vIdx - 1) * 0.65);
+            tz = vIdx === 1 ? -0.18 : 0.16;
+            troty = tx < -0.1 ? 0.44 : tx > 0.1 ? -0.44 : 0.08;
+          }
+
+          const appearAge = Math.max(0, t - entryAt);
+          const appearEase = appearAge < 0.72
+            ? Math.sin((appearAge / 0.72) * Math.PI * 0.5)
+            : 1;
+          const isDivineDescend = rig.role === 'Divine' && entryAt > sceneMoment.startSeconds + 0.25 && appearAge < 0.9;
+          const descLift = isDivineDescend ? (1 - appearEase) * 0.85 : 0;
+          const snapHere = sceneChanged || appearAge < 0.06 ? 1 : posBlend;
+
+          rig.root.position.x += (tx - rig.root.position.x) * snapHere;
+          rig.root.position.y += (descLift - rig.root.position.y) * snapHere;
+          rig.root.position.z += (tz - rig.root.position.z) * snapHere;
+          rig.root.rotation.y += (troty - rig.root.rotation.y) * snapHere;
+          const baseScale = appearAge < 0.55 ? 0.78 + 0.22 * appearEase : 1.0;
+          rig.root.scale.setScalar(baseScale);
+        });
+
+        if (visibleInMoment.length > 0) {
+          camLeftX = Math.min(...visibleInMoment.map((v) => v.rig.root.position.x));
+          camRightX = Math.max(...visibleInMoment.map((v) => v.rig.root.position.x));
+          const spkRig = refTurn
+            ? visibleInMoment.find((v) => v.rig.name.toLowerCase() === refTurn.speakerName.toLowerCase())?.rig
+            : undefined;
+          if (spkRig) {
+            camSlot = spkRig.root.position.x <= 0.05 ? 'Left' : 'Right';
+            camHeadY = spkRig.root.position.y + spkRig.headY;
+          } else {
+            camSlot = 'Narrator';
+            camHeadY = visibleInMoment[0].rig.root.position.y + visibleInMoment[0].rig.headY;
+          }
+        }
+      }
+
+      const activeMeme = !!job.memeCues?.some((m) => t >= m.startSeconds - 0.05 && t <= m.startSeconds + Math.min(0.75, m.seconds));
+
       if (vfx) {
         updateVfxRig(
-          vfx, t, u, activeSlot, lx, rx, emotion, turnLocal, job.palette.primaryHex, job.palette.secondaryHex,
-          leftAction, rightAction, ly, ry, activeMeme);
+          vfx, t, u, camSlot, camLeftX, camRightX, emotion, turnLocal, job.palette.primaryHex, job.palette.secondaryHex,
+          leftAction, rightAction, ly, ry, activeMeme, leftEmotion, rightEmotion);
       }
 
       updateCameraRig(
-        camRig, job, t, u, activeSlot, lx, rx, emotion, isTitleHook,
-        activeMeme ? 'crashPunch' : cameraShot, speakerAction, turnChanged || sceneChanged, turnLocal, speakerHeadY);
+        camRig, job, t, u, camSlot, camLeftX, camRightX, emotion, isTitleHook,
+        activeMeme ? 'crashPunch' : cameraShot, speakerAction, turnChanged || sceneChanged, turnLocal, camHeadY, sceneMoment.setting);
 
-      renderer.render(scene, camRig.camera);
+      if (hudScene && hudCamera) {
+        renderer.clear();
+        renderer.render(scene, camRig.camera);
+        renderer.clearDepth();
+        renderer.render(hudScene, hudCamera);
+      } else {
+        renderer.render(scene, camRig.camera);
+      }
       gl.readPixels(0, 0, job.width, job.height, gl.RGBA, gl.UNSIGNED_BYTE, pixelBuf);
 
       const postResp = await fetch(`/frame/${i}`, {

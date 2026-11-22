@@ -279,7 +279,7 @@ public sealed class ProceduralBgmCacheService(
         string outputWavPath,
         int maxSeconds,
         CancellationToken ct) =>
-        NormalizeToLoopableWavAsync(inputPath, outputWavPath, ct, Math.Clamp(maxSeconds, 10, 600));
+        NormalizeToLoopableWavAsync(inputPath, outputWavPath, ct, Math.Clamp(maxSeconds, 10, ProceduralVideoRequest.MaxSeconds));
 
     private async Task<bool> NormalizeToLoopableWavAsync(
         string inputPath,
@@ -323,7 +323,7 @@ public sealed class ProceduralBgmCacheService(
         proc.StandardInput.Close();
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(45, maxSeconds / 12)));
         _ = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
         await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
         return proc.ExitCode == 0 && File.Exists(outputWavPath);

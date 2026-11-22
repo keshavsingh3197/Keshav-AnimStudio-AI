@@ -29,7 +29,7 @@ public sealed record GenerateAutomationAiVideoRequest(
 public sealed record SubmitAutomationScriptTemplateRequest(
     AutomationVisualEngine Engine = AutomationVisualEngine.AiRealisticStory,
     string? Reply = null,
-    [System.ComponentModel.DataAnnotations.Range(0, 600)] int? TargetSeconds = null,
+    [System.ComponentModel.DataAnnotations.Range(0, 3600)] int? TargetSeconds = null,
     [System.ComponentModel.DataAnnotations.StringLength(32)] string? SubtitlePreset = null);
 
 public sealed record GenerateAnimatedAutomationVideoRequest(
@@ -129,6 +129,23 @@ public sealed class AutomationController(
     {
         if (RequireAuthenticatedUser<IReadOnlyList<AutomationRule>>() is { } denied) return denied;
         return Ok(ApiResponse<IReadOnlyList<AutomationRule>>.Ok(await automation.BootstrapDefaultRulesAsync(currentUser.UserId, ct)));
+    }
+
+    [HttpPost("rules/rebalance-channels")]
+    public async Task<ActionResult<ApiResponse<AutomationRebalanceResult>>> RebalanceChannels(CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<AutomationRebalanceResult>() is { } denied) return denied;
+        return Ok(ApiResponse<AutomationRebalanceResult>.Ok(await automation.RebalanceStarterChannelsAsync(currentUser.UserId, ct)));
+    }
+
+    [HttpPost("prepare-publish-pack")]
+    public async Task<ActionResult<ApiResponse<PreparePublishPackResult>>> PreparePublishPack(
+        [FromBody] PreparePublishPackRequest? request = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<PreparePublishPackResult>() is { } denied) return denied;
+        return Ok(ApiResponse<PreparePublishPackResult>.Ok(
+            await automation.PreparePublishPackAsync(currentUser.UserId, request ?? new PreparePublishPackRequest(), ct)));
     }
 
     [HttpPost("rules")]
@@ -260,7 +277,7 @@ public sealed class AutomationController(
     public async Task<ActionResult<ApiResponse<AutomationScriptTemplate>>> ScriptTemplate(
         string id,
         [FromQuery] AutomationVisualEngine engine = AutomationVisualEngine.AiRealisticStory,
-        [FromQuery, System.ComponentModel.DataAnnotations.Range(0, 600)] int? targetSeconds = null,
+        [FromQuery, System.ComponentModel.DataAnnotations.Range(0, 3600)] int? targetSeconds = null,
         CancellationToken ct = default)
     {
         if (RequireAuthenticatedUser<AutomationScriptTemplate>() is { } denied) return denied;
@@ -410,6 +427,7 @@ public sealed class AutomationController(
         if (!currentUser.IsAuthenticated) return Forbid();
         var result = await automation.GetPostThumbnailBytesAsync(currentUser.UserId, id, ct);
         if (result is null) return NotFound();
+        Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
         var ext = result.Value.ContentType == "image/png" ? "png" : "jpg";
         return File(result.Value.Bytes, result.Value.ContentType, $"thumbnail-{id}.{ext}");
     }
@@ -560,10 +578,11 @@ public sealed class AutomationController(
         [FromQuery] AutomationVideoFormat format = AutomationVideoFormat.Vertical,
         [FromQuery] string? channelId = null,
         [FromQuery] string? timeZone = null,
+        [FromQuery] string? dateKey = null,
         CancellationToken ct = default)
     {
         if (RequireAuthenticatedUser<AutomationPublishAdvice>() is { } denied) return denied;
-        var advice = await automation.GetPublishAdviceAsync(currentUser.UserId, sourceType, format, channelId, timeZone, ct);
+        var advice = await automation.GetPublishAdviceAsync(currentUser.UserId, sourceType, format, channelId, timeZone, ct, dateKey);
         return Ok(ApiResponse<AutomationPublishAdvice>.Ok(advice));
     }
 

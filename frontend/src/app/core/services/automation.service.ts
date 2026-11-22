@@ -670,6 +670,20 @@ export class AutomationService {
     );
   }
 
+  rebalanceChannels(): Observable<AutomationRebalanceResult> {
+    return this.unwrap(
+      this.http.post<ApiResponse<AutomationRebalanceResult>>(`${this.base}/rules/rebalance-channels`, {})
+    );
+  }
+
+  preparePublishPack(body: PreparePublishPackRequest): Observable<PreparePublishPackResult> {
+    return this.unwrap(
+      this.http.post<ApiResponse<PreparePublishPackResult>>(`${this.base}/prepare-publish-pack`, body, {
+        context: silentHttpContext(),
+      })
+    );
+  }
+
   listQueue(filters?: { from?: string; to?: string; status?: AutomationPostStatus; limit?: number }): Observable<AutomationPost[]> {
     let params = new HttpParams();
     if (filters?.from) params = params.set('from', filters.from);
@@ -957,10 +971,11 @@ export class AutomationService {
     );
   }
 
-  getPublishAdvice(sourceType: AutomationSourceType, format: AutomationVideoFormat, channelId?: string | null, timeZone?: string | null): Observable<AutomationPublishAdvice> {
+  getPublishAdvice(sourceType: AutomationSourceType, format: AutomationVideoFormat, channelId?: string | null, timeZone?: string | null, dateKey?: string | null): Observable<AutomationPublishAdvice> {
     let params = new HttpParams().set('sourceType', sourceType).set('format', format);
     if (channelId) params = params.set('channelId', channelId);
     if (timeZone) params = params.set('timeZone', timeZone);
+    if (dateKey) params = params.set('dateKey', dateKey);
     return this.unwrap(
       this.http.get<ApiResponse<AutomationPublishAdvice>>(`${this.base}/publish-advice`, { params })
     );
@@ -1056,4 +1071,49 @@ export interface CompileComedyResult {
   durationSeconds: number;
   clipCount: number;
   chapters: string[];
+}
+
+export interface AutomationRebalanceResult {
+  rulesUpdated: number;
+  postsUpdated: number;
+  topicsUpdated: number;
+  rules: AutomationRule[];
+}
+
+export interface PreparePublishPackRequest {
+  dateKey?: string | null;
+  forceRegenerate?: boolean;
+  rebalanceChannels?: boolean;
+  generateVideos?: boolean;
+  syncToCalendar?: boolean;
+  scheduleOnYouTubePrivate?: boolean;
+  includeSpotlight?: boolean;
+}
+
+export interface PreparePublishPackItemResult {
+  postId: string;
+  sourceType: AutomationSourceType;
+  title: string;
+  targetChannelTitle?: string | null;
+  targetChannelId?: string | null;
+  status: string;
+  hasVideo: boolean;
+  hasThumbnail: boolean;
+  calendarItemId?: string | null;
+  scheduledAtUtc?: string | null;
+  publishedVideoId?: string | null;
+  publishedVideoUrl?: string | null;
+  note?: string | null;
+}
+
+export interface PreparePublishPackResult {
+  dateKey: string;
+  rulesRebalanced: number;
+  preparedCount: number;
+  videosReadyCount: number;
+  thumbnailsReadyCount: number;
+  calendarSyncedCount: number;
+  scheduledPrivateOnYouTubeCount: number;
+  warnings: string[];
+  items: PreparePublishPackItemResult[];
 }

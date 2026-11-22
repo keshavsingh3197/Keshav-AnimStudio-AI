@@ -181,7 +181,8 @@ public sealed class StoryRunServiceTests
     [InlineData("fr", 150, "hi", 150)]
     [InlineData(null, 10, "hi", 30)]
     [InlineData("hi", 30, "hi", 30)]
-    [InlineData("hi", 5_000, "hi", 600)]
+    [InlineData("hi", 1_800, "hi", 1_800)]
+    [InlineData("hi", 5_000, "hi", 3_600)]
     [InlineData("hi", 0, "hi", 150)]
     [InlineData("hi", -20, "hi", 150)]
     public async Task Language_and_length_are_brought_into_range(string? language, int seconds, string expectedLanguage, int expectedSeconds)

@@ -32,7 +32,40 @@ export type SceneSetting =
   | 'Bedroom'
   | 'LivingRoom'
   | 'Kitchen'
-  | 'SweetShop';
+  | 'SweetShop'
+  | 'BarberShop'
+  | 'Courtroom'
+  | 'DoctorClinic'
+  | 'Classroom'
+  | 'QuizStudio'
+  | 'NeighborhoodGate';
+
+export type HeldPropKind =
+  | 'none'
+  | 'scissors'
+  | 'comb'
+  | 'cape'
+  | 'towel'
+  | 'sprayBottle'
+  | 'teacup'
+  | 'ladle'
+  | 'sweetplate'
+  | 'key'
+  | 'phone'
+  | 'gavel'
+  | 'stethoscope'
+  | 'syringe'
+  | 'mic'
+  | 'chalk'
+  | 'book'
+  | 'baton'
+  | 'diya'
+  | 'flute'
+  | 'trishul'
+  | 'bow'
+  | 'money'
+  | 'broom'
+  | 'umbrella';
 
 export type ActionKind =
   | 'none'
@@ -52,7 +85,26 @@ export type ActionKind =
   | 'laughing'
   | 'punching'
   | 'kicking'
-  | 'hitReact';
+  | 'hitReact'
+  | 'cutting'
+  | 'combing'
+  | 'stirring'
+  | 'sipping'
+  | 'bangingGavel'
+  | 'examining'
+  | 'callingPhone'
+  | 'holdingMic'
+  | 'showingKey'
+  | 'removingTowel'
+  | 'spraying'
+  | 'lookInMirror'
+  | 'adjustingGlasses'
+  | 'aarti'
+  | 'playingFlute'
+  | 'writingBoard'
+  | 'sweeping'
+  | 'adaab'
+  | 'sufiSpin';
 
 /**
  * Strike rhythm for fight actions, on the video clock (seconds since frame 0), so every render and the
@@ -118,6 +170,8 @@ export interface CharacterProfileJson {
   name: string;
   role: CharacterRole;
   robeHex?: string | null;
+  hasGlasses?: boolean | null;
+  attire?: 'auto' | 'turban' | 'anarkali' | null;
 }
 
 export interface MemeCueJson {
@@ -143,6 +197,10 @@ export interface DialogueTurnJson {
   listenerAction?: ActionKind | string | null;
   cameraShot?: CameraShotKind | string | null;
   stageTarget?: string | null;
+  speakerProp?: HeldPropKind | string | null;
+  listenerProp?: HeldPropKind | string | null;
+  speakerGlasses?: string | null;
+  listenerGlasses?: string | null;
 }
 
 export interface SceneRunJson {
@@ -151,6 +209,8 @@ export interface SceneRunJson {
   setting: SceneSetting;
   timeOfDay: SceneTimeOfDay;
   sceneIndex: number;
+  activeCharacters?: string[];
+  characterEntryAt?: Record<string, number>;
 }
 
 export interface CharacterSpotJson {
@@ -183,6 +243,8 @@ export interface RenderJobJson {
   fps: number;
   durationSeconds: number;
   totalFrames: number;
+  startFrame?: number;
+  endFrame?: number;
   seed: number;
   theme: SceneTheme;
   vfxStyle: VfxStyle;
@@ -192,6 +254,7 @@ export interface RenderJobJson {
   uniqueVariant?: number;
   topCategoryLabel?: string | null;
   footerLabel?: string | null;
+  showWatermark?: boolean;
   title: string;
   palette: RenderPaletteJson;
   hasCharacters: boolean;

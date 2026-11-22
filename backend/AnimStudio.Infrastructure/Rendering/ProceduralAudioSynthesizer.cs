@@ -28,14 +28,21 @@ public static class ProceduralAudioSynthesizer
         string outputPath,
         ProceduralSceneTheme theme,
         int durationSeconds,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool sparseDialogueBed = false)
     {
-        var totalSamples = Math.Max(SampleRate, durationSeconds * SampleRate);
+        var totalSamples = Math.Max(SampleRate, (long)durationSeconds * SampleRate);
         var resolved = theme == ProceduralSceneTheme.Auto ? ProceduralSceneTheme.VedicTempleSunrise3D : theme;
         var progression = ProgressionFor(resolved);
 
-        var pcmBytes = new byte[totalSamples * Channels * sizeof(short)];
-        var span = pcmBytes.AsSpan();
+        // Stream directly to disk in 1-second stereo chunks (192 KB RAM) so 60-minute videos never allocate huge PCM buffers.
+        var dir = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+        await using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read, 65536, useAsync: true);
+        await WriteWavHeaderAsync(fs, totalSamples * Channels * sizeof(short), SampleRate, Channels, 16, ct).ConfigureAwait(false);
+
+        const int ChunkSamples = SampleRate;
+        var pcmChunk = new byte[ChunkSamples * Channels * sizeof(short)];
 
         // Low-pass filter state per channel (removes harsh upper partials for velvet warmth)
         var alpha = (float)Math.Clamp(
@@ -48,87 +55,98 @@ public static class ProceduralAudioSynthesizer
         uint noiseState = 0x9E3779B9u ^ ((uint)resolved * 2654435761u);
 
         const double barSeconds = 4.5;
-        var totalBars = Math.Max(1, (int)Math.Ceiling(durationSeconds / barSeconds));
+        var totalBars = Math.Max(1L, (long)Math.Ceiling(durationSeconds / barSeconds));
         var fadeSec = Math.Min(0.85, durationSeconds * 0.14);
 
-        for (var i = 0; i < totalSamples; i++)
+        for (long chunkStart = 0; chunkStart < totalSamples; chunkStart += ChunkSamples)
         {
-            if ((i & 0x3FFF) == 0) ct.ThrowIfCancellationRequested();
+            ct.ThrowIfCancellationRequested();
+            var count = (int)Math.Min(ChunkSamples, totalSamples - chunkStart);
+            var span = pcmChunk.AsSpan(0, count * Channels * sizeof(short));
 
-            var t = (double)i / SampleRate;
-            var barPos = t / barSeconds;
-            var barIdx = Math.Min(totalBars - 1, (int)Math.Floor(barPos));
-            var barFrac = barPos - barIdx;
-
-            var chordIdx = barIdx % progression.BaseRootsHz.Length;
-            var nextChordIdx = (barIdx + 1) % progression.BaseRootsHz.Length;
-
-            // Smooth crossfade between chords across the last 25% of each bar -> zero harmonic jumps
-            var blend = barFrac > 0.75 ? SmoothStep((barFrac - 0.75) / 0.25) : 0.0;
-            var rootA = progression.BaseRootsHz[chordIdx];
-            var rootB = progression.BaseRootsHz[nextChordIdx];
-
-            // Warm multi-voice detuned chord pad
-            var padL = 0.0;
-            var padR = 0.0;
-            for (var n = 0; n < progression.Intervals.Length; n++)
+            for (var local = 0; local < count; local++)
             {
-                var ratio = progression.Intervals[n];
-                var freqA = rootA * ratio;
-                var freqB = rootB * ratio;
-                var amp = n == 0 ? 0.34 : n == 1 ? 0.28 : 0.18;
+                var i = chunkStart + local;
+                var t = (double)i / SampleRate;
+                var barPos = t / barSeconds;
+                var barIdx = Math.Min(totalBars - 1, (long)Math.Floor(barPos));
+                var barFrac = barPos - barIdx;
 
-                // Subtle stereo chorus detune (±0.15%) gives rich spatial width without phasing artifacts
-                var sL = (1.0 - blend) * (Math.Sin(2.0 * Math.PI * freqA * 0.9985 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqA * 2.0 * t))
-                       + blend * (Math.Sin(2.0 * Math.PI * freqB * 0.9985 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqB * 2.0 * t));
-                var sR = (1.0 - blend) * (Math.Sin(2.0 * Math.PI * freqA * 1.0015 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqA * 2.0 * t))
-                       + blend * (Math.Sin(2.0 * Math.PI * freqB * 1.0015 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqB * 2.0 * t));
+                var chordIdx = (int)(barIdx % progression.BaseRootsHz.Length);
+                var nextChordIdx = (int)((barIdx + 1) % progression.BaseRootsHz.Length);
 
-                padL += sL * amp;
-                padR += sR * amp;
+                // Smooth crossfade between chords across the last 25% of each bar -> zero harmonic jumps
+                var blend = barFrac > 0.75 ? SmoothStep((barFrac - 0.75) / 0.25) : 0.0;
+                var rootA = progression.BaseRootsHz[chordIdx];
+                var rootB = progression.BaseRootsHz[nextChordIdx];
+
+                var padL = 0.0;
+                var padR = 0.0;
+                for (var n = 0; n < progression.Intervals.Length; n++)
+                {
+                    var ratio = progression.Intervals[n];
+                    var freqA = rootA * ratio;
+                    var freqB = rootB * ratio;
+                    var amp = n == 0 ? 0.34 : n == 1 ? 0.28 : 0.18;
+
+                    var sL = (1.0 - blend) * (Math.Sin(2.0 * Math.PI * freqA * 0.9985 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqA * 2.0 * t))
+                           + blend * (Math.Sin(2.0 * Math.PI * freqB * 0.9985 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqB * 2.0 * t));
+                    var sR = (1.0 - blend) * (Math.Sin(2.0 * Math.PI * freqA * 1.0015 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqA * 2.0 * t))
+                           + blend * (Math.Sin(2.0 * Math.PI * freqB * 1.0015 * t) + 0.3 * Math.Sin(2.0 * Math.PI * freqB * 2.0 * t));
+
+                    padL += sL * amp;
+                    padR += sR * amp;
+                }
+
+                var pulsePeriod = 1.0 / progression.ArpRateHz;
+                var pulsePhase = (t % pulsePeriod);
+                var stepIdx = (int)Math.Floor(t / pulsePeriod);
+                var noteFreq = rootA * progression.Intervals[stepIdx % progression.Intervals.Length] * 2.0;
+                var attackEnv = Math.Min(1.0, pulsePhase / 0.045);
+                var decayEnv = Math.Exp(-pulsePhase * 1.65);
+                var pluckEnv = attackEnv * decayEnv;
+                var pan = (stepIdx % 2 == 0) ? 0.62 : 0.38;
+                var pluck = (Math.Sin(2.0 * Math.PI * noteFreq * t) + 0.25 * Math.Sin(2.0 * Math.PI * noteFreq * 2.0 * t)) * pluckEnv * 0.16;
+
+                noiseState = noiseState * 1664525u + 1013904223u;
+                var whiteL = ((noiseState >> 16) / 65535.0f) * 2f - 1f;
+                noiseState = noiseState * 1664525u + 1013904223u;
+                var whiteR = ((noiseState >> 16) / 65535.0f) * 2f - 1f;
+                breezeL = breezeL * 0.985f + whiteL * 0.015f;
+                breezeR = breezeR * 0.985f + whiteR * 0.015f;
+
+                var swell = 0.85 + 0.15 * Math.Sin(2.0 * Math.PI * 0.14 * t);
+                var env = swell;
+                if (t < fadeSec) env *= SmoothStep(t / fadeSec);
+                if (t > durationSeconds - fadeSec) env *= SmoothStep((durationSeconds - t) / fadeSec);
+
+                // MJO dialogue breathing room: warm comic jingle on opening (<= 2.1s) and closing (last 2.7s),
+                // then drops cleanly to silent room tone during dialogue so angry inflections & deadpan pauses hit hard.
+                if (sparseDialogueBed && durationSeconds >= 12)
+                {
+                    var introWeight = t < 2.1 ? 1.0 : t < 2.9 ? 1.0 - SmoothStep((t - 2.1) / 0.8) : 0.0;
+                    var outroStart = Math.Max(3.2, durationSeconds - 2.7);
+                    var outroWeight = t >= outroStart ? SmoothStep(Math.Min(1.0, (t - outroStart) / 0.55)) : 0.0;
+                    var dialogueFloor = 0.0;
+                    env *= Math.Max(dialogueFloor, Math.Max(introWeight, outroWeight));
+                }
+
+                var rawL = (float)((padL * 0.28 + pluck * pan) * env + breezeL * progression.BreezeLevel * env);
+                var rawR = (float)((padR * 0.28 + pluck * (1.0 - pan)) * env + breezeR * progression.BreezeLevel * env);
+
+                lpL += alpha * (rawL - lpL);
+                lpR += alpha * (rawR - lpR);
+
+                var outL = (short)Math.Clamp(Math.Tanh(lpL * 0.95) * 6200.0, short.MinValue, short.MaxValue);
+                var outR = (short)Math.Clamp(Math.Tanh(lpR * 0.95) * 6200.0, short.MinValue, short.MaxValue);
+
+                var offset = local * Channels * sizeof(short);
+                BinaryPrimitives.WriteInt16LittleEndian(span.Slice(offset, 2), outL);
+                BinaryPrimitives.WriteInt16LittleEndian(span.Slice(offset + 2, 2), outR);
             }
 
-            // Gentle plucked kalimba/flute motif (soft cosine attack 45ms + velvet decay — never an abrupt beep)
-            var pulsePeriod = 1.0 / progression.ArpRateHz;
-            var pulsePhase = (t % pulsePeriod);
-            var stepIdx = (int)Math.Floor(t / pulsePeriod);
-            var noteFreq = rootA * progression.Intervals[stepIdx % progression.Intervals.Length] * 2.0;
-            var attackEnv = Math.Min(1.0, pulsePhase / 0.045);
-            var decayEnv = Math.Exp(-pulsePhase * 1.65);
-            var pluckEnv = attackEnv * decayEnv;
-            var pan = (stepIdx % 2 == 0) ? 0.62 : 0.38;
-            var pluck = (Math.Sin(2.0 * Math.PI * noteFreq * t) + 0.25 * Math.Sin(2.0 * Math.PI * noteFreq * 2.0 * t)) * pluckEnv * 0.16;
-
-            // Ultra-soft warm air/tanpura breeze floor (heavily smoothed noise)
-            noiseState = noiseState * 1664525u + 1013904223u;
-            var whiteL = ((noiseState >> 16) / 65535.0f) * 2f - 1f;
-            noiseState = noiseState * 1664525u + 1013904223u;
-            var whiteR = ((noiseState >> 16) / 65535.0f) * 2f - 1f;
-            breezeL = breezeL * 0.985f + whiteL * 0.015f;
-            breezeR = breezeR * 0.985f + whiteR * 0.015f;
-
-            // Slow breathing swell + clean loop-boundary fades
-            var swell = 0.85 + 0.15 * Math.Sin(2.0 * Math.PI * 0.14 * t);
-            var env = swell;
-            if (t < fadeSec) env *= SmoothStep(t / fadeSec);
-            if (t > durationSeconds - fadeSec) env *= SmoothStep((durationSeconds - t) / fadeSec);
-
-            var rawL = (float)((padL * 0.28 + pluck * pan) * env + breezeL * progression.BreezeLevel * env);
-            var rawR = (float)((padR * 0.28 + pluck * (1.0 - pan)) * env + breezeR * progression.BreezeLevel * env);
-
-            lpL += alpha * (rawL - lpL);
-            lpR += alpha * (rawR - lpR);
-
-            // Soft tanh limiting & calibrated ~ -22 dBFS master level so it sits comfortably behind voice
-            var outL = (short)Math.Clamp(Math.Tanh(lpL * 0.95) * 6200.0, short.MinValue, short.MaxValue);
-            var outR = (short)Math.Clamp(Math.Tanh(lpR * 0.95) * 6200.0, short.MinValue, short.MaxValue);
-
-            var offset = i * Channels * sizeof(short);
-            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(offset, 2), outL);
-            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(offset + 2, 2), outR);
+            await fs.WriteAsync(pcmChunk.AsMemory(0, count * Channels * sizeof(short)), ct).ConfigureAwait(false);
         }
-
-        await WritePcmWavFileAsync(outputPath, pcmBytes, SampleRate, Channels, 16, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -287,20 +305,17 @@ public static class ProceduralAudioSynthesizer
         return c * c * (3.0 - 2.0 * c);
     }
 
-    private static async Task WritePcmWavFileAsync(
-        string path,
-        byte[] pcmData,
+    private static async Task WriteWavHeaderAsync(
+        FileStream fs,
+        long dataBytes,
         int sampleRate,
         int channels,
         int bitsPerSample,
         CancellationToken ct)
     {
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
-
         var header = new byte[44];
         var hs = header.AsSpan();
-        var dataLen = pcmData.Length;
+        var dataLen = (int)Math.Min(int.MaxValue - 36L, Math.Max(0L, dataBytes));
         var byteRate = sampleRate * channels * (bitsPerSample / 8);
         var blockAlign = (short)(channels * (bitsPerSample / 8));
 
@@ -318,17 +333,14 @@ public static class ProceduralAudioSynthesizer
         "data"u8.CopyTo(hs.Slice(36, 4));
         BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(40, 4), dataLen);
 
-        await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 65536, useAsync: true);
         await fs.WriteAsync(header, ct).ConfigureAwait(false);
-        await fs.WriteAsync(pcmData, ct).ConfigureAwait(false);
     }
 
-    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep, TempleBell, EatingPop, Punch, KickThud }
+    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep, TempleBell, EatingPop, Punch, KickThud, ComicGong, ComicSlap, ScissorSnip, GavelBang, PhoneRing, DoorKnock, Snore, TeacupClink, SpraySfx, AngrySteam, LaughChuckle, SadTrombone }
 
     /// <summary>
     /// Synthesizes deterministic cartoon, cinematic &amp; situational action sound effects aligned to turns, actions,
-    /// camera smash-cuts, and meme cutaways. Zero external copyright samples: every hit is procedural DSP waveform
-    /// synthesis at 48kHz stereo.
+    /// camera smash-cuts, and meme cutaways. Streams out in 5-second windows so even 60-minute episodes use &lt; 4 MB RAM.
     /// </summary>
     public static async Task WriteComedySfxWavAsync(
         string outputPath,
@@ -338,8 +350,7 @@ public static class ProceduralAudioSynthesizer
         bool comedyIntensity = true)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        var totalSamples = Math.Max(SampleRate, durationSeconds * SampleRate);
-        var mix = new double[totalSamples];
+        var totalSamples = Math.Max((long)SampleRate, (long)durationSeconds * SampleRate);
         var events = new List<(double Time, ComedySfxKind Kind, double Gain)>();
 
         foreach (var meme in plan.Memes)
@@ -351,6 +362,7 @@ public static class ProceduralAudioSynthesizer
         }
 
         string? prevCue = null;
+        string? prevEmotion = null;
         foreach (var turn in plan.Turns)
         {
             if (turn.IsTitleHook)
@@ -366,10 +378,62 @@ public static class ProceduralAudioSynthesizer
             }
             prevCue = turn.SceneBackdropCue;
 
+            var txtLower = (turn.Text ?? string.Empty).ToLowerInvariant();
+            if (comedyIntensity && (txtLower.Contains("कंटाप") || txtLower.Contains("थप्पड़") || txtLower.Contains("चाँटा") || txtLower.Contains("slap")))
+            {
+                events.Add((turn.StartSeconds + Math.Min(0.45, (turn.EndSeconds - turn.StartSeconds) * 0.4), ComedySfxKind.ComicSlap, 0.72));
+            }
+            var hasScissorsCue = turn.Action == "cutting"
+                || turn.ListenerAction == "cutting"
+                || string.Equals(turn.SpeakerProp, "scissors", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(turn.ListenerProp, "scissors", StringComparison.OrdinalIgnoreCase)
+                || (comedyIntensity && (txtLower.Contains("केंची") || txtLower.Contains("कैंची") || txtLower.Contains("चक") || txtLower.Contains("कच") || txtLower.Contains("scissor") || txtLower.Contains("snip") || txtLower.Contains("haircut") || txtLower.Contains("trim")));
+            if (hasScissorsCue)
+            {
+                // Crisp dual-shear metallic scissor snips ("snick-snick") synced to blade action rather than spoken "chak-chak"
+                var snipSpan = Math.Max(0.25, turn.EndSeconds - turn.StartSeconds);
+                var primaryCutting = turn.Action == "cutting" || txtLower.Contains("चक");
+                var vol = primaryCutting ? 0.68 : 0.42;
+                events.Add((turn.StartSeconds + Math.Min(0.10, snipSpan * 0.12), ComedySfxKind.ScissorSnip, vol));
+                if (snipSpan > 0.75 && primaryCutting)
+                    events.Add((turn.StartSeconds + Math.Min(0.54, snipSpan * 0.48), ComedySfxKind.ScissorSnip, vol * 0.92));
+                if (snipSpan > 1.35 && primaryCutting)
+                    events.Add((turn.StartSeconds + Math.Min(1.02, snipSpan * 0.76), ComedySfxKind.ScissorSnip, vol * 0.96));
+            }
+            if (turn.Action == "bangingGavel" || string.Equals(turn.SpeakerProp, "gavel", StringComparison.OrdinalIgnoreCase) || txtLower.Contains("ऑर्डर"))
+            {
+                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.GavelBang, 0.64));
+            }
+            else if (turn.Action == "callingPhone" || string.Equals(turn.SpeakerProp, "phone", StringComparison.OrdinalIgnoreCase) || txtLower.Contains("ट्रिंग"))
+            {
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.PhoneRing, 0.48));
+            }
+            else if (txtLower.Contains("खटखट") || txtLower.Contains("खट-खट") || txtLower.Contains("knock"))
+            {
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.DoorKnock, 0.56));
+            }
+            else if (turn.Action == "removingTowel")
+            {
+                events.Add((turn.StartSeconds + 0.08, ComedySfxKind.Whoosh, 0.45));
+            }
+            else if (turn.Action == "spraying" || string.Equals(turn.SpeakerProp, "sprayBottle", StringComparison.OrdinalIgnoreCase))
+            {
+                events.Add((turn.StartSeconds + 0.08, ComedySfxKind.SpraySfx, 0.55));
+                if (turn.EndSeconds - turn.StartSeconds > 1.0)
+                    events.Add((turn.StartSeconds + 0.52, ComedySfxKind.SpraySfx, 0.48));
+            }
+            else if (turn.Action == "sipping" || string.Equals(turn.SpeakerProp, "teacup", StringComparison.OrdinalIgnoreCase))
+            {
+                events.Add((turn.StartSeconds + 0.14, ComedySfxKind.TeacupClink, 0.36));
+            }
+            else if (comedyIntensity && (txtLower.Contains("घंटी") || txtLower.Contains("gong") || txtLower.Contains("bell") || txtLower.Contains("rhyme")))
+            {
+                events.Add((turn.EndSeconds - 0.15, ComedySfxKind.ComicGong, 0.56));
+            }
+
             var action = turn.Action ?? "none";
             if (action is "punching" or "kicking")
             {
-                // One hit per landed strike, on the same clock the 3D engine animates them with
                 var hitKind = action == "kicking" ? ComedySfxKind.KickThud : ComedySfxKind.Punch;
                 var hits = ProceduralStrikeTiming.ImpactTimes(action, turn.StartSeconds, turn.EndSeconds);
                 for (var h = 0; h < hits.Count; h++)
@@ -380,6 +444,8 @@ public static class ProceduralAudioSynthesizer
             }
             if (turn.SpeakerRole == CharacterVisualRole.CartoonTank && turn.Emotion is "angry" or "proud")
                 events.Add((turn.StartSeconds + 0.08, ComedySfxKind.TankCannon, 0.72));
+            else if (action == "sleeping" || txtLower.Contains("ख्र्र") || txtLower.Contains("खर्र"))
+                events.Add((turn.StartSeconds + 0.10, ComedySfxKind.Snore, 0.44));
             else if (action == "wakingUp")
             {
                 events.Add((turn.StartSeconds + 0.02, ComedySfxKind.AlarmDing, comedyIntensity ? 0.48 : 0.30));
@@ -402,130 +468,281 @@ public static class ProceduralAudioSynthesizer
             else if (action == "shockedFall")
                 events.Add((turn.StartSeconds + 0.04, comedyIntensity ? ComedySfxKind.VineBoom : ComedySfxKind.Whoosh, comedyIntensity ? 0.56 : 0.28));
             else if (action == "slapForehead")
-                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Bonk, comedyIntensity ? 0.42 : 0.24));
+                events.Add((turn.StartSeconds + 0.06, comedyIntensity && (txtLower.Contains("ओह तेरी") || txtLower.Contains("अब क्या")) ? ComedySfxKind.SadTrombone : ComedySfxKind.Bonk, comedyIntensity ? 0.48 : 0.24));
             else if (action == "eating")
                 events.Add((turn.StartSeconds + 0.12, ComedySfxKind.EatingPop, 0.30));
             else if (action is "jumping" or "dancing")
                 events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Boing, 0.38));
-            else if (turn.CameraShot == "crashPunch")
-                events.Add((turn.StartSeconds + 0.02, ComedySfxKind.Whoosh, 0.32));
-            else if (comedyIntensity && turn.Emotion is "surprised")
-                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Boing, 0.48));
-            else if (comedyIntensity && turn.Emotion is "angry")
-                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.Bonk, 0.44));
-            else if (comedyIntensity && turn.Emotion is "confused")
-                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.RecordScratch, 0.40));
+            var emotionChanged = !string.Equals(prevEmotion, turn.Emotion, StringComparison.OrdinalIgnoreCase);
+            prevEmotion = turn.Emotion;
+
+            if (turn.CameraShot == "crashPunch")
+                events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.Whoosh, 0.34));
+            else if (comedyIntensity && turn.Emotion is "surprised" && emotionChanged)
+                events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.Boing, 0.38));
+            else if (comedyIntensity && turn.Emotion is "angry" && emotionChanged)
+                events.Add((turn.StartSeconds + 0.16, ComedySfxKind.AngrySteam, 0.34));
+            else if (comedyIntensity && (turn.Emotion is "laughing" || action == "laughing"))
+                events.Add((Math.Max(turn.StartSeconds + 0.12, turn.EndSeconds - 0.45), ComedySfxKind.LaughChuckle, 0.38));
+            else if (comedyIntensity && turn.Emotion is "confused" && emotionChanged)
+                events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.RecordScratch, 0.34));
         }
+
+        // Precompute sound effects into a window-streamed PCM file (5s window = 240,000 samples = <2 MB RAM even for 60 min!).
+        var dir = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+        await using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read, 65536, useAsync: true);
+        await WriteWavHeaderAsync(fs, totalSamples * Channels * sizeof(short), SampleRate, Channels, 16, ct).ConfigureAwait(false);
+
+        const int WindowSamples = SampleRate * 5;
+        var winMix = new double[WindowSamples];
+        var pcmChunk = new byte[WindowSamples * Channels * sizeof(short)];
+        var segments = BuildPlaceAmbienceSegments(plan, totalSamples / (double)SampleRate);
 
         var rng = new Random(0xC0DE5F);
-        foreach (var (time, kind, gain) in events)
+        for (long winStart = 0; winStart < totalSamples; winStart += WindowSamples)
         {
-            var startIdx = (int)Math.Round(time * SampleRate);
-            var sfxDur = kind switch
-            {
-                ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => 0.75,
-                ComedySfxKind.TempleBell => 0.95,
-                ComedySfxKind.Boing or ComedySfxKind.AlarmDing => 0.44,
-                ComedySfxKind.Whoosh => 0.28,
-                ComedySfxKind.RecordScratch => 0.24,
-                ComedySfxKind.Footstep => 0.11,
-                ComedySfxKind.EatingPop => 0.18,
-                ComedySfxKind.Punch => 0.22,
-                ComedySfxKind.KickThud => 0.32,
-                _ => 0.28
-            };
-            var len = Math.Min(totalSamples - Math.Max(0, startIdx), (int)(sfxDur * SampleRate));
-            if (startIdx < 0 || len <= 0) continue;
+            ct.ThrowIfCancellationRequested();
+            var winCount = (int)Math.Min(WindowSamples, totalSamples - winStart);
+            Array.Clear(winMix, 0, winCount);
 
-            var phase = 0.0;
-            var phase2 = 0.0;
-            var lpNoise = 0.0;
-            for (var i = 0; i < len; i++)
+            var winEndSample = winStart + winCount;
+            foreach (var (time, kind, gain) in events)
             {
-                var u = i / (double)SampleRate;
-                var freq = kind switch
-                {
-                    ComedySfxKind.Boing => 220.0 + 340.0 * Math.Exp(-u * 6.0) + 75.0 * Math.Sin(u * 48.0),
-                    ComedySfxKind.Bonk => 540.0 * Math.Exp(-u * 14.0) + 185.0,
-                    ComedySfxKind.VineBoom => 118.0 * Math.Exp(-u * 5.2) + 36.0,
-                    ComedySfxKind.TankCannon => 145.0 * Math.Exp(-u * 7.5) + 42.0,
-                    ComedySfxKind.RecordScratch => 720.0 + 520.0 * Math.Sin(u * 82.0),
-                    ComedySfxKind.AlarmDing => 1180.0 + 30.0 * Math.Sin(u * 62.0),
-                    ComedySfxKind.Footstep => 130.0 * Math.Exp(-u * 26.0) + 48.0,
-                    ComedySfxKind.TempleBell => 528.0,
-                    ComedySfxKind.EatingPop => 290.0 + 260.0 * (u / Math.Max(0.05, sfxDur)),
-                    ComedySfxKind.Whoosh => 260.0 + 480.0 * Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
-                    ComedySfxKind.Punch => 150.0 * Math.Exp(-u * 30.0) + 58.0,
-                    ComedySfxKind.KickThud => 110.0 * Math.Exp(-u * 18.0) + 42.0,
-                    _ => 440.0
-                };
-                phase += 2.0 * Math.PI * freq / SampleRate;
-                phase2 += 2.0 * Math.PI * (freq * 1.498) / SampleRate;
-                var env = kind switch
-                {
-                    ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => Math.Min(1.0, u / 0.008) * Math.Exp(-u * 3.8),
-                    ComedySfxKind.TempleBell => Math.Min(1.0, u / 0.006) * Math.Exp(-u * 2.4),
-                    ComedySfxKind.Whoosh => Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
-                    ComedySfxKind.Footstep => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 28.0),
-                    ComedySfxKind.AlarmDing => Math.Min(1.0, u / 0.003) * Math.Exp(-u * 6.5),
-                    ComedySfxKind.Punch => Math.Min(1.0, u / 0.0015) * Math.Exp(-u * 22.0),
-                    ComedySfxKind.KickThud => Math.Min(1.0, u / 0.002) * Math.Exp(-u * 13.0),
-                    _ => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 7.5)
-                };
-                var raw = Math.Sin(phase);
-                if (kind == ComedySfxKind.RecordScratch)
-                    raw = 0.6 * raw + 0.4 * (rng.NextDouble() * 2.0 - 1.0);
-                else if (kind == ComedySfxKind.TankCannon)
-                    raw = Math.Tanh(raw * 2.2 + (rng.NextDouble() * 2.0 - 1.0) * 0.45 * Math.Exp(-u * 14.0));
-                else if (kind == ComedySfxKind.VineBoom)
-                    raw = Math.Tanh(raw * 2.4);
-                else if (kind == ComedySfxKind.Whoosh)
-                {
-                    var white = rng.NextDouble() * 2.0 - 1.0;
-                    lpNoise += 0.08 * (white - lpNoise);
-                    raw = lpNoise * 0.72 + raw * 0.12;
-                }
-                else if (kind == ComedySfxKind.TempleBell)
-                    raw = 0.62 * raw + 0.28 * Math.Sin(phase2) + 0.14 * Math.Sin(phase * 2.01);
-                else if (kind == ComedySfxKind.AlarmDing)
-                    raw = 0.72 * raw + 0.28 * Math.Sin(phase * 1.5);
-                else if (kind is ComedySfxKind.Punch or ComedySfxKind.KickThud)
-                {
-                    // Body thump plus a short bright "smack" transient at the very start
-                    var crack = (rng.NextDouble() * 2.0 - 1.0) * Math.Exp(-u * (kind == ComedySfxKind.Punch ? 160.0 : 110.0));
-                    raw = Math.Tanh(raw * 2.6 + crack * 1.4);
-                }
-                else if (kind == ComedySfxKind.Footstep)
-                    raw = Math.Tanh(raw * 1.4 + (rng.NextDouble() * 2.0 - 1.0) * 0.28 * Math.Exp(-u * 35.0));
+                var startIdx = (long)Math.Round(time * SampleRate);
+                var sfxDur = SfxDurationSeconds(kind);
+                var sfxSamples = (long)(sfxDur * SampleRate);
+                var sfxEnd = Math.Min(totalSamples, startIdx + sfxSamples);
+                if (sfxEnd <= winStart || startIdx >= winEndSample || startIdx < 0) continue;
 
-                mix[startIdx + i] += raw * env * gain;
+                var overlapFrom = Math.Max(winStart, startIdx);
+                var overlapTo = Math.Min(winEndSample, sfxEnd);
+                var phase = 0.0;
+                var phase2 = 0.0;
+                var lpNoise = 0.0;
+                // Advance deterministic phase cleanly up to overlapFrom so window seams match bit-for-bit
+                for (var i = 0L; i < overlapTo - startIdx; i++)
+                {
+                    var u = i / (double)SampleRate;
+                    var sampleVal = SynthesizeSfxSample(kind, u, sfxDur, ref phase, ref phase2, ref lpNoise, rng);
+                    var globalSample = startIdx + i;
+                    if (globalSample >= overlapFrom && globalSample < overlapTo)
+                        winMix[(int)(globalSample - winStart)] += sampleVal * gain;
+                }
             }
+
+            MixPlaceAmbienceWindow(winMix, winStart, winCount, segments, totalSamples / (double)SampleRate);
+
+            var span = pcmChunk.AsSpan(0, winCount * Channels * sizeof(short));
+            for (var i = 0; i < winCount; i++)
+            {
+                var clamped = Math.Tanh(winMix[i]) * 0.90;
+                var s = (short)Math.Clamp(clamped * short.MaxValue, short.MinValue, short.MaxValue);
+                var o = i * Channels * 2;
+                BinaryPrimitives.WriteInt16LittleEndian(span.Slice(o, 2), s);
+                BinaryPrimitives.WriteInt16LittleEndian(span.Slice(o + 2, 2), s);
+            }
+
+            await fs.WriteAsync(pcmChunk.AsMemory(0, winCount * Channels * sizeof(short)), ct).ConfigureAwait(false);
         }
+    }
 
-        AddPlaceAmbience(mix, plan, totalSamples);
+    private static double SfxDurationSeconds(ComedySfxKind kind) => kind switch
+    {
+        ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => 0.75,
+        ComedySfxKind.TempleBell or ComedySfxKind.ComicGong or ComedySfxKind.SadTrombone => 0.95,
+        ComedySfxKind.PhoneRing or ComedySfxKind.Snore or ComedySfxKind.AngrySteam or ComedySfxKind.LaughChuckle => 0.58,
+        ComedySfxKind.Boing or ComedySfxKind.AlarmDing or ComedySfxKind.DoorKnock => 0.44,
+        ComedySfxKind.GavelBang => 0.38,
+        ComedySfxKind.ScissorSnip => 0.40,
+        ComedySfxKind.Whoosh or ComedySfxKind.TeacupClink or ComedySfxKind.SpraySfx => 0.28,
+        ComedySfxKind.RecordScratch => 0.24,
+        ComedySfxKind.Footstep => 0.11,
+        ComedySfxKind.EatingPop or ComedySfxKind.ComicSlap => 0.18,
+        ComedySfxKind.Punch => 0.22,
+        ComedySfxKind.KickThud => 0.32,
+        _ => 0.28
+    };
 
-        var pcmBytes = new byte[totalSamples * Channels * sizeof(short)];
-        var span = pcmBytes.AsSpan();
-        for (var i = 0; i < totalSamples; i++)
+    private static double SynthesizeSfxSample(
+        ComedySfxKind kind,
+        double u,
+        double sfxDur,
+        ref double phase,
+        ref double phase2,
+        ref double lpNoise,
+        Random rng)
+    {
+        if (kind == ComedySfxKind.ScissorSnip)
         {
-            var clamped = Math.Tanh(mix[i]) * 0.90;
-            var s = (short)Math.Clamp(clamped * short.MaxValue, short.MinValue, short.MaxValue);
-            var o = i * Channels * 2;
-            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(o, 2), s);
-            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(o + 2, 2), s);
+            // Two unmistakable stainless-steel barber scissor shears per cue (0.01s and 0.21s):
+            // high-pass steel friction sweep (2.6->5.4kHz) + razor-sharp closure steel click (3.9 & 6.2kHz).
+            var localU = u < 0.20 ? u - 0.01 : u - 0.21;
+            if (localU < 0 || localU > 0.15) return 0.0;
+            var freqSweep = 2750.0 + 2800.0 * Math.Min(1.0, localU / 0.07);
+            phase += 2.0 * Math.PI * freqSweep / SampleRate;
+            phase2 += 2.0 * Math.PI * (freqSweep * 1.56) / SampleRate;
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hpNoise = white - lpNoise;
+            lpNoise = 0.45 * white + 0.55 * lpNoise;
+            var bladeSlide = Math.Exp(-Math.Pow((localU - 0.032) / 0.022, 2.0)) * (0.42 * hpNoise + 0.58 * Math.Sin(phase));
+            var clickDt = localU - 0.062;
+            var steelClick = clickDt >= 0
+                ? Math.Exp(-clickDt * 82.0) * (0.68 * Math.Sin(phase2) + 0.35 * hpNoise)
+                : 0.0;
+            return Math.Tanh((bladeSlide * 0.72 + steelClick * 1.28) * 1.35);
         }
 
-        await WritePcmWavFileAsync(outputPath, pcmBytes, SampleRate, Channels, 16, ct).ConfigureAwait(false);
+        if (kind == ComedySfxKind.GavelBang)
+        {
+            var localU = u < 0.19 ? u - 0.01 : u - 0.19;
+            if (localU < 0 || localU > 0.16) return 0.0;
+            var f = 225.0 * Math.Exp(-localU * 26.0) + 92.0;
+            phase += 2.0 * Math.PI * f / SampleRate;
+            var crack = (rng.NextDouble() * 2.0 - 1.0) * Math.Exp(-localU * 95.0);
+            return Math.Tanh((0.78 * Math.Sin(phase) + 0.45 * crack) * Math.Exp(-localU * 18.0) * 1.6);
+        }
+
+        if (kind == ComedySfxKind.DoorKnock)
+        {
+            var slot = (int)(u / 0.13);
+            var localU = u - slot * 0.13 - 0.01;
+            if (slot > 2 || localU < 0 || localU > 0.10) return 0.0;
+            var f = 175.0 * Math.Exp(-localU * 32.0) + 84.0;
+            phase += 2.0 * Math.PI * f / SampleRate;
+            return Math.Sin(phase) * Math.Exp(-localU * 28.0) * 0.92;
+        }
+
+        if (kind == ComedySfxKind.PhoneRing)
+        {
+            var pulseOn = (u >= 0.02 && u <= 0.24) || (u >= 0.30 && u <= 0.54);
+            if (!pulseOn) return 0.0;
+            phase += 2.0 * Math.PI * 960.0 / SampleRate;
+            phase2 += 2.0 * Math.PI * 1185.0 / SampleRate;
+            var trill = 0.5 + 0.5 * Math.Sin(2.0 * Math.PI * 24.0 * u);
+            return (0.55 * Math.Sin(phase) + 0.45 * Math.Sin(phase2)) * trill * 0.58;
+        }
+
+        if (kind == ComedySfxKind.Snore)
+        {
+            var f = 92.0 + 18.0 * Math.Sin(Math.PI * u / sfxDur);
+            phase += 2.0 * Math.PI * f / SampleRate;
+            phase2 += 2.0 * Math.PI * (f * 1.48) / SampleRate;
+            var rattle = 0.55 + 0.45 * Math.Sin(2.0 * Math.PI * 22.0 * u);
+            var envSnore = Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur));
+            return Math.Tanh((0.65 * Math.Sin(phase) + 0.35 * Math.Sin(phase2)) * rattle) * envSnore * 0.62;
+        }
+
+        if (kind == ComedySfxKind.TeacupClink)
+        {
+            phase += 2.0 * Math.PI * 2920.0 / SampleRate;
+            phase2 += 2.0 * Math.PI * 4380.0 / SampleRate;
+            return (0.62 * Math.Sin(phase) + 0.38 * Math.Sin(phase2)) * Math.Min(1.0, u / 0.002) * Math.Exp(-u * 15.5);
+        }
+
+        if (kind == ComedySfxKind.SpraySfx)
+        {
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hp = white - lpNoise;
+            lpNoise = 0.55 * white + 0.45 * lpNoise;
+            var envSpray = Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur));
+            return Math.Tanh(hp * 1.45) * envSpray * 0.65;
+        }
+
+        if (kind == ComedySfxKind.AngrySteam)
+        {
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hp = white - lpNoise;
+            lpNoise = 0.32 * white + 0.68 * lpNoise;
+            var whistleF = 980.0 + 380.0 * Math.Min(1.0, u / sfxDur);
+            phase += 2.0 * Math.PI * whistleF / SampleRate;
+            var envSteam = Math.Min(1.0, u / 0.04) * Math.Exp(-Math.Max(0, u - 0.18) * 3.8);
+            return Math.Tanh((0.55 * hp + 0.45 * Math.Sin(phase)) * 1.35) * envSteam * 0.72;
+        }
+
+        if (kind == ComedySfxKind.LaughChuckle)
+        {
+            // Bouncy 4-syllable comic marimba/chuckle bounce ("ha-ha-ha-ha!")
+            var syl = (int)(u / 0.13);
+            var localU = u - syl * 0.13;
+            if (syl > 3 || localU < 0 || localU > 0.11) return 0.0;
+            var f = 380.0 + syl * 45.0 - localU * 420.0;
+            phase += 2.0 * Math.PI * f / SampleRate;
+            return Math.Sin(phase) * Math.Min(1.0, localU / 0.008) * Math.Exp(-localU * 22.0) * 0.68;
+        }
+
+        if (kind == ComedySfxKind.SadTrombone)
+        {
+            // Classic descending 4-note comedy "wah-wah-wah-waaaah" punchline fail sting
+            var f = u < 0.20 ? 311.1 : u < 0.40 ? 293.7 : u < 0.60 ? 277.2 : 261.6 - Math.Sin(u * 24.0) * 14.0;
+            phase += 2.0 * Math.PI * f / SampleRate;
+            phase2 += 2.0 * Math.PI * (f * 2.0) / SampleRate;
+            var envTrombone = u < 0.60 ? Math.Sin(Math.PI * ((u % 0.20) / 0.20)) : Math.Exp(-Math.Max(0, u - 0.60) * 3.2);
+            return Math.Tanh((0.68 * Math.Sin(phase) + 0.32 * Math.Sin(phase2)) * 1.8) * envTrombone * 0.56;
+        }
+
+        var freq = kind switch
+        {
+            ComedySfxKind.Boing => 220.0 + 340.0 * Math.Exp(-u * 6.0) + 75.0 * Math.Sin(u * 48.0),
+            ComedySfxKind.Bonk => 540.0 * Math.Exp(-u * 14.0) + 185.0,
+            ComedySfxKind.VineBoom => 118.0 * Math.Exp(-u * 5.2) + 36.0,
+            ComedySfxKind.TankCannon => 145.0 * Math.Exp(-u * 7.5) + 42.0,
+            ComedySfxKind.RecordScratch => 720.0 + 520.0 * Math.Sin(u * 82.0),
+            ComedySfxKind.AlarmDing => 1180.0 + 30.0 * Math.Sin(u * 62.0),
+            ComedySfxKind.Footstep => 130.0 * Math.Exp(-u * 26.0) + 48.0,
+            ComedySfxKind.TempleBell => 528.0,
+            ComedySfxKind.ComicGong => 396.0 + 18.0 * Math.Exp(-u * 5.0),
+            ComedySfxKind.EatingPop => 290.0 + 260.0 * (u / Math.Max(0.05, sfxDur)),
+            ComedySfxKind.ComicSlap => 210.0 * Math.Exp(-u * 35.0) + 90.0,
+            ComedySfxKind.Whoosh => 260.0 + 480.0 * Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
+            ComedySfxKind.Punch => 150.0 * Math.Exp(-u * 30.0) + 58.0,
+            ComedySfxKind.KickThud => 110.0 * Math.Exp(-u * 18.0) + 42.0,
+            _ => 440.0
+        };
+        phase += 2.0 * Math.PI * freq / SampleRate;
+        phase2 += 2.0 * Math.PI * (freq * 1.498) / SampleRate;
+        var env = kind switch
+        {
+            ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => Math.Min(1.0, u / 0.008) * Math.Exp(-u * 3.8),
+            ComedySfxKind.TempleBell or ComedySfxKind.ComicGong => Math.Min(1.0, u / 0.006) * Math.Exp(-u * 2.4),
+            ComedySfxKind.Whoosh => Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)),
+            ComedySfxKind.Footstep => Math.Min(1.0, u / 0.003) * Math.Exp(-u * 24.0),
+            ComedySfxKind.AlarmDing => Math.Min(1.0, u / 0.003) * Math.Exp(-u * 6.5),
+            ComedySfxKind.Punch or ComedySfxKind.ComicSlap => Math.Min(1.0, u / 0.0015) * Math.Exp(-u * 22.0),
+            ComedySfxKind.KickThud => Math.Min(1.0, u / 0.002) * Math.Exp(-u * 13.0),
+            _ => Math.Min(1.0, u / 0.004) * Math.Exp(-u * 7.5)
+        };
+        var raw = Math.Sin(phase);
+        if (kind == ComedySfxKind.RecordScratch)
+            raw = 0.6 * raw + 0.4 * (rng.NextDouble() * 2.0 - 1.0);
+        else if (kind == ComedySfxKind.TankCannon)
+            raw = Math.Tanh(raw * 2.2 + (rng.NextDouble() * 2.0 - 1.0) * 0.45 * Math.Exp(-u * 14.0));
+        else if (kind == ComedySfxKind.VineBoom)
+            raw = Math.Tanh(raw * 2.4);
+        else if (kind == ComedySfxKind.Whoosh)
+        {
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            lpNoise += 0.08 * (white - lpNoise);
+            raw = lpNoise * 0.72 + raw * 0.12;
+        }
+        else if (kind is ComedySfxKind.TempleBell or ComedySfxKind.ComicGong)
+            raw = 0.62 * raw + 0.28 * Math.Sin(phase2) + 0.14 * Math.Sin(phase * 2.01);
+        else if (kind == ComedySfxKind.AlarmDing)
+            raw = 0.72 * raw + 0.28 * Math.Sin(phase * 1.5);
+        else if (kind is ComedySfxKind.Punch or ComedySfxKind.KickThud or ComedySfxKind.ComicSlap)
+        {
+            var crack = (rng.NextDouble() * 2.0 - 1.0) * Math.Exp(-u * (kind == ComedySfxKind.Punch ? 160.0 : 120.0));
+            raw = Math.Tanh(raw * 2.6 + crack * 1.4);
+        }
+        else if (kind == ComedySfxKind.Footstep)
+            raw = Math.Tanh(raw * 1.4 + (rng.NextDouble() * 2.0 - 1.0) * 0.28 * Math.Exp(-u * 35.0));
+
+        return raw * env;
     }
 
     [Flags]
     internal enum PlaceAmbience { None = 0, Wind = 1, Water = 2, Birds = 4, Crickets = 8, City = 16 }
 
-    /// <summary>
-    /// The natural sound bed for a place, so a story that moves from a forest to a river to a city sounds like it:
-    /// birds and breeze in the forest, flowing water at the ghat, wind on the mountain, traffic in town, crickets at
-    /// night. Indoor sets stay quiet (the music and voices carry them).
-    /// </summary>
     internal static PlaceAmbience AmbienceFor(SceneSetting setting, SceneTimeOfDay time)
     {
         var night = time == SceneTimeOfDay.Night;
@@ -538,6 +755,7 @@ public static class ProceduralAudioSynthesizer
             SceneSetting.Battlefield => PlaceAmbience.Wind,
             SceneSetting.ModernCity => PlaceAmbience.City,
             SceneSetting.ChaiStall => PlaceAmbience.City,
+            SceneSetting.NeighborhoodGate => PlaceAmbience.City,
             SceneSetting.Temple or SceneSetting.PalaceCourt => night ? PlaceAmbience.None : PlaceAmbience.Birds,
             _ => PlaceAmbience.None
         };
@@ -547,15 +765,12 @@ public static class ProceduralAudioSynthesizer
         return bed;
     }
 
-    private static void AddPlaceAmbience(double[] mix, ProceduralDialoguePlan plan, int totalSamples)
+    private static List<(double Start, double End, PlaceAmbience Bed, int SeedIdx)> BuildPlaceAmbienceSegments(
+        ProceduralDialoguePlan plan,
+        double totalSeconds)
     {
         var turns = plan.Turns;
-        if (turns.Count == 0) return;
-        const double fade = 0.35;
-        var totalSeconds = totalSamples / (double)SampleRate;
-
-        // Group consecutive turns that share a place into one segment, so the bed doesn't restart every line.
-        var segments = new List<(double Start, double End, PlaceAmbience Bed)>();
+        var segments = new List<(double Start, double End, PlaceAmbience Bed, int SeedIdx)>();
         for (var i = 0; i < turns.Count; i++)
         {
             var (setting, time) = SceneDirectives.FromCue(turns[i].SceneBackdropCue);
@@ -563,24 +778,37 @@ public static class ProceduralAudioSynthesizer
             var start = i == 0 ? 0.0 : turns[i].StartSeconds;
             var end = i + 1 < turns.Count ? turns[i + 1].StartSeconds : totalSeconds;
             if (segments.Count > 0 && segments[^1].Bed == bed)
-                segments[^1] = (segments[^1].Start, end, bed);
+                segments[^1] = (segments[^1].Start, end, bed, segments[^1].SeedIdx);
             else
-                segments.Add((start, end, bed));
+                segments.Add((start, end, bed, segments.Count));
         }
+        return segments;
+    }
 
-        for (var s = 0; s < segments.Count; s++)
+    private static void MixPlaceAmbienceWindow(
+        double[] winMix,
+        long winStart,
+        int winCount,
+        IReadOnlyList<(double Start, double End, PlaceAmbience Bed, int SeedIdx)> segments,
+        double totalSeconds)
+    {
+        const double fade = 0.35;
+        foreach (var (start, end, bed, s) in segments)
         {
-            var (start, end, bed) = segments[s];
             if (bed == PlaceAmbience.None || end - start < 0.4) continue;
-            var rng = new Random(0xA4B1E + s * 7919);
-            var i0 = Math.Max(0, (int)(start * SampleRate));
-            var i1 = Math.Min(totalSamples, (int)(end * SampleRate));
+            var segStartSample = Math.Max(0L, (long)(start * SampleRate));
+            var segEndSample = Math.Min((long)(totalSeconds * SampleRate), (long)(end * SampleRate));
+            var from = Math.Max(winStart, segStartSample);
+            var to = Math.Min(winStart + winCount, segEndSample);
+            if (from >= to) continue;
+
+            var rng = new Random(0xA4B1E + s * 7919 + (int)(from / SampleRate));
             double windLp = 0, waterHi = 0, waterLo = 0, cityLp = 0, birdPhase = 0, cricketPhase = 0;
-            var nextChirpAt = start + 0.4 + rng.NextDouble();
+            var nextChirpAt = (from / (double)SampleRate) + 0.4 + rng.NextDouble();
             double chirpStart = -1, chirpBaseHz = 3200;
             var chirpSyllables = 0;
 
-            for (var i = i0; i < i1; i++)
+            for (var i = from; i < to; i++)
             {
                 var tt = i / (double)SampleRate;
                 var env = Math.Min(1.0, Math.Min(tt - start, end - tt) / fade);
@@ -596,7 +824,6 @@ public static class ProceduralAudioSynthesizer
                 }
                 if ((bed & PlaceAmbience.Water) != 0)
                 {
-                    // Band-passed noise with a fast random swell: the babble of moving water
                     waterHi += 0.30 * (white - waterHi);
                     waterLo += 0.035 * (white - waterLo);
                     var babble = 0.6 + 0.4 * Math.Sin(2 * Math.PI * (1.7 + 0.6 * Math.Sin(tt * 0.7)) * tt);
@@ -645,7 +872,7 @@ public static class ProceduralAudioSynthesizer
                     }
                 }
 
-                mix[i] += sample * env;
+                winMix[(int)(i - winStart)] += sample * env;
             }
         }
     }

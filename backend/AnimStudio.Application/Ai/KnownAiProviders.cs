@@ -23,7 +23,9 @@ public enum AiProviderFamily
     /// <summary>Gemini's native <c>generateContent</c> with audio output; its OpenAI route has no speech.</summary>
     GeminiSpeech = 13,
     /// <summary>Gemini's native <c>generateContent</c> with image output (<c>gemini-2.5-flash-image</c>).</summary>
-    GeminiImage = 14
+    GeminiImage = 14,
+    /// <summary>Google Translate TTS (<c>gTTS</c>) keyless neural-style voice synthesis.</summary>
+    GoogleTranslateTts = 15
 }
 
 /// <summary>
@@ -96,6 +98,7 @@ public static class KnownAiProviders
     public const string PiperLocal = "piper-local";
     public const string Kokoro = "kokoro";
     public const string GeminiTts = "gemini-tts";
+    public const string GoogleTts = "gtts";
     public const string OpenAiTts = "openai-tts";
     public const string WhisperCppLocal = "whispercpp-local";
     public const string FasterWhisper = "faster-whisper";
@@ -336,6 +339,22 @@ public static class KnownAiProviders
                     "legacy")
             ]),
 
+        new(GoogleTts, AiCapability.Speech, AiProviderFamily.GoogleTranslateTts,
+            "Google Translate TTS (gTTS)",
+            "https://translate.google.com",
+            "gtts-hi",
+            RunsLocally: false,
+            "Free Google Hindi & English voice engine with crisp Indian pronunciation across any machine, zero API key required.",
+            KeyUrl: null,
+            DefaultDailyRequestLimit: 2000,
+            Models:
+            [
+                new("gtts-hi", "Google Hindi (gTTS) - recommended keyless voice",
+                    "Consistent Google Hindi voice on every machine with zero local Windows SAPI robotics.", "best", Recommended: true),
+                new("gtts-en", "Google English (gTTS)",
+                    "Clear Google English narration.", "balanced")
+            ]),
+
         new(OpenAiTts, AiCapability.Speech, AiProviderFamily.OpenAiCompatibleTts,
             "OpenAI-compatible speech",
             null,
@@ -417,7 +436,8 @@ public static class KnownAiProviders
 
         AiProviderFamily.PiperSpeech
             or AiProviderFamily.OpenAiCompatibleTts
-            or AiProviderFamily.GeminiSpeech => AiCapability.Speech,
+            or AiProviderFamily.GeminiSpeech
+            or AiProviderFamily.GoogleTranslateTts => AiCapability.Speech,
 
         AiProviderFamily.WhisperCppTranscription
             or AiProviderFamily.OpenAiCompatibleAsr => AiCapability.Transcription,

@@ -83,6 +83,7 @@ public sealed partial class EcosystemAutomationService
         }
 
         await MarkPublicationRemovedAsync(userId, videoId, deletedByApp, ct).ConfigureAwait(false);
+        await TryUnlinkCalendarVideoAsync(userId, videoId, ct).ConfigureAwait(false);
         await TryUnlistFromPanchangAsync(post, ct).ConfigureAwait(false);
         if (catalogWriter is not null) await catalogWriter.MarkRemovedAsync(videoId, ct).ConfigureAwait(false);
         ResetAfterYouTubeRemoval(post, channelId, channelTitle, deletedByApp,
@@ -174,6 +175,7 @@ public sealed partial class EcosystemAutomationService
                             logger.LogWarning("Automation post {PostId}: YouTube video {VideoId} no longer exists; returning card to ready.",
                                 post.Id, post.PublishedVideoId);
                             await MarkPublicationRemovedAsync(post.UserId, post.PublishedVideoId!, deletedByApp: false, ct).ConfigureAwait(false);
+                            await TryUnlinkCalendarVideoAsync(post.UserId, post.PublishedVideoId!, ct).ConfigureAwait(false);
                             await TryUnlistFromPanchangAsync(post, ct).ConfigureAwait(false);
                             if (catalogWriter is not null) await catalogWriter.MarkRemovedAsync(post.PublishedVideoId, ct).ConfigureAwait(false);
                             ResetAfterYouTubeRemoval(post, byChannel.Key, post.PublishedChannelTitle ?? post.TargetChannelTitle, deletedByApp: false,
@@ -196,6 +198,18 @@ public sealed partial class EcosystemAutomationService
             return;
         if (!await TryRemovePostFromEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false))
             logger.LogWarning("Automation post {PostId}: could not take the removed video off Panchang Video Hub.", post.Id);
+    }
+
+    private async Task TryUnlinkCalendarVideoAsync(string userId, string videoId, CancellationToken ct)
+    {
+        try
+        {
+            await planning.UnlinkRemovedVideoAsync(userId, videoId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not unlink removed YouTube video {VideoId} from calendar.", videoId);
+        }
     }
 
     /// <summary>Returns a card whose video left YouTube to "video ready", keeping the rendered video and a history entry.</summary>

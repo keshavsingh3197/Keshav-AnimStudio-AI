@@ -26,6 +26,9 @@ public static partial class YouTubePolicyComplianceSanitizer
     private static readonly Regex HashtagRegex = MyHashtagRegex();
     private static readonly Regex WhitespaceRegex = MyWhitespaceRegex();
     private static readonly Regex MultiBlankLinesRegex = MyMultiBlankLinesRegex();
+    private static readonly Regex DisallowedYouTubeCharsRegex = MyDisallowedCharsRegex();
+    private static readonly Regex InternalTokenLeakRegex = MyInternalTokenLeakRegex();
+    private static readonly Regex UrlInLineRegex = MyUrlInLineRegex();
 
     public static SanitizedYouTubePackaging Sanitize(
         string? rawTitle,
@@ -142,10 +145,12 @@ public static partial class YouTubePolicyComplianceSanitizer
             && !cleaned.Contains(primaryDestinationUrl, StringComparison.OrdinalIgnoreCase))
         {
             var label = language.Equals("en", StringComparison.OrdinalIgnoreCase)
-                ? "🔗 Official Website"
-                : "🔗 आधिकारिक पोर्टल";
+                ? "🔗 Official Portal"
+                : "🌐 आधिकारिक पोर्टल";
             cleaned = $"{cleaned}\n\n{label}: {primaryDestinationUrl.Trim()}";
         }
+
+        cleaned = DeduplicateExcessUrlLines(cleaned, primaryDestinationUrl);
 
         if (extractedHashtags.Count > RecommendedMaxHashtags || extractedHashtags.Count == 0)
         {
@@ -205,9 +210,38 @@ public static partial class YouTubePolicyComplianceSanitizer
     private static string StripPolicyHazards(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-        var clean = EngagementBaitRegex.Replace(text, string.Empty);
+        var clean = DisallowedYouTubeCharsRegex.Replace(text, string.Empty);
+        clean = InternalTokenLeakRegex.Replace(clean, string.Empty);
+        clean = EngagementBaitRegex.Replace(clean, string.Empty);
         clean = ShortenerUrlRegex.Replace(clean, string.Empty);
         return clean;
+    }
+
+    private static string DeduplicateExcessUrlLines(string text, string? primaryDestinationUrl)
+    {
+        var keptUrls = 0;
+        var lines = text.Split('\n');
+        var keptLines = new List<string>(lines.Length);
+        var cleanPrimary = primaryDestinationUrl?.Trim();
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.TrimEnd('\r');
+            var urlMatches = UrlInLineRegex.Matches(line);
+            if (urlMatches.Count == 0)
+            {
+                keptLines.Add(line);
+                continue;
+            }
+
+            var isPrimary = !string.IsNullOrWhiteSpace(cleanPrimary)
+                && line.Contains(cleanPrimary, StringComparison.OrdinalIgnoreCase);
+            if (isPrimary || keptUrls == 0)
+            {
+                keptUrls++;
+                keptLines.Add(line);
+            }
+        }
+        return MultiBlankLinesRegex.Replace(string.Join('\n', keptLines).Trim(), "\n\n");
     }
 
     private static string NormalizeShoutyWords(string text)
@@ -258,4 +292,13 @@ public static partial class YouTubePolicyComplianceSanitizer
 
     [GeneratedRegex(@"\n{3,}", RegexOptions.CultureInvariant)]
     private static partial Regex MyMultiBlankLinesRegex();
+
+    [GeneratedRegex(@"[<>]|[\x00-\x08\x0B\x0C\x0E-\x1F]", RegexOptions.CultureInvariant)]
+    private static partial Regex MyDisallowedCharsRegex();
+
+    [GeneratedRegex(@"\b(?:DesiKhadiSitcom|KhadiBhasha|TuTadak|RoastAndTwist|GlobalSlapstick|FamilyClean|TankSeries|FunnyComedy)\b", RegexOptions.CultureInvariant)]
+    private static partial Regex MyInternalTokenLeakRegex();
+
+    [GeneratedRegex(@"https?://\S+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex MyUrlInLineRegex();
 }

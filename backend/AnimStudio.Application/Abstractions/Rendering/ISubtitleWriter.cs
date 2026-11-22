@@ -23,7 +23,8 @@ public sealed record SubtitleStyle(
     string? SecondaryColorHex = null,
     SubtitleMotionPreset MotionPreset = SubtitleMotionPreset.None,
     int MarginL = 72,
-    int MarginR = 72);
+    int MarginR = 72,
+    bool OpaqueBox = false);
 
 public sealed record SubtitleRequest(
     Canvas Canvas,

@@ -243,6 +243,21 @@ public sealed partial class EcosystemAutomationService
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         EnsurePostEditable(post);
 
+        // When no distinct custom prompt override was given and a 3D animated render is attached (especially Comedy),
+        // generate a sharp 3D scene composite thumbnail directly from the animation frames first.
+        var isDefaultPostPrompt = string.IsNullOrWhiteSpace(customPrompt)
+            || string.Equals(customPrompt.Trim(), post.AiThumbnailPrompt?.Trim(), StringComparison.Ordinal);
+        if (isDefaultPostPrompt
+            && !string.IsNullOrWhiteSpace(post.AttachedRenderJobId)
+            && post.SourceType == AutomationSourceType.FunnyComedy
+            && await TryGenerateAndSaveSceneThumbnailAsync(post, ct).ConfigureAwait(false))
+        {
+            post.UpdatedAtUtc = UtcNow;
+            await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+            await SyncQueuedItemAsync(userId, post, includeSchedule: false, ct).ConfigureAwait(false);
+            return post;
+        }
+
         var prompt = !string.IsNullOrWhiteSpace(customPrompt)
             ? customPrompt.Trim()
             : !string.IsNullOrWhiteSpace(post.AiThumbnailPrompt)
@@ -271,10 +286,22 @@ public sealed partial class EcosystemAutomationService
         {
             generated = await MakeBackgroundPictureAsync(userId, imageRequest, budget.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            throw EditingException.Conflict("thumbnail-ai-timeout",
-                "Thumbnail generation took too long. Try again, or upload a thumbnail image.");
+            if (!string.IsNullOrWhiteSpace(post.AttachedRenderJobId)
+                && await TryGenerateAndSaveSceneThumbnailAsync(post, ct).ConfigureAwait(false))
+            {
+                post.UpdatedAtUtc = UtcNow;
+                await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
+                await SyncQueuedItemAsync(userId, post, includeSchedule: false, ct).ConfigureAwait(false);
+                return post;
+            }
+            if (ex is OperationCanceledException)
+            {
+                throw EditingException.Conflict("thumbnail-ai-timeout",
+                    "Thumbnail generation took too long. Try again, or upload a thumbnail image.");
+            }
+            throw;
         }
 
         await SaveCustomThumbnailBytesAsync(post, generated.Content, $"AI Generated ({generated.Provenance.ProviderId})", ct)
@@ -382,25 +409,39 @@ public sealed partial class EcosystemAutomationService
             }
         }
 
-        if (post.ScheduledAtUtc is null && rule is not null)
+        if (!AutomationPublishAdvisor.IsDateBound(post.SourceType)
+            && !string.IsNullOrWhiteSpace(post.TargetChannelId))
+        {
+            var tzId = !string.IsNullOrWhiteSpace(rule?.TimeZoneId) ? rule.TimeZoneId : settings.DefaultTimeZone;
+            var advice = await GetPublishAdviceAsync(userId, post.SourceType, post.Format, post.TargetChannelId, tzId, ct)
+                .ConfigureAwait(false);
+            if (advice.RecommendedAtUtc > UtcNow + PublishQueueRules.MinYouTubeReleaseLead
+                && (post.ScheduledAtUtc is null || post.ScheduledAtUtc <= UtcNow + PublishQueueRules.MinYouTubeReleaseLead || post.ScheduledAtUtc.Value.Date < advice.RecommendedAtUtc.Date))
+            {
+                post.ScheduledAtUtc = advice.RecommendedAtUtc;
+            }
+        }
+        else if (post.ScheduledAtUtc is null && rule is not null)
         {
             var tz = !string.IsNullOrWhiteSpace(rule.TimeZoneId) ? rule.TimeZoneId : settings.DefaultTimeZone;
             var timeStr = !string.IsNullOrWhiteSpace(rule.PreferredPublishTime) ? rule.PreferredPublishTime : "07:00";
             post.ScheduledAtUtc = ComputeScheduledUtc(post.DateKey, timeStr, tz);
         }
 
-        if (string.IsNullOrWhiteSpace(post.ThumbnailStorageKey)
-            && post.ThumbnailFrameAtSeconds is null
-            && !string.IsNullOrWhiteSpace(post.AttachedRenderJobId))
+        if (string.IsNullOrWhiteSpace(post.ThumbnailStorageKey))
         {
-            var job = await renderJobs.GetAsync(post.AttachedRenderJobId, ct).ConfigureAwait(false);
-            if (job is { Status: RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings }
-                && !string.IsNullOrWhiteSpace(job.OutputStorageKey))
+            var generatedSceneThumb = await TryGenerateAndSaveSceneThumbnailAsync(post, ct).ConfigureAwait(false);
+            if (!generatedSceneThumb && post.ThumbnailFrameAtSeconds is null && !string.IsNullOrWhiteSpace(post.AttachedRenderJobId))
             {
-                var dur = job.Diagnostics?.OutputDurationSeconds;
-                var pickedFrame = Math.Round(Math.Clamp((dur ?? 10.0) * 0.25, 0.8, 5.0), 1);
-                post.ThumbnailFrameAtSeconds = YouTubeThumbnailRules.ClampFrame(pickedFrame, dur);
-                post.ThumbnailSource = $"Auto Video Frame ({post.ThumbnailFrameAtSeconds:0.#}s)";
+                var job = await renderJobs.GetAsync(post.AttachedRenderJobId, ct).ConfigureAwait(false);
+                if (job is { Status: RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings }
+                    && !string.IsNullOrWhiteSpace(job.OutputStorageKey))
+                {
+                    var dur = job.Diagnostics?.OutputDurationSeconds;
+                    var pickedFrame = Math.Round(Math.Clamp((dur ?? 10.0) * 0.25, 0.8, 5.0), 1);
+                    post.ThumbnailFrameAtSeconds = YouTubeThumbnailRules.ClampFrame(pickedFrame, dur);
+                    post.ThumbnailSource = $"Auto Video Frame ({post.ThumbnailFrameAtSeconds:0.#}s)";
+                }
             }
         }
 
@@ -425,6 +466,176 @@ public sealed partial class EcosystemAutomationService
         await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
         await SyncQueuedItemAsync(userId, post, includeSchedule: true, ct).ConfigureAwait(false);
         return post;
+    }
+
+    private async Task<bool> TryGenerateAndSaveSceneThumbnailAsync(AutomationPost post, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(post.ThumbnailStorageKey))
+            return true;
+
+        RenderJob? job = null;
+        if (!string.IsNullOrWhiteSpace(post.AttachedRenderJobId))
+        {
+            job = await renderJobs.GetAsync(post.AttachedRenderJobId, ct).ConfigureAwait(false);
+            if (job is not { Status: RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings }
+                || string.IsNullOrWhiteSpace(job.OutputStorageKey))
+            {
+                job = null;
+            }
+        }
+
+        // Comedy channels get punchy MJO upper-body frame + high-CTR hook pill;
+        // Devotional, Panchang, Katha and History channels get crisp thematic poster cards backed by a rendered scene frame.
+        if (post.SourceType == AutomationSourceType.FunnyComedy && comedyThumbnailService is not null && job is not null)
+        {
+            try
+            {
+                var jpegBytes = await comedyThumbnailService.TryGenerateFromRenderAsync(
+                    job,
+                    post.Title,
+                    post.Script,
+                    "3D COMEDY",
+                    post.SourceType.ToString(),
+                    ct).ConfigureAwait(false);
+                if (jpegBytes is { Length: > 0 })
+                {
+                    await SaveCustomThumbnailBytesAsync(post, jpegBytes, "Auto 3D Scene Thumbnail", ct).ConfigureAwait(false);
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Comedy thumbnail composition failed for post {PostId}.", post.Id);
+            }
+        }
+
+        if (post.SourceType != AutomationSourceType.FunnyComedy && fixedThumbnailGenerator is not null)
+        {
+            try
+            {
+                var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
+                var (bgBytes, fromAiArt) = await ExtractPosterBackgroundBytesAsync(post, job, settings, ct).ConfigureAwait(false);
+                var isPortrait = post.Format == AutomationVideoFormat.Vertical;
+                var showWatermark = post.ShowWatermark
+                    ?? (post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+                        ? settings.PanchangShowWatermark
+                        : false);
+                var titleText = post.Title.Replace('\r', ' ').Replace('\n', ' ').Trim();
+                var subtitleText = !string.IsNullOrWhiteSpace(post.SourceSummary)
+                    ? post.SourceSummary.Trim()
+                    : post.HeaderBannerText;
+                if (subtitleText?.Length > 110)
+                    subtitleText = subtitleText[..107].TrimEnd() + "…";
+
+                var (imgBytes, _) = await fixedThumbnailGenerator.RenderAsync(
+                    new ProceduralFixedThumbnailGenerator.FixedThumbnailSpec(
+                        DateText: post.DateKey,
+                        TitleText: titleText,
+                        SubtitleText: subtitleText,
+                        EventType: post.SourceType.ToString(),
+                        BackgroundImageBytes: bgBytes,
+                        ShowWatermark: showWatermark,
+                        WatermarkText: showWatermark ? post.TrackedFunnelUrls.FirstOrDefault()?.Label : null,
+                        Width: isPortrait ? 720 : post.Format == AutomationVideoFormat.CommunityPost ? 1080 : 1280,
+                        Height: isPortrait ? 1280 : post.Format == AutomationVideoFormat.CommunityPost ? 1080 : 720,
+                        MaskBottomRightWatermark: fromAiArt),
+                    ct).ConfigureAwait(false);
+
+                if (imgBytes is { Length: > 0 })
+                {
+                    await SaveCustomThumbnailBytesAsync(post, imgBytes, "Auto Themed Poster Thumbnail", ct).ConfigureAwait(false);
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Themed fixed poster thumbnail failed for post {PostId}.", post.Id);
+            }
+        }
+
+        if (comedyThumbnailService is not null && job is not null)
+        {
+            try
+            {
+                var jpegBytes = await comedyThumbnailService.TryGenerateFromRenderAsync(
+                    job,
+                    post.Title,
+                    post.Script,
+                    post.HeaderBannerText,
+                    post.SourceType.ToString(),
+                    ct).ConfigureAwait(false);
+                if (jpegBytes is { Length: > 0 })
+                {
+                    await SaveCustomThumbnailBytesAsync(post, jpegBytes, "Auto 3D Scene Thumbnail", ct).ConfigureAwait(false);
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Could not auto-compose 3D scene thumbnail for post {PostId}.", post.Id);
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<(byte[]? Bytes, bool FromAiArt)> ExtractPosterBackgroundBytesAsync(
+        AutomationPost post,
+        RenderJob? job,
+        AutomationWorkspaceConfig settings,
+        CancellationToken ct)
+    {
+        if (job is not null)
+        {
+            var cleanThumbKey = $"renders/{job.Id}.cleanthumb.png";
+            await using (var cleanStream = await objectStore.OpenAsync(cleanThumbKey, ct).ConfigureAwait(false))
+            {
+                if (cleanStream is not null)
+                {
+                    using var ms = new MemoryStream();
+                    await cleanStream.CopyToAsync(ms, ct).ConfigureAwait(false);
+                    if (ms.Length > 256)
+                        return (ms.ToArray(), false);
+                }
+            }
+        }
+
+        var hasMultiSceneDirectives = !string.IsNullOrWhiteSpace(post.Script)
+            && post.Script.Contains("[SCENE]:", StringComparison.OrdinalIgnoreCase);
+        var bgAssetId = !hasMultiSceneDirectives ? post.Stage?.BackgroundTemplateAssetId : null;
+        bgAssetId ??= !hasMultiSceneDirectives && post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+            ? settings.PanchangDefaultBackgroundAssetId
+            : post.AttachedAssetIds.FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(bgAssetId) && assets is not null && await IsOwnedImageAsync(post.UserId, bgAssetId, ct).ConfigureAwait(false))
+        {
+            var found = await assets.GetManyAsync([bgAssetId], ct).ConfigureAwait(false);
+            if (found.FirstOrDefault() is { StorageKey.Length: > 0 } asset)
+            {
+                await using var stream = await objectStore.OpenAsync(asset.StorageKey, ct).ConfigureAwait(false);
+                if (stream is not null)
+                {
+                    using var ms = new MemoryStream();
+                    await stream.CopyToAsync(ms, ct).ConfigureAwait(false);
+                    if (ms.Length > 0) return (ms.ToArray(), false);
+                }
+            }
+        }
+
+        if (job is not null && thumbnailService is not null && !string.IsNullOrWhiteSpace(job.OutputStorageKey))
+        {
+            var localPath = await RenderPreviewFile.EnsureAsync(objectStore, dataPaths, job, ct).ConfigureAwait(false);
+            var dur = job.Diagnostics?.OutputDurationSeconds;
+            var frameSec = YouTubeThumbnailRules.ClampFrame(Math.Clamp((dur ?? 12.0) * 0.35, 1.5, 8.0), dur);
+            var width = post.Format == AutomationVideoFormat.Vertical ? 720 : 1280;
+            var extracted = await thumbnailService.FrameAsync(localPath, frameSec, width, ct).ConfigureAwait(false);
+            if (extracted is { Length: > 0 })
+                return (extracted, false);
+        }
+
+        // When no rendered cleanthumb exists yet, let ProceduralFixedThumbnailGenerator draw our own
+        // clean sacred procedural characters & backdrop (never call external Pollinations AI which can hallucinate faces).
+        return (null, false);
     }
 
     private async Task SaveCustomThumbnailBytesAsync(
@@ -647,15 +858,116 @@ public sealed partial class EcosystemAutomationService
             throw EditingException.Conflict("post-locked", "Cannot edit a post while uploading or after it is published.");
     }
 
-    private static string BuildDefaultThumbnailPrompt(AutomationPost post) => post.SourceType switch
+    private static string BuildDefaultThumbnailPrompt(AutomationPost post)
     {
-        AutomationSourceType.FunnyComedy => $"Vibrant expressive 3D comic Indian reaction scene illustrating '{post.Title}', dramatic comedy expression, studio rim light, zero text",
-        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha
-            => $"Sacred glowing golden Indian temple morning scene depicting '{post.Title}', divine sunbeams, brass diyas, serene rich atmosphere, zero text",
-        AutomationSourceType.AajKaItihaas
-            => $"Dramatic historical museum chronicle illustration for '{post.Title}', golden heritage light, parchment atmosphere, high contrast, zero text",
-        _ => $"High-contrast storytelling visual scene representing '{post.Title}', vivid focal point, cinematic lighting, zero text"
-    };
+        var lower = $"{post.Title} {post.SourceTitle} {post.SourceSummary}".ToLowerInvariant();
+        if (post.SourceType == AutomationSourceType.FunnyComedy)
+            return $"Vibrant expressive 3D comic Indian reaction scene illustrating '{post.Title}', dramatic comedy expression, studio rim light, no text, no letters, no watermark";
+
+        if (post.SourceType == AutomationSourceType.HinduPanchang || post.SourceType == AutomationSourceType.DailyRashifal)
+            return "Two expressive warm-lit traditional Indian characters in center foreground: a serene white-bearded Vedic Jyotish Acharya holding glowing palm leaf scriptures beside an attentive young disciple with folded hands, framed by a radiant golden Hindu zodiac mandala and sunbeams inside an illuminated saffron temple hall, leaving upper 28% warm dark burgundy sky clear for large headline, strictly zero text, no words, no letters, no watermark";
+
+        if (post.SourceType == AutomationSourceType.HinduFestival)
+        {
+            if (lower.Contains("pradosh", StringComparison.Ordinal) || lower.Contains("प्रदोष", StringComparison.Ordinal))
+                return "Expressive close-up devotional temple scene with two visible characters in lower-mid frame: devout saffron-clad Rishi and respectful young bhakt performing glowing evening deep-aarti beside a radiant carved black stone Shivling adorned with bael leaves and marigold flowers, with majestic glowing Lord Shiva blessing in golden clouds behind them, leaving upper 28% clean dark warm tone for large title, strictly zero text, no letters, no watermark";
+            return $"Warm expressive Indian temple festival painting showing devout saffron-clad Rishi and smiling devotee with glowing brass aarti platter, sacred kalash, marigold flowers and divine golden rays illustrating '{post.SourceTitle}', leaving upper 28% dark warm background clear for title, strictly zero text, no letters, no watermark";
+        }
+
+        if (post.SourceType == AutomationSourceType.DailyKatha)
+        {
+            if (lower.Contains("markandeya", StringComparison.Ordinal) || lower.Contains("मार्कण्डेय", StringComparison.Ordinal))
+                return "Epic classical Indian mythological painting focused on right 60% of frame: young Markandeya Rishi boy praying beside a radiant Shivling while majestic blue-throated Lord Shiva holding a golden Trishul with crescent moon in hair emerges in divine golden light protecting his devotee, leaving left 40% clean dark charcoal storm clouds for bold yellow title, strictly zero text, no letters, no watermark";
+            if (lower.Contains("neelkanth", StringComparison.Ordinal) || lower.Contains("नीलकंठ", StringComparison.Ordinal))
+                return "Epic Indian mythological painting focused on right 60% of frame: serene Lord Shiva with crescent moon and glowing blue throat holding the halahala vessel amidst celestial golden radiance and cosmic waves, leaving left 40% dark charcoal storm space for title, strictly zero text, no letters, no watermark";
+            if (lower.Contains("prahlad", StringComparison.Ordinal) || lower.Contains("प्रह्लाद", StringComparison.Ordinal))
+                return "Epic Indian mythological painting focused on right 60% of frame: young devotee boy Prahlad praying joyfully with folded hands in a glowing golden temple courtyard while divine golden light radiates from a carved pillar, leaving left 40% dark background clear for title typography, strictly zero text, no letters, no watermark";
+            return $"Epic classical Indian devotional painting focused on right 60% of frame with prominent expressive Hindu sage and divine deity characters illustrating '{post.SourceTitle}' under warm golden temple light, leaving left 40% dark atmospheric space for bold title typography, strictly zero text, no letters, no watermark";
+        }
+
+        if (post.SourceType == AutomationSourceType.AajKaItihaas)
+            return $"Dramatic historical museum documentary scene depicting '{post.SourceTitle}' with authentic Indian heritage characters, brass telescope, antique scrolls, bronze globe and warm tungsten contrast, clear upper area for headline, strictly zero text, no numbers, no letters, no watermark";
+
+        return $"High-contrast storytelling visual scene representing '{post.Title}', prominent expressive characters, cinematic lighting, strictly zero text, no letters, no watermark";
+    }
+
+    private async Task<byte[]?> TryGenerateAndAttachEventBackgroundAsync(AutomationPost post, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(post.Stage?.BackgroundTemplateAssetId) && assets is not null)
+            return null;
+
+        try
+        {
+            var isPortrait = post.Format == AutomationVideoFormat.Vertical;
+            var (width, height) = isPortrait ? (768, 1344) : (1344, 768);
+            var prompt = post.SourceType == AutomationSourceType.HinduFestival
+                && ($"{post.Title} {post.SourceSummary}".Contains("pradosh", StringComparison.OrdinalIgnoreCase)
+                    || $"{post.Title} {post.SourceSummary}".Contains("प्रदोष", StringComparison.Ordinal)
+                    || $"{post.Title} {post.SourceSummary}".Contains("shiv", StringComparison.OrdinalIgnoreCase))
+                ? "Vibrant warm-lit Indian temple worship painting featuring a smiling saffron-clad priest and young devotee performing evening deep-aarti before a radiant Shiva Linga with marigold garlands and glowing Lord Shiva blessing above in golden saffron mist, upper 28% clean dark warm backdrop for title, zero text, no letters, no watermark"
+                : BuildDefaultThumbnailPrompt(post);
+            var req = new AiImageRequest
+            {
+                Prompt = prompt,
+                NegativePrompt = "text, watermark, signature, logo, badge, border, frame, pollinations, hindi text, english text, letters, typography, blurry, deformed, empty room, dark silhouette",
+                Width = width,
+                Height = height,
+                Seed = Math.Abs((post.Id + post.DateKey).GetHashCode(StringComparison.Ordinal))
+            };
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(45));
+
+            var generated = await TryMakeBackgroundPictureAsync(post.UserId, req, budget.Token).ConfigureAwait(false);
+            if (generated is not { Content.Length: > 256 }) return null;
+
+            var mime = AiImageValidator.Sniff(generated.Content);
+            if (mime is null) return null;
+
+            if (assets is not null)
+            {
+                try
+                {
+                    var projectId = await EnsureBackgroundTemplateProjectAsync(post.UserId, ct).ConfigureAwait(false);
+                    var ext = mime == AiImageValidator.Png ? ".png" : ".jpg";
+                    var key = $"projects/{projectId}/assets/{Guid.NewGuid():n}{ext}";
+                    await using (var ms = new MemoryStream(generated.Content, writable: false))
+                        await objectStore.SaveAsync(key, ms, mime, ct).ConfigureAwait(false);
+                    var asset = new Domain.Assets.Asset
+                    {
+                        ProjectId = projectId,
+                        Name = $"Event Art {post.SourceType} {post.DateKey}{ext}",
+                        DisplayFileName = $"Event Art {post.SourceType} {post.DateKey}{ext}",
+                        StorageKey = key,
+                        Kind = Domain.Assets.AssetKind.Image,
+                        MimeType = mime,
+                        FileSizeBytes = generated.Content.Length,
+                        ReviewStatus = Domain.Assets.AssetReviewStatus.NotRequired,
+                        UsageScope = Domain.Assets.AssetUsageScope.SceneUse,
+                        CreatedAt = UtcNow
+                    };
+                    await assets.InsertAsync(asset, ct).ConfigureAwait(false);
+                    post.Stage ??= new AutomationStageSettings();
+                    var shouldLockTemplate = post.SourceType == AutomationSourceType.DailyRashifal
+                        && (string.IsNullOrWhiteSpace(post.Script) || !post.Script.Contains("[SCENE]:", StringComparison.OrdinalIgnoreCase));
+                    if (shouldLockTemplate)
+                    {
+                        post.Stage.BackgroundTemplateAssetId = asset.Id;
+                        post.Stage.BackgroundMotion = AutomationBackdropMotion.GentleZoom;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogDebug(ex, "Could not persist event artwork asset for post {PostId}.", post.Id);
+                }
+            }
+            return generated.Content;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Event AI poster art unavailable for post {PostId}; using procedural art.", post.Id);
+            return null;
+        }
+    }
 
     private static string DefaultCategoryFor(AutomationSourceType sourceType, string? ruleCategoryId)
     {
@@ -741,9 +1053,9 @@ public sealed partial class EcosystemAutomationService
 
         if (post.TrackedFunnelUrls.Count > 0)
         {
+            var link = post.TrackedFunnelUrls[0];
             sb.AppendLine();
-            foreach (var link in post.TrackedFunnelUrls.Take(3))
-                sb.AppendLine($"{link.Label}: {link.TrackedUrl}");
+            sb.AppendLine($"🌐 {link.Label}: {link.TrackedUrl}");
         }
 
         var result = sb.ToString().Trim();

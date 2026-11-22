@@ -33,7 +33,8 @@ public sealed class ProceduralFixedThumbnailGenerator(
         bool ShowWatermark = false,
         string? WatermarkText = null,
         int Width = 1280,
-        int Height = 720);
+        int Height = 720,
+        bool MaskBottomRightWatermark = false);
 
     public async Task<(byte[] ImageBytes, string ContentType)> RenderAsync(FixedThumbnailSpec spec, CancellationToken ct)
     {
@@ -45,7 +46,7 @@ public sealed class ProceduralFixedThumbnailGenerator(
 
         var resolvedTheme = ProceduralVideoPlanner.InferTheme(ProceduralSceneTheme.Auto, title, subtitle, spec.EventType);
         var palette = ProceduralEventPalette.Resolve(spec.EventType, resolvedTheme);
-        var dialoguePlan = DialogueScriptParser.ParsePlan(title, subtitle, title, 12, enableDialogue: false, eventType: spec.EventType);
+        var dialoguePlan = DialogueScriptParser.ParsePlan(title, subtitle, title, 12, enableDialogue: true, eventType: spec.EventType);
 
         IReadOnlyList<byte[]>? backdropFrames = null;
         if (spec.BackgroundImageBytes is { Length: > 0 } && capabilities.IsAvailable)
@@ -53,39 +54,43 @@ public sealed class ProceduralFixedThumbnailGenerator(
             var decoded = await TryDecodeImageToRgbaAsync(spec.BackgroundImageBytes, width, height, ct).ConfigureAwait(false);
             if (decoded is not null)
             {
-                // Apply subtle contrast scrim so fixed title & date overlays remain ultra legible over any photo.
-                for (var p = 0; p + 3 < decoded.Length; p += 4)
-                {
-                    decoded[p] = (byte)(decoded[p] * 0.68);
-                    decoded[p + 1] = (byte)(decoded[p + 1] * 0.68);
-                    decoded[p + 2] = (byte)(decoded[p + 2] * 0.68);
-                }
                 backdropFrames = [decoded];
             }
         }
 
-        var rasterizer = new ProceduralSceneRasterizer(
-            width,
-            height,
-            resolvedTheme,
-            StableSeed($"{dateLabel}|{title}|{palette.EventKey}"),
-            palette,
-            dialoguePlan,
-            speechEnvelope: null,
-            fps: 1.0,
-            storyHint: title,
-            backdropFrames: backdropFrames);
+        byte[] baseRgba;
+        if (backdropFrames is { Count: > 0 })
+        {
+            baseRgba = backdropFrames[0];
+        }
+        else
+        {
+            var rasterizer = new ProceduralSceneRasterizer(
+                width,
+                height,
+                resolvedTheme,
+                StableSeed($"{dateLabel}|{title}|{palette.EventKey}"),
+                palette,
+                dialoguePlan,
+                speechEnvelope: null,
+                fps: 1.0,
+                storyHint: title,
+                backdropFrames: null);
+            baseRgba = rasterizer.RenderFrame(timeSeconds: 3.5, durationSeconds: 12.0).ToArray();
+        }
 
-        rasterizer.RenderFrame(timeSeconds: 3.5, durationSeconds: 12.0);
+        // Apply crisp atmospheric gradient scrim so poster headline & pill stay ultra legible over any artwork
+        // while keeping the focal subject bright (left scrim for 16:9 split poster, top/bottom scrim for 9:16).
+        ApplyPosterScrimRgba(baseRgba, width, height, spec.MaskBottomRightWatermark);
 
         if (capabilities.IsAvailable && capabilities.Supports(RenderFeature.BurnedSubtitles))
         {
-            var burned = await TryBurnTemplateTextAsync(rasterizer.Buffer, width, height, spec, palette, ct).ConfigureAwait(false);
+            var burned = await TryBurnTemplateTextAsync(baseRgba, width, height, spec, palette, ct).ConfigureAwait(false);
             if (burned is not null)
                 return (burned, "image/png");
         }
 
-        var fallback = PngFrameEncoder.EncodeRgba(rasterizer.Buffer, width, height);
+        var fallback = PngFrameEncoder.EncodeRgba(baseRgba, width, height);
         return (fallback, "image/png");
     }
 
@@ -153,45 +158,53 @@ public sealed class ProceduralFixedThumbnailGenerator(
             await using var workspace = await workspaces.CreateAsync($"fthumb-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
             var outPath = workspace.Resolve("out/thumb.png");
 
+            var isPortrait = height > width;
             var canvas = new Canvas(width, height, new FrameRate(1, 1));
-            var titleText = spec.TitleText.Trim();
-            if (titleText.Length > 76) titleText = titleText[..75].TrimEnd() + "…";
-            var dateBadge = string.IsNullOrWhiteSpace(spec.DateText)
-                ? palette.HeaderBadgeText
-                : $"{palette.HeaderBadgeText} • {spec.DateText.Trim()}";
+            var posterCopy = ThumbnailPosterCopy.Build(
+                spec.EventType,
+                spec.TitleText,
+                spec.SubtitleText,
+                spec.DateText,
+                isPortrait);
+
+            var heroText = string.IsNullOrWhiteSpace(posterCopy.HeroTitle) ? spec.TitleText.Trim() : posterCopy.HeroTitle;
+            var purposePill = posterCopy.CategoryPill;
+            var subText = posterCopy.PurposeSubline;
 
             var lines = new List<DialogueLine>
             {
                 new()
                 {
                     Index = 0,
-                    SpeakerLabel = "DateBadge",
-                    SpeakerCharacterId = "ft-date",
-                    Text = dateBadge,
-                    RelativeStartFrame = 0,
-                    RelativeEndFrame = 2
-                },
-                new()
-                {
-                    Index = 1,
-                    SpeakerLabel = "Headline",
-                    SpeakerCharacterId = "ft-title",
-                    Text = titleText,
+                    SpeakerLabel = "HeroTitle",
+                    SpeakerCharacterId = "ft-hero",
+                    Text = WrapPosterLines(heroText, isPortrait ? 16 : 22, maxLines: 3),
                     RelativeStartFrame = 0,
                     RelativeEndFrame = 2
                 }
             };
 
-            if (!string.IsNullOrWhiteSpace(spec.SubtitleText))
+            if (!string.IsNullOrWhiteSpace(purposePill))
             {
-                var sub = spec.SubtitleText.Trim();
-                if (sub.Length > 110) sub = sub[..109].TrimEnd() + "…";
+                lines.Add(new DialogueLine
+                {
+                    Index = 1,
+                    SpeakerLabel = "CategoryPill",
+                    SpeakerCharacterId = "ft-pill",
+                    Text = purposePill,
+                    RelativeStartFrame = 0,
+                    RelativeEndFrame = 2
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(subText))
+            {
                 lines.Add(new DialogueLine
                 {
                     Index = 2,
-                    SpeakerLabel = "Subtitle",
+                    SpeakerLabel = "PurposeSub",
                     SpeakerCharacterId = "ft-sub",
-                    Text = sub,
+                    Text = WrapPosterLines(subText, isPortrait ? 30 : 28, maxLines: 2),
                     RelativeStartFrame = 0,
                     RelativeEndFrame = 2
                 });
@@ -210,17 +223,29 @@ public sealed class ProceduralFixedThumbnailGenerator(
                 });
             }
 
-            var isPortrait = height > width;
-            var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
-            {
-                ["ft-date"] = new("FtDate", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: isPortrait ? 64 : 36, FontScalePercent: isPortrait ? 62 : 70),
-                ["ft-title"] = new("FtTitle", palette.TitleHex, Bold: true, Alignment: 5, MarginV: 24, FontScalePercent: isPortrait ? 105 : 120),
-                ["ft-sub"] = new("FtSub", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: isPortrait ? 140 : 88, FontScalePercent: isPortrait ? 78 : 86),
-                ["ft-mark"] = new("FtMark", "#E2E8F0", Bold: false, Alignment: 3, MarginV: 24, FontScalePercent: 52)
-            };
+            var isHistory = string.Equals(palette.EventKey, "AajKaItihaas", StringComparison.OrdinalIgnoreCase);
+            var accentBg = isHistory ? "#1D4ED8" : "#B91C1C";
+            var heroBg = isHistory ? "#0F172A" : "#450A0A";
+            var styles = isPortrait
+                ? new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
+                {
+                    // Date pill at y=96 + solid high-contrast title box at y=158 so both Date & Headline stand out sharply.
+                    ["ft-pill"] = new("FtPill", "#FFFFFF", Bold: true, Alignment: 8, MarginV: 96, FontScalePercent: 86, OutlineColorHex: accentBg, BackColorHex: accentBg, MarginL: 40, MarginR: 40, OpaqueBox: true),
+                    ["ft-hero"] = new("FtHero", "#FACC15", Bold: true, Alignment: 8, MarginV: 162, FontScalePercent: 185, OutlineColorHex: heroBg, BackColorHex: heroBg, MarginL: 34, MarginR: 34, OpaqueBox: true),
+                    ["ft-sub"] = new("FtSub", "#FEF08A", Bold: true, Alignment: 2, MarginV: 178, FontScalePercent: 92, OutlineColorHex: "#0F172A", BackColorHex: "#111827", MarginL: 34, MarginR: 34, OpaqueBox: true),
+                    ["ft-mark"] = new("FtMark", "#E2E8F0", Bold: false, Alignment: 3, MarginV: 24, FontScalePercent: 48)
+                }
+                : new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
+                {
+                    // Solid backdrop plate on 16:9 split title + crisp category & hook pills leaving right 60% characters vivid.
+                    ["ft-hero"] = new("FtHero", "#FACC15", Bold: true, Alignment: 4, MarginV: 14, FontScalePercent: 138, OutlineColorHex: heroBg, BackColorHex: heroBg, MarginL: 54, MarginR: 450, OpaqueBox: true),
+                    ["ft-pill"] = new("FtPill", "#FFFFFF", Bold: true, Alignment: 7, MarginV: 56, FontScalePercent: 84, OutlineColorHex: accentBg, BackColorHex: accentBg, MarginL: 54, MarginR: 450, OpaqueBox: true),
+                    ["ft-sub"] = new("FtSub", "#FFFFFF", Bold: true, Alignment: 1, MarginV: 68, FontScalePercent: 100, OutlineColorHex: "#0F172A", BackColorHex: "#111827", MarginL: 54, MarginR: 450, OpaqueBox: true),
+                    ["ft-mark"] = new("FtMark", "#E2E8F0", Bold: false, Alignment: 3, MarginV: 22, FontScalePercent: 48)
+                };
 
             var ass = subtitleWriter.Write(new SubtitleRequest(
-                canvas, lines, styles, AssSubtitleWriter.StockFontName, isPortrait ? 44 : 48));
+                canvas, lines, styles, AssSubtitleWriter.StockFontName, isPortrait ? 46 : 48));
             await File.WriteAllTextAsync(workspace.Resolve("in/thumb.ass"), ass, new UTF8Encoding(false), ct)
                 .ConfigureAwait(false);
 
@@ -271,6 +296,72 @@ public sealed class ProceduralFixedThumbnailGenerator(
 
     private string ResolveFfmpegExe() =>
         string.IsNullOrWhiteSpace(ffmpegOptions.Value.FfmpegPath) ? "ffmpeg" : ffmpegOptions.Value.FfmpegPath;
+
+    private static void ApplyPosterScrimRgba(byte[] rgba, int width, int height, bool maskAiCorner = false)
+    {
+        var isPortrait = height > width;
+        for (var y = 0; y < height; y++)
+        {
+            var ny = (double)y / Math.Max(1, height - 1);
+            var rowOffset = y * width * 4;
+            for (var x = 0; x < width; x++)
+            {
+                var nx = (double)x / Math.Max(1, width - 1);
+                var shade = maskAiCorner && ny > 0.945 && nx > 0.72
+                    ? 0.05 // Blend out AI footer corner watermark only when background came from AI
+                    : isPortrait
+                        // Dark top header & bottom pill band while keeping center subject vivid
+                        ? Math.Min(
+                            ny < 0.36 ? 0.34 + (ny / 0.36) * 0.60 : 0.94,
+                            ny > 0.72 ? 0.94 - ((ny - 0.72) / 0.28) * 0.58 : 0.94)
+                        // 16:9 tight left vignette for split hero typography, keeping center & right characters bright
+                        : (nx < 0.46 ? 0.22 + (nx / 0.46) * 0.74 : 0.96);
+
+                var idx = rowOffset + x * 4;
+                rgba[idx] = (byte)Math.Clamp(rgba[idx] * shade, 0, 255);
+                rgba[idx + 1] = (byte)Math.Clamp(rgba[idx + 1] * shade, 0, 255);
+                rgba[idx + 2] = (byte)Math.Clamp(rgba[idx + 2] * shade, 0, 255);
+            }
+        }
+    }
+
+    private static string WrapPosterLines(string text, int maxCharsPerLine, int maxLines)
+    {
+        var clean = string.Join(' ', (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (clean.Length <= maxCharsPerLine || maxLines <= 1) return clean;
+        var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var lines = new List<string>(maxLines);
+        var cur = new StringBuilder();
+        var consumedWords = 0;
+        foreach (var word in words)
+        {
+            if (cur.Length > 0 && cur.Length + 1 + word.Length > maxCharsPerLine)
+            {
+                lines.Add(cur.ToString());
+                cur.Clear();
+                if (lines.Count >= maxLines - 1)
+                {
+                    var tail = new StringBuilder();
+                    var maxTail = maxCharsPerLine + 10;
+                    for (var i = consumedWords; i < words.Length; i++)
+                    {
+                        var candidate = tail.Length == 0 ? words[i] : $"{tail} {words[i]}";
+                        if (tail.Length > 0 && candidate.Length > maxTail)
+                            break;
+                        if (tail.Length > 0) tail.Append(' ');
+                        tail.Append(words[i]);
+                    }
+                    lines.Add(tail.ToString());
+                    return string.Join('\n', lines);
+                }
+            }
+            if (cur.Length > 0) cur.Append(' ');
+            cur.Append(word);
+            consumedWords++;
+        }
+        if (cur.Length > 0) lines.Add(cur.ToString());
+        return string.Join('\n', lines);
+    }
 
     private static int StableSeed(string input)
     {

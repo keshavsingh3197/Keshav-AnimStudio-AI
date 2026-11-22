@@ -2,6 +2,7 @@ using AnimStudio.Application.Automation;
 using AnimStudio.Application.Ecosystem;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Rendering;
+using AnimStudio.Application.StoryAgent;
 using AnimStudio.Domain.Automation;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Rendering;
@@ -273,5 +274,197 @@ public class AutomationImprovementsTests
 
         Assert.DoesNotContain(footer, assHidden, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(footer, assShown, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LongForm_60Min_Caps_MJO_Environments_and_Zero_Unrendered_ProceduralFallback_Work()
+    {
+        Assert.Equal(3600, StoryRunService.MaxTargetSeconds);
+        Assert.Equal(3600, ProceduralVideoRequest.MaxSeconds);
+        Assert.Equal(200, StoryScriptParser.MaxScenes);
+        Assert.Equal(120, DialogueScriptParser.MaxScenes);
+
+        // 30m (1800s) and 60m (3600s) scale scene counts well past the old 40-scene limit
+        Assert.True(StoryScriptPrompt.SceneCount(1800) > 100);
+        Assert.Equal(160, StoryScriptPrompt.SceneCount(3600));
+
+        // MJO environments parse cleanly and map to ComedyStage3D
+        Assert.Equal(SceneSetting.BarberShop, SceneDirectives.InferSetting("अमरेंद्र नाई का सैलून barber shop"));
+        Assert.Equal(SceneSetting.NeighborhoodGate, SceneDirectives.InferSetting("मोहल्ला gate और पड़ोसी"));
+        Assert.Equal(SceneSetting.Courtroom, SceneDirectives.InferSetting("अदालत courtroom मुकदमा"));
+        Assert.Equal(ProceduralSceneTheme.ComedyStage3D, SceneDirectives.ThemeFor(SceneSetting.BarberShop, ProceduralSceneTheme.Auto));
+        Assert.Contains("barber", AutomationBackgroundPromptBuilder.SubjectFor(SceneSetting.BarberShop), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("gate", AutomationBackgroundPromptBuilder.SubjectFor(SceneSetting.NeighborhoodGate), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("courtroom", AutomationBackgroundPromptBuilder.SubjectFor(SceneSetting.Courtroom), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clinic", AutomationBackgroundPromptBuilder.SubjectFor(SceneSetting.DoctorClinic), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("classroom", AutomationBackgroundPromptBuilder.SubjectFor(SceneSetting.Classroom), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("quiz", AutomationBackgroundPromptBuilder.SubjectFor(SceneSetting.QuizStudio), StringComparison.OrdinalIgnoreCase);
+
+        // Zero-Unrendered guarantee: offline ProceduralSceneIllustrationRenderer creates full PNGs (never empty or plain)
+        var renderer = new ProceduralSceneIllustrationRenderer();
+        var scenePng = await renderer.RenderSceneIllustrationAsync(
+            "Barbershop comedy argument between Amrendra barber and Pappu",
+            "कंटाप हेयरकट कांड",
+            "funny",
+            "Comedy",
+            "FunnyComedy",
+            vertical: false,
+            width: 1280,
+            height: 720,
+            seed: 42,
+            CancellationToken.None);
+
+        Assert.NotNull(scenePng);
+        Assert.True(scenePng!.Length > 10_000, "Procedural scene fallback PNG should contain textured pixels, not empty bytes");
+        Assert.Equal([0x89, 0x50, 0x4E, 0x47], scenePng[..4]);
+
+        // MJO SFX + sparse comedy jingle bed generate valid stereo WAVs on disk
+        var plan = DialogueScriptParser.ParsePlan(
+            "अमरेंद्र नाई कांड",
+            "[SCENE]: barber shop | day | funny\n[अमरेंद्र नाई]: कंटाप मारबे चक्कर गिन्नी केंची चलेगी तेज़!\n[पप्पू]: अरे बावले बाल काट दे भाई!",
+            prompt: null,
+            durationSeconds: 18,
+            enableDialogue: true,
+            eventType: "FunnyComedy");
+        Assert.True(plan.Turns.Count >= 3);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "animstudio-mjo-audio-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var bgmPath = Path.Combine(tempDir, "bgm.wav");
+            var sfxPath = Path.Combine(tempDir, "sfx.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(bgmPath, ProceduralSceneTheme.ComedyStage3D, 18, CancellationToken.None, sparseDialogueBed: true);
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxPath, plan, 18, CancellationToken.None, comedyIntensity: true);
+
+            Assert.True(new FileInfo(bgmPath).Length > 44_000);
+            Assert.True(new FileInfo(sfxPath).Length > 44_000);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AutomationPublishAdvisor_skips_occupied_channel_days_and_rolls_to_next_open_day()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "India Standard Time" : "Asia/Kolkata");
+        // Saturday 2026-11-21 15:30 IST (10:00 UTC)
+        var nowUtc = new DateTime(2026, 11, 21, 10, 0, 0, DateTimeKind.Utc);
+        // Channel ALREADY uploaded one video earlier today at 14:00 IST (08:30 UTC)
+        var earlierTodayUtc = new DateTime(2026, 11, 21, 8, 30, 0, DateTimeKind.Utc);
+
+        var advice = AutomationPublishAdvisor.BuildAdvice(
+            AutomationSourceType.FunnyComedy,
+            AutomationVideoFormat.Wide,
+            tz,
+            nowUtc,
+            takenUtc: [],
+            channelHistoryUtc: [earlierTodayUtc],
+            count: 3);
+
+        Assert.Equal(3, advice.Slots.Count);
+        var slotLocalDays = advice.Slots
+            .Select(s => TimeZoneInfo.ConvertTimeFromUtc(s.AtUtc, tz).Date)
+            .ToList();
+
+        Assert.All(slotLocalDays, d => Assert.True(d > new DateTime(2026, 11, 21), $"Should skip already-uploaded Sat 21 Nov, got {d:yyyy-MM-dd}"));
+        Assert.Equal(slotLocalDays.Count, slotLocalDays.Distinct().Count());
+        Assert.Equal(new DateTime(2026, 11, 22), slotLocalDays[0]);
+    }
+
+    [Fact]
+    public void ComedyComposer_and_PolicySanitizer_prevent_internal_enum_leaks_brackets_and_link_spam()
+    {
+        var rule = new AutomationRule
+        {
+            Id = "ar_clean_desc",
+            Name = "Comedy Channel",
+            SourceType = AutomationSourceType.FunnyComedy,
+            VideoFormat = AutomationVideoFormat.Wide,
+            Language = "hi",
+            ComedyStyle = ComedyToneStyle.DesiKhadiSitcom,
+            FunnelWebsiteKeys = ["hub", "studio", "pratiyogita", "social"],
+            IncludePinnedComment = true
+        };
+
+        var composed = AutomationContentComposer.ComposeForRule(rule, SampleSignalsWithAstrology("2026-11-21"), SampleEcosystem());
+        var item = Assert.Single(composed);
+
+        Assert.DoesNotContain("DesiKhadiSitcom", item.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("DesiKhadiSitcom", item.SourceSummary, StringComparison.Ordinal);
+        var httpCount = System.Text.RegularExpressions.Regex.Matches(item.Description, @"https?://").Count;
+        Assert.InRange(httpCount, 0, 1);
+
+        var dirtyDesc = "Test <script>alert(1)</script> — DesiKhadiSitcom देसी कॉमेडी\n👉 A: https://one.example.com\n👉 B: https://two.example.com\n👉 C: https://three.example.com\n#tag1 #tag2 #tag3";
+        var sanitized = YouTubePolicyComplianceSanitizer.Sanitize(
+            rawTitle: "Test <Title>",
+            rawDescription: dirtyDesc,
+            rawTags: ["HindiComedy", "Shorts", "DesiComedy"],
+            rawPinnedComment: "Watch here",
+            fallbackTopicTitle: "Fallback",
+            primaryDestinationUrl: "https://one.example.com",
+            requestedMadeForKids: false,
+            isShort: false,
+            language: "hi");
+
+        Assert.DoesNotContain("<", sanitized.Title);
+        Assert.DoesNotContain(">", sanitized.Title);
+        Assert.DoesNotContain("<", sanitized.Description);
+        Assert.DoesNotContain(">", sanitized.Description);
+        Assert.DoesNotContain("DesiKhadiSitcom", sanitized.Description);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(sanitized.Description, @"https?://"));
+    }
+
+    [Fact]
+    public void ProceduralSpeechSynthesizer_casts_expressive_male_comic_voices_and_distinct_supporting_voices()
+    {
+        var script = """
+            [CAST]: अमरेंद्र नाई | villager | mustache, white shirt
+            [CAST]: पप्पू ग्राहक | bobble | hoodie
+            [SCENE]: barber shop | day | funny
+            [अमरेंद्र नाई]: (angry) अबे चुपचाप बैठ, केंची चल रही है!
+            [पप्पू ग्राहक]: (surprised) अरे भैया बाल काटो, कान नहीं!
+            [चुन्नू चाचा]: (laughing) अरे गज़ब कटोरा कट मारा है भाई!
+            [पिंकी दीदी]: (sarcastic) भैया मेरा भी नंबर है क्या आज?
+            """;
+        var plan = DialogueScriptParser.ParsePlan(
+            "कंटाप हेयरकट कांड 😂 | नाई की दुकान",
+            script,
+            prompt: null,
+            durationSeconds: 24,
+            enableDialogue: true,
+            eventType: "FunnyComedy");
+        var req = new ProceduralVideoRequest
+        {
+            Title = "कंटाप हेयरकट कांड 😂",
+            Language = "hi",
+            EventType = "FunnyComedy"
+        };
+
+        var (voiceA, voiceB) = ProceduralSpeechSynthesizer.SelectGeminiCastVoices(plan, isComedy: true);
+        Assert.NotEqual("Aoede", voiceA);
+        Assert.NotEqual("Aoede", voiceB);
+        Assert.NotEqual("Charon", voiceA);
+        Assert.NotEqual(voiceA, voiceB);
+
+        var chachaTurn = plan.Turns.First(t => t.SpeakerName.Contains("चुन्नू", StringComparison.Ordinal));
+        var didiTurn = plan.Turns.First(t => t.SpeakerName.Contains("पिंकी", StringComparison.Ordinal));
+
+        var chachaVoice = ProceduralSpeechSynthesizer.ResolveGeminiTurnVoice(plan, req, chachaTurn, voiceA, voiceB, isComedy: true);
+        var didiVoice = ProceduralSpeechSynthesizer.ResolveGeminiTurnVoice(plan, req, didiTurn, voiceA, voiceB, isComedy: true);
+
+        Assert.NotEqual(voiceA, chachaVoice);
+        Assert.NotEqual(voiceB, chachaVoice);
+        Assert.Contains(didiVoice, new[] { "Aoede", "Leda", "Zephyr", "Kore" });
+
+        // Also test peak drama timestamp & headline extraction helpers for 3D comedy thumbnail service
+        var peakTs = ProceduralComedyThumbnailService.PickPeakDramaTimestamp(script, 62.0);
+        Assert.InRange(peakTs, 1.2, 60.8);
+        var hook = ProceduralComedyThumbnailService.ExtractPunchHookHeadline("कंटाप हेयरकट कांड 😂 | नाई की दुकान का बवाल");
+        Assert.DoesNotContain("|", hook);
+        Assert.Contains("कंटाप हेयरकट कांड", hook);
     }
 }

@@ -387,15 +387,24 @@ public sealed class PublishQueueService(
     }
 
     /// <summary>Starts the upload now, whatever its time was. Failed and held videos too.</summary>
-    public async Task<PublishQueueItemView> PublishNowAsync(string userId, string id, CancellationToken ct)
+    public async Task<PublishQueueItemView> PublishNowAsync(
+        string userId, string id, CancellationToken ct, bool preserveYouTubeReleaseSchedule = false)
     {
         var item = await LoadOwnedAsync(userId, id, ct).ConfigureAwait(false);
         if (item.State is not (PublishQueueState.Waiting or PublishQueueState.Held or PublishQueueState.Failed or PublishQueueState.Cancelled))
             throw EditingException.Conflict("queue-item-locked", "This video is uploading or already on YouTube.");
 
         var now = Now;
-        // Out now means out now: YouTube is not asked to hold it back.
-        item.ScheduledAt = now;
+        var hasValidYouTubeSchedule = preserveYouTubeReleaseSchedule
+            && PublishQueueRules.EffectiveMode(item.Mode, item.Privacy) == PublishQueueMode.ReleaseOnYouTube
+            && item.ScheduledAt is { } releaseAt
+            && releaseAt - now >= PublishQueueRules.MinYouTubeReleaseLead;
+
+        if (!hasValidYouTubeSchedule)
+        {
+            // Out now means out now: YouTube is not asked to hold it back.
+            item.ScheduledAt = now;
+        }
         Reopen(item);
         item.DueAt = now;
         if (!await repository.ReplaceAsync(item, ct).ConfigureAwait(false)) throw Changed();

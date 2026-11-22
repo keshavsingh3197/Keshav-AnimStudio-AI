@@ -25,9 +25,9 @@ public sealed record StoryScriptResult(StoryScript Script, IReadOnlyList<string>
 /// </remarks>
 public static class StoryScriptParser
 {
-    public const int MaxScenes = 60;
+    public const int MaxScenes = 200;
     public const int MaxNarrationChars = 1_600;
-    public const int MaxTotalNarrationChars = 30_000;
+    public const int MaxTotalNarrationChars = 150_000;
     public const int MinScenes = 2;
 
     /// <summary>More speaking characters than this in a short video is a crowd; the rest are read by the narrator.</summary>

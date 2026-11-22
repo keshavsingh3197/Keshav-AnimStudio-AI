@@ -14,7 +14,20 @@ import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
-import { drawReaction, ReactionExpression } from './reaction-graphic';
+import { drawReaction, REACTION_PRESETS, ReactionExpression } from './reaction-graphic';
+import {
+  drawStudioGraphic,
+  generateStudioAnimatedClipFile,
+  generateStudioGraphicFile,
+  generateStudioSfxFile,
+  STUDIO_GRAPHIC_TEMPLATES,
+  STUDIO_SFX_PRESETS,
+  STUDIO_VIDEO_PRESETS,
+  StudioAnimatedClipId,
+  StudioGraphicTemplateId,
+  StudioSfxId,
+  StudioThemeId,
+} from './studio-effect-generators';
 
 /** The inline editor's working copy of one card. */
 interface EffectDraft {
@@ -65,6 +78,26 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   readonly uploadDone = signal(0);
   readonly uploadTotal = signal(0);
   readonly uploadPercent = signal(0);
+  readonly reactionPresets = REACTION_PRESETS;
+  readonly graphicTemplates = STUDIO_GRAPHIC_TEMPLATES;
+  readonly sfxPresets = STUDIO_SFX_PRESETS;
+  readonly videoPresets = STUDIO_VIDEO_PRESETS;
+
+  readonly generatorTab = signal<'graphics' | 'reactions' | 'audioVideo'>(
+    this.reactionsPage ? 'reactions' : 'graphics',
+  );
+  readonly studioTemplate = signal<StudioGraphicTemplateId>('subscribe-pill');
+  readonly studioTheme = signal<StudioThemeId>('royal-gold');
+  readonly studioAspect = signal<'16:9' | '9:16'>('16:9');
+  readonly studioTitle = signal('KESHAV STUDIO');
+  readonly studioSubtitle = signal('Subscribe for 3D Comedy & Music');
+  readonly studioPreview = signal<string | null>(null);
+  readonly studioBusy = signal(false);
+  readonly studioStatus = signal<string | null>(null);
+  readonly studioError = signal<string | null>(null);
+  readonly playingSfxId = signal<StudioSfxId | null>(null);
+  private synthAudioUrl: string | null = null;
+
   readonly reactionExpression = signal<ReactionExpression>('surprised');
   readonly reactionCaption = signal('');
   readonly reactionPreview = signal<string | null>(null);
@@ -109,6 +142,8 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
     this.category() !== 'all' || !!this.kind() || this.favoritesOnly() || !!this.query().trim());
 
   ngOnInit(): void {
+    this.makeStudioGraphicPreview();
+    this.makeReaction();
     this.load();
   }
 
@@ -194,7 +229,9 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
 
   updateReactionExpression(value: ReactionExpression): void {
     this.reactionExpression.set(value);
-    this.reactionPreview.set(null);
+    const preset = this.reactionPresets.find((p) => p.id === value);
+    if (preset && !this.reactionCaption().trim()) this.reactionCaption.set(preset.defaultCaption);
+    this.makeReaction();
   }
 
   updateReactionCaption(value: string): void {
@@ -217,14 +254,177 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
 
   saveReaction(): void {
     const preview = this.reactionPreview();
-    if (!preview || this.uploading()) return;
+    if (!preview || this.uploading() || this.studioBusy()) return;
     try {
       const bytes = Uint8Array.from(atob(preview.split(',')[1]), (character) => character.charCodeAt(0));
-      const file = new File([bytes], `reaction-${this.reactionExpression()}.png`, { type: 'image/png' });
-      this.uploadFiles([file], 'Reaction', false);
+      const expr = this.reactionExpression();
+      const file = new File([bytes], `reaction-${expr}.png`, { type: 'image/png' });
+      const label = this.reactionPresets.find((p) => p.id === expr)?.label.replace(/^[^\w]+/, '').trim() || expr;
+      void this.uploadGeneratedBatch([{ file, name: `Reaction: ${label}`, category: 'Reaction', tags: ['reaction', 'sticker', expr] }]);
     } catch (error) {
       this.status.notify([this.errorText(error, 'Could not prepare the reaction for upload.')]);
     }
+  }
+
+  // ---------------------------------------------------------------- studio effect generators
+
+  makeStudioGraphicPreview(): void {
+    try {
+      const canvas = document.createElement('canvas');
+      drawStudioGraphic(canvas, {
+        template: this.studioTemplate(),
+        theme: this.studioTheme(),
+        title: this.studioTitle(),
+        subtitle: this.studioSubtitle(),
+        aspect: this.studioAspect(),
+      });
+      this.studioPreview.set(canvas.toDataURL('image/png'));
+    } catch (err) {
+      this.studioPreview.set(null);
+      this.status.notify([this.errorText(err, 'Could not preview that studio graphic.')]);
+    }
+  }
+
+  async saveStudioGraphic(): Promise<void> {
+    if (this.studioBusy()) return;
+    const tpl = this.studioTemplate();
+    const meta = this.graphicTemplates.find((t) => t.id === tpl)!;
+    const file = await generateStudioGraphicFile({
+      template: tpl,
+      theme: this.studioTheme(),
+      title: this.studioTitle(),
+      subtitle: this.studioSubtitle(),
+      aspect: this.studioAspect(),
+    });
+    await this.uploadGeneratedBatch([{
+      file,
+      name: `${meta.label.replace(/^[^a-zA-Z0-9]+/, '').trim()} (${this.studioTheme()})`.slice(0, 80),
+      category: meta.category,
+      tags: [...meta.tags, this.studioTheme()],
+    }]);
+  }
+
+  previewSfx(id: StudioSfxId): void {
+    this.stopAudio();
+    const file = generateStudioSfxFile(id);
+    if (this.synthAudioUrl) URL.revokeObjectURL(this.synthAudioUrl);
+    this.synthAudioUrl = URL.createObjectURL(file);
+    const audio = new Audio(this.synthAudioUrl);
+    audio.onended = () => this.playingSfxId.set(null);
+    audio.onerror = () => this.playingSfxId.set(null);
+    this.audio = audio;
+    this.playingSfxId.set(id);
+    void audio.play().catch(() => this.playingSfxId.set(null));
+  }
+
+  async saveSfx(id: StudioSfxId): Promise<void> {
+    if (this.studioBusy()) return;
+    const meta = this.sfxPresets.find((s) => s.id === id)!;
+    await this.uploadGeneratedBatch([{
+      file: generateStudioSfxFile(id),
+      name: meta.name,
+      category: 'SoundEffect',
+      tags: [...meta.tags, 'sfx'],
+    }]);
+  }
+
+  async saveAllSfx(): Promise<void> {
+    if (this.studioBusy()) return;
+    const items = this.sfxPresets.map((meta) => ({
+      file: generateStudioSfxFile(meta.id),
+      name: meta.name,
+      category: 'SoundEffect' as EffectCategory,
+      tags: [...meta.tags, 'sfx'],
+    }));
+    await this.uploadGeneratedBatch(items);
+  }
+
+  async saveAnimatedClip(id: StudioAnimatedClipId): Promise<void> {
+    if (this.studioBusy()) return;
+    const meta = this.videoPresets.find((v) => v.id === id)!;
+    this.studioBusy.set(true);
+    this.studioStatus.set(`Rendering animated "${meta.name}" WebM clip (~${meta.durationSec}s)...`);
+    try {
+      const file = await generateStudioAnimatedClipFile(id, this.studioTheme(), this.studioTitle());
+      await this.uploadGeneratedBatch([{
+        file,
+        name: meta.name,
+        category: meta.category,
+        tags: [...meta.tags, this.studioTheme()],
+        isGreenScreen: meta.isGreenScreen,
+      }]);
+    } catch (err) {
+      this.status.notify([this.errorText(err, 'Could not generate animated WebM effect.')]);
+      this.studioBusy.set(false);
+      this.studioStatus.set(null);
+    }
+  }
+
+  async installStarterPack(): Promise<void> {
+    if (this.studioBusy()) return;
+    this.studioBusy.set(true);
+    this.studioStatus.set('Building 8 essential graphics, frames, animations & SFX...');
+    try {
+      const graphicIds: StudioGraphicTemplateId[] = ['subscribe-pill', 'lower-third', 'palace-frame', 'cinema-vignette', 'end-screen'];
+      const items: { file: File; name: string; category: EffectCategory; tags: string[]; isGreenScreen?: boolean }[] = [];
+      for (const gid of graphicIds) {
+        const meta = this.graphicTemplates.find((t) => t.id === gid)!;
+        const file = await generateStudioGraphicFile({
+          template: gid,
+          theme: this.studioTheme(),
+          title: this.studioTitle(),
+          subtitle: this.studioSubtitle(),
+          aspect: this.studioAspect(),
+        });
+        items.push({
+          file,
+          name: meta.label.replace(/^[^a-zA-Z0-9]+/, '').trim().slice(0, 80),
+          category: meta.category,
+          tags: [...meta.tags, this.studioTheme()],
+        });
+      }
+      for (const sid of ['boing', 'whoosh', 'tabla-taal'] as StudioSfxId[]) {
+        const meta = this.sfxPresets.find((s) => s.id === sid)!;
+        items.push({ file: generateStudioSfxFile(sid), name: meta.name, category: 'SoundEffect', tags: [...meta.tags, 'sfx'] });
+      }
+      await this.uploadGeneratedBatch(items);
+    } finally {
+      this.studioBusy.set(false);
+    }
+  }
+
+  private async uploadGeneratedBatch(
+    items: readonly { file: File; name: string; category: EffectCategory; tags: string[]; isGreenScreen?: boolean }[],
+  ): Promise<void> {
+    if (items.length === 0) return;
+    this.studioBusy.set(true);
+    this.studioError.set(null);
+    let added = 0;
+    const errors: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      this.studioStatus.set(`Uploading ${i + 1} of ${items.length}: ${item.name}...`);
+      try {
+        const effect = await firstValueFrom(this.api.upload({
+          file: item.file,
+          name: item.name,
+          category: item.category,
+          tags: item.tags,
+          isGreenScreen: !!item.isGreenScreen,
+        }));
+        this.effects.update((list) => [effect, ...list.filter((e) => e.id !== effect.id)]);
+        added++;
+      } catch (err) {
+        errors.push(`${item.name}: ${this.errorText(err, 'upload failed.')}`);
+      }
+    }
+    this.studioBusy.set(false);
+    this.studioStatus.set(added > 0 ? `Added ${added} effect${added === 1 ? '' : 's'} to your library!` : null);
+    this.studioError.set(errors.length > 0 ? errors.join(' · ') : null);
+    this.status.notify([
+      ...(added > 0 ? [`Added ${added} studio effect${added === 1 ? '' : 's'} ready for your videos & clips.`] : []),
+      ...errors,
+    ]);
   }
 
   async importLink(): Promise<void> {
@@ -332,6 +532,11 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
       this.audio.pause();
       this.audio = null;
     }
+    if (this.synthAudioUrl) {
+      URL.revokeObjectURL(this.synthAudioUrl);
+      this.synthAudioUrl = null;
+    }
+    this.playingSfxId.set(null);
     this.previewId.set(null);
   }
 

@@ -113,4 +113,75 @@ public sealed class FightActionsAndAmbienceTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task BarberShop_role_lock_prevents_overlap_strips_mouth_sfx_and_emits_real_scissor_audio()
+    {
+        var plan = DialogueScriptParser.ParsePlan("सैलून कटिंग कांड", """
+            [SCENE]: barber | afternoon | comedy
+            [पप्पू ग्राहक]: अमरेंद्र भाई, आज एकदम शाही बाहुबली कटिंग करना!
+            [अमरेंद्र नाई]: चक-चक-चक! ले पहला झटका!
+            [पप्पू ग्राहक]: ख्र्र्र... मैं तो जन्नत पहुँच गया!
+            """, null, 18, enableDialogue: true, "पप्पू ग्राहक", "अमरेंद्र नाई", "FunnyComedy");
+
+        var turns = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+        Assert.Equal(3, turns.Count);
+
+        // Customer asking for "कटिंग करना" stays on barberChair (NO scissors, NO barberStand overlap!)
+        Assert.Equal("barberChair", turns[0].StageTarget);
+        Assert.DoesNotContain("scissors", turns[0].SpeakerProp ?? string.Empty);
+        Assert.Equal("scissors", turns[0].ListenerProp);
+
+        // Barber holds scissors on barberStand; sound effects never get read from mouth in TTS text!
+        Assert.Equal("barberStand", turns[1].StageTarget);
+        Assert.Equal("scissors", turns[1].SpeakerProp);
+        var spokenCut = DialogueScriptParser.ToSpokenText(turns[1].Text, "hi");
+        Assert.DoesNotContain("चक", spokenCut);
+        Assert.Contains("पहला झटका", spokenCut);
+
+        var spokenSnore = DialogueScriptParser.ToSpokenText(turns[2].Text, "hi");
+        Assert.DoesNotContain("ख्र्र", spokenSnore);
+        Assert.Contains("जन्नत", spokenSnore);
+
+        // Real stainless-steel scissor & snore SFX waveforms are still generated from original turns!
+        var path = Path.Combine(Path.GetTempPath(), $"salon-sfx-{Guid.NewGuid():N}.wav");
+        try
+        {
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(path, plan, 18, CancellationToken.None, comedyIntensity: true);
+            var bytes = await File.ReadAllBytesAsync(path);
+            var peaks = 0;
+            for (var i = 44; i + 1 < bytes.Length; i += 2)
+                if (Math.Abs(BitConverter.ToInt16(bytes, i)) > 600) peaks++;
+            Assert.True(peaks > 1500, $"expected crisp scissor & snore SFX samples, got {peaks}");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Comedy_visual_continuity_tracks_ulta_to_sidha_chasma_towel_pull_and_mirror_look()
+    {
+        var plan = DialogueScriptParser.ParsePlan("Ulta Chasma Salon", """
+            [SCENE]: barber | day | comedy
+            [पप्पू ग्राहक]: अमरेंद्र भाई, आज एकदम शाही कटिंग करना!
+            [अमरेंद्र नाई]: (cutting) चक-चक-चक! देख कैसा जादू करता हूँ!
+            [पप्पू ग्राहक]: अरे तौलिया तो हटा! ये क्या कर दिया बे?!
+            [अमरेंद्र नाई]: ओह तेरी! चश्मा उल्टा पहना था मैंने!
+            [चुन्नू चाचा]: (laughing) अरे भैया शीशे में देख ले, लालटेन लग रहा है!
+            """, null, 24, enableDialogue: true, "पप्पू ग्राहक", "अमरेंद्र नाई", "FunnyComedy");
+
+        // Barber confessed "चश्मा उल्टा पहना था मैंने" -> gets glasses wearing 'ulta' before confession, 'flipping' on it, 'normal' after!
+        Assert.True(plan.RightCharacter?.HasGlasses);
+        var turns = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+        Assert.Equal("ulta", turns[0].ListenerGlasses); // Turn 0 (Left speaks): Barber listener wears ulta!
+        Assert.Equal("ulta", turns[1].SpeakerGlasses);  // Turn 1 (Barber cuts): Barber wears ulta!
+        Assert.Equal("towel", turns[2].SpeakerProp);    // Turn 2: removing towel explicitly yields towel prop!
+        Assert.Equal("removingTowel", turns[2].Action);
+        Assert.Equal("flipping", turns[3].SpeakerGlasses); // Turn 3: Barber flips chasma ulta -> sidha!
+        Assert.Equal("adjustingGlasses", turns[3].Action);
+        Assert.Equal("normal", turns[4].ListenerGlasses);  // Turn 4+: Barber wears sidha/normal!
+        Assert.Equal("lookInMirror", turns[4].ListenerAction); // Customer turns to mirror!
+    }
 }

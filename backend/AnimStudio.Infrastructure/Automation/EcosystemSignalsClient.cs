@@ -48,7 +48,16 @@ public sealed class EcosystemSignalsClient(
     {
         var effectiveDate = AutomationFactVerifier.ExtractIsoDateKey(dateKey)
             ?? (string.IsNullOrWhiteSpace(dateKey) ? IstTodayDateKey() : dateKey.Trim());
-        var effectiveLoc = string.IsNullOrWhiteSpace(location) ? "New Delhi, India" : location.Trim();
+        var apiQueryLoc = string.IsNullOrWhiteSpace(location)
+            || location.Contains("india", StringComparison.OrdinalIgnoreCase) && !location.Contains(',', StringComparison.Ordinal)
+            || location.Contains("pan-india", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(location.Trim(), "India (IST)", StringComparison.OrdinalIgnoreCase)
+            ? "New Delhi, India"
+            : location.Trim();
+        var displayLoc = string.IsNullOrWhiteSpace(location)
+            || location.Contains("New Delhi", StringComparison.OrdinalIgnoreCase)
+            ? "India (IST)"
+            : location.Trim();
 
         var ecosystem = await ecosystemProvider.GetAsync(forceRefresh: false, ct).ConfigureAwait(false);
         var opts = serviceOptions.CurrentValue;
@@ -63,7 +72,7 @@ public sealed class EcosystemSignalsClient(
 
         var panchangTask = SafeGetJsonAsync<PanchangPayload>(
             client,
-            $"{panchangBase}/api/panchang/daily?date={Uri.EscapeDataString(effectiveDate)}&location={Uri.EscapeDataString(effectiveLoc)}",
+            $"{panchangBase}/api/panchang/daily?date={Uri.EscapeDataString(effectiveDate)}&location={Uri.EscapeDataString(apiQueryLoc)}",
             "Hindu Panchang daily feed",
             warnings,
             ct);
@@ -114,7 +123,9 @@ public sealed class EcosystemSignalsClient(
             var panchangMatches = string.Equals(resolvedPDate, effectiveDate, StringComparison.Ordinal);
             panchang = new EcosystemPanchangSignal(
                 DateKey: resolvedPDate,
-                Location: string.IsNullOrWhiteSpace(pr.Location) ? effectiveLoc : pr.Location!,
+                Location: string.IsNullOrWhiteSpace(pr.Location) || pr.Location.Contains("New Delhi", StringComparison.OrdinalIgnoreCase)
+                    ? displayLoc
+                    : pr.Location!,
                 Tithi: pr.Tithi!,
                 TithiEndTime: pr.TithiEndTime,
                 Nakshatra: pr.Nakshatra ?? string.Empty,
@@ -137,7 +148,7 @@ public sealed class EcosystemSignalsClient(
                 SourceName: string.IsNullOrWhiteSpace(pr.AyanamsaName) ? "Lahiri Chitrapaksha Ephemeris" : pr.AyanamsaName,
                 SourceUrl: "https://panchang.keshavsingh.in",
                 VerificationNote: panchangMatches
-                    ? $"Calculated for exact date {effectiveDate} ({pr.Location ?? effectiveLoc})."
+                    ? $"Calculated for exact date {effectiveDate} ({displayLoc})."
                     : $"Panchang date mismatch: returned {resolvedPDate}, expected {effectiveDate}.",
                 NextTithi: pr.Extended?.NextTithi,
                 NextNakshatra: pr.Extended?.NextNakshatra,
@@ -250,7 +261,7 @@ public sealed class EcosystemSignalsClient(
 
         var snapshot = new EcosystemSignalsSnapshot(
             effectiveDate,
-            effectiveLoc,
+            displayLoc,
             panchang,
             festivals,
             kathaTask.Result,

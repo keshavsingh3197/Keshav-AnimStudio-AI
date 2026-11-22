@@ -113,14 +113,18 @@ public sealed class AutomationFullStoryTests
 
         var item = Assert.Single(composed);
         var narratorTag = language == "en" ? "[Narrator]:" : "[सूत्रधार]:";
-        var lines = item.Script.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var allLines = item.Script.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var spokenLines = allLines
+            .Where(l => !l.StartsWith("[SCENE]:", StringComparison.OrdinalIgnoreCase)
+                     && !l.StartsWith("[MEME]:", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
-        Assert.True(lines.Length >= 6, $"FullStory script for {sourceType} ({language}) had only {lines.Length} lines.");
-        Assert.StartsWith(narratorTag, lines[0], StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(lines[^1], s => true);
-        Assert.Contains(lines, l => l.StartsWith(narratorTag, StringComparison.OrdinalIgnoreCase) && l != lines[0]);
+        Assert.True(spokenLines.Length >= 6, $"FullStory script for {sourceType} ({language}) had only {spokenLines.Length} spoken lines.");
+        Assert.StartsWith(narratorTag, spokenLines[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(spokenLines[^1], s => true);
+        Assert.Contains(spokenLines, l => l.StartsWith(narratorTag, StringComparison.OrdinalIgnoreCase) && l != spokenLines[0]);
 
-        var distinctBrackets = lines
+        var distinctBrackets = spokenLines
             .Where(l => l.StartsWith('[') && l.Contains("]:"))
             .Select(l => l[1..l.IndexOf("]:", StringComparison.Ordinal)].Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)

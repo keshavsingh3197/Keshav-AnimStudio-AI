@@ -744,6 +744,100 @@ public sealed class ScheduledPostThumbnailAndNavTests
         Assert.Contains("Until 07:15 AM", panchang.Script);
     }
 
+    [Fact]
+    public async Task PublishNowAsync_with_preserveYouTubeReleaseSchedule_preserves_publishAt_and_GetPublishAdvice_skips_published_day()
+    {
+        var ct = CancellationToken.None;
+        const string userId = "user-peak-priv-1";
+        const string channelId = "UC9234567890123456789012";
+        var repo = new FakeAutomationRepository();
+        var connRepo = new FakeYouTubeConnectionRepository();
+        var queueRepo = new FakePublishQueueRepository();
+        var renderRepo = new FakeRenderJobRepository();
+        var projectRepo = new FakeProjectRepository();
+        var store = new InMemoryObjectStore();
+
+        using var harness = BuildHarness(repo, connRepo, queueRepo, renderRepo, projectRepo, store);
+        await SeedChannelAndRenderAsync(harness.Provider, userId, channelId, "proj-9", "job-9", store, renderRepo);
+
+        var tz = PublishSlotSuggester.ResolveTimeZone("Asia/Kolkata");
+        var nowUtc = DateTime.UtcNow;
+        var todayIstDate = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, tz).Date;
+
+        // Seed a Comedy post already published today on this channel -> GetPublishAdviceAsync must roll to next open day.
+        await repo.UpsertPostAsync(new AutomationPost
+        {
+            Id = "ap_pub_today",
+            UserId = userId,
+            RuleId = "rule-comedy-9",
+            RuleName = "Comedy",
+            SourceType = AutomationSourceType.FunnyComedy,
+            DateKey = todayIstDate.ToString("yyyy-MM-dd"),
+            Fingerprint = "2026-11-21:rule:today",
+            SourceItemKey = "today1",
+            SourceTitle = "Today Episode",
+            Title = "Today Episode",
+            Script = "[A]: Hello\n[B]: Hi",
+            Description = "Original episode",
+            Tags = ["Shorts", "HindiComedy", "DesiComedy"],
+            CategoryId = "23",
+            Privacy = "public",
+            TargetChannelId = channelId,
+            PublishedChannelId = channelId,
+            PublishedVideoId = "vid_today_1",
+            Status = AutomationPostStatus.Published,
+            PublishedAtUtc = nowUtc.AddMinutes(-20),
+            CreatedAtUtc = nowUtc.AddHours(-1),
+            UpdatedAtUtc = nowUtc.AddMinutes(-20)
+        }, ct);
+
+        var svc = harness.Provider.GetRequiredService<EcosystemAutomationService>();
+        var advice = await svc.GetPublishAdviceAsync(
+            userId,
+            AutomationSourceType.FunnyComedy,
+            AutomationVideoFormat.Wide,
+            channelId,
+            "Asia/Kolkata",
+            ct);
+
+        Assert.NotEmpty(advice.Slots);
+        var firstSlotDateIst = TimeZoneInfo.ConvertTimeFromUtc(advice.Slots[0].AtUtc, tz).Date;
+        Assert.True(firstSlotDateIst > todayIstDate, $"Expected tomorrow or later when today already published, got {firstSlotDateIst:yyyy-MM-dd}");
+
+        // Queue a ReleaseOnYouTube item Held for a future peak slot and start upload preserving YouTube release schedule.
+        var publishQueue = harness.Provider.GetRequiredService<PublishQueueService>();
+        var releaseAt = new DateTime(nowUtc.AddHours(6).Ticks, DateTimeKind.Utc);
+        var queued = await publishQueue.AddAsync(userId, new PublishQueueDraft(
+            JobId: "job-9",
+            ChannelId: channelId,
+            Metadata: new YouTubeVideoMetadata
+            {
+                Title = "Peak Scheduled Comedy Episode",
+                Description = "Clean comedy description without policy hazards #Shorts #Comedy #Hindi",
+                Tags = ["Comedy", "Hindi Comedy", "Shorts"],
+                CategoryId = "23",
+                Privacy = "public",
+                MadeForKids = false
+            },
+            RelatedVideoIds: null,
+            FirstComment: null,
+            Thumbnail: null,
+            PlanItemId: null,
+            ScheduledAt: releaseAt,
+            Mode: PublishQueueMode.ReleaseOnYouTube,
+            Hold: true,
+            Notes: "Peak schedule test"), ct);
+
+        await publishQueue.PublishNowAsync(userId, queued.Id, ct, preserveYouTubeReleaseSchedule: true);
+        var afterStart = await publishQueue.GetAsync(userId, queued.Id, ct);
+
+        // Wait a tiny moment for background upload prep if needed, and verify ScheduledAt was NOT wiped to now!
+        Assert.Equal(PublishQueueMode.ReleaseOnYouTube, afterStart.Mode);
+        Assert.Equal(releaseAt, afterStart.ScheduledAt);
+        var computedRelease = PublishQueueRules.YouTubeReleaseAt(afterStart.Mode, afterStart.Privacy, afterStart.ScheduledAt, nowUtc);
+        Assert.Equal(releaseAt, computedRelease);
+    }
+
     private sealed class DateAwareSignalsClient(Func<string, EcosystemSignalsSnapshot> factory) : IEcosystemSignalsClient
     {
         public Task<EcosystemSignalsSnapshot> FetchAsync(string dateKey, string? location = null, string? panchangOverrideUrl = null, string? socialOverrideUrl = null, string? pratiyogitaOverrideUrl = null, CancellationToken ct = default) =>
@@ -851,6 +945,8 @@ public sealed class ScheduledPostThumbnailAndNavTests
         services.AddSingleton<IYouTubePublicationRepository, FakePublicationRepository>();
         services.AddSingleton<IPhoneHandoffRepository, FakePhoneHandoffRepository>();
         services.AddSingleton<IContentTopicRepository, FakeContentTopicRepository>();
+        services.AddSingleton<IYouTubeChannelAnalysisRepository, FakeAnalysisRepository>();
+        services.AddSingleton<IContentPlanItemRepository, FakePlanItemRepository>();
         if (signalsClient is not null)
             services.AddSingleton(signalsClient);
         else if (!useRealSignalsClient)
@@ -1083,6 +1179,25 @@ public sealed class ScheduledPostThumbnailAndNavTests
         public Task<IReadOnlyList<ContentTopic>> ListActiveAsync(int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentTopic>>([]);
         public Task UpsertAsync(ContentTopic topic, CancellationToken ct) => Task.CompletedTask;
         public Task<bool> DeleteAsync(string id, CancellationToken ct) => Task.FromResult(false);
+    }
+
+    private sealed class FakeAnalysisRepository : IYouTubeChannelAnalysisRepository
+    {
+        public Task<YouTubeChannelAnalysis?> GetAsync(string userId, string channelId, CancellationToken ct) => Task.FromResult<YouTubeChannelAnalysis?>(null);
+        public Task<IReadOnlyList<YouTubeChannelAnalysis>> ListByUserAsync(string userId, CancellationToken ct) => Task.FromResult<IReadOnlyList<YouTubeChannelAnalysis>>([]);
+        public Task UpsertAsync(YouTubeChannelAnalysis analysis, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private sealed class FakePlanItemRepository : IContentPlanItemRepository
+    {
+        public Task<ContentPlanItem?> GetAsync(string id, CancellationToken ct) => Task.FromResult<ContentPlanItem?>(null);
+        public Task<IReadOnlyList<ContentPlanItem>> ListByUserAsync(string userId, DateTime fromUtc, DateTime toUtc, string? topicId, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentPlanItem>>([]);
+        public Task<IReadOnlyList<ContentPlanItem>> ListByTopicAsync(string topicId, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentPlanItem>>([]);
+        public Task<IReadOnlyList<ContentPlanItem>> ListInWindowAsync(DateTime fromUtc, DateTime toUtc, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentPlanItem>>([]);
+        public Task<ContentPlanItem?> FindByVideoIdAsync(string userId, string videoId, CancellationToken ct) => Task.FromResult<ContentPlanItem?>(null);
+        public Task UpsertAsync(ContentPlanItem item, CancellationToken ct) => Task.CompletedTask;
+        public Task<bool> DeleteAsync(string id, CancellationToken ct) => Task.FromResult(false);
+        public Task<int> DeleteByTopicAsync(string topicId, CancellationToken ct) => Task.FromResult(0);
     }
 
     private sealed class EmptySignalsClient : IEcosystemSignalsClient

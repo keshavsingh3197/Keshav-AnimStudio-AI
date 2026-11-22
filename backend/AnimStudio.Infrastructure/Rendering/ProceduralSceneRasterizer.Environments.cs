@@ -273,14 +273,20 @@ public sealed partial class ProceduralSceneRasterizer
             case SceneSetting.Village: DrawVillage(t); break;
             case SceneSetting.Battlefield: DrawBattlefield(t); break;
             case SceneSetting.Archive: DrawArchive(t); break;
+            case SceneSetting.DoctorClinic:
+            case SceneSetting.Classroom: DrawArchive(t); break;
             case SceneSetting.ModernCity: DrawCitySkyline(t); break;
-            case SceneSetting.ChaiStall: DrawChaiStall(t); break;
-            case SceneSetting.ComedyStage: DrawComedyStage(t); break;
+            case SceneSetting.ChaiStall:
+            case SceneSetting.BarberShop: DrawChaiStall(t); break;
+            case SceneSetting.ComedyStage:
+            case SceneSetting.QuizStudio: DrawComedyStage(t); break;
             case SceneSetting.SkyGauntlet: DrawSkyGauntlet(t); break;
             case SceneSetting.TankArena: DrawTankArena(t); break;
             case SceneSetting.DoorwaySet: DrawDoorwaySet(t); break;
-            case SceneSetting.Bedroom: DrawVillage(t); break;
+            case SceneSetting.Bedroom:
+            case SceneSetting.NeighborhoodGate: DrawVillage(t); break;
             case SceneSetting.LivingRoom: DrawDoorwaySet(t); break;
+            case SceneSetting.Courtroom: DrawPalaceCourt(t); break;
             case SceneSetting.Kitchen:
             case SceneSetting.SweetShop: DrawChaiStall(t); break;
             case SceneSetting.Temple: DrawTempleSanctum(t); break;

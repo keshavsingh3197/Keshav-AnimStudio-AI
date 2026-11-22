@@ -378,7 +378,11 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
     /// </summary>
     private async Task SetThumbnailAsync(YouTubeConnectionStore connections, Entry entry, string videoId)
     {
-        if (entry.Thumbnail is not { Length: > 0 } jpeg) return;
+        if (entry.Thumbnail is not { Length: > 0 } jpeg)
+        {
+            _logger.LogInformation("No custom thumbnail bytes attached for YouTube video {VideoId} (render {JobId}); YouTube will auto-select a frame.", videoId, entry.Request.JobId);
+            return;
+        }
         var request = entry.Request;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);

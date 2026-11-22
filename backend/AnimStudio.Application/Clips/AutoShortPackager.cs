@@ -132,6 +132,9 @@ public static class AutoShortPackager
     public static readonly IReadOnlyList<Design> Designs =
     [
         new("cosmic-glass", "#070b19", "#f8fafc", "box", "#0f172a", "#38bdf8", "#0f172a", "box", "#facc15", "#0f172a", "#facc15", "#facc15"),
+        new("sacred-gold", "#14091f", "#fef9c3", "box", "#78350f", "#facc15", "#fef08a", "box", "#9a3412", "#451a03", "#facc15", "#fbbf24"),
+        new("desi-sitcom", "#0f172a", "#111111", "box", "#fde047", "#e11d48", "#ffffff", "box", "#ea580c", "#ffffff", "#e11d48", "#facc15"),
+        new("emerald-pro", "#042f2e", "#ecfdf5", "box", "#065f46", "#34d399", "#064e3b", "box", "#a3e635", "#022c22", "#34d399", "#a3e635"),
         new("gold-report", "#0c0a09", "#fef08a", "band", "#1c1917", "#ca8a04", "#fafaf9", "box", "#292524", "#1c1917", "#facc15", "#facc15"),
         new("midnight", "#0f172a", "#ffffff", "none", "#0f172a", null, "#facc15", "none", "#0f172a", "#0f172a", "#ffffff", "#facc15"),
         new("headline", "#000000", "#ffffff", "band", "#e11d48", null, "#ffffff", "none", "#000000", "#ffffff", "#e11d48", "#facc15"),

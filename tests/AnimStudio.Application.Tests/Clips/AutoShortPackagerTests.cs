@@ -246,5 +246,8 @@ public class AutoShortPackagerTests
         Assert.Equal("none", AutoShortPackager.CleanDesignId("nope"));
         Assert.Equal("auto", AutoShortPackager.CleanDesignId("AUTO"));
         Assert.Equal("quiz-show", AutoShortPackager.CleanDesignId("quiz-show"));
+        Assert.Equal("sacred-gold", AutoShortPackager.CleanDesignId("sacred-gold"));
+        Assert.Equal("desi-sitcom", AutoShortPackager.CleanDesignId("desi-sitcom"));
+        Assert.Equal("emerald-pro", AutoShortPackager.CleanDesignId("emerald-pro"));
     }
 }

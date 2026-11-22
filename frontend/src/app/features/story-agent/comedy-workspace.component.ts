@@ -35,6 +35,17 @@ import { ComedyReview, reviewComedyStory } from './comedy-review';
 import { parseComedyStory, readComedyStoryUpload } from './comedy-story-file';
 import { comedyStoryTemplate } from './comedy-story-template';
 import { COMEDY_TONE_OPTIONS, ComedyToneStyle } from './comedy-templates';
+import {
+  CAST_ROLE_OPTIONS,
+  ComedyCastMember,
+  createDefaultCastRoster,
+  GEMINI_CAST_VOICE_OPTIONS,
+  MAX_CAST_MEMBERS,
+  MULTI_CAST_TEMPLATES,
+  MultiCastTemplate,
+  parseCastDirectivesFromScript,
+  syncCastDirectivesToScript,
+} from './comedy-cast-library';
 import { saveBlob, saveStoryFile } from './story-agent.utils';
 
 export type ComedyAudienceTrack = 'local' | 'international';
@@ -81,10 +92,16 @@ export class ComedyWorkspaceComponent {
   readonly narrativeMode = signal<AutomationNarrativeMode>('ShortReel');
   readonly targetSeconds = signal(30);
   readonly voicing = signal<'CharactersOnly' | 'Narrated'>('CharactersOnly');
-  readonly comedyStyle = signal<ComedyToneStyle>('Auto');
+  readonly comedyStyle = signal<ComedyToneStyle>('DesiKhadiSitcom');
   readonly subtitlePreset = signal<SubtitleMotionPreset>('karaoke-pulse');
   readonly speakerAName = signal('पप्पू भैया');
   readonly speakerBName = signal('बबलू यार');
+  readonly showTemplateDrawer = signal(false);
+  readonly castRoster = signal<ComedyCastMember[]>(createDefaultCastRoster());
+  readonly multiCastTemplates = MULTI_CAST_TEMPLATES;
+  readonly castVoiceOptions = GEMINI_CAST_VOICE_OPTIONS;
+  readonly castRoleOptions = CAST_ROLE_OPTIONS;
+  readonly maxCastMembers = MAX_CAST_MEMBERS;
   readonly includeMidMemes = signal(true);
   readonly includeBackgroundMusic = signal(true);
   readonly attachedSongId = signal<string>('');
@@ -212,6 +229,49 @@ export class ComedyWorkspaceComponent {
     this.comedyPosts().some((p) => p.status === 'GeneratingVideo' || p.status === 'Publishing')
   );
 
+  /** Live 3D Director Radar: scans script + location to preview which 3D Set & Interactive Hand Props will render. */
+  readonly directorRadar = computed(() => {
+    const src = `${this.title()} ${this.material()} ${this.locationPrompt()}`.toLowerCase();
+    const setLabel =
+      /barber|salon|केंची|नाई|कटिंग/.test(src) ? '💈 3D Barber Salon (Mirror, Swivel Chair & Spinning Pole)'
+        : /gate|mohalla|colony|गेट|मोहल्ला/.test(src) ? '🚪 3D Colony Gate (Brick Walls, Lanterns & Iron Gate)'
+        : /court|judge|अदालत|जज|तारीख/.test(src) ? '⚖️ 3D Courtroom (Judge Bench, Scales & Witness Box)'
+        : /clinic|doctor|डॉक्टर|बुखार|इंजेक्शन/.test(src) ? '🩺 3D Doctor Clinic (Red Cross, Desk & Bed)'
+        : /classroom|teacher|मास्टर|ब्लैकबोर्ड|स्कूल/.test(src) ? '🎓 3D Classroom (Chalkboard, Bunting & Podium)'
+        : /quiz|करोड़पति|hotseat/.test(src) ? '🎯 3D Quiz Arena (Glowing Floor Rings & Podiums)'
+        : /kitchen|कड़ाही|रसोई|रबड़ी/.test(src) ? '🍳 3D Home Kitchen (Stove, Kadhai & Steam)'
+        : /bedroom|सो रहा|पलंग|bed/.test(src) ? '🛏️ 3D Bedroom (Charpai, Bed Lamp & Window)'
+        : /chai|tapri|टपरी|चाय/.test(src) ? '☕ 3D Chai Tapri Corner'
+        : '🎬 3D Dynamic Comedy Stage';
+
+    const props: string[] = [];
+    if (/केंची|कैंची|scissor|चक|कटिंग|haircut/.test(src)) props.push('✂️ Animated Chrome Scissors + Comb');
+    if (/तौलिया|towel|cape|grahak|ग्राहक|barber/.test(src)) props.push('🧣 Barber Chair + Salon Cape');
+    if (/चाबी|ताला|key/.test(src)) props.push('🔑 Gleaming Brass Key');
+    if (/फ़ोन|फोन|phone|call/.test(src)) props.push('📱 Glowing Phone Call');
+    if (/ऑर्डर|gavel|जज|अदालत/.test(src)) props.push('🔨 Judge Gavel');
+    if (/चाय|tea|कुल्हड़/.test(src)) props.push('🫖 Steaming Kulhad Tea');
+    if (/कड़ाही|रबड़ी|करछी|spoon/.test(src)) props.push('🥄 Copper Kadhai Ladle');
+    if (/लड्डू|जलेबी|मिठाई|sweet/.test(src)) props.push('🍮 Sweet Laddoo Plate');
+    if (/\bmic\b|microphone|माइक|\bquiz\b/.test(src)) props.push('🎤 Studio Mic');
+    if (/इंजेक्शन|सुई|injection|stethoscope|डॉक्टर/.test(src)) props.push('🩺 Stethoscope / Syringe');
+    if (/हवलदार|पुलिस|डंडा|baton/.test(src)) props.push('🪵 Police Baton');
+    if (/आरती|दीया|diya/.test(src)) props.push('🪔 Animated Aarti Diya');
+    if (/बांसुरी|बाँसुरी|flute/.test(src)) props.push('🪈 Krishna Bansuri Flute');
+    if (props.length === 0) props.push('🎭 Expressive Gestures & Lip-Sync');
+
+    const castMatches = Array.from(this.material().matchAll(/^\[([^\]]+)\]:/gm))
+      .map((m) => m[1].trim())
+      .filter((n) => !/^(SCENE|CAST|SHOT|CAMERA|PROP|ACTION|STAGE|MEME)$/i.test(n));
+    const activeCast = Array.from(new Set([
+      this.speakerAName().trim(),
+      this.speakerBName().trim(),
+      ...castMatches,
+    ].filter(Boolean))).slice(0, 5);
+
+    return { setLabel, props, activeCast };
+  });
+
   readonly selectedChannel = computed<YouTubeChannel | null>(() => {
     const id = this.selectedChannelId();
     const list = this.connectedChannels();
@@ -244,7 +304,7 @@ export class ComedyWorkspaceComponent {
       if (key === this.lastAuthKey) return;
       this.lastAuthKey = key;
       if (authed) {
-        void this.loadWorkspaceData(true);
+        void this.loadWorkspaceData(this.overview() !== null);
       } else {
         this.overview.set(null);
         this.songs.set([]);
@@ -304,7 +364,7 @@ export class ComedyWorkspaceComponent {
       this.locationPrompt.set('stylized glowing doorway gauntlet stage with bouncy spring props, 3D cartoon style');
     } else {
       this.language.set('hi');
-      if (this.comedyStyle() === 'GlobalSlapstick' || this.comedyStyle() === 'TankSeries') {
+      if (this.comedyStyle() === 'Auto' || this.comedyStyle() === 'GlobalSlapstick' || this.comedyStyle() === 'TankSeries') {
         this.comedyStyle.set('DesiKhadiSitcom');
       }
       if (this.speakerAName() === 'Woody Buddy') this.speakerAName.set('पप्पू भैया');
@@ -366,7 +426,111 @@ export class ComedyWorkspaceComponent {
     this.selectedMemeNames.set(cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]);
   }
 
-  applyAutoComedyPreset(track: 'desi' | 'international' | 'tank' = 'desi'): void {
+  addCastMember(): void {
+    const cur = this.castRoster();
+    if (cur.length >= MAX_CAST_MEMBERS) return;
+    const extras: readonly Omit<ComedyCastMember, 'id'>[] = [
+      { name: 'राजू दोस्त', role: 'scholar', look: 'green tee, spiky hair, confused eyes', voiceId: 'Sadachbia' },
+      { name: 'शर्मा आंटी', role: 'woman', look: 'pink saree, sharp tongue, wagging finger', voiceId: 'Kore' },
+      { name: 'रामू चौकीदार', role: 'king', look: 'khaki uniform, baton, stiff moustache', voiceId: 'Alnilam' },
+      { name: 'पिंटू बालक', role: 'child', look: 'blue hoodie, sideways cap, giggling', voiceId: 'Puck' },
+      { name: 'दरोगा जी', role: 'elder', look: 'brown jacket, thick glasses, angry glare', voiceId: 'Orus' },
+    ];
+    const usedNames = new Set(cur.map((c) => c.name.trim().toLowerCase()));
+    const nextTpl = extras.find((e) => !usedNames.has(e.name.toLowerCase())) ?? {
+      name: `किरदार ${cur.length + 1}`,
+      role: 'scholar' as const,
+      look: 'vibrant sweater, expressive eyes',
+      voiceId: GEMINI_CAST_VOICE_OPTIONS[cur.length % GEMINI_CAST_VOICE_OPTIONS.length].id,
+    };
+    const nextRoster: ComedyCastMember[] = [...cur, { id: `c${Date.now()}_${cur.length}`, ...nextTpl }];
+    this.castRoster.set(nextRoster);
+    this.applyCastRosterToScript(nextRoster);
+    this.notice.set(`Added character "${nextTpl.name}" (${nextRoster.length}/${MAX_CAST_MEMBERS} cast ready)!`);
+  }
+
+  removeCastMember(id: string): void {
+    const cur = this.castRoster();
+    if (cur.length <= 2) return;
+    const nextRoster = cur.filter((c) => c.id !== id);
+    this.castRoster.set(nextRoster);
+    this.applyCastRosterToScript(nextRoster);
+  }
+
+  updateCastMember(id: string, patch: Partial<ComedyCastMember>): void {
+    const prevMember = this.castRoster().find((c) => c.id === id);
+    const nextRoster = this.castRoster().map((c) => (c.id === id ? { ...c, ...patch } : c));
+    this.castRoster.set(nextRoster);
+    if (prevMember && patch.name && patch.name.trim() && patch.name.trim() !== prevMember.name.trim()) {
+      const oldTag = `[${prevMember.name.trim()}]:`;
+      const newTag = `[${patch.name.trim()}]:`;
+      if (this.material().includes(oldTag)) {
+        this.material.set(this.material().split(oldTag).join(newTag));
+      }
+    }
+    this.applyCastRosterToScript(nextRoster);
+  }
+
+  insertLineForCharacter(member: ComedyCastMember): void {
+    const cleanName = (member.name || 'Character').trim();
+    const cur = this.material().trimEnd();
+    this.material.set(`${cur ? cur + '\n' : ''}[${cleanName}]: (angry) `);
+    this.notice.set(`Inserted spoken dialogue cue for "${cleanName}" at end of script.`);
+  }
+
+  insertMultiCastTemplate(tpl: MultiCastTemplate, mode: 'replace' | 'append'): void {
+    this.audienceTrack.set('local');
+    this.language.set('hi');
+    this.comedyStyle.set(tpl.comedyStyle);
+    const clonedCast = tpl.cast.map((c) => ({ ...c }));
+    this.castRoster.set(clonedCast);
+    this.speakerAName.set(clonedCast[0]?.name || 'पप्पू भैया');
+    this.speakerBName.set(clonedCast[1]?.name || 'बबलू यार');
+    this.locationPrompt.set(tpl.locationPrompt);
+    // Preserve user's Vertical 9:16 vs Wide 16:9 format selection! Adapt duration only when appropriate.
+    if (this.format() === 'Vertical' && this.targetSeconds() > 55) {
+      this.targetSeconds.set(45);
+    } else if (this.format() === 'Wide' && this.targetSeconds() < 60) {
+      this.targetSeconds.set(90);
+    }
+
+    if (mode === 'replace') {
+      this.title.set(tpl.title);
+      this.material.set(syncCastDirectivesToScript(tpl.sceneBody, clonedCast));
+    } else {
+      const merged = `${this.material().trimEnd()}\n\n${tpl.sceneBody}`;
+      this.material.set(syncCastDirectivesToScript(merged, clonedCast));
+    }
+    this.showTemplateDrawer.set(false);
+    this.notice.set(
+      `${mode === 'replace' ? 'Loaded' : 'Inserted'} "${tpl.label}" (${clonedCast.length} Cast · ${this.format() === 'Vertical' ? '9:16 Shorts' : '16:9 Wide'})!`,
+    );
+  }
+
+  private applyCastRosterToScript(roster: readonly ComedyCastMember[]): void {
+    if (roster[0]) this.speakerAName.set(roster[0].name);
+    if (roster[1]) this.speakerBName.set(roster[1].name);
+    this.material.set(syncCastDirectivesToScript(this.material(), roster));
+  }
+
+  onScriptEdited(value: string): void {
+    this.material.set(value);
+    const parsed = parseCastDirectivesFromScript(value);
+    if (parsed) {
+      this.castRoster.set(parsed);
+      if (parsed[0]) this.speakerAName.set(parsed[0].name);
+      if (parsed[1]) this.speakerBName.set(parsed[1].name);
+    }
+  }
+
+  private prepareCastScriptPayload(): string | null {
+    const raw = this.material().trim();
+    if (!raw) return null;
+    if (/^\s*\[(?:CAST|पात्र|CHARACTER|CHARACTERS)\]\s*:/im.test(raw)) return raw;
+    return syncCastDirectivesToScript(raw, this.castRoster());
+  }
+
+  applyAutoComedyPreset(track: 'desi' | 'international' | 'tank' | 'mjo-barber' | 'mjo-gate' = 'desi'): void {
     this.activePostId.set(null);
     this.style.set('3D');
     this.visualEngine.set('Procedural3D');
@@ -406,6 +570,14 @@ export class ComedyWorkspaceComponent {
         '[Blitz Tank]: (laughing) Victory by rubber ducky — see you next episode!',
       );
       this.notice.set('Applied International Cartoon Tank Series (| EP XX) preset.');
+    } else if (track === 'mjo-barber') {
+      const barberTpl = MULTI_CAST_TEMPLATES[0];
+      this.insertMultiCastTemplate(barberTpl, 'replace');
+      this.notice.set(`Applied ${barberTpl.label} (${this.format() === 'Vertical' ? '9:16 Shorts' : '16:9 Wide'}, 4-Cast angry MJO logic & progressive Takla reveal)!`);
+    } else if (track === 'mjo-gate') {
+      const gateTpl = MULTI_CAST_TEMPLATES.find((t) => t.id === 'mjo-mohalla-gate') ?? MULTI_CAST_TEMPLATES[0];
+      this.insertMultiCastTemplate(gateTpl, 'replace');
+      this.notice.set(`Applied ${gateTpl.label} (${this.format() === 'Vertical' ? '9:16 Shorts' : '16:9 Wide'}, 4-Cast angry Mohalla drama)!`);
     } else {
       this.selectAudienceTrack('local');
       this.comedyStyle.set('DesiKhadiSitcom');
@@ -533,7 +705,7 @@ export class ComedyWorkspaceComponent {
       } else {
         const created = await firstValueFrom(this.automation.createComedyPost({
           title: this.title().trim(),
-          scriptOrIdeas: this.material().trim() || null,
+          scriptOrIdeas: this.prepareCastScriptPayload(),
           audienceTrack: this.audienceTrack(),
           language: this.audienceTrack() === 'international' ? 'en' : 'hi',
           comedyStyle: this.comedyStyle(),
@@ -595,7 +767,7 @@ export class ComedyWorkspaceComponent {
     if (this.title().trim().length < 3) this.title.set(seedTitle);
     const created = await firstValueFrom(this.automation.createComedyPost({
       title: seedTitle,
-      scriptOrIdeas: this.material().trim() || null,
+      scriptOrIdeas: this.prepareCastScriptPayload(),
       audienceTrack: this.audienceTrack(),
       language: this.audienceTrack() === 'international' ? 'en' : 'hi',
       comedyStyle: this.comedyStyle(),
@@ -793,6 +965,7 @@ export class ComedyWorkspaceComponent {
         scheduleOnYouTube,
       }));
       await this.loadWorkspaceData(false);
+      await this.loadPublishAdvice(true);
       const localLabel = new Date(atUtc).toLocaleString();
       this.notice.set(
         scheduleOnYouTube
@@ -803,9 +976,9 @@ export class ComedyWorkspaceComponent {
   }
 
   /**
-   * One click from "rendered" to "on YouTube at the right time": fills SEO, tags and a thumbnail frame through the
-   * server's policy sanitizer, re-checks the policy list on the filled post, then uploads it Private now with
-   * YouTube releasing it at the earliest peak slot that leaves processing time (or publishes now if none fits).
+   * One click from "rendered" to "Private scheduled on YouTube": fills SEO, tags and a 3D thumbnail,
+   * re-checks the policy list, selects the next non-colliding peak day on that channel, and ALWAYS uploads
+   * Private so YouTube releases it publicly at the scheduled peak time.
    */
   async autoReadyAndPublishAtPeak(post: AutomationPost): Promise<void> {
     if (!this.requireSignIn('publish videos to YouTube')) return;
@@ -818,27 +991,54 @@ export class ComedyWorkspaceComponent {
         throw new Error(`Auto-filled SEO & thumbnail, but still needs: ${missing}`);
       }
 
-      await this.loadPublishAdvice(true);
-      const minLeadMs = 30 * 60_000;
-      const slot = (this.publishAdvice()?.slots ?? [])
+      const targetChannelId = filled.targetChannelId ?? this.selectedChannel()?.channelId ?? null;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+      const advice = await firstValueFrom(
+        this.automation.getPublishAdvice('FunnyComedy', filled.format ?? this.format(), targetChannelId, tz),
+      );
+      this.publishAdvice.set(advice);
+
+      const minLeadMs = 20 * 60_000;
+      const candidateSlots = (advice.slots ?? [])
         .map((s) => s.atUtc)
         .filter((at) => new Date(at).getTime() - Date.now() >= minLeadMs)
-        .sort()[0] ?? null;
+        .sort();
+      const slot = candidateSlots[0]
+        ?? (advice.recommendedAtUtc && new Date(advice.recommendedAtUtc).getTime() - Date.now() >= minLeadMs
+          ? advice.recommendedAtUtc
+          : new Date(Date.now() + 24 * 60 * 60_000).toISOString());
 
       await firstValueFrom(this.automation.publishPost(filled.id, {
-        publishNow: !slot,
+        publishNow: false,
         scheduledAtUtc: slot,
-        scheduleOnYouTube: !!slot,
+        scheduleOnYouTube: true,
       }));
       await this.loadWorkspaceData(false);
-      this.notice.set(slot
-        ? `"${filled.title}" is uploading Private with SEO & thumbnail — YouTube makes it public at ${new Date(slot).toLocaleString()}.`
-        : `"${filled.title}" is uploading now with SEO & thumbnail (no peak slot left in the window).`);
+      await this.loadPublishAdvice(true);
+      this.notice.set(
+        `Uploaded "${filled.title}" to YouTube as Private (Scheduled) — auto-publishes at next open peak time (${new Date(slot).toLocaleString()}).`,
+      );
     });
   }
 
+  isFutureSchedule(post: AutomationPost): boolean {
+    if (!post.scheduledAtUtc) return false;
+    const ms = new Date(post.scheduledAtUtc).getTime();
+    return Number.isFinite(ms) && ms > Date.now();
+  }
+
+  readonly voiceDeliverySummary = computed(() =>
+    this.comedyStyle() === 'FamilyClean'
+      ? '🎙️ Expressive Family Voices: playful warm dialogue pacing & clean slapstick timing.'
+      : '🎙️ MJO Dynamic Angry Voices Active: furious shouting boosts (+speed/+grit), 0.05s interruption cut-offs & distinct character pitch.',
+  );
+
   /** Script helper chips: tags the parser turns into 3D actions, camera moves, SFX and place ambience. */
   readonly scriptTagChips: readonly { label: string; insert: string; hint: string }[] = [
+    { label: '😡 Angry Shout', insert: '(angry) ', hint: 'Loud explosive @MakeJokeOf shouting, red flush, ear steam & snappy 0.05s cut-off' },
+    { label: '😂 Laugh', insert: '(laughing) ', hint: 'Teasing crescent-eye chuckle with bouncy laugh SFX' },
+    { label: '🪞 Mirror Check', insert: '(look in mirror) ', hint: 'Customer turns & inspects haircut/look inside live salon mirror' },
+    { label: '💥 Smash Zoom', insert: '\n[SHOT]: crashPunch\n', hint: 'Sudden MJO close-up camera punch on punchline or shock' },
     { label: '👊 Punch', insert: '(punch) ', hint: 'Jab-cross combo, POW flash, punch SFX; the other character recoils' },
     { label: '🦵 Kick', insert: '(kick) ', hint: 'Snap kick with thud SFX; the other character falls back' },
     { label: '🤕 Ouch', insert: '(ouch) ', hint: 'Hit reaction / recoil' },
@@ -846,6 +1046,15 @@ export class ComedyWorkspaceComponent {
     { label: '💃 Dance', insert: '(dancing) ', hint: 'Dance groove with boing SFX' },
     { label: '🤦 Facepalm', insert: '(facepalm) ', hint: 'Forehead slap with bonk SFX & dizzy stars' },
     { label: '😱 Shocked', insert: '(surprised) ', hint: 'Shock fall, crash zoom & vine boom' },
+    { label: '✂️ Scissors', insert: '(cutting) ', hint: '3D Chrome Scissors & Comb in hands + triple चक-चक-चक scissor snip SFX' },
+    { label: '🔑 Key', insert: '[PROP]: key\n', hint: 'Gleaming brass key in speaker hand' },
+    { label: '📱 Phone', insert: '(phone) ', hint: 'Character holds glowing smartphone to ear + ring ding SFX' },
+    { label: '🫖 Tea', insert: '(tea) ', hint: 'Steaming teacup / kulhad in hand with sipping pose' },
+    { label: '🔨 Gavel', insert: '(gavel) ', hint: 'Judge bangs wooden gavel on courtroom bench' },
+    { label: '🎤 Mic', insert: '(mic) ', hint: 'Handheld stage/quiz mic with close-up spotlight' },
+    { label: '💈 Salon Set', insert: '\n[SCENE]: barber shop | day | funny\n', hint: '3D Barber Salon with mirror, hydraulic chair & rotating pole' },
+    { label: '🚪 Gate Set', insert: '\n[SCENE]: neighborhood gate | sunset | dramatic\n', hint: '3D Colony Gate set with lanterns, padlock & brick wall' },
+    { label: '⚖️ Court Set', insert: '\n[SCENE]: courtroom | day | dramatic\n', hint: '3D Courtroom with judge bench, witness box & scales' },
     { label: '🌳 Forest scene', insert: '\n[SCENE]: forest | day | calm\n', hint: 'Forest set with birds & breeze ambience' },
     { label: '🌊 River ghat', insert: '\n[SCENE]: river ghat | dawn | calm\n', hint: 'River ghat with flowing-water ambience' },
     { label: '🏔️ Himalaya', insert: '\n[SCENE]: himalaya | day | dramatic\n', hint: 'Mountain set with wind ambience' },
@@ -936,9 +1145,10 @@ export class ComedyWorkspaceComponent {
 
   async generatePostThumbnail(post: AutomationPost): Promise<void> {
     await this.runBusy(`thumb-${post.id}`, async () => {
-      await firstValueFrom(this.automation.generateAiThumbnail(post.id, post.aiThumbnailPrompt));
+      const promptOverride = post.attachedRenderJobId ? null : post.aiThumbnailPrompt;
+      const updated = await firstValueFrom(this.automation.generateAiThumbnail(post.id, promptOverride));
       await this.loadWorkspaceData(false);
-      this.notice.set('Generated YouTube thumbnail preview!');
+      this.notice.set(`Generated 3D YouTube thumbnail (${updated.thumbnailSource || '3D Scene Thumbnail'})!`);
     });
   }
 

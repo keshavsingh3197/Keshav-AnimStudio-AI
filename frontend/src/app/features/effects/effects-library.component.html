@@ -4,43 +4,135 @@
       <div class="studio-icon-badge">✨</div>
       <div>
         <h2>Effects &amp; reactions</h2>
-        <p class="muted">Your shared library of effects, memes and reactions. Upload media you have permission to use, then add it from the editor's Effects panel.</p>
-        <a routerLink="/comedy">Open comedy workspace</a> · <a routerLink="/story-template">Use memes as funny endings in a story template</a>
+        <p class="muted">Your shared studio library of subscribe overlays, lower thirds, royal/comedy frames, sound effects, animated stingers and reactions. Save once here and drop onto any video in the editor.</p>
+        <a routerLink="/comedy">Open comedy workspace</a> · <a routerLink="/story-template">Use memes in story template</a> · <a routerLink="/motion-copy">3D Dance &amp; Motion Copy</a>
       </div>
     </div>
+    <button type="button" class="fx-btn primary" [disabled]="studioBusy() || uploading()" (click)="installStarterPack()">
+      {{ studioBusy() ? 'Installing effects…' : '🚀 Install Starter Kit (8 Effects)' }}
+    </button>
   </header>
 
-  @if (category() === 'Reaction') {
-    <section class="card fx-create">
-      <h3>Create an original reaction</h3>
-      <p class="muted">Draw a transparent PNG in your browser, then download it or save it to your library. Use your own caption.</p>
+  <section class="card fx-create">
+    <div class="fx-gen-head">
+      <div>
+        <h3>✨ Built-in AnimStudio Effect Generators</h3>
+        <p class="muted" style="margin:0;">Create transparent overlays, lower thirds, reactions, clean synthesized SFX, and animated WebM clips right here — zero copyright issues.</p>
+      </div>
+      <div class="fx-chips" role="tablist">
+        <button type="button" [class.active]="generatorTab() === 'graphics'" (click)="generatorTab.set('graphics')">🎨 Overlays &amp; Frames</button>
+        <button type="button" [class.active]="generatorTab() === 'reactions'" (click)="generatorTab.set('reactions')">😂 10 Comedy &amp; Dance Stickers</button>
+        <button type="button" [class.active]="generatorTab() === 'audioVideo'" (click)="generatorTab.set('audioVideo')">🔊 SFX Synth &amp; Animated Clips</button>
+      </div>
+    </div>
+
+    @if (studioStatus(); as msg) {
+      <p class="fx-gen-status" role="status">{{ msg }}</p>
+    }
+    @if (studioError(); as err) {
+      <p class="fx-error" role="alert">{{ err }}</p>
+    }
+
+    @if (generatorTab() === 'graphics') {
       <div class="fx-create-fields">
-        <label>Expression
-          <select class="form-select" [ngModel]="reactionExpression()" (ngModelChange)="updateReactionExpression($event)">
-            <option value="surprised">Surprised</option>
-            <option value="laughing">Laughing</option>
-            <option value="confused">Confused</option>
-            <option value="unimpressed">Unimpressed</option>
+        <label>Effect Template
+          <select class="form-select" [ngModel]="studioTemplate()" (ngModelChange)="studioTemplate.set($event); makeStudioGraphicPreview()">
+            @for (tpl of graphicTemplates; track tpl.id) {
+              <option [value]="tpl.id">{{ tpl.label }}</option>
+            }
           </select>
         </label>
-        <label>Caption (optional)
-          <input type="text" maxlength="40" [ngModel]="reactionCaption()" (ngModelChange)="updateReactionCaption($event)" placeholder="Write your own punchline" />
+        <label>Style Palette
+          <select class="form-select" [ngModel]="studioTheme()" (ngModelChange)="studioTheme.set($event); makeStudioGraphicPreview()">
+            <option value="royal-gold">🏰 Royal Palace Gold (Guzarish)</option>
+            <option value="comedy-fire">😂 MJO Comedy Fire</option>
+            <option value="sacred-saffron">🪷 Sacred Temple Saffron</option>
+            <option value="cyber-neon">⚡ Cyber Neon</option>
+          </select>
         </label>
-        <button type="button" (click)="makeReaction()">Create preview</button>
+        <label>Format
+          <select class="form-select" [ngModel]="studioAspect()" (ngModelChange)="studioAspect.set($event); makeStudioGraphicPreview()">
+            <option value="16:9">16:9 Widescreen (1280×720)</option>
+            <option value="9:16">9:16 Shorts / Reels (720×1280)</option>
+          </select>
+        </label>
+        <label>Headline / Channel Text
+          <input type="text" maxlength="40" [ngModel]="studioTitle()" (ngModelChange)="studioTitle.set($event); studioPreview.set(null)" />
+        </label>
+        <label>Subtitle / Tagline
+          <input type="text" maxlength="60" [ngModel]="studioSubtitle()" (ngModelChange)="studioSubtitle.set($event); studioPreview.set(null)" />
+        </label>
+        <button type="button" class="fx-btn" (click)="makeStudioGraphicPreview()">👁 Preview</button>
+        <button type="button" class="fx-btn primary" [disabled]="studioBusy()" (click)="saveStudioGraphic()">＋ Save to Library</button>
+      </div>
+      @if (studioPreview(); as sPrev) {
+        <div class="fx-reaction-result">
+          <img class="fx-wide-preview" [src]="sPrev" alt="Preview of generated transparent studio overlay" />
+          <div class="fx-actions">
+            <button type="button" class="fx-btn primary" [disabled]="studioBusy()" (click)="saveStudioGraphic()">Save to Effects Library</button>
+            <a class="fx-btn" [href]="sPrev" [download]="studioTemplate() + '.png'">Download PNG</a>
+          </div>
+        </div>
+      }
+    } @else if (generatorTab() === 'reactions') {
+      <div class="fx-create-fields">
+        <label>Sticker Expression
+          <select class="form-select" [ngModel]="reactionExpression()" (ngModelChange)="updateReactionExpression($event)">
+            @for (r of reactionPresets; track r.id) {
+              <option [value]="r.id">{{ r.label }}</option>
+            }
+          </select>
+        </label>
+        <label>Caption (optional Hindi/English punchline)
+          <input type="text" maxlength="40" [ngModel]="reactionCaption()" (ngModelChange)="updateReactionCaption($event)" placeholder="e.g. ABE TAKLA KAR DIYA?!" />
+        </label>
+        <button type="button" class="fx-btn" (click)="makeReaction()">👁 Create Preview</button>
       </div>
       @if (reactionPreview(); as preview) {
         <div class="fx-reaction-result">
           <img [src]="preview" alt="Preview of your original reaction graphic" />
           <div class="fx-actions">
-            <button type="button" [disabled]="uploading()" (click)="saveReaction()">Save to meme library</button>
+            <button type="button" class="fx-btn primary" [disabled]="studioBusy() || uploading()" (click)="saveReaction()">Save to Meme Library</button>
             <a class="fx-btn" [href]="preview" [download]="'reaction-' + reactionExpression() + '.png'">Download PNG</a>
           </div>
         </div>
       }
-      <p class="muted">These are still images, not video or sound. Add them manually from the editor's Effects panel.
-        No service can guarantee that YouTube will never issue a claim; check your caption and all other media too.</p>
-    </section>
-  }
+    } @else {
+      <div class="fx-av-block">
+        <div class="fx-av-head">
+          <strong>🔊 Clean Synthesized Sound Effects (.WAV)</strong>
+          <button type="button" class="fx-btn primary" [disabled]="studioBusy()" (click)="saveAllSfx()">📦 Add All 9 SFX to Library</button>
+        </div>
+        <div class="fx-sfx-grid">
+          @for (s of sfxPresets; track s.id) {
+            <div class="fx-sfx-card">
+              <div class="fx-sfx-title">{{ s.icon }} {{ s.name }} <span class="muted">({{ s.durationSec }}s)</span></div>
+              <p class="muted fx-sfx-desc">{{ s.description }}</p>
+              <div class="fx-actions">
+                <button type="button" class="fx-btn" (click)="previewSfx(s.id)">{{ playingSfxId() === s.id ? '⏸ Playing' : '▶ Hear' }}</button>
+                <button type="button" class="fx-btn primary" [disabled]="studioBusy()" (click)="saveSfx(s.id)">＋ Save</button>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="fx-av-head" style="margin-top:.85rem;">
+          <strong>🎬 Animated Video Overlays &amp; Stingers (.WebM)</strong>
+        </div>
+        <div class="fx-sfx-grid">
+          @for (v of videoPresets; track v.id) {
+            <div class="fx-sfx-card">
+              <div class="fx-sfx-title">{{ v.icon }} {{ v.name }} <span class="muted">({{ v.durationSec }}s)</span></div>
+              <p class="muted fx-sfx-desc">{{ v.description }}</p>
+              <div class="fx-actions">
+                <button type="button" class="fx-btn primary" [disabled]="studioBusy()" (click)="saveAnimatedClip(v.id)">🎬 Generate &amp; Save</button>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </section>
 
   <section class="card fx-create">
     <h3>Import from a link</h3>

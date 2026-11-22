@@ -237,6 +237,24 @@ export class VisionEngine {
   }
 
   /**
+   * Bodies only (no faces, hands or mask) with MediaPipe's 3D world landmarks, for analysing a
+   * whole video offline, where the per-frame cost decides how many frames get copied.
+   */
+  detectBodies(video: HTMLVideoElement): BodyPose[] | null {
+    if (!this.pose || video.readyState < 2 || !video.videoWidth) return null;
+
+    const now = performance.now();
+    const timestamp = now <= this.lastTimestamp ? this.lastTimestamp + 1 : now;
+    this.lastTimestamp = timestamp;
+
+    const result = this.pose.detectForVideo(video, timestamp);
+    return result.landmarks.map((points, i) => ({
+      points: points.map((p) => ({ x: p.x, y: p.y, v: p.visibility ?? 1 })),
+      world: result.worldLandmarks[i]?.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+    }));
+  }
+
+  /**
    * Finds the body (and optionally the person mask) in one still picture, so a character can be
    * rigged from a single image. Needs the motion models loaded; the mask needs the base models.
    */

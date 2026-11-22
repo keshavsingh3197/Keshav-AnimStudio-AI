@@ -185,13 +185,13 @@ const VISUAL_ENGINE_OPTIONS: { value: AutomationVisualEngine; label: string; hin
 const NARRATIVE_MODE_OPTIONS: { value: AutomationNarrativeMode; label: string; shortLabel: string }[] = [
   { value: 'Auto', label: 'Auto (Short 9:16 / Full Story 16:9)', shortLabel: 'Auto Length' },
   { value: 'ShortReel', label: 'Short Reel (<= 60s)', shortLabel: 'Short <= 60s' },
-  { value: 'FullStory', label: 'Full Complete Story (Short < 3 min · 16:9 video up to 10 min)', shortLabel: 'Full Story' },
+  { value: 'FullStory', label: 'Full Complete Story (Short < 3 min · 16:9 video up to 60 min)', shortLabel: 'Full Story' },
 ];
 
 /** YouTube's limit for a Short; vertical and community videos stay within it. */
 const SHORT_MAX_SECONDS = 180;
-/** A full 16:9 video may run the whole story (matches the server's limit). */
-const FULL_VIDEO_MAX_SECONDS = 600;
+/** A full 16:9 video may run the whole story up to 1 hour (matches the server's limit). */
+const FULL_VIDEO_MAX_SECONDS = 3600;
 
 @Component({
   selector: 'app-automation-hub',
@@ -218,6 +218,10 @@ const FULL_VIDEO_MAX_SECONDS = 600;
           </label>
           <button type="button" class="btn primary" [disabled]="busy()" (click)="prepareToday(false)">
             @if (busyAction() === 'prepare') { <span class="btn-spin" aria-hidden="true"></span> Preparing… } @else { Prepare Daily List }
+          </button>
+          <button type="button" class="btn primary" [disabled]="busy()" (click)="runPreparePublishPack()"
+                  title="Rebalance Bhakti & Keshav channels, prepare posts, generate 3D/2D videos & thumbnails, sync Calendar, and upload Private scheduled at each channel's peak viewer time">
+            @if (busyAction() === 'prepare-pack') { <span class="btn-spin" aria-hidden="true"></span> Scheduling Pack… } @else { 🚀 Auto-Prepare &amp; Private Schedule }
           </button>
           <button type="button" class="btn ghost" [disabled]="busy()" (click)="prepareToday(true)" title="Re-compose non-published items from fresh signals">
             Re-Compose Unposted
@@ -491,7 +495,8 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       {{ sourceInfo(post.sourceType).icon }} {{ sourceInfo(post.sourceType).label }}
                     </span>
                     <span class="pill" [ngClass]="'tone-' + statusInfo(post.status).tone">{{ statusInfo(post.status).label }}</span>
-                    <span class="pill subtle">{{ post.format }} • {{ post.language.toUpperCase() }}</span>
+                    <span class="pill subtle">{{ formatDisplay(post.format) }} • {{ post.language.toUpperCase() }}</span>
+                    <span class="pill subtle">{{ privacyDisplay(post) }}</span>
                     @if (post.scheduledAtUtc && post.status !== 'Published') {
                       <span class="pill info" [title]="'UTC: ' + post.scheduledAtUtc">🕒 {{ formatLocalSchedule(post.scheduledAtUtc) }}</span>
                     }
@@ -506,16 +511,25 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                     }
                   </div>
 
-                  <h3 class="post-title clamp-2">{{ post.title }}</h3>
-                  <div class="channel-line">
-                    @if (post.targetChannelTitle || post.targetChannelHandle) {
-                      <span class="chan-badge">▶ {{ post.targetChannelTitle || post.targetChannelHandle }}</span>
-                    } @else {
-                      <span class="chan-missing">No YouTube channel assigned</span>
+                  <div class="card-thumb-row">
+                    @if (hasPostThumbnail(post)) {
+                      <div class="card-thumb-box" [class.portrait]="post.format === 'Vertical'">
+                        <img class="thumb-preview-img" [src]="postThumbnailUrl(post)" [alt]="post.title" loading="lazy" />
+                      </div>
                     }
-                    @if (!isQueueCardExpanded(post.id)) {
-                      <span class="muted-note">• {{ post.attachedHandoffId || post.attachedRenderJobId ? '🎬 Video Ready' : 'Draft Only' }} • {{ hasPostThumbnail(post) ? '🖼 Thumb ✓' : 'No Thumb' }}</span>
-                    }
+                    <div class="card-thumb-meta">
+                      <h3 class="post-title clamp-2">{{ post.title }}</h3>
+                      <div class="channel-line">
+                        @if (post.targetChannelTitle || post.targetChannelHandle) {
+                          <span class="chan-badge">▶ {{ post.targetChannelTitle || post.targetChannelHandle }}</span>
+                        } @else {
+                          <span class="chan-missing">No YouTube channel assigned</span>
+                        }
+                        @if (!isQueueCardExpanded(post.id)) {
+                          <span class="muted-note">• {{ post.attachedHandoffId || post.attachedRenderJobId ? '🎬 Video Ready' : 'Draft Only' }} • {{ hasPostThumbnail(post) ? '🖼 Thumb ✓' : 'No Thumb' }}</span>
+                        }
+                      </div>
+                    </div>
                   </div>
 
                   @if (isQueueCardExpanded(post.id)) {
@@ -604,6 +618,12 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       <button type="button" class="btn tiny ok" (click)="openVideoPreview(post)">▶ Preview</button>
                     }
                     @if (post.status !== 'Published' && post.status !== 'Publishing' && post.format !== 'CommunityPost') {
+                      <button type="button" class="btn tiny primary"
+                              [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
+                              title="Auto-fill SEO + Thumbnail and upload Private on YouTube scheduled at peak viewer time"
+                              (click)="uploadPrivateAtPeak(post)">
+                        {{ busyAction() === 'peak:' + post.id ? 'Scheduling…' : '⏰ Private Peak' }}
+                      </button>
                       <button type="button" class="btn tiny ok"
                               [disabled]="busy() || post.verificationStatus === 'Mismatch' || (!post.attachedHandoffId && !post.attachedRenderJobId) || !post.targetChannelId"
                               [title]="post.verificationStatus === 'Mismatch' ? 'Date/fact mismatch detected — click Fix Verified Data first' : (!post.targetChannelId ? 'Assign a YouTube channel in Details first' : (!(post.attachedHandoffId || post.attachedRenderJobId) ? 'Generate or attach a video first' : 'Publish to YouTube now'))"
@@ -743,6 +763,10 @@ const FULL_VIDEO_MAX_SECONDS = 600;
               </button>
               <button type="button" class="btn ghost" [disabled]="busy()" (click)="bootstrapStarterRules()">
                 Auto-Discover Channels &amp; Starter Rules
+              </button>
+              <button type="button" class="btn ghost" [disabled]="busy()" (click)="rebalanceStarterChannels()"
+                      title="Route Panchang / Festival / Katha to Devotional channel and Aaj Ka Itihaas / Promo to Keshav World/History channel">
+                {{ busyAction() === 'rebalance' ? 'Routing…' : '🔀 Fix Bhakti & History Channels' }}
               </button>
             </div>
             <div class="muted-note">
@@ -941,7 +965,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       <span class="pill" [ngClass]="'tone-' + statusInfo(post.status).tone">
                         {{ statusInfo(post.status).label }}
                       </span>
-                      <span class="pill subtle">{{ post.format }} • {{ post.language.toUpperCase() }}</span>
+                      <span class="pill subtle">{{ formatDisplay(post.format) }} • {{ post.language.toUpperCase() }}</span>
                     </div>
                     <span class="date-tag">{{ post.dateKey }}</span>
                   </div>
@@ -959,7 +983,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                   @if (post.format !== 'CommunityPost') {
                     <div class="meta-pills-row">
                       <span class="pill subtle">📂 {{ categoryName(post.categoryId) }}</span>
-                      <span class="pill subtle">👁 {{ post.privacy }}</span>
+                      <span class="pill subtle">{{ privacyDisplay(post) }}</span>
                       <span class="pill subtle">👶 Kids: {{ post.madeForKids ? 'Yes' : 'No' }}</span>
                       <span class="pill subtle">🏷 {{ post.tags.length }} tags</span>
                       @if (post.scheduledAtUtc) {
@@ -1265,7 +1289,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
                       </div>
 
                       <div class="thumb-studio-box">
-                        <div class="thumb-preview-slot">
+                        <div class="thumb-preview-slot" [class.portrait]="post.format === 'Vertical'">
                           @if (hasPostThumbnail(post)) {
                             <img class="thumb-preview-img" [src]="postThumbnailUrl(post)" [alt]="post.title" />
                           } @else {
@@ -2081,7 +2105,7 @@ const FULL_VIDEO_MAX_SECONDS = 600;
 
               @if (draft.format !== 'CommunityPost') {
                 <div class="thumb-studio-box">
-                  <div class="thumb-preview-slot">
+                  <div class="thumb-preview-slot" [class.portrait]="draft.format === 'Vertical'">
                     @if (hasPostThumbnail(draft)) {
                       <img class="thumb-preview-img" [src]="postThumbnailUrl(draft)" [alt]="draft.title" />
                     } @else {
@@ -2916,7 +2940,12 @@ const FULL_VIDEO_MAX_SECONDS = 600;
       border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border);
     }
     .thumb-preview-slot { width: 176px; flex: 0 0 auto; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #090b12; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
-    .thumb-preview-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb-preview-slot.portrait { width: 112px; aspect-ratio: 9 / 16; }
+    .thumb-preview-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .card-thumb-row { display: flex; gap: 10px; align-items: flex-start; margin: 2px 0; }
+    .card-thumb-box { width: 128px; flex: 0 0 auto; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #090b12; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+    .card-thumb-box.portrait { width: 54px; aspect-ratio: 9 / 16; }
+    .card-thumb-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
     .thumb-empty-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; text-align: center; padding: 6px; }
     .thumb-empty-slot span { font-size: 20px; line-height: 1; }
     .thumb-controls-col { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -3318,13 +3347,19 @@ export class AutomationHubComponent implements OnInit {
     { value: 145, label: 'Full Story (~2.5 min)' },
     { value: 180, label: 'Complete Katha / Story (< 3 min / 180s)' },
   ];
-  /** A full 16:9 video is not a Short, so it may run the whole story: up to 10 minutes. */
+  /** A full 16:9 video is not a Short, so it may run the whole story: up to 60 minutes (1 hour). */
   private readonly fullVideoDurationOptions: ReadonlyArray<{ value: number; label: string }> = [
     ...this.shortDurationOptions,
     { value: 240, label: 'Long Story (~4 min)' },
     { value: 300, label: 'Detailed Katha (~5 min)' },
     { value: 420, label: 'Extended Katha (~7 min)' },
-    { value: 600, label: 'Complete Full Video (~10 min)' },
+    { value: 600, label: 'Complete Episode (~10 min)' },
+    { value: 780, label: 'Deep Episode (~13 min)' },
+    { value: 900, label: 'Feature Episode (~15 min)' },
+    { value: 1200, label: 'MJO / Katha Feature (~20 min)' },
+    { value: 1800, label: 'Half-Hour Special (~30 min)' },
+    { value: 2700, label: 'Extended Feature (~45 min)' },
+    { value: 3600, label: '1-Hour Full Epic (~60 min)' },
   ];
   private readonly postDurationMap = new Map<string, number>();
 
@@ -4336,6 +4371,36 @@ export class AutomationHubComponent implements OnInit {
     });
   }
 
+  async rebalanceStarterChannels(): Promise<void> {
+    await this.runAction('rebalance', async () => {
+      const res = await firstValueFrom(this.api.rebalanceChannels());
+      this.status.showNotice(
+        `Routed ${res.rulesUpdated} rule(s), ${res.topicsUpdated} topic(s) & ${res.postsUpdated} draft(s) cleanly across Bhakti and World/History channels.`
+      );
+      await this.loadOverview(true);
+    });
+  }
+
+  async runPreparePublishPack(): Promise<void> {
+    await this.runAction('prepare-pack', async () => {
+      const res = await firstValueFrom(
+        this.api.preparePublishPack({
+          dateKey: this.selectedDate(),
+          rebalanceChannels: true,
+          generateVideos: true,
+          syncToCalendar: true,
+          scheduleOnYouTubePrivate: true,
+        })
+      );
+      const warnSuffix = res.warnings.length > 0 ? ` (${res.warnings.length} note(s): ${res.warnings[0]})` : '';
+      this.status.showNotice(
+        `Prepared ${res.preparedCount} item(s) for ${res.dateKey}: ${res.videosReadyCount} video(s), ${res.thumbnailsReadyCount} thumb(s), ${res.calendarSyncedCount} synced to Calendar, ${res.scheduledPrivateOnYouTubeCount} uploaded Private/Scheduled${warnSuffix}.`
+      );
+      await this.loadOverview(true);
+      this.activeTab.set('queue');
+    });
+  }
+
   async runSingleRule(rule: AutomationRule): Promise<void> {
     await this.runAction('prepare-rule', async () => {
       const res = await firstValueFrom(
@@ -4426,6 +4491,29 @@ export class AutomationHubComponent implements OnInit {
     const d = new Date(utcIso);
     if (Number.isNaN(d.getTime())) return utcIso;
     return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  formatDisplay(format?: string | null): string {
+    if (format === 'Wide') return '📺 Video (16:9)';
+    if (format === 'Vertical') return '📱 Short (9:16)';
+    if (format === 'CommunityPost') return '🖼 Community (1:1)';
+    return format || 'Video';
+  }
+
+  isFutureUtc(utcIso?: string | null): boolean {
+    if (!utcIso) return false;
+    const d = new Date(utcIso);
+    return !Number.isNaN(d.getTime()) && d.getTime() > Date.now();
+  }
+
+  privacyDisplay(post: AutomationPost): string {
+    if (post.status === 'Published' && this.isFutureUtc(post.scheduledAtUtc)) {
+      return '🔒 Private (Releases at Scheduled Time)';
+    }
+    const p = (post.privacy ?? '').toLowerCase();
+    if (p === 'private') return '🔒 Private';
+    if (p === 'unlisted') return '🔗 Unlisted';
+    return `👁 ${post.privacy || 'Public'}`;
   }
 
   toLocalDateTimeInput(utcIso?: string | null): string {
@@ -4930,6 +5018,28 @@ export class AutomationHubComponent implements OnInit {
     });
   }
 
+  async uploadPrivateAtPeak(post: AutomationPost): Promise<void> {
+    await this.runAction(`peak:${post.id}`, async () => {
+      const filled = await firstValueFrom(this.api.autoFillDetails(post.id));
+      let targetUtc = filled.scheduledAtUtc ?? null;
+      if (!targetUtc || new Date(targetUtc).getTime() <= Date.now() + 20 * 60_000) {
+        const adv = await firstValueFrom(
+          this.api.getPublishAdvice(filled.sourceType, filled.format, filled.targetChannelId, null, filled.dateKey)
+        );
+        targetUtc = adv.recommendedAtUtc || adv.slots[0]?.atUtc || targetUtc;
+      }
+      await firstValueFrom(
+        this.api.publishPost(post.id, {
+          publishNow: false,
+          scheduledAtUtc: targetUtc,
+          scheduleOnYouTube: true,
+        })
+      );
+      this.status.showNotice(`Uploaded "${filled.title}" Private -> scheduled on YouTube for peak time!`);
+      await this.loadOverview(true);
+    });
+  }
+
   async scheduleForRuleTime(post: AutomationPost): Promise<void> {
     await this.runAction('schedule', async () => {
       await firstValueFrom(
@@ -5279,10 +5389,12 @@ export class AutomationHubComponent implements OnInit {
     sourceType: AutomationSourceType,
     format: AutomationVideoFormat,
     channelId?: string | null,
+    dateKey?: string | null,
   ): Promise<void> {
     this.loadingAdvice.set(true);
     try {
-      const adv = await firstValueFrom(this.api.getPublishAdvice(sourceType, format, channelId));
+      const targetDate = dateKey ?? this.editingPost()?.dateKey ?? this.selectedDate();
+      const adv = await firstValueFrom(this.api.getPublishAdvice(sourceType, format, channelId, null, targetDate));
       this.publishAdvice.set(adv);
     } catch (err: unknown) {
       this.status.showError(this.readErr(err, 'Could not compute peak publish slots.'));

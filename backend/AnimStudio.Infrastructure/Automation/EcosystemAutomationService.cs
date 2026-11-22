@@ -137,12 +137,15 @@ public sealed partial class EcosystemAutomationService(
     IEffectClipRepository? effects = null,
     IAiSettingsRepository? aiSettingsRepo = null,
     YouTubeThumbnailService? thumbnailService = null,
-    ProceduralFixedThumbnailGenerator? fixedThumbnailGenerator = null)
+    ProceduralFixedThumbnailGenerator? fixedThumbnailGenerator = null,
+    ProceduralComedyThumbnailService? comedyThumbnailService = null,
+    IYouTubeChannelAnalysisRepository? channelAnalyses = null)
 {
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
     private const string CharacterLibraryProjectName = "Automation Characters Library";
     private const string BackgroundTemplatesProjectName = "Automation Background Templates";
+    private const int ShortMaxSeconds = 180;
 
     /// <summary>Start of the post's stage summary while its story waits for a review; the web app matches on it.</summary>
     private const string ReviewSummaryPrefix = "Waiting for your review: ";
@@ -182,7 +185,10 @@ public sealed partial class EcosystemAutomationService(
         string? actorUserId,
         CancellationToken ct)
     {
-        config.DefaultLocation = string.IsNullOrWhiteSpace(config.DefaultLocation) ? "New Delhi, India" : config.DefaultLocation.Trim();
+        config.DefaultLocation = string.IsNullOrWhiteSpace(config.DefaultLocation)
+            || config.DefaultLocation.Contains("New Delhi", StringComparison.OrdinalIgnoreCase)
+            ? "India (IST)"
+            : config.DefaultLocation.Trim();
         config.DefaultTimeZone = string.IsNullOrWhiteSpace(config.DefaultTimeZone) ? "Asia/Kolkata" : config.DefaultTimeZone.Trim();
         config.PanchangApiBaseUrl = NormalizeOptionalUrl(config.PanchangApiBaseUrl, "Panchang API URL");
         config.SocialApiBaseUrl = NormalizeOptionalUrl(config.SocialApiBaseUrl, "Social Analytics API URL");
@@ -309,7 +315,10 @@ public sealed partial class EcosystemAutomationService(
         rule.TopicName = string.IsNullOrWhiteSpace(draft.TopicName) ? null : draft.TopicName.Trim();
         rule.Language = string.IsNullOrWhiteSpace(draft.Language) ? "hi" : draft.Language.Trim().ToLowerInvariant();
         rule.TargetSeconds = Math.Clamp(draft.TargetSeconds, MinVideoSeconds, MaxSecondsFor(rule.VideoFormat));
-        rule.Location = string.IsNullOrWhiteSpace(draft.Location) ? "New Delhi, India" : draft.Location.Trim();
+        rule.Location = string.IsNullOrWhiteSpace(draft.Location)
+            || draft.Location.Contains("New Delhi", StringComparison.OrdinalIgnoreCase)
+            ? "India (IST)"
+            : draft.Location.Trim();
         rule.PreferredPublishTime = NormalizeTimeHhMm(draft.PreferredPublishTime);
         rule.TimeZoneId = string.IsNullOrWhiteSpace(draft.TimeZoneId) ? "Asia/Kolkata" : draft.TimeZoneId.Trim();
         rule.DaysOfWeek = draft.DaysOfWeek.Where(d => d is >= 0 and <= 6).Distinct().OrderBy(d => d).ToList();
@@ -332,10 +341,21 @@ public sealed partial class EcosystemAutomationService(
         rule.PreferFast2DAnimation = draft.PreferFast2DAnimation;
         if (rule.SourceType == AutomationSourceType.FunnyComedy && string.Equals(rule.CategoryId, "22", StringComparison.Ordinal))
             rule.CategoryId = "23";
-        if (rule.NarrativeMode == AutomationNarrativeMode.FullStory && rule.TargetSeconds < 95)
-            rule.TargetSeconds = 165;
+        if (rule.TargetSeconds > ShortMaxSeconds)
+        {
+            rule.VideoFormat = AutomationVideoFormat.Wide;
+            rule.NarrativeMode = AutomationNarrativeMode.FullStory;
+        }
+        else if (rule.NarrativeMode == AutomationNarrativeMode.FullStory && rule.TargetSeconds < 95)
+        {
+            rule.TargetSeconds = rule.SourceType == AutomationSourceType.DailyKatha ? 220 : 165;
+            if (rule.TargetSeconds > ShortMaxSeconds)
+                rule.VideoFormat = AutomationVideoFormat.Wide;
+        }
         else if (rule.NarrativeMode == AutomationNarrativeMode.ShortReel && rule.TargetSeconds > 60)
+        {
             rule.TargetSeconds = 55;
+        }
         rule.AttachedAssetIds = [.. draft.AttachedAssetIds
             .Where(a => !string.IsNullOrWhiteSpace(a))
             .Select(a => a.Trim())
@@ -377,23 +397,20 @@ public sealed partial class EcosystemAutomationService(
     public async Task<IReadOnlyList<AutomationRule>> BootstrapDefaultRulesAsync(string userId, CancellationToken ct)
     {
         var existing = await repository.ListRulesAsync(userId, ct).ConfigureAwait(false);
-        if (existing.Count > 0) return existing;
+        if (existing.Count > 0)
+        {
+            var rebalanced = await RebalanceStarterChannelsAsync(userId, ct).ConfigureAwait(false);
+            return rebalanced.Rules;
+        }
 
         var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var ecosystem = await ecosystemProvider.GetAsync(forceRefresh: false, ct).ConfigureAwait(false);
         var connected = await connections.ListAsync(userId, ct).ConfigureAwait(false);
         var topics = (await topicsRepo.ListByUserAsync(userId, ct).ConfigureAwait(false)).ToList();
 
-        var devotionalChannel = MatchConnectedChannel(connected, ecosystem, ["bhakti", "shiv", "hindu", "panchang", "devotional", "sanatan", "katha", "omkar"])
-            ?? MatchCentralChannel(ecosystem, ["bhakti", "shiv", "hindu", "panchang", "devotional", "sanatan"]);
-
-        var worldChannel = MatchConnectedChannel(connected, ecosystem, ["world", "history", "tech", "knowledge", "keshav", "ai", "fact", "education"])
-            ?? MatchCentralChannel(ecosystem, ["world", "history", "tech", "knowledge", "keshav", "ai"])
-            ?? connected
-                .Where(c => !ComedyChannelMatcher.IsDevotionalOrSeriousChannelHint(c.ChannelHandle, c.ChannelTitle))
-                .Select(c => ((string, string, string?)?)(c.ChannelId, c.ChannelTitle, c.ChannelHandle))
-                .FirstOrDefault()
-            ?? devotionalChannel;
+        var channelMap = ResolveStarterChannels(connected, ecosystem);
+        var devotionalChannel = channelMap.Devotional ?? channelMap.AnyFallback;
+        var worldChannel = channelMap.WorldHistory ?? channelMap.AnyFallback;
 
         var panchangTopic = await EnsureTopicAsync(userId, topics, "Hindu Panchang & Muhurat", devotionalChannel?.ChannelId, devotionalChannel?.Title, ct).ConfigureAwait(false);
         var festivalTopic = await EnsureTopicAsync(userId, topics, "Hindu Festivals & Vrat", devotionalChannel?.ChannelId, devotionalChannel?.Title, ct).ConfigureAwait(false);
@@ -414,13 +431,18 @@ public sealed partial class EcosystemAutomationService(
         rashifalRule.PreferFast2DAnimation = true;
         rashifalRule.TargetSeconds = 30;
 
+        var kathaRule = BuildStarterRule(userId, 3, "Evening Daily Vedic Katha & Mantra", "Sacred spiritual full-story video (>3 min 16:9) + mantra from Hindu Panchang cultural feed.",
+            AutomationSourceType.DailyKatha, devotionalChannel, kathaTopic, "19:00", settings, ["panchang", "studio"], "22", now);
+        kathaRule.VideoFormat = AutomationVideoFormat.Wide;
+        kathaRule.NarrativeMode = AutomationNarrativeMode.FullStory;
+        kathaRule.TargetSeconds = 220;
+
         var defaults = new[]
         {
             panchangRule,
             BuildStarterRule(userId, 2, "Upcoming Festivals, Ekadashi & Vrat Alert", "Automatic Puja Vidhi & significance alerts from the Panchang festival engine.",
                 AutomationSourceType.HinduFestival, devotionalChannel, festivalTopic, "07:15", settings, ["panchang", "studio"], "22", now),
-            BuildStarterRule(userId, 3, "Evening Daily Vedic Katha & Mantra", "Sacred spiritual story + mantra from Hindu Panchang cultural feed.",
-                AutomationSourceType.DailyKatha, devotionalChannel, kathaTopic, "19:00", settings, ["panchang", "studio"], "22", now),
+            kathaRule,
             BuildStarterRule(userId, 4, "Aaj Ka Itihaas (On This Day History)", "Historical events & milestones for world/knowledge channel linking back to Archive & Exam GK.",
                 AutomationSourceType.AajKaItihaas, worldChannel, historyTopic, "18:00", settings, ["panchang", "pratiyogita", "blog", "studio"], "27", now),
             BuildStarterRule(userId, 5, "Pratiyogita & Ecosystem Growth Spotlight", "Promotes live quizzes/competitions, AI video tools & analytics portal to build cross-site traffic.",
@@ -520,7 +542,8 @@ public sealed partial class EcosystemAutomationService(
                 ? signals
                 : await signalsClient.FetchAsync(effectiveDate, rule.Location, settings.PanchangApiBaseUrl, settings.SocialApiBaseUrl, settings.PratiyogitaApiBaseUrl, ct).ConfigureAwait(false);
 
-            var composedItems = AutomationContentComposer.ComposeForRule(rule, ruleSignals, ecosystem);
+            var dedupedSignals = await DeduplicateSignalsForRuleAsync(userId, rule, effectiveDate, ruleSignals, ct).ConfigureAwait(false);
+            var composedItems = AutomationContentComposer.ComposeForRule(rule, dedupedSignals, ecosystem);
             foreach (var composed in composedItems)
             {
                 var postDateKey = AutomationFactVerifier.ExtractIsoDateKey(composed.EventDateKey) ?? effectiveDate;
@@ -605,13 +628,28 @@ public sealed partial class EcosystemAutomationService(
                     ?? (rule.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
                         ? settings.PanchangShowWatermark
                         : null);
-                post.PreferFast2DAnimation = rule.PreferFast2DAnimation
-                    || (rule.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
-                        && settings.PanchangUseFast2DAnimation);
+                var postHasMultiScene = !string.IsNullOrWhiteSpace(post.Script)
+                    && post.Script.Contains("[SCENE]:", StringComparison.OrdinalIgnoreCase);
+                post.PreferFast2DAnimation = !postHasMultiScene
+                    && (rule.PreferFast2DAnimation
+                        || (rule.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+                            && settings.PanchangUseFast2DAnimation));
+
+                if (existing is not null && forceRegenerate)
+                {
+                    post.AttachedHandoffId = null;
+                    post.AttachedHandoffTitle = null;
+                    post.AttachedRenderJobId = null;
+                    post.AttachedVideoSourceLabel = null;
+                    post.Status = AutomationPostStatus.PreparedPreview;
+                    if (post.Stage is not null)
+                        post.Stage.BackgroundTemplateAssetId = null;
+                    await DeleteThumbnailObjectAsync(post, ct).ConfigureAwait(false);
+                }
 
                 if (rule.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal)
                 {
-                    if (!string.IsNullOrWhiteSpace(settings.PanchangDefaultBackgroundAssetId))
+                    if (!postHasMultiScene && !string.IsNullOrWhiteSpace(settings.PanchangDefaultBackgroundAssetId))
                     {
                         post.Stage ??= new AutomationStageSettings();
                         if (string.IsNullOrWhiteSpace(post.Stage.BackgroundTemplateAssetId))
@@ -623,8 +661,14 @@ public sealed partial class EcosystemAutomationService(
                         await ApplyDefaultAssetThumbnailBestEffortAsync(userId, post, settings.PanchangDefaultThumbnailAssetId, ct).ConfigureAwait(false);
                     }
                 }
-                if (post.NarrativeMode == AutomationNarrativeMode.FullStory && post.TargetSeconds is null or < 95)
-                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, MaxSecondsFor(rule.VideoFormat));
+                if (rule.TargetSeconds > ShortMaxSeconds)
+                {
+                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds, 185, MaxSecondsFor(AutomationVideoFormat.Wide));
+                    post.Format = AutomationVideoFormat.Wide;
+                    post.NarrativeMode = AutomationNarrativeMode.FullStory;
+                }
+                else if (post.NarrativeMode == AutomationNarrativeMode.FullStory && post.TargetSeconds is null or < 95)
+                    post.TargetSeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : 165, 95, MaxSecondsFor(post.Format));
                 else if (post.NarrativeMode == AutomationNarrativeMode.ShortReel)
                     post.TargetSeconds = Math.Clamp(rule.TargetSeconds <= 60 ? rule.TargetSeconds : 55, 25, 60);
                 if (post.AttachedAssetIds.Count == 0 && rule.AttachedAssetIds.Count > 0)
@@ -683,7 +727,7 @@ public sealed partial class EcosystemAutomationService(
                 {
                     post.Status = AutomationPostStatus.Approved;
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
-                    if (!post.ScheduledAtUtc.HasValue || post.ScheduledAtUtc.Value <= UtcNow)
+                    if (settings.AutopilotReleaseAtPeakTime || !post.ScheduledAtUtc.HasValue || post.ScheduledAtUtc.Value <= UtcNow)
                     {
                         await PublishAutopilotPostAsync(post, settings, ct).ConfigureAwait(false);
                     }
@@ -693,6 +737,8 @@ public sealed partial class EcosystemAutomationService(
                 {
                     await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                 }
+
+                await EnsureCalendarPlanItemIdAsync(userId, post, ct).ConfigureAwait(false);
 
                 if (!postsOnDate.Any(p => string.Equals(p.Id, post.Id, StringComparison.Ordinal)))
                     postsOnDate.Add(post);
@@ -1446,9 +1492,9 @@ public sealed partial class EcosystemAutomationService(
         return post;
     }
 
-    private const int MaxTemplateReplyChars = 60_000;
+    private const int MaxTemplateReplyChars = 240_000;
     /// <summary>Enough for a 10-minute full video (about 72 lines) with room to spare.</summary>
-    internal const int MaxPastedDialogueTurns = 90;
+    internal const int MaxPastedDialogueTurns = 450;
 
     /// <summary>Spoken words per second the voice engine averages (Hindi and English are close enough to share it).</summary>
     private const double SpokenWordsPerSecond = 2.4;
@@ -1911,16 +1957,6 @@ public sealed partial class EcosystemAutomationService(
             return post;
         }
 
-        DateTime? youtubeReleaseAt = null;
-        if (scheduleOnYouTube && scheduledAtUtc is { } targetRelease)
-        {
-            if (targetRelease < UtcNow + PublishQueueRules.MinYouTubeReleaseLead)
-                throw EditingException.Invalid("schedule-too-soon", "Pick a YouTube release time at least 15 minutes from now (or publish immediately).");
-            post.ScheduledAtUtc = targetRelease;
-            post.Privacy = "public";
-            youtubeReleaseAt = targetRelease;
-        }
-
         // Work on the stored copy from here on: the caller's object may be stale (the worker loaded it before a
         // click published it), and the claim below has to compare against what is really saved.
         var stored = await repository.GetPostAsync(post.Id, ct).ConfigureAwait(false) ?? post;
@@ -1931,6 +1967,28 @@ public sealed partial class EcosystemAutomationService(
                 "This card is already on YouTube. Use 'Remove / Move' first to delete it there or publish it to another channel.");
         post = stored;
         var previousStatus = post.Status;
+
+        DateTime? youtubeReleaseAt = null;
+        if (scheduleOnYouTube)
+        {
+            if (scheduledAtUtc is not { } targetRelease)
+                throw EditingException.Invalid("schedule-time-required", "Pick a future peak schedule slot before scheduling on YouTube.");
+            if (targetRelease < UtcNow + PublishQueueRules.MinYouTubeReleaseLead)
+                throw EditingException.Invalid("schedule-too-soon", "Pick a YouTube release time at least 15 minutes from now (or publish immediately).");
+            post.ScheduledAtUtc = targetRelease;
+            post.Privacy = "public";
+            youtubeReleaseAt = targetRelease;
+        }
+        else if (publishNow)
+        {
+            post.ScheduledAtUtc = null;
+        }
+
+        // Auto-ensure custom thumbnail & clean policy packaging right before queue upload
+        if (string.IsNullOrWhiteSpace(post.ThumbnailStorageKey))
+        {
+            await TryGenerateAndSaveSceneThumbnailAsync(post, ct).ConfigureAwait(false);
+        }
 
         // Route 1: Completed RenderJob (direct or from attached StoryRun / Handoff) -> PublishQueueService!
         var renderJob = await ResolveUsableRenderJobAsync(userId, post, ct).ConfigureAwait(false);
@@ -1949,7 +2007,7 @@ public sealed partial class EcosystemAutomationService(
             }
 
             // A queue item from an earlier attempt is reused rather than adding another one next to it.
-            if (await TryResumeQueueItemAsync(userId, post, previousStatus, connection, ct).ConfigureAwait(false) is { } resumed)
+            if (await TryResumeQueueItemAsync(userId, post, previousStatus, connection, youtubeReleaseAt.HasValue, ct).ConfigureAwait(false) is { } resumed)
                 return resumed;
 
             await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
@@ -1969,6 +2027,7 @@ public sealed partial class EcosystemAutomationService(
                 // Added held, so the board's scheduler can't start it on its own while we start it here: that race
                 // made PublishNow fail, left the card "Approved", and the next worker tick queued yet another copy.
                 var thumbnailChoice = await BuildPostThumbnailChoiceAsync(post, ct).ConfigureAwait(false);
+                var calendarItemId = await EnsureCalendarPlanItemIdAsync(userId, post, ct).ConfigureAwait(false);
                 var queueMode = youtubeReleaseAt.HasValue ? PublishQueueMode.ReleaseOnYouTube : PublishQueueMode.UploadAtTime;
                 var queued = await publishQueue.AddAsync(userId, new PublishQueueDraft(
                     renderJob.Id,
@@ -1977,7 +2036,7 @@ public sealed partial class EcosystemAutomationService(
                     null,
                     post.PinnedComment,
                     thumbnailChoice,
-                    null,
+                    calendarItemId,
                     youtubeReleaseAt,
                     queueMode,
                     Hold: true,
@@ -1988,7 +2047,11 @@ public sealed partial class EcosystemAutomationService(
                 post.UpdatedAtUtc = UtcNow;
                 await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
 
-                await publishQueue.PublishNowAsync(userId, queued.Id, ct).ConfigureAwait(false);
+                await publishQueue.PublishNowAsync(
+                    userId,
+                    queued.Id,
+                    ct,
+                    preserveYouTubeReleaseSchedule: youtubeReleaseAt.HasValue).ConfigureAwait(false);
                 return post;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -2004,7 +2067,7 @@ public sealed partial class EcosystemAutomationService(
             await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
             try
             {
-                return await PublishDriveClipAsync(userId, post, connection, ct).ConfigureAwait(false);
+                return await PublishDriveClipAsync(userId, post, connection, youtubeReleaseAt, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -2051,7 +2114,12 @@ public sealed partial class EcosystemAutomationService(
     /// there is none worth reusing (never created, removed from the board, failed or cancelled).
     /// </summary>
     private async Task<AutomationPost?> TryResumeQueueItemAsync(
-        string userId, AutomationPost post, AutomationPostStatus previousStatus, YouTubeChannelConnection connection, CancellationToken ct)
+        string userId,
+        AutomationPost post,
+        AutomationPostStatus previousStatus,
+        YouTubeChannelConnection connection,
+        bool preserveYouTubeSchedule,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(post.QueueItemId)) return null;
 
@@ -2074,6 +2142,11 @@ public sealed partial class EcosystemAutomationService(
             case PublishQueueState.Published when !string.IsNullOrWhiteSpace(view.VideoId):
                 post.PublishedChannelId = connection.ChannelId;
                 post.PublishedChannelTitle = connection.ChannelTitle;
+                if (view.YouTubePublishAt is { } liveReleaseAt)
+                {
+                    post.ScheduledAtUtc = liveReleaseAt;
+                    post.Privacy = liveReleaseAt > UtcNow ? "private" : "public";
+                }
                 await MarkPublishedAsync(post, view.VideoId!, view.VideoUrl ?? $"https://www.youtube.com/watch?v={view.VideoId}",
                     view.FinishedAt, ct).ConfigureAwait(false);
                 return post;
@@ -2086,8 +2159,8 @@ public sealed partial class EcosystemAutomationService(
                 await ClaimForPublishAsync(post, previousStatus, connection, ct).ConfigureAwait(false);
                 try
                 {
-                    await SyncQueuedItemAsync(userId, post, includeSchedule: false, ct).ConfigureAwait(false);
-                    await publishQueue.PublishNowAsync(userId, view.Id, ct).ConfigureAwait(false);
+                    await SyncQueuedItemAsync(userId, post, includeSchedule: preserveYouTubeSchedule, ct).ConfigureAwait(false);
+                    await publishQueue.PublishNowAsync(userId, view.Id, ct, preserveYouTubeReleaseSchedule: preserveYouTubeSchedule).ConfigureAwait(false);
                 }
                 catch (EditingException ex) when (ex.Code == "queue-item-locked")
                 {
@@ -2137,7 +2210,8 @@ public sealed partial class EcosystemAutomationService(
         if (catalogWriter is not null) await catalogWriter.UpsertPublishedPostAsync(post, ct).ConfigureAwait(false);
     }
 
-    private async Task<AutomationPost> PublishDriveClipAsync(string userId, AutomationPost post, YouTubeChannelConnection connection, CancellationToken ct)
+    private async Task<AutomationPost> PublishDriveClipAsync(
+        string userId, AutomationPost post, YouTubeChannelConnection connection, DateTime? youtubeReleaseAt, CancellationToken ct)
     {
         {
             var handoff = await handoffs.GetAsync(post.AttachedHandoffId!, ct).ConfigureAwait(false)
@@ -2156,13 +2230,15 @@ public sealed partial class EcosystemAutomationService(
                 Task.FromResult<Stream>(new FileStream(localFile, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous)), ct).ConfigureAwait(false);
 
             var fileSize = new FileInfo(localFile).Length;
+            var isYouTubeScheduled = youtubeReleaseAt is { } releaseAt && releaseAt - UtcNow >= PublishQueueRules.MinYouTubeReleaseLead;
             var metaInput = new YouTubeVideoMetadata
             {
                 Title = post.Title,
                 Description = post.Description,
                 Tags = post.Tags,
                 CategoryId = post.CategoryId,
-                Privacy = post.Privacy,
+                Privacy = isYouTubeScheduled ? "private" : post.Privacy,
+                PublishAt = isYouTubeScheduled ? youtubeReleaseAt : null,
                 MadeForKids = post.MadeForKids,
                 NotifySubscribers = true,
                 Language = post.Language
@@ -2355,6 +2431,15 @@ public sealed partial class EcosystemAutomationService(
                 post.PublishedVideoUrl = view.VideoUrl;
                 post.Status = AutomationPostStatus.Published;
                 post.PublishedAtUtc = view.FinishedAt ?? UtcNow;
+                if (view.YouTubePublishAt is { } releaseAt)
+                {
+                    post.ScheduledAtUtc = releaseAt;
+                    post.Privacy = releaseAt > UtcNow ? "private" : "public";
+                }
+                else
+                {
+                    post.Privacy = view.Privacy;
+                }
                 post.UpdatedAtUtc = UtcNow;
                 await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
                 await TrySyncPublishedPostToEcosystemAsync(post, bearerToken: null, ct).ConfigureAwait(false);
@@ -2481,7 +2566,8 @@ public sealed partial class EcosystemAutomationService(
                             && !h.Archived
                             && h.UsedAt is null
                             && !alreadyReservedHandoffs.Contains(h.Id)
-                            && (h.DriveFileId is not null || !string.IsNullOrWhiteSpace(h.JobId)))
+                            && (h.DriveFileId is not null || !string.IsNullOrWhiteSpace(h.JobId))
+                            && IsDriveClipValidForPost(h, post))
                 .OrderByDescending(h => !string.IsNullOrWhiteSpace(rule.TopicId) && string.Equals(h.TopicId, rule.TopicId, StringComparison.Ordinal))
                 .ThenByDescending(h => !string.IsNullOrWhiteSpace(rule.TopicName) && string.Equals(h.Topic, rule.TopicName, StringComparison.OrdinalIgnoreCase))
                 .ThenBy(h => h.CreatedAt)
@@ -2730,7 +2816,9 @@ public sealed partial class EcosystemAutomationService(
             : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
         var targetSeconds = ResolvePostTargetSeconds(post, rule, effectiveMode, durationSeconds);
         var duration = Math.Clamp(targetSeconds, 10, ProceduralVideoRequest.MaxSeconds);
-        var footer = post.TrackedFunnelUrls.FirstOrDefault()?.Label;
+        var footer = !string.IsNullOrWhiteSpace(post.TargetChannelTitle)
+            ? post.TargetChannelTitle
+            : post.TrackedFunnelUrls.FirstOrDefault()?.Label;
         var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
         var formatArg = post.Format switch
         {
@@ -2743,13 +2831,16 @@ public sealed partial class EcosystemAutomationService(
         var workspaceCfg = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var effectiveShowWatermark = post.ShowWatermark
             ?? rule?.ShowWatermark
-            ?? !(post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
-                && !workspaceCfg.PanchangShowWatermark);
-        var preferFast2D = post.PreferFast2DAnimation
-            || (rule?.PreferFast2DAnimation ?? false)
-            || (post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
-                && workspaceCfg.PanchangUseFast2DAnimation);
-        if (string.IsNullOrWhiteSpace(stage.BackgroundTemplateAssetId)
+            ?? (post.SourceType == AutomationSourceType.FunnyComedy);
+        var hasMultiSceneDirectives = !string.IsNullOrWhiteSpace(post.Script)
+            && post.Script.Contains("[SCENE]:", StringComparison.OrdinalIgnoreCase);
+        var preferFast2D = !hasMultiSceneDirectives
+            && (post.PreferFast2DAnimation
+                || (rule?.PreferFast2DAnimation ?? false)
+                || (post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
+                    && workspaceCfg.PanchangUseFast2DAnimation));
+        if (!hasMultiSceneDirectives
+            && string.IsNullOrWhiteSpace(stage.BackgroundTemplateAssetId)
             && post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
             && !string.IsNullOrWhiteSpace(workspaceCfg.PanchangDefaultBackgroundAssetId))
         {
@@ -2771,7 +2862,7 @@ public sealed partial class EcosystemAutomationService(
         string? tempDir = null;
         List<string> bgPaths = [];
         var usingTemplate = false;
-        if (!string.IsNullOrWhiteSpace(stage.BackgroundTemplateAssetId))
+        if (!hasMultiSceneDirectives && !string.IsNullOrWhiteSpace(stage.BackgroundTemplateAssetId))
         {
             tracker?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Dialogue + 4, "Fetching your background template"));
             (tempDir, bgPaths) = await MaterializeStorageImagesAsync(userId, [stage.BackgroundTemplateAssetId], ct).ConfigureAwait(false);
@@ -2808,13 +2899,30 @@ public sealed partial class EcosystemAutomationService(
             (tempDir, bgPaths) = await MaterializeStorageImagesAsync(userId, assetIds, ct).ConfigureAwait(false);
         }
 
-        // The location the user typed directs the stage: it becomes the opening [SCENE] line (never spoken) when the
-        // script does not direct its own scenes, so it picks the 3D setting, light and, without a template, the
-        // realistic backdrop that the image engine paints.
-        var renderScript = AutomationStageScript.WithLocation(post.Script, stage.LocationPrompt);
-        if (bgPaths.Count == 0 && post.EnableCharacterDialogue)
+        // If no scene photo/template was supplied on non-comedy content WITHOUT multi-scene [SCENE]: stages,
+        // attach event poster artwork cleanly; multi-scene stories use rich WebGL 3D scene transitions instead.
+        if (!hasMultiSceneDirectives
+            && string.IsNullOrWhiteSpace(stage.BackgroundTemplateAssetId)
+            && bgPaths.Count == 0
+            && post.SourceType != AutomationSourceType.FunnyComedy)
         {
-            // No storage images: paint each [SCENE] of the script as a realistic backdrop with the image engine.
+            await TryGenerateAndAttachEventBackgroundAsync(post, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(post.Stage?.BackgroundTemplateAssetId))
+            {
+                stage = post.Stage;
+                (tempDir, bgPaths) = await MaterializeStorageImagesAsync(userId, [stage.BackgroundTemplateAssetId], ct).ConfigureAwait(false);
+                usingTemplate = bgPaths.Count > 0;
+            }
+        }
+
+        // Multi-scene 3D WebGL stories natively build dedicated 3D environments (Temple + Shivling, ForestAshram,
+        // RiverGhat, Cosmos, PalaceCourt, Archive Meridian Globe, ModernCity) without external AI hallucinations.
+        var renderScript = AutomationStageScript.WithLocation(post.Script, stage.LocationPrompt);
+        if (preferFast2D
+            && bgPaths.Count == 0
+            && post.EnableCharacterDialogue
+            && post.SourceType != AutomationSourceType.FunnyComedy)
+        {
             (tempDir, bgPaths) = await GenerateSceneBackdropsAsync(userId, post, rule, formatArg, tracker, ct, renderScript).ConfigureAwait(false);
         }
         try
@@ -2879,6 +2987,12 @@ public sealed partial class EcosystemAutomationService(
             post.StoryStageSummary = preferFast2D ? "Fast 2D Animated MP4 Ready" : "3D Animated MP4 Ready";
             post.StoryProgressPercent = 100;
             post.Status = AutomationPostStatus.VideoReadyForReview;
+
+            // Automatically compose & attach a 1280x720 3D scene thumbnail from the peak animated frame
+            if (string.IsNullOrWhiteSpace(post.ThumbnailStorageKey))
+            {
+                await TryGenerateAndSaveSceneThumbnailAsync(post, ct).ConfigureAwait(false);
+            }
 
             var castPlan = DialogueScriptParser.ParsePlan(
                 post.Title,
@@ -3396,9 +3510,16 @@ public sealed partial class EcosystemAutomationService(
     private static (string ChannelId, string Title, string? Handle)? MatchConnectedChannel(
         IReadOnlyList<YouTubeConnectionStatus> connected,
         StudioEcosystemConfig ecosystem,
-        string[] keywords)
+        string[] keywords,
+        bool excludeDevotional = false,
+        bool excludeComedy = false,
+        string? excludeChannelId = null)
     {
         var best = connected
+            .Where(c => string.IsNullOrWhiteSpace(excludeChannelId)
+                || !string.Equals(c.ChannelId, excludeChannelId, StringComparison.OrdinalIgnoreCase))
+            .Where(c => !excludeDevotional || !ComedyChannelMatcher.IsDevotionalOrSeriousChannelHint(c.ChannelHandle, c.ChannelTitle))
+            .Where(c => !excludeComedy || !ComedyChannelMatcher.IsComedyChannelHint(c.ChannelHandle, c.ChannelTitle))
             .Select(c =>
             {
                 var central = ecosystem.Channels.FirstOrDefault(ec =>
@@ -3569,8 +3690,8 @@ public sealed partial class EcosystemAutomationService(
     /// <summary>YouTube's own limit for a Short; vertical and community videos stay within it.</summary>
     internal const int ShortVideoMaxSeconds = 180;
 
-    /// <summary>A full 16:9 video may tell the whole story: up to 10 minutes (the Story Agent's own ceiling).</summary>
-    internal const int FullVideoMaxSeconds = 600;
+    /// <summary>A full 16:9 video may tell the whole story: up to 60 minutes (15m/20m/30m/60m episodes supported).</summary>
+    internal const int FullVideoMaxSeconds = 3600;
 
     internal const int MinVideoSeconds = 10;
 
@@ -3852,9 +3973,8 @@ public sealed partial class EcosystemAutomationService(
                     Seed = StableSeed($"{post.Id}:{cues[i]}")
                 };
 
-                var outcome = await ai.ImageAsync(request, new AiCallContext(null, userId), budget.Token).ConfigureAwait(false);
-                if (outcome.Kind == AiOutcomeKind.Unavailable) break;
-                if (!outcome.IsSuccess || outcome.Value is not { Content.Length: > 0 } image)
+                var generatedImage = await TryMakeBackgroundPictureAsync(userId, request, budget.Token).ConfigureAwait(false);
+                if (generatedImage is not { Content.Length: > 0 } image)
                 {
                     // Keep scene indexes aligned: a missing picture would shift every later scene onto the wrong photo.
                     break;

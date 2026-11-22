@@ -47,11 +47,20 @@ public static class CaptionChunker
         return chunks;
     }
 
-    /// <summary>Index just after the last break character within the limit, if it is not too early in the text.</summary>
+    /// <summary>Index just after the last break character within the limit, if followed by whitespace/end and not inside a time or decimal (e.g. 05:56 AM).</summary>
     private static int? LastBreak(string text, int maxChars, char[] breaks, double minFraction)
     {
-        var idx = text.LastIndexOfAny(breaks, Math.Min(maxChars, text.Length) - 1);
-        return idx >= maxChars * minFraction ? idx + 1 : null;
+        var limit = Math.Min(maxChars, text.Length) - 1;
+        while (limit >= 0)
+        {
+            var idx = text.LastIndexOfAny(breaks, limit);
+            if (idx < 0 || idx < maxChars * minFraction)
+                return null;
+            if (idx + 1 >= text.Length || char.IsWhiteSpace(text[idx + 1]))
+                return idx + 1;
+            limit = idx - 1;
+        }
+        return null;
     }
 
     private static int? LastSpace(string text, int maxChars)

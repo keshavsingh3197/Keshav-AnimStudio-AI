@@ -18,14 +18,14 @@ export type ComedyToneStyle =
   | 'DesiKhadiSitcom';
 
 export const COMEDY_TONE_OPTIONS: readonly { id: ComedyToneStyle; label: string; hint: string }[] = [
-  { id: 'Auto', label: 'YouTube Auto (Khadi Bhasha + Tu Tadak)', hint: 'Best Hindi retention blend: desi tapri banter, casual तू-तड़ाक teasing & fast punches' },
-  { id: 'GlobalSlapstick', label: '🌍 Global Slapstick Loop (International)', hint: 'Zero-dialogue 3D physical comedy, doorway peek-a-boos & Sky Gauntlet gags for worldwide viewers' },
+  { id: 'DesiKhadiSitcom', label: '🔥 MJO Angry Sitcom & Khadi Banter (Recommended)', hint: 'Explosive @MakeJokeOf angry shouting, 0.05s interruption cut-offs, distinct character pitch & clean closeup punchlines' },
+  { id: 'Auto', label: 'YouTube Auto (Angry Banter + Tu Tadak)', hint: 'High-retention comedy blend: rapid-fire buddy roasting, angry bursts & contrast character voices' },
+  { id: 'GlobalSlapstick', label: '🌍 Global Slapstick Loop (International)', hint: 'Expressive 3D physical comedy, doorway peek-a-boos & Sky Gauntlet gags for worldwide viewers' },
   { id: 'TankSeries', label: '🛡️ Cartoon Tank Series (| EP XX)', hint: 'Expressive googly-eyed 3D tank battles & tiny cannon twist episodes' },
-  { id: 'DesiKhadiSitcom', label: '🇮🇳 Desi Khadi Sitcom (MJO / HardToonz)', hint: '0:02 mid-shout cold open, wide-angle close-ups, Khadi Bhasha roasts & 1-3 word thumbnail hook' },
-  { id: 'KhadiBhasha', label: 'Khadi Bhasha / Desi Tapri', hint: 'Earthy Haryana-UP street flavour ("अरे बावले", "इब देख तमाशा", "टैम")' },
+  { id: 'KhadiBhasha', label: 'Khadi Bhasha / Desi Tapri', hint: 'Earthy Haryana-UP street flavour ("अरे बावले", "इब देख तमाशा", "टैम") with loud comic comebacks' },
   { id: 'TuTadak', label: 'Tu Tadak Buddy Banter', hint: 'Raw close-friend roasting ("अबे सुन", "तू रहने दे", "दिमाग़ घुटनों में है क्या")' },
-  { id: 'RoastAndTwist', label: 'Deadpan Roast + Twist', hint: 'Fake confidence -> savage 6-word comeback -> upside-down climax reversal' },
-  { id: 'FamilyClean', label: 'Family Clean Slapstick', hint: 'Clean all-ages situational chaos with playful expressions' },
+  { id: 'RoastAndTwist', label: 'Deadpan Roast + Twist', hint: 'Fake confidence -> deadpan silent beat -> savage 6-word comeback & reversal' },
+  { id: 'FamilyClean', label: 'Family Clean Slapstick', hint: 'Warm all-ages situational chaos with playful expressions' },
 ];
 
 export const COMEDY_TEMPLATES: readonly { id: ComedyTemplateId; label: string; instruction: string }[] = [

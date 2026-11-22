@@ -289,4 +289,91 @@ public class AutomationContentComposerTests
         Assert.Contains("[भक्त ध्रुव]:", upgraded!.Value.Script);
         Assert.DoesNotContain("Focus:", upgraded.Value.Script);
     }
+
+    [Fact]
+    public void ComposeForRule_FunnyComedyHindi_IncludesRichBilingualMjoSeoTags()
+    {
+        var signals = new EcosystemSignalsSnapshot(
+            DateKey: "2026-11-21",
+            Location: "Kanpur, India",
+            Panchang: null,
+            UpcomingFestivals: [],
+            DailyKatha: null,
+            HistoricalIncidents: [],
+            Competitions: [],
+            FunnelCampaigns: [],
+            Warnings: [],
+            FetchedAtUtc: DateTime.UtcNow);
+
+        var rule = new AutomationRule
+        {
+            Id = "ar_comedy_hi",
+            Name = "MJO Comedy",
+            SourceType = AutomationSourceType.FunnyComedy,
+            ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.DesiKhadiSitcom,
+            Language = "hi",
+            EnableCharacterDialogue = true
+        };
+
+        var composed = AutomationContentComposer.ComposeForRule(rule, signals, SampleEcosystem());
+        var item = Assert.Single(composed);
+        Assert.True(item.Tags.Count >= 18, $"Expected >=18 MJO SEO tags, got {item.Tags.Count}");
+        Assert.Contains("Make Joke Of Style", item.Tags);
+        Assert.Contains("Hindi Comedy Video", item.Tags);
+    }
+
+    [Fact]
+    public void ComposeForRule_PanchangAndMarkandeya_PanIndiaNoDelhiAndMultiSceneTransitions()
+    {
+        var rule = new AutomationRule
+        {
+            Id = "ar_panchang_panindia",
+            Name = "Pan-India Daily Panchang",
+            SourceType = AutomationSourceType.HinduPanchang,
+            VideoFormat = AutomationVideoFormat.Vertical,
+            Language = "hi",
+            EnableCharacterDialogue = true,
+            FunnelWebsiteKeys = ["panchang"]
+        };
+
+        var panchang = Assert.Single(AutomationContentComposer.ComposeForRule(rule, SampleSignals("2026-11-22"), SampleEcosystem()));
+        Assert.DoesNotContain("New Delhi", panchang.Script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("नई दिल्ली", panchang.Script, StringComparison.Ordinal);
+        Assert.DoesNotContain("दिल्ली", panchang.Script, StringComparison.Ordinal);
+        Assert.DoesNotContain("New Delhi", panchang.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("भारतीय मानक समय", panchang.Script, StringComparison.Ordinal);
+        Assert.Contains("मुंबई", panchang.Script, StringComparison.Ordinal);
+        Assert.Contains("[SCENE]:", panchang.Script, StringComparison.Ordinal);
+
+        var kathaSignals = new EcosystemSignalsSnapshot(
+            DateKey: "2026-11-22",
+            Location: "India (IST)",
+            Panchang: null,
+            UpcomingFestivals: [],
+            DailyKatha: new EcosystemDailyKathaSignal(
+                "mk1",
+                "Faith and Mortality: Markandeya's Prayer",
+                "Markandeya Rishi and Bhagwan Shiv",
+                "Young Markandeya worshipped the Shivlinga with unwavering faith and overcame destiny when Mahadev appeared.",
+                "True devotion transcends fear.",
+                "ॐ नमः शिवाय"),
+            HistoricalIncidents: [],
+            Competitions: [],
+            FunnelCampaigns: [],
+            Warnings: [],
+            FetchedAtUtc: DateTimeOffset.UtcNow);
+        var kathaRule = new AutomationRule
+        {
+            Id = "ar_katha_mk",
+            Name = "Markandeya Full Story",
+            SourceType = AutomationSourceType.DailyKatha,
+            VideoFormat = AutomationVideoFormat.Wide,
+            Language = "hi",
+            EnableCharacterDialogue = true
+        };
+        var katha = Assert.Single(AutomationContentComposer.ComposeForRule(kathaRule, kathaSignals, SampleEcosystem()));
+        Assert.Contains("[SCENE]:", katha.Script, StringComparison.Ordinal);
+        Assert.Contains("[भगवान शिव]:", katha.Script, StringComparison.Ordinal);
+        Assert.Contains("[बालक मार्कण्डेय]:", katha.Script, StringComparison.Ordinal);
+    }
 }

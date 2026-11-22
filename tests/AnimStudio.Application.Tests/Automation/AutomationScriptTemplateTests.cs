@@ -40,7 +40,7 @@ public sealed class AutomationScriptTemplateTests
     [Fact]
     public void CleanPastedDialogue_caps_the_number_of_turns()
     {
-        var reply = string.Join('\n', Enumerable.Range(1, 200).Select(i => $"[Narrator]: line number {i} of the story"));
+        var reply = string.Join('\n', Enumerable.Range(1, 500).Select(i => $"[Narrator]: line number {i} of the story"));
 
         var cleaned = EcosystemAutomationService.CleanPastedDialogue(reply);
 
@@ -63,7 +63,7 @@ public sealed class AutomationScriptTemplateTests
         var post = Post(55, AutomationVideoFormat.Wide);
 
         Assert.Equal(600, EcosystemAutomationService.ResolvePostTargetSeconds(post, null, AutomationNarrativeMode.Auto, 600));
-        Assert.Equal(600, EcosystemAutomationService.ResolvePostTargetSeconds(post, null, AutomationNarrativeMode.Auto, 5000));
+        Assert.Equal(3600, EcosystemAutomationService.ResolvePostTargetSeconds(post, null, AutomationNarrativeMode.Auto, 5000));
         Assert.Equal(420, EcosystemAutomationService.ResolvePostTargetSeconds(Post(420, AutomationVideoFormat.Wide), null, AutomationNarrativeMode.Auto, 0));
     }
 
@@ -85,7 +85,8 @@ public sealed class AutomationScriptTemplateTests
         Assert.Contains("600-second (10:00 min) complete story as an animated 3D YouTube video (16:9)", prompt);
         Assert.True(b.MinLines >= 65, $"10 minutes needs about 72 lines, got {b.MinLines}");
         Assert.True(b.MaxLines <= EcosystemAutomationService.MaxPastedDialogueTurns, "every line asked for must survive the paste");
-        Assert.Equal(AnimStudio.Application.Rendering.DialogueScriptParser.MaxScenes, b.MaxScenes);
+        Assert.InRange(b.MaxScenes, 12, AnimStudio.Application.Rendering.DialogueScriptParser.MaxScenes);
+        Assert.InRange(EcosystemAutomationService.DialogueBudget(3600).MaxScenes, 12, AnimStudio.Application.Rendering.DialogueScriptParser.MaxScenes);
     }
 
     [Fact]

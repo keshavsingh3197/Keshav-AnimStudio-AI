@@ -174,12 +174,13 @@ public sealed class RenderStage(
             arguments.AddRange(["-af", $"atempo={speed.ToString("0.###", CultureInfo.InvariantCulture)}"]);
         arguments.AddRange(["-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "out/dub.wav"]);
 
+        var dubTimeout = TimeSpan.FromMinutes(Math.Max(45, (int)Math.Ceiling((run.TotalSeconds > 0 ? run.TotalSeconds : 600) / 20.0)));
         var result = await runner.RunAsync(new FfmpegInvocation
         {
             Tool = FfmpegTool.Ffmpeg,
             WorkingDirectory = workspace.RootPath,
             StderrLogPath = "logs/dub.log",
-            Timeout = SpeedTimeout,
+            Timeout = dubTimeout,
             Arguments = arguments
         }, null, ct).ConfigureAwait(false);
 
@@ -217,13 +218,14 @@ public sealed class RenderStage(
         var input = await workspace.MaterializeAsync(sourceKey, "in/source.mp4", ct).ConfigureAwait(false);
 
         var rate = speed.ToString("0.###", CultureInfo.InvariantCulture);
+        var dynamicSpeedTimeout = TimeSpan.FromMinutes(Math.Max(SpeedTimeout.TotalMinutes, (int)Math.Ceiling(expected / 15.0)));
         var invocation = new FfmpegInvocation
         {
             Tool = FfmpegTool.Ffmpeg,
             WorkingDirectory = workspace.RootPath,
             CaptureProgress = true,
             StderrLogPath = "logs/speed.log",
-            Timeout = SpeedTimeout,
+            Timeout = dynamicSpeedTimeout,
             Arguments =
             [
                 "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-nostats", "-progress", "pipe:1",

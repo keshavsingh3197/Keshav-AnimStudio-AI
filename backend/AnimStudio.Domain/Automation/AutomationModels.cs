@@ -121,7 +121,7 @@ public sealed class AutomationRule
     /// <summary><c>hi</c>, <c>en</c>, or <c>bilingual</c>.</summary>
     public string Language { get; set; } = "hi";
     public int TargetSeconds { get; set; } = 55;
-    public string Location { get; set; } = "New Delhi, India";
+    public string Location { get; set; } = "India (IST)";
 
     /// <summary>HH:mm (24h) local publish time in <see cref="TimeZoneId"/>.</summary>
     public string PreferredPublishTime { get; set; } = "07:00";
@@ -449,7 +449,7 @@ public sealed class AutomationWorkspaceConfig
     /// </summary>
     public bool AutopilotReleaseAtPeakTime { get; set; } = true;
     public bool AutoPrepareDaily { get; set; } = true;
-    public string DefaultLocation { get; set; } = "New Delhi, India";
+    public string DefaultLocation { get; set; } = "India (IST)";
     public string DefaultTimeZone { get; set; } = "Asia/Kolkata";
     public string? PanchangApiBaseUrl { get; set; }
     public string? SocialApiBaseUrl { get; set; }

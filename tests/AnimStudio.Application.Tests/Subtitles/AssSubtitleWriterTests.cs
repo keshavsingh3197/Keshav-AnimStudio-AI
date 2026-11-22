@@ -190,4 +190,24 @@ public class AssSubtitleWriterTests
         Assert.True(marginR >= 126, $"MarginR was {marginR}");
         Assert.True(marginV >= 310, $"MarginV was {marginV}");
     }
+
+    [Fact]
+    public void Strips_emojis_that_render_as_missing_glyph_boxes_and_keeps_opaque_white_karaoke_secondary()
+    {
+        var styles = new Dictionary<string, SubtitleStyle>
+        {
+            ["header"] = new("HeaderTitle", "#FFFFFF", MotionPreset: SubtitleMotionPreset.None),
+            ["a"] = new("SpeakerA", "#FDE047", SecondaryColorHex: "#FFFFFF", MotionPreset: SubtitleMotionPreset.KaraokePulse)
+        };
+
+        var ass = Writer.Write(Request([
+            Line("कंटाप हेयरकट कांड 😂 | नाई की दुकान", 0, 48, "header"),
+            Line("अरे बावले! 😂 कट बोला था", 0, 48, "a")
+        ], styles));
+
+        Assert.DoesNotContain("😂", ass);
+        Assert.Contains("कंटाप हेयरकट कांड | नाई की दुकान", ass);
+        Assert.Contains("&H00FFFFFF", ass);
+        Assert.DoesNotContain(@"\fad(65,65)", ass);
+    }
 }

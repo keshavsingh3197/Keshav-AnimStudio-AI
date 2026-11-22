@@ -13,8 +13,8 @@ public sealed class FfmpegOptions
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";
 
-    public int SceneTimeoutMinutes { get; set; } = 20;
-    public int MergeTimeoutMinutes { get; set; } = 60;
+    public int SceneTimeoutMinutes { get; set; } = 30;
+    public int MergeTimeoutMinutes { get; set; } = 120;
     public int ProbeTimeoutSeconds { get; set; } = 30;
 
     /// <summary>0 lets ffmpeg choose based on the host.</summary>
