@@ -349,6 +349,245 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
     }
 
     [FfmpegFact]
+    public async Task Generates_salon_barbershop_landscape_comedy_video_with_webgl_3d()
+    {
+        var store = new InMemoryObjectStore();
+        var jobsRepo = new InMemoryRenderJobRepo();
+        var projectsRepo = new InMemoryProjectRepo();
+
+        var service = new ProceduralVideoGeneratorService(
+            Options.Create(new FfmpegOptions
+            {
+                FfmpegPath = FfmpegLocator.FfmpegPath,
+                FfprobePath = FfmpegLocator.FfprobePath
+            }),
+            new FfmpegCapabilities
+            {
+                IsAvailable = true,
+                HasLibass = true,
+                HasLibx264 = true,
+                HasAac = true,
+                Major = FfmpegLocator.MajorVersion
+            },
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            jobsRepo,
+            projectsRepo,
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string salonScript = """
+            [SCENE]: barber | afternoon | comedy
+            [CAST]: चुन्नू चाचा | elder | white dhoti
+            [CAST]: रिंकू पड़ोसी | comic | green hoodie
+            [पप्पू ग्राहक]: अमरेंद्र भाई, आज एकदम शाही बाहुबली कटिंग करना!
+            [अमरेंद्र नाई]: (cutting) बेफिक्र बैठ टोपा! चक-चक-चक! ले पहला झटका!
+            [पप्पू ग्राहक]: (removing towel, angry) तौलिया तो हटा! अरे बावले ये क्या मैदान साफ़ कर दिया?!
+            [अमरेंद्र नाई]: (surprised) ओह तेरी! चश्मा उल्टा पहना था मैंने!
+            [चुन्नू चाचा]: (laughing) अरे भैया शीशे में देख ले, पीछे से अंडा लग रहा है!
+            """;
+
+        var result = await service.GenerateAsync("user-salon-verify", new ProceduralVideoRequest
+        {
+            Title = "नाई का शाही कटिंग कांड 😂 | EP 02",
+            EventType = "FunnyComedy",
+            TopCategoryLabel = "KESHAV-ANIM-FF • COMEDY SHORT",
+            Language = "hi",
+            Script = salonScript,
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            RenderEngine = ProceduralRenderEngine.Auto,
+            SubtitlePreset = "karaoke-pulse",
+            EnableCharacterDialogue = true,
+            EnableComedySfx = true,
+            FollowScriptExactly = true,
+            SpeakerAName = "पप्पू ग्राहक",
+            SpeakerBName = "अमरेंद्र नाई",
+            FooterLabel = "Keshav Hub",
+            ShowWatermark = true,
+            Format = "landscape",
+            Resolution = "720p",
+            DurationSeconds = 18,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = true,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.RenderJobId);
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.Contains("engine=webgl-3d", result.Summary);
+
+        var auditOut = Environment.GetEnvironmentVariable("ANIMSTUDIO_SALON_AUDIT_MP4");
+        if (!string.IsNullOrWhiteSpace(auditOut))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(auditOut)!);
+            await File.WriteAllBytesAsync(auditOut, result.InlineMp4Bytes!);
+        }
+
+        var outPath = Path.Combine(_root, "salon-verify.mp4");
+        await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
+        Assert.Equal("h264,1280,720", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outPath}\""));
+        Assert.Equal("aac,48000,2", FfmpegLocator.Probe(
+            $"-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of csv=p=0 \"{outPath}\""));
+
+        var savedJob = await jobsRepo.GetAsync(result.RenderJobId!, CancellationToken.None);
+        Assert.NotNull(savedJob);
+        var thumbSvc = new ProceduralComedyThumbnailService(
+            store,
+            AppDataPaths.Resolve(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _root),
+            Options.Create(new FfmpegOptions { FfmpegPath = FfmpegLocator.FfmpegPath, FfprobePath = FfmpegLocator.FfprobePath }),
+            new FfmpegCapabilities { IsAvailable = true, HasLibass = true, HasLibx264 = true, HasAac = true, Major = FfmpegLocator.MajorVersion },
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            NullLogger<ProceduralComedyThumbnailService>.Instance);
+
+        var wideThumbBytes = await thumbSvc.TryGenerateFromRenderAsync(
+            savedJob!,
+            "कंटाप हेयरकट कांड 😂 | नाई की दुकान का बवाल",
+            salonScript,
+            "3D COMEDY",
+            "FunnyComedy",
+            CancellationToken.None);
+        Assert.NotNull(wideThumbBytes);
+        var wideThumbPath = Path.Combine(_root, "salon-169-thumb.jpg");
+        await File.WriteAllBytesAsync(wideThumbPath, wideThumbBytes!);
+        Assert.Equal("mjpeg,1280,720", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{wideThumbPath}\""));
+
+        var auditDir = Environment.GetEnvironmentVariable("ANIMSTUDIO_SALON_PORTRAIT_AUDIT_DIR");
+        if (!string.IsNullOrWhiteSpace(auditDir))
+        {
+            Directory.CreateDirectory(auditDir);
+            File.Copy(wideThumbPath, Path.Combine(auditDir, "salon-169-thumb.jpg"), overwrite: true);
+        }
+    }
+
+    [FfmpegFact]
+    public async Task Generates_barbershop_portrait_short_with_clean_vertical_mjo_thumbnail()
+    {
+        var store = new InMemoryObjectStore();
+        var jobsRepo = new InMemoryRenderJobRepo();
+        var projectsRepo = new InMemoryProjectRepo();
+        var workspaces = new Workspaces(_root, store);
+        var caps = new FfmpegCapabilities
+        {
+            IsAvailable = true,
+            HasLibass = true,
+            HasLibx264 = true,
+            HasAac = true,
+            Major = FfmpegLocator.MajorVersion
+        };
+        var ffmpegOpts = Options.Create(new FfmpegOptions
+        {
+            FfmpegPath = FfmpegLocator.FfmpegPath,
+            FfprobePath = FfmpegLocator.FfprobePath
+        });
+        var subtitleWriter = new AssSubtitleWriter();
+
+        var service = new ProceduralVideoGeneratorService(
+            ffmpegOpts,
+            caps,
+            workspaces,
+            subtitleWriter,
+            store,
+            jobsRepo,
+            projectsRepo,
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string verticalBarberScript = """
+            [CAST]: अमरेंद्र नाई | scholar | red apron, glasses | voice=Fenrir
+            [CAST]: पप्पू ग्राहक | scholar | yellow sweater | voice=Puck
+            [CAST]: सुखिया चाचा | elder | white dhoti | voice=Algenib
+            [CAST]: चिंटू बालक | child | green tee | voice=Sadachbia
+            [SCENE]: barber shop | day | angry comedy
+            [पप्पू ग्राहक]: (angry) अबे नाई सिर्फ साइड से काटना!
+            [अमरेंद्र नाई]: (proud, cutting) चक-चक-चक! अभी हीरो बना दूँगा!
+            [सुखिया चाचा]: (surprised) तेरा तो चश्मा उल्टा है बे!
+            [पप्पू ग्राहक]: (removing towel, look in mirror, angry) अबे नालायक! तूने मुझे टकला कर दिया?!
+            [अमरेंद्र नाई]: (angry) चश्मा उल्टा था मेरा — अब ये कटोरा लुक ही ट्रेंड है!
+            """;
+
+        var result = await service.GenerateAsync("user-salon-portrait", new ProceduralVideoRequest
+        {
+            Title = "अबे टकला कर दिया?! 😱 नाई कांड",
+            EventType = "FunnyComedy",
+            TopCategoryLabel = "KESHAV-ANIM-FF • MJO SHORT",
+            Language = "hi",
+            Script = verticalBarberScript,
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            RenderEngine = ProceduralRenderEngine.Auto,
+            SubtitlePreset = "karaoke-pulse",
+            EnableCharacterDialogue = true,
+            EnableComedySfx = true,
+            FollowScriptExactly = true,
+            SpeakerAName = "अमरेंद्र नाई",
+            SpeakerBName = "पप्पू ग्राहक",
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 16,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = true,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.RenderJobId);
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.Contains("engine=webgl-3d", result.Summary);
+
+        var vidPath = Path.Combine(_root, "salon-916.mp4");
+        await File.WriteAllBytesAsync(vidPath, result.InlineMp4Bytes!);
+        Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{vidPath}\""));
+
+        await using var cleanThumbStream = await store.OpenAsync($"renders/{result.RenderJobId}.cleanthumb.png", CancellationToken.None);
+        Assert.NotNull(cleanThumbStream);
+
+        var savedJob = await jobsRepo.GetAsync(result.RenderJobId!, CancellationToken.None);
+        Assert.NotNull(savedJob);
+
+        var dataPaths = AppDataPaths.Resolve(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _root);
+        var thumbSvc = new ProceduralComedyThumbnailService(
+            store,
+            dataPaths,
+            ffmpegOpts,
+            caps,
+            workspaces,
+            subtitleWriter,
+            NullLogger<ProceduralComedyThumbnailService>.Instance);
+
+        var thumbBytes = await thumbSvc.TryGenerateFromRenderAsync(
+            savedJob!,
+            "अबे टकला कर दिया?! 😱 नाई कांड",
+            verticalBarberScript,
+            "3D COMEDY",
+            "FunnyComedy",
+            CancellationToken.None);
+        Assert.NotNull(thumbBytes);
+        Assert.True(thumbBytes!.Length > 5_000);
+
+        var thumbPath = Path.Combine(_root, "salon-916-thumb.jpg");
+        await File.WriteAllBytesAsync(thumbPath, thumbBytes);
+        Assert.Equal("mjpeg,720,1280", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{thumbPath}\""));
+
+        var auditDir = Environment.GetEnvironmentVariable("ANIMSTUDIO_SALON_PORTRAIT_AUDIT_DIR");
+        if (!string.IsNullOrWhiteSpace(auditDir))
+        {
+            Directory.CreateDirectory(auditDir);
+            File.Copy(vidPath, Path.Combine(auditDir, "salon-916.mp4"), overwrite: true);
+            File.Copy(thumbPath, Path.Combine(auditDir, "salon-916-thumb.jpg"), overwrite: true);
+        }
+    }
+
+    [FfmpegFact]
     public async Task Generates_cpu_fast_fallback_and_webgl_3d_dialogue_videos()
     {
         var store = new InMemoryObjectStore();
@@ -471,6 +710,99 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         Assert.True(ProceduralBgmCacheService.IsStereo48kWav(wavPath));
         Assert.Equal("48000,2", FfmpegLocator.Probe(
             $"-v error -select_streams a:0 -show_entries stream=sample_rate,channels -of csv=p=0 \"{wavPath}\""));
+    }
+
+    [FfmpegFact]
+    public async Task PalaceCourt_RoyalSufiDance_16x9_renders_grounded_multi_dancer_choreography()
+    {
+        if (!WebGlVideoFrameRenderer.IsAvailable())
+            return;
+
+        var store = new InMemoryObjectStore();
+        var service = new ProceduralVideoGeneratorService(
+            Options.Create(new FfmpegOptions
+            {
+                FfmpegPath = FfmpegLocator.FfmpegPath,
+                FfprobePath = FfmpegLocator.FfprobePath
+            }),
+            new FfmpegCapabilities
+            {
+                IsAvailable = true,
+                HasLibass = true,
+                HasLibx264 = true,
+                HasAac = true,
+                Major = FfmpegLocator.MajorVersion
+            },
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            new InMemoryRenderJobRepo(),
+            new InMemoryProjectRepo(),
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string danceScript = """
+            [SCENE]: palace court | sunset | festive
+            [Prince Sartaaj]: (adaab, proud) गुज़ारिश है चाँद और सितारों से, आज दरबार में सुर और नृत्य सजेगा।
+            [Rani Meera]: (dancing, happy) हर ताल पर पायल और हाथों की मुद्राएँ महल को जगमगा रही हैं।
+            [Dancer Maya]: (sufiSpin, happy) शीश महल के झरोखों में आज सूफी ताल का जादू बरस रहा है!
+            [Dancer Kavya]: (dancing, happy) सभी दरबारी नर्तकी एक ही लय में घूम रहे हैं!
+            [Chhotu Child]: (dancing, laughing) अरे वाह! राजमहल में सबसे मस्त नाच चल रहा है!
+            """;
+
+        var result = await service.GenerateAsync("user-palace-dance", new ProceduralVideoRequest
+        {
+            Title = "गुज़ारिश • शाही दरबार 3D सूफी नृत्य",
+            EventType = "HistoryChronicle",
+            TopCategoryLabel = "KESHAV STUDIO • ROYAL SUFI DANCE",
+            Language = "hi",
+            Script = danceScript,
+            Prompt = "Royal palace courtyard Sufi Kathak group dance with brass candelabras",
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            SubtitlePreset = "event-glow",
+            EnableCharacterDialogue = true,
+            SpeakerAName = "Prince Sartaaj",
+            SpeakerBName = "Rani Meera",
+            FooterLabel = "KESHAV STUDIO",
+            Format = "landscape",
+            Resolution = "720p",
+            DurationSeconds = 9,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = true,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.True(result.SizeBytes > 20_000, $"Expected rich 3D palace dance MP4 >20KB, got {result.SizeBytes}");
+        var outMp4 = Path.Combine(_root, "verified-palace-dance-169.mp4");
+        await File.WriteAllBytesAsync(outMp4, result.InlineMp4Bytes!);
+        Assert.Equal("h264,1280,720", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outMp4}\""));
+
+        // Save rendered showcase MP4 into workspace renders/ and verification frames into scratch/.
+        var scratchDir = @"C:\Users\DEV01\.gemini\antigravity\brain\7201c182-54e0-4a04-994f-510015c69cb9\scratch";
+        Directory.CreateDirectory(scratchDir);
+        File.Copy(outMp4, Path.Combine(scratchDir, "palace_dance_169.mp4"), overwrite: true);
+        var repoRendersDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "renders"));
+        Directory.CreateDirectory(repoRendersDir);
+        File.Copy(outMp4, Path.Combine(repoRendersDir, "guzarish_animstudio_3d_dance.mp4"), overwrite: true);
+        foreach (var (ts, name) in new[] { ("1.2", "palace_dance_adaab.png"), ("4.2", "palace_dance_troupe.png"), ("7.2", "palace_dance_spin.png") })
+        {
+            var pngOut = Path.Combine(scratchDir, name);
+            var psi = new System.Diagnostics.ProcessStartInfo(FfmpegLocator.FfmpegPath,
+                $"-nostdin -loglevel error -y -ss {ts} -i \"{outMp4}\" -vframes 1 \"{pngOut}\"")
+            {
+                RedirectStandardError = false,
+                RedirectStandardOutput = false,
+                UseShellExecute = false
+            };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            await p.WaitForExitAsync();
+            Assert.True(File.Exists(pngOut), $"Expected extracted dance frame {pngOut}");
+        }
     }
 
     private sealed class Workspaces(string root, IObjectStore store) : IRenderWorkspaceFactory

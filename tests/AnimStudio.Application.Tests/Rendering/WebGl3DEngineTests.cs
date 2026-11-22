@@ -292,4 +292,36 @@ public sealed class WebGl3DEngineTests
         Assert.True(meme.StartSeconds >= 6.80, $"Meme start {meme.StartSeconds} should wait until turn ends at 6.80.");
         Assert.True(meme.StartSeconds + meme.Seconds <= 7.75, $"Meme end should finish cleanly before next turn starts at 7.75.");
     }
+
+    [Fact]
+    public void DialogueScriptParser_infers_held_props_and_role_blocking_across_any_story()
+    {
+        const string script = """
+            [SCENE]: barber shop | day | funny
+            [अमरेंद्र नाई]: ले पहला झटका... चक-चक-चक केंची चलेगी!
+            [पप्पू ग्राहक]: अरे तौलिया तो हटा, ये क्या कर दिया?!
+            [SCENE]: neighborhood gate | sunset | dramatic
+            [PROP]: key
+            [पापा जी]: अरे चाबी तो जेब में ही थी!
+            [हवलदार]: पुलिस को फ़ोन मिलाओ जल्दी!
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "Salon & Gate Props", script, null, 30, enableDialogue: true, "अमरेंद्र नाई", "पप्पू ग्राहक", "FunnyComedy");
+        var spoken = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+
+        Assert.Equal("scissors", spoken[0].SpeakerProp);
+        Assert.Equal("cape", spoken[0].ListenerProp);
+        Assert.Equal("cutting", spoken[0].Action);
+        Assert.Equal("barberStand", spoken[0].StageTarget);
+
+        Assert.Equal("removingTowel", spoken[1].Action);
+        Assert.Equal("barberChair", spoken[1].StageTarget);
+        Assert.Equal("scissors", spoken[1].ListenerProp);
+
+        Assert.Equal("key", spoken[2].SpeakerProp);
+        Assert.Equal("showingKey", spoken[2].Action);
+        Assert.Equal("phone", spoken[3].SpeakerProp);
+        Assert.Equal("callingPhone", spoken[3].Action);
+    }
 }

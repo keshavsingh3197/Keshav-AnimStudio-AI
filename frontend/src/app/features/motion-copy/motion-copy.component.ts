@@ -12,10 +12,12 @@ import { CharacterDesign } from '../live-camera/character-designer';
 import { MotionSmoother, VISIBLE } from '../live-camera/motion';
 import { P, PuppetLook, drawPuppetBody, lookFor, skeletonFromPose } from '../live-camera/puppet';
 import { VisionEngine } from '../live-camera/vision-engine';
+import { BeatGrid, DanceTrack, analyzeDance, beatAt, detectBeats, rewind, sampleDance, trackedShare } from './dance-track';
 import { BackgroundMode, Figure, prepareFigure } from './figure-prep';
 import type {
   CameraAngleMode,
   CharacterRole3D,
+  DanceChoreographyStyle,
   ExternalBodyPose,
   Motion3DStageHandle,
   SceneSetting3D,
@@ -28,7 +30,7 @@ import {
   STAGES_3D,
   VFX_STYLES_3D,
   playComedyStinger,
-  posePointsToExternal3D,
+  sampleToPose3D,
 } from './pose-to-3d';
 import { BoneXform, SpriteRenderer, V2, View, readJoints, skin } from './sprite-rig';
 
@@ -79,10 +81,26 @@ interface MotionCopyExportResponse {
 
       <div class="mc-grid">
         <div class="mc-panel">
+          <div class="mc-card">
+            <div class="mc-card-head">
+              <strong>💃 Quick 3D Dance Presets</strong>
+            </div>
+            <div class="mc-actions">
+              <button type="button" class="mc-btn mc-btn-quiet" style="padding:6px 10px; font-size:0.8rem;"
+                      (click)="applyGuzarishPreset()" [disabled]="busy()">🏰 Guzarish Royal Sufi Dance (6 Dancers)</button>
+              <button type="button" class="mc-btn mc-btn-quiet" style="padding:6px 10px; font-size:0.8rem;"
+                      (click)="applySlapstickPreset()" [disabled]="busy()">😂 MJO Slapstick Bounce</button>
+            </div>
+          </div>
+
           <label class="mc-field">
-            <span>1. Driving video (dance, gag or skit)</span>
-            <input type="file" accept="video/*" (change)="pickVideo($event)" [disabled]="busy()" />
+            <span>1. Driving video or song audio (MP4, WebM, MP3, WAV)</span>
+            <input type="file" accept="video/*,audio/*" (change)="pickVideo($event)" [disabled]="busy()" />
           </label>
+          <button type="button" class="mc-btn mc-btn-quiet" style="font-size:0.82rem; padding:7px 12px;"
+                  (click)="loadBuiltInSufiTrack()" [disabled]="busy()">
+            🎵 Use Built-in 92 BPM Royal Sufi Music Track (16s — Ready Now)
+          </button>
 
           <label class="mc-field">
             <span>Animation Engine Mode</span>
@@ -128,6 +146,36 @@ interface MotionCopyExportResponse {
                   @for (r of roles3D; track r.id) {
                     <option [value]="r.id">Duo Partner: {{ r.label }}</option>
                   }
+                </select>
+              </label>
+
+              <div class="mc-row-2">
+                <label class="mc-field">
+                  <span>Backup Troupe Dancers</span>
+                  <select [ngModel]="troupeCount()" (ngModelChange)="troupeCount.set(+$event)" [disabled]="busy()">
+                    <option [value]="0">None (Solo / Duo)</option>
+                    <option [value]="2">2 Flanking Dancers</option>
+                    <option [value]="4">4 Palace Troupe</option>
+                    <option [value]="6">6 Royal Court Troupe</option>
+                  </select>
+                </label>
+                <label class="mc-field">
+                  <span>Choreography Style</span>
+                  <select [ngModel]="choreoStyle()" (ngModelChange)="choreoStyle.set($event)" [disabled]="busy()">
+                    <option value="auto">Auto-Match Stage &amp; Roles</option>
+                    <option value="sufiKathak">Sufi &amp; Kathak (Adaab + Spin)</option>
+                    <option value="bhangra">Bhangra / Folk Energy</option>
+                    <option value="viralBounce">Viral Comedy Bounce</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="mc-field">
+                <span>Output Aspect &amp; Framing</span>
+                <select [ngModel]="aspectPreset()" (ngModelChange)="aspectPreset.set($event)" [disabled]="busy()">
+                  <option value="auto">Auto (Match Video, or 16:9 for Music)</option>
+                  <option value="16:9">16:9 Widescreen Cinema (Palace Wide)</option>
+                  <option value="9:16">9:16 Vertical Shorts / Reels</option>
                 </select>
               </label>
 
@@ -343,7 +391,7 @@ interface MotionCopyExportResponse {
     .mc-ok a { color: #93c5fd; }
     .mc-note { margin: 0; font-size: 0.8rem; opacity: 0.65; }
     .mc-stage { display: flex; flex-direction: column; gap: 16px; align-items: center; }
-    .mc-canvas { max-width: 100%; max-height: 70vh; aspect-ratio: 9 / 16; border-radius: 12px; background: var(--surface, #0f172a); }
+    .mc-canvas { width: auto; height: auto; max-width: 100%; max-height: 70vh; border-radius: 12px; background: var(--surface, #0f172a); object-fit: contain; }
     .mc-hidden { position: fixed; left: -9999px; width: 1px; height: 1px; }
     .mc-result { display: flex; flex-direction: column; gap: 12px; align-items: center; width: 100%; }
     .mc-result video { max-width: 100%; max-height: 50vh; border-radius: 12px; }
@@ -375,6 +423,9 @@ export class MotionCopyComponent {
   readonly roleB = signal<CharacterRole3D | 'None'>('CupDancer');
   readonly colorA = signal('#F97316');
   readonly colorB = signal('#38BDF8');
+  readonly troupeCount = signal(0);
+  readonly choreoStyle = signal<'auto' | DanceChoreographyStyle>('auto');
+  readonly aspectPreset = signal<'auto' | '16:9' | '9:16'>('auto');
   readonly stage3D = signal<SceneSetting3D>('DoorwaySet');
   readonly cameraAngle = signal<CameraAngleMode>('autoCut');
   readonly vfx3D = signal<VfxStyle3D>('ComedyBurst');
@@ -382,6 +433,7 @@ export class MotionCopyComponent {
   readonly dynamicZoom = signal(true);
   readonly remixSfx = signal(true);
   readonly muteSourceAudio = signal(false);
+  readonly isAudioTrack = signal(false);
 
   readonly backgroundMode = signal<BackgroundMode>('auto');
   readonly travel = signal(0.7);
@@ -436,6 +488,51 @@ export class MotionCopyComponent {
     });
   }
 
+  applyGuzarishPreset(): void {
+    this.mode.set('3d-remix');
+    this.roleA.set('KingCrown');
+    this.roleB.set('NobleWoman');
+    this.colorA.set('#7F1D1D');
+    this.colorB.set('#FDE68A');
+    this.troupeCount.set(6);
+    this.choreoStyle.set('sufiKathak');
+    this.aspectPreset.set('16:9');
+    this.stage3D.set('PalaceCourt');
+    this.vfx3D.set('DivineAura');
+    this.cameraAngle.set('autoCut');
+    this.remixSfx.set(false);
+    this.exportTitle.set('Guzarish Royal Sufi Palace 3D Dance');
+    this.status.set('Preset loaded: Guzarish Royal Sufi Dance (2 Leads + 6 Palace Dancers). Pick a video/song or load demo track!');
+  }
+
+  applySlapstickPreset(): void {
+    this.mode.set('3d-remix');
+    this.roleA.set('ComicBobble');
+    this.roleB.set('CupDancer');
+    this.colorA.set('#F97316');
+    this.colorB.set('#38BDF8');
+    this.troupeCount.set(0);
+    this.choreoStyle.set('viralBounce');
+    this.aspectPreset.set('9:16');
+    this.stage3D.set('ComedyStage');
+    this.vfx3D.set('ComedyBurst');
+    this.remixSfx.set(true);
+    this.exportTitle.set('3D Comedy Dance Remix #Shorts');
+    this.status.set('Preset loaded: MJO Slapstick Bounce.');
+  }
+
+  loadBuiltInSufiTrack(): void {
+    const old = this.videoUrl();
+    if (old) URL.revokeObjectURL(old);
+    const wavBlob = buildRoyalSufiDemoWavBlob(16, 92);
+    this.videoUrl.set(URL.createObjectURL(wavBlob));
+    this.isAudioTrack.set(true);
+    this.applyGuzarishPreset();
+    this.clearResult();
+    this.error.set(null);
+    this.status.set('Ready: Built-in 92 BPM Royal Sufi Music Track (16s) + 6 Palace Dancers loaded. Click Generate!');
+  }
+
   randomizeRemix(): void {
     const roles = ROLES_3D.map((r) => r.id);
     const stages = STAGES_3D.filter((s) => s.id !== 'Auto').map((s) => s.id);
@@ -459,8 +556,9 @@ export class MotionCopyComponent {
     const old = this.videoUrl();
     if (old) URL.revokeObjectURL(old);
     this.videoUrl.set(URL.createObjectURL(file));
+    this.isAudioTrack.set(file.type.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|aac)$/i.test(file.name));
     const base = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
-    if (base) this.exportTitle.set(`${base} — 3D Remix #Shorts`.slice(0, 100));
+    if (base) this.exportTitle.set(`${base} — 3D Remix`.slice(0, 100));
     this.clearResult();
     this.status.set(`Ready: ${file.name}`);
     this.error.set(null);
@@ -523,12 +621,17 @@ export class MotionCopyComponent {
     this.error.set(null);
     this.exportedInfo.set(null);
     this.clearResult();
-    this.status.set('Loading body tracking...');
 
     try {
-      await this.engine.loadMotion();
-      const maxPeople = this.mode() === '3d-remix' && this.roleB() !== 'None' ? 2 : 1;
-      await this.engine.configureMotion(maxPeople);
+      if (this.mode() === 'real' && this.isAudioTrack()) {
+        throw new Error('Realistic photo animation needs a dance video; switch to 3D Remix mode for music/audio songs.');
+      }
+      if (!this.isAudioTrack()) {
+        this.status.set('Loading body tracking...');
+        await this.engine.loadMotion();
+        const maxPeople = this.mode() === '3d-remix' && this.roleB() !== 'None' ? 2 : 1;
+        await this.engine.configureMotion(maxPeople);
+      }
 
       let figure: Figure | null = null;
       if (this.mode() === 'real') {
@@ -591,12 +694,29 @@ export class MotionCopyComponent {
     video.src = url;
     await new Promise<void>((resolve, reject) => {
       video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error('This video could not be read. Try an MP4 (H.264) file.'));
+      video.onerror = () => reject(new Error('This media could not be read. Try an MP4, WebM, MP3, or WAV file.'));
     });
 
-    const scale = Math.min(1, 720 / Math.max(video.videoWidth, video.videoHeight));
-    canvas.width = Math.round(video.videoWidth * scale) & ~1;
-    canvas.height = Math.round(video.videoHeight * scale) & ~1;
+    const hasVideoFrames = video.videoWidth > 0 && video.videoHeight > 0;
+    if (!hasVideoFrames && !is3d) {
+      throw new Error('2D modes need a driving video with frames. Use 3D Character Remix for audio songs.');
+    }
+
+    const presetAspect = this.aspectPreset();
+    if (presetAspect === '16:9') {
+      canvas.width = 960;
+      canvas.height = 540;
+    } else if (presetAspect === '9:16') {
+      canvas.width = 540;
+      canvas.height = 960;
+    } else if (hasVideoFrames) {
+      const scale = Math.min(1, 720 / Math.max(video.videoWidth, video.videoHeight));
+      canvas.width = Math.round(video.videoWidth * scale) & ~1;
+      canvas.height = Math.round(video.videoHeight * scale) & ~1;
+    } else {
+      canvas.width = 960;
+      canvas.height = 540;
+    }
     canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
     this.lastWidth = canvas.width;
     this.lastHeight = canvas.height;
@@ -612,6 +732,10 @@ export class MotionCopyComponent {
         secondaryRole: this.roleB(),
         primaryColor: this.colorA(),
         secondaryColor: this.colorB(),
+        troupeCount: this.troupeCount(),
+        troupeRole: this.stage3D() === 'PalaceCourt' ? 'NobleWoman' : this.roleB() !== 'None' ? this.roleB() as CharacterRole3D : this.roleA(),
+        troupeColor: this.stage3D() === 'PalaceCourt' ? '#7F1D1D' : this.colorB(),
+        choreographyStyle: this.choreoStyle(),
         setting: this.stage3D(),
         vfxStyle: this.vfx3D(),
         cameraAngle: this.cameraAngle(),
@@ -643,6 +767,41 @@ export class MotionCopyComponent {
     this.audio ??= new AudioContext();
     const audio = this.audio;
     this.audioSource ??= audio.createMediaElementSource(video);
+
+    // 3D remix, pass 1: extract beat grid + read any visible dancers in video (or pure beat-driven choreography for songs/closeups).
+    let track: DanceTrack | null = null;
+    let beats: BeatGrid | null = null;
+    if (stage3dHandle) {
+      let analysisCancelled = false;
+      this.stopRun = () => { analysisCancelled = true; };
+      this.status.set(hasVideoFrames ? 'Pass 1 of 2: reading the dance and the beat...' : 'Detecting music beat grid...');
+      const beatsPromise = detectBeats(url, audio);
+      try {
+        if (hasVideoFrames) {
+          track = await analyzeDance(video, (v) => this.engine.detectBodies(v), {
+            maxPeople: this.roleB() !== 'None' ? 2 : 1,
+            onProgress: (f) => this.status.set(`Pass 1 of 2: reading the dance... ${Math.round(f * 100)}%`),
+            isCancelled: () => analysisCancelled,
+          });
+          if (!analysisCancelled) await rewind(video);
+        }
+        beats = await beatsPromise;
+      } catch (err) {
+        stage3dHandle.dispose();
+        throw err;
+      }
+      if (analysisCancelled) {
+        stage3dHandle.dispose();
+        this.status.set('Stopped.');
+        return;
+      }
+      const share = track ? trackedShare(track) : 0;
+      const modeLabel = !hasVideoFrames || share < 0.05 ? 'choreographed beat-sync' : 'motion-copied';
+      this.status.set(beats
+        ? `Rendering ${modeLabel} 3D stage at ${Math.round(beats.bpm)} BPM...`
+        : `Rendering ${modeLabel} 3D stage...`);
+    }
+
     const sink = audio.createMediaStreamDestination();
     if (!(is3d && this.muteSourceAudio())) {
       this.audioSource.connect(sink);
@@ -700,22 +859,21 @@ export class MotionCopyComponent {
 
     const draw = () => {
       if (cancelled || video.ended) return;
-      const result = this.engine.detect(video, { mask: false, motion: true });
       const nowMs = performance.now();
-      const motion = result?.motion ? this.smoother.update(result.motion, nowMs) : null;
-      const bodies = motion?.bodies ?? [];
-      const body = bodies[0];
 
       if (stage3dHandle) {
+        // Pass 2: sample the pre-analysed, smoothed dance at the exact playback time.
+        const t = video.currentTime;
+        const sampled = track ? sampleDance(track, t) : [];
+        const lead = sampled[0] ?? sampled[1] ?? null;
+        const second = sampled[0] ? sampled[1] ?? null : null;
         const poses3d: ExternalBodyPose[] = [];
         let energy = 0;
-        if (body) {
-          const p0 = posePointsToExternal3D(body.points, trackerA, this.travel());
+        if (lead) {
+          const p0 = sampleToPose3D(lead, trackerA, this.travel(), t);
           poses3d.push(p0.pose);
           energy = p0.kineticEnergy;
-          if (bodies[1]) {
-            poses3d.push(posePointsToExternal3D(bodies[1].points, trackerB, this.travel()).pose);
-          }
+          if (second) poses3d.push(sampleToPose3D(second, trackerB, this.travel(), t).pose);
           if (this.remixSfx() && energy > 0.65 && (nowMs - (trackerA.lastSfxAtMs ?? 0)) > 900) {
             trackerA.lastSfxAtMs = nowMs;
             playComedyStinger(audio, sink, energy > 0.78);
@@ -723,8 +881,22 @@ export class MotionCopyComponent {
         } else {
           lost++;
         }
-        stage3dHandle.render(video.currentTime || nowMs * 0.001, poses3d, energy, this.mirrorPose());
-      } else if (figure) {
+        stage3dHandle.render(t, poses3d, energy, this.mirrorPose(), beats ? beatAt(beats, t) : null);
+        frames++;
+        if (frames % 15 === 0) {
+          const total = video.duration || 1;
+          this.status.set(`Pass 2 of 2: rendering 3D remix... ${Math.min(99, Math.round((t / total) * 100))}%`);
+        }
+        next();
+        return;
+      }
+
+      const result = this.engine.detect(video, { mask: false, motion: true });
+      const motion = result?.motion ? this.smoother.update(result.motion, nowMs) : null;
+      const bodies = motion?.bodies ?? [];
+      const body = bodies[0];
+
+      if (figure) {
         drawReal(body);
       } else {
         ctx!.fillStyle = this.background();
@@ -750,10 +922,11 @@ export class MotionCopyComponent {
       next();
     };
 
+    // The 3D pass renders at display rate from the pre-analysed track (no per-frame detection),
+    // so it doesn't need to wait for decoded video frames.
+    const useVideoFrames = !stage3dHandle && 'requestVideoFrameCallback' in video;
     const next = () => {
-      handle = 'requestVideoFrameCallback' in video
-        ? video.requestVideoFrameCallback(draw)
-        : requestAnimationFrame(draw);
+      handle = useVideoFrames ? video.requestVideoFrameCallback(draw) : requestAnimationFrame(draw);
     };
 
     recorder.start(250);
@@ -762,7 +935,7 @@ export class MotionCopyComponent {
     next();
     await finished;
 
-    if ('cancelVideoFrameCallback' in video) video.cancelVideoFrameCallback(handle);
+    if (useVideoFrames) video.cancelVideoFrameCallback(handle);
     else cancelAnimationFrame(handle);
     recorder.state !== 'inactive' && recorder.stop();
     await recorded;
@@ -781,9 +954,9 @@ export class MotionCopyComponent {
     this.resultExt.set(type.includes('mp4') ? 'mp4' : 'webm');
     this.resultUrl.set(URL.createObjectURL(blob));
     const missed = frames ? Math.round((lost / frames) * 100) : 0;
-    this.status.set(missed > 25
+    this.status.set(!stage3dHandle && missed > 25
       ? `Done, but body tracking missed ${missed}% of frames. A full-body video gives cleaner motion.`
-      : 'Done! Preview below, download, or convert & send to YouTube / Auto-Post.');
+      : 'Done! Beat-synced 3D dance ready to preview, download, or send to YouTube / Auto-Post.');
   }
 
   private drawHead(ctx: CanvasRenderingContext2D, head: { x: number; y: number; r: number }, look: PuppetLook): void {
@@ -834,4 +1007,57 @@ export class MotionCopyComponent {
     this.resultUrl.set(null);
     this.recordedBlob = null;
   }
+}
+
+/** Synthesizes a royalty-free warm Sufi tanpura drone + 92 BPM tabla/ghungroo pulse WAV for instant testing. */
+function buildRoyalSufiDemoWavBlob(durationSec: number, bpm: number): Blob {
+  const sr = 22050;
+  const totalSamples = Math.floor(sr * durationSec);
+  const pcm = new Int16Array(totalSamples);
+  const beatSec = 60 / bpm;
+  // Soft C# / Yaman-inspired drone + plucked sitar motif + warm dholak downbeat
+  const motif = [277.18, 311.13, 349.23, 415.30, 466.16, 415.30, 349.23, 311.13];
+
+  for (let i = 0; i < totalSamples; i++) {
+    const t = i / sr;
+    const beatPos = t / beatSec;
+    const beatIdx = Math.floor(beatPos);
+    const beatFrac = beatPos - beatIdx;
+    const noteHz = motif[beatIdx % motif.length];
+
+    // Warm tanpura fifths (Sa + Pa)
+    const drone = 0.14 * Math.sin(2 * Math.PI * 138.59 * t) + 0.09 * Math.sin(2 * Math.PI * 207.65 * t);
+    // Expressive plucked sitar/harmonium melody synced to beat
+    const pluckEnv = Math.exp(-beatFrac * 3.8);
+    const melody = 0.24 * pluckEnv * (Math.sin(2 * Math.PI * noteHz * t) + 0.35 * Math.sin(4 * Math.PI * noteHz * t));
+    // Soft tabla bayan thump on beats 1 & 3, subtle ghungroo shimmer on every beat
+    const drumEnv = Math.exp(-beatFrac * 18);
+    const drumFreq = 82 + 45 * Math.exp(-beatFrac * 32);
+    const isAccent = beatIdx % 2 === 0;
+    const drum = (isAccent ? 0.34 : 0.18) * drumEnv * Math.sin(2 * Math.PI * drumFreq * beatFrac);
+    const fade = Math.min(1, t * 2, (durationSec - t) * 2);
+    const sample = Math.max(-0.95, Math.min(0.95, (drone + melody + drum) * fade));
+    pcm[i] = Math.round(sample * 32767);
+  }
+
+  const headerSize = 44;
+  const buf = new ArrayBuffer(headerSize + pcm.byteLength);
+  const view = new DataView(buf);
+  const writeStr = (off: number, s: string) => {
+    for (let j = 0; j < s.length; j++) view.setUint8(off + j, s.charCodeAt(j));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + pcm.byteLength, true);
+  writeStr(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, pcm.byteLength, true);
+  new Uint8Array(buf, headerSize).set(new Uint8Array(pcm.buffer));
+  return new Blob([buf], { type: 'audio/wav' });
 }

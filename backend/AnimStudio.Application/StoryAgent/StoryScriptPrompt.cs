@@ -23,7 +23,7 @@ public static class StoryScriptPrompt
     private const double SecondsPerScene = 13.0;
 
     public static int SceneCount(int targetSeconds) =>
-        Math.Clamp((int)Math.Round(Math.Clamp(targetSeconds, 30, 900) / SecondsPerScene), 4, 40);
+        Math.Clamp((int)Math.Round(Math.Clamp(targetSeconds, 30, 3600) / SecondsPerScene), 4, 160);
 
     /// <summary>The variables of the <c>story-script</c> template.</summary>
     public static IReadOnlyDictionary<string, string?> Variables(

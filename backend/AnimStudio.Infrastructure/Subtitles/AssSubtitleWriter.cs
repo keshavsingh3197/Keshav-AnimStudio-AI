@@ -79,7 +79,7 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         var defaultMarginV = vertical ? Math.Max(310, (int)Math.Round(request.Canvas.Height * 0.275)) : 64;
         builder.AppendLine(StyleRow(
             DefaultStyleName, font, request.FontSize,
-            AssColor.White, "&H000000FF", AssColor.NearBlack, AssColor.SemiTransparentBlack,
+            AssColor.White, AssColor.White, AssColor.NearBlack, AssColor.SemiTransparentBlack,
             bold: true, alignment: 2, defaultMarginL, defaultMarginR, defaultMarginV));
 
         foreach (var (_, style) in request.StylesByCharacterId)
@@ -89,7 +89,7 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
 
             var scaledSize = Math.Max(14, request.FontSize * Math.Clamp(style.FontScalePercent, 40, 220) / 100);
             var primary = AssColor.FromHex(style.ColorHex, AssColor.White);
-            var secondary = AssColor.FromHex(style.SecondaryColorHex, "&H000000FF");
+            var secondary = AssColor.FromHex(style.SecondaryColorHex, AssColor.White);
             var outline = AssColor.FromHex(style.OutlineColorHex, AssColor.NearBlack);
             var back = AssColor.FromHex(style.BackColorHex, AssColor.SemiTransparentBlack);
             var alignment = Math.Clamp(style.Alignment, 1, 9);
@@ -100,7 +100,7 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
             builder.AppendLine(StyleRow(
                 name, font, scaledSize,
                 primary, secondary, outline, back,
-                style.Bold, alignment, marginL, marginR, marginV));
+                style.Bold, alignment, marginL, marginR, marginV, style.OpaqueBox));
         }
 
         builder.AppendLine();
@@ -113,7 +113,7 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         int size,
         string primary,
         bool bold) =>
-        StyleRow(name, font, size, primary, "&H000000FF", AssColor.NearBlack, AssColor.SemiTransparentBlack, bold, 2, 72, 72, 64);
+        StyleRow(name, font, size, primary, AssColor.White, AssColor.NearBlack, AssColor.SemiTransparentBlack, bold, 2, 72, 72, 64, false);
 
     private static string StyleRow(
         string name,
@@ -127,11 +127,12 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         int alignment,
         int marginL,
         int marginR,
-        int marginV) =>
+        int marginV,
+        bool opaqueBox = false) =>
         string.Create(CultureInfo.InvariantCulture,
-            // Bold is -1 for on and 0 for off in ASS, not 1.
+            // Bold is -1 for on and 0 for off in ASS, not 1. BorderStyle 3 draws a decorated pill/bar behind badges.
             $"Style: {name},{font},{size},{primary},{secondary},{outline},"
-            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,0,1,3.2,1.4,{alignment},{marginL},{marginR},{marginV},1");
+            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,0,{(opaqueBox ? 3 : 1)},{(opaqueBox ? "6.0,0" : "3.6,1.8")},{alignment},{marginL},{marginR},{marginV},1");
 
     private static string Events(SubtitleRequest request)
     {
@@ -242,7 +243,7 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
             allocated += cs;
         }
 
-        var sb = new StringBuilder(@"{\fad(65,65)}");
+        var sb = new StringBuilder(@"{\fad(0,40)}");
         for (var i = 0; i < words.Length; i++)
         {
             if (words[i] == @"\N")

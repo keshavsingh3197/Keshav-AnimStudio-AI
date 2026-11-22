@@ -44,7 +44,9 @@ internal static class WebGlVideoFrameRenderer
         ProceduralEventPalette palette,
         ProceduralDialoguePlan dialoguePlan,
         float[]? speechEnvelope,
-        int backdropCount)
+        int backdropCount,
+        int startFrame = 0,
+        int? endFrame = null)
     {
         var runs = ProceduralSceneRasterizer.BuildSceneRuns(dialoguePlan);
         var effectiveVfx = request.VfxStyle != ProceduralVfxStyle.Auto
@@ -64,6 +66,8 @@ internal static class WebGlVideoFrameRenderer
             fps,
             durationSeconds,
             totalFrames,
+            startFrame,
+            endFrame = endFrame ?? totalFrames,
             seed,
             theme = resolvedTheme,
             vfxStyle = effectiveVfx,
@@ -74,6 +78,7 @@ internal static class WebGlVideoFrameRenderer
             uniqueVariant = unchecked(seed ^ (request.EpisodeNumber * 7919)),
             topCategoryLabel = request.TopCategoryLabel,
             footerLabel = request.ShowWatermark ? request.FooterLabel : null,
+            showWatermark = request.ShowWatermark,
             title = request.Title,
             palette = new
             {
@@ -92,13 +97,45 @@ internal static class WebGlVideoFrameRenderer
             supportingCast = dialoguePlan.Supporting,
             turns = dialoguePlan.Turns,
             memeCues = dialoguePlan.Memes,
-            sceneRuns = runs.Select(r => new
+            sceneRuns = runs.Select(r =>
             {
-                startSeconds = r.Start,
-                endSeconds = double.IsFinite(r.End) ? r.End : durationSeconds,
-                setting = r.Setting,
-                timeOfDay = r.Time,
-                sceneIndex = r.Index
+                var rEnd = double.IsFinite(r.End) ? r.End : durationSeconds;
+                var inScene = dialoguePlan.Turns
+                    .Where(t => !t.IsTitleHook && t.StartSeconds >= r.Start - 0.02 && t.StartSeconds < rEnd)
+                    .OrderBy(t => t.StartSeconds)
+                    .ToList();
+                var activeChars = inScene
+                    .Where(t => t.SpeakerRole != CharacterVisualRole.Narrator
+                        && !string.Equals(t.SpeakerName, "सूत्रधार", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(t.SpeakerName, "Narrator", StringComparison.OrdinalIgnoreCase))
+                    .Select(t => t.SpeakerName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var entryAt = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                foreach (var t in inScene)
+                {
+                    if (t.SpeakerRole == CharacterVisualRole.Narrator
+                        || string.Equals(t.SpeakerName, "सूत्रधार", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(t.SpeakerName, "Narrator", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!entryAt.ContainsKey(t.SpeakerName))
+                    {
+                        // Opening characters appear at the scene cut; later arriving characters (e.g. Yamraj, Lord Shiva climax)
+                        // enter cleanly right on their dramatic entrance turn instead of waiting idle from t=0 of the act.
+                        var idx = activeChars.FindIndex(c => string.Equals(c, t.SpeakerName, StringComparison.OrdinalIgnoreCase));
+                        entryAt[t.SpeakerName] = idx <= 1 ? r.Start : t.StartSeconds;
+                    }
+                }
+                return new
+                {
+                    startSeconds = r.Start,
+                    endSeconds = rEnd,
+                    setting = r.Setting,
+                    timeOfDay = r.Time,
+                    sceneIndex = r.Index,
+                    activeCharacters = activeChars,
+                    characterEntryAt = entryAt
+                };
             }),
             speechEnvelope,
             backdropCount,
@@ -124,7 +161,9 @@ internal static class WebGlVideoFrameRenderer
         IReadOnlyList<byte[]>? backdropFrames,
         IConfiguration? configuration,
         ILogger logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        int startFrame = 0,
+        int? endFrame = null)
     {
         if (request.RenderEngine == ProceduralRenderEngine.CpuFast)
             return null;
@@ -161,7 +200,7 @@ internal static class WebGlVideoFrameRenderer
 
         var jobJson = SerializeJobJson(
             width, height, fps, durationSeconds, totalFrames, seed,
-            resolvedTheme, request, palette, dialoguePlan, speechEnvelope, backdropCount);
+            resolvedTheme, request, palette, dialoguePlan, speechEnvelope, backdropCount, startFrame, endFrame);
         await File.WriteAllTextAsync(jobPath, jobJson, ct).ConfigureAwait(false);
 
         var psi = new ProcessStartInfo

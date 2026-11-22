@@ -59,7 +59,8 @@ public sealed partial class EcosystemAutomationService
         AutomationVideoFormat format,
         string? channelId,
         string? timeZoneId,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? targetDateKey = null)
     {
         var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var tz = PublishSlotSuggester.ResolveTimeZone(!string.IsNullOrWhiteSpace(timeZoneId) ? timeZoneId : settings.DefaultTimeZone);
@@ -74,20 +75,43 @@ public sealed partial class EcosystemAutomationService
             ct).ConfigureAwait(false);
 
         var takenUtc = existingPosts
-            .Where(p => p.ScheduledAtUtc.HasValue
-                && p.ScheduledAtUtc.Value > now
-                && p.Status is AutomationPostStatus.Approved or AutomationPostStatus.Publishing or AutomationPostStatus.VideoReadyForReview
-                && (string.IsNullOrWhiteSpace(channelId) || string.Equals(p.TargetChannelId, channelId, StringComparison.Ordinal)))
-            .Select(p => p.ScheduledAtUtc!.Value)
+            .Where(p => p.Status is AutomationPostStatus.Approved or AutomationPostStatus.Publishing or AutomationPostStatus.VideoReadyForReview or AutomationPostStatus.Published
+                && (string.IsNullOrWhiteSpace(channelId)
+                    || string.Equals(p.TargetChannelId, channelId, StringComparison.Ordinal)
+                    || string.Equals(p.PublishedChannelId, channelId, StringComparison.Ordinal)))
+            .Select(p => p.ScheduledAtUtc ?? (p.Status == AutomationPostStatus.Published ? p.PublishedAtUtc : null))
+            .Where(d => d.HasValue && d.Value >= now.AddDays(-1))
+            .Select(d => d!.Value)
             .ToList();
 
-        var recentPubs = await publications.ListByUserAsync(userId, channelId, 60, ct).ConfigureAwait(false);
+        var recentPubs = await publications.ListByUserAsync(userId, null, 120, ct).ConfigureAwait(false);
+        AnimStudio.Domain.Publishing.YouTubeChannelAnalysis? analysis = null;
+        if (!string.IsNullOrWhiteSpace(channelId) && channelAnalyses is not null)
+        {
+            try
+            {
+                analysis = await channelAnalyses.GetAsync(userId, channelId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Could not load cached channel analysis for {ChannelId}; continuing with base advice.", channelId);
+            }
+        }
+
         var historyUtc = recentPubs
-            .Where(p => p.PublishedAt != default)
-            .Select(p => p.PublishedAt)
+            .Where(p => p.Health != AnimStudio.Domain.Publishing.YouTubeVideoHealth.Removed
+                && (string.IsNullOrWhiteSpace(channelId) || string.Equals(p.ChannelId, channelId, StringComparison.Ordinal)))
+            .Select(p => p.PublishAt ?? p.PublishedAt)
+            .Concat(analysis?.Videos
+                .Where(v => v.PublishedAtUtc is { } pat && pat <= now)
+                .Select(v => v.PublishedAtUtc!.Value) ?? [])
+            .Where(d => d != default)
+            .Distinct()
             .ToList();
 
-        return AutomationPublishAdvisor.BuildAdvice(sourceType, format, tz, now, takenUtc, historyUtc, count: 4);
+        var baseAdvice = AutomationPublishAdvisor.BuildAdvice(sourceType, format, tz, now, takenUtc, historyUtc, count: 4);
+        return ChannelAudiencePeakAnalyzer.EnrichAdvice(
+            baseAdvice, sourceType, format, analysis, tz, now, takenUtc, count: 4, targetDateKey: targetDateKey);
     }
 
     public async Task<DailyRashifalReport> GetDailyRashifalAsync(

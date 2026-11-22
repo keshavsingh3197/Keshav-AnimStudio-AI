@@ -14,9 +14,21 @@ export interface MotionPoint {
   v: number;
 }
 
+/**
+ * One MediaPipe world landmark: metres, origin between the hips, x to the picture's right,
+ * y down, z away from the camera.
+ */
+export interface WorldPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
 /** The 33 MediaPipe pose landmarks of one person. */
 export interface BodyPose {
   points: MotionPoint[];
+  /** The same 33 landmarks in 3D, when the caller asked for them (see VisionEngine.detectBodies). */
+  world?: WorldPoint[];
 }
 
 /** The 21 landmarks of one hand, with the gesture the model recognised on it. */

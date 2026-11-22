@@ -34,7 +34,7 @@ public sealed record ComposedAutomationContent(
 public static class AutomationContentComposer
 {
     private const int MaxTitleLength = 95;
-    private const int MaxTagCount = 22;
+    private const int MaxTagCount = 26;
 
     public static IReadOnlyList<ComposedAutomationContent> ComposeForRule(
         AutomationRule rule,
@@ -126,76 +126,81 @@ public static class AutomationContentComposer
             ? Truncate($"आज का पंचांग {p.DateKey} | {tithiTitleSuffix} • {p.Nakshatra} • शुभ मुहूर्त व राहुकाल", MaxTitleLength)
             : Truncate($"Today's Hindu Panchang {p.DateKey} | {tithiTitleSuffix}, {p.Nakshatra} & Shubh Muhurat", MaxTitleLength);
 
+        var (speakerA, speakerB) = ResolveSpeakerPair(rule, title, null, isHindi);
         var sutraLine = !string.IsNullOrWhiteSpace(p.DailySanskritSutra)
-            ? $"\nआज का श्लोक: {p.DailySanskritSutra} ({p.DailySutraMeaning})"
+            ? $"\n[{speakerA}]: (praying) आज का पावन संस्कृत सूत्र भी याद रखें — {p.DailySanskritSutra}। अर्थात् {p.DailySutraMeaning}"
             : string.Empty;
 
-        var (speakerA, speakerB) = ResolveSpeakerPair(rule, title, null, isHindi);
+        var panIndiaRefHi = IsGenericOrDefaultLocation(p.Location) ? "भारतीय मानक समय (संपूर्ण भारत IST)" : p.Location.Trim();
+        var panIndiaRefEn = IsGenericOrDefaultLocation(p.Location) ? "Pan-India (IST Reference)" : p.Location.Trim();
+        var isHindiChar = isHindi && rule.EnableCharacterDialogue;
         var fullStory = IsFullStoryMode(rule);
         string script;
-        if (isHindi && rule.EnableCharacterDialogue)
+        if (isHindiChar)
         {
-            var sutraDialogue = !string.IsNullOrWhiteSpace(p.DailySanskritSutra)
-                ? $"\n[{speakerA}]: आज का पावन संस्कृत सूत्र भी याद रखें — {p.DailySanskritSutra}। अर्थात् {p.DailySutraMeaning}"
-                : string.Empty;
-
-            var extendedContext = fullStory
-                ? $"""
-                  [सूत्रधार]: आज {p.DateKey} को {p.Location} में नक्षत्र-ग्रहों की स्थिति और शुभ मुहूर्त क्यों विशेष हैं, आइए गुरु और शिष्य के संवाद से पूरा पंचांग समझते हैं।
-                  [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को {p.Location} के अनुसार पंचांग में कौन सा शुभ योग बन रहा है?
-                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"} है। तिथि {tithiDetailHi} और पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} रहेगा।
-                  [{speakerB}]: आचार्य, दैनिक पूजा व कार्य सिद्धि के लिए आज का नक्षत्र, योग और सूर्योदय-सूर्यास्त का समय भी स्पष्ट बताइए।
-                  [{speakerA}]: आज नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है, योग {p.Yoga} तथा करण {p.Karana} है। सूर्योदय {p.Sunrise} और सूर्यास्त {p.Sunset} पर होगा।
-                  [{speakerB}]: नया शुभ कार्य शुरू करने के लिए आज सबसे श्रेष्ठ मुहूर्त कौन सा रहेगा और किस समय सावधान रहें?
-                  [{speakerA}]: सर्वोत्तम अभिजीत मुहूर्त {p.AbhijitMuhurat}, ब्रह्म मुहूर्त {p.BrahmaMuhurat} तथा अमृत काल {p.AmritKaal} है। वहीं राहुकाल {p.RahuKaal} रहेगा — इस दौरान बड़े शुभ कार्य टालें।{sutraDialogue}
-                  [सूत्रधार]: आज की जीवन सीख — समय और तिथि के अनुरूप अनुशासित कर्म करने से हर प्रयास सफल व मंगलमय बनता है।
-                  [{speakerB}]: चौघड़िया, होरा और पूरे दिन का पंचांग देखने के लिए हमारे पंचांग पोर्टल के लिंक पर जाएं: {primaryLink}
-                  """
-                : $"""
-                  [सूत्रधार]: आइए जानते हैं {p.DateKey} ({p.Location}) का संपूर्ण दैनिक पंचांग व शुभ मुहूर्त।
-                  [{speakerB}]: हर हर महादेव गुरुदेव! आज {p.DateKey} को कौन सा शुभ योग और तिथि है?
-                  [{speakerA}]: शुभ दिन! आज {p.Vaara ?? "पावन दिवस"}, तिथि {tithiDetailHi}, पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} व नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है। योग {p.Yoga}, करण {p.Karana}, सूर्योदय {p.Sunrise} व सूर्यास्त {p.Sunset} है।
-                  [{speakerB}]: आज नया कार्य करने का शुभ समय और राहुकाल क्या है?
-                  [{speakerA}]: अभिजीत मुहूर्त {p.AbhijitMuhurat} और ब्रह्म मुहूर्त {p.BrahmaMuhurat} श्रेष्ठ हैं; राहुकाल {p.RahuKaal} में शुभ आरंभ टालें।{sutraDialogue}
-                  [सूत्रधार]: जीवन सीख — शुभ समय का सम्मान और सद्कर्म दिन को सफल बनाते हैं। पूरा पंचांग व चौघड़िया देखें: {primaryLink}
+                  var panchangScriptBody = $"""
+                  [सूत्रधार]: (waving) हर हर महादेव! आइए जानते हैं {p.DateKey} का {panIndiaRefHi} के अनुसार संपूर्ण दैनिक पंचांग व शुभ मुहूर्त।
+                  [SCENE]: cosmos | dawn | serene
+                  [{speakerB}]: (waving) गुरुदेव, आज {p.DateKey} को संपूर्ण भारत में कौन सी पावन तिथि, नक्षत्र और शुभ योग बन रहे हैं?
+                  [{speakerA}]: (proud, book) शुभ दिन! आज {p.Vaara ?? "पावन दिवस"}, तिथि {tithiDetailHi}, पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} व नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है। योग {p.Yoga} तथा करण {p.Karana} है।
+                  [SCENE]: temple | dawn | glowing
+                  [{speakerB}]: (confused) गुरुदेव, आज शुभ कार्य प्रारंभ करने का श्रेष्ठ समय, राहुकाल और शहरों के अनुसार सूर्योदय कैसा रहेगा?
+                  [{speakerA}]: (pointing, diya) अभिजीत मुहूर्त {p.AbhijitMuhurat} और ब्रह्म मुहूर्त {p.BrahmaMuhurat} अत्यंत शुभ हैं; राहुकाल {p.RahuKaal} में नया शुभ आरंभ टालें। सूर्योदय लगभग {p.Sunrise} व सूर्यास्त {p.Sunset} (IST मानक) के आसपास रहेगा, जो मुंबई, वाराणसी, जयपुर, कोलकाता और बेंगलुरु जैसे शहरों में कुछ मिनट भिन्न होता है।{sutraLine}
+                  [SCENE]: river ghat | dawn | peaceful
+                  [सूत्रधार]: (praying, diya) अपने शहर का सटीक सूर्योदय, चौघड़िया और लाइव पंचांग देखने के लिए डिस्क्रिप्शन में दी गई वेबसाइट लिंक पर जरूर जाएं: {primaryLink}
                   """;
-            script = extendedContext;
+            script = fullStory
+                ? $"""
+                  [सूत्रधार]: (waving) आज {p.DateKey} को {panIndiaRefHi} में नक्षत्र-ग्रहों की स्थिति और शुभ मुहूर्त क्यों विशेष हैं, आइए गुरु और शिष्य के संवाद से पूरा पंचांग समझते हैं।
+                  [SCENE]: cosmos | dawn | serene
+                  [{speakerB}]: (waving) हर हर महादेव गुरुदेव! आज {p.DateKey} को पंचांग में कौन सा शुभ योग और तिथि बन रही है?
+                  [{speakerA}]: (proud, book) शुभ दिन! आज {p.Vaara ?? "पावन दिवस"} है। तिथि {tithiDetailHi} और पक्ष {p.Paksha ?? "शुक्ल/कृष्ण"} रहेगा, जो देशभर में मान्य है।
+                  [SCENE]: temple | dawn | glowing
+                  [{speakerB}]: (confused) आचार्य, दैनिक पूजा व कार्य सिद्धि के लिए आज का नक्षत्र, योग और अलग-अलग शहरों के अनुसार सूर्योदय का समय स्पष्ट बताइए।
+                  [{speakerA}]: (praying, diya) आज नक्षत्र {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} है, योग {p.Yoga} तथा करण {p.Karana} है। भारतीय मानक समय अनुसार सूर्योदय लगभग {p.Sunrise} और सूर्यास्त {p.Sunset} के आसपास रहेगा — मुंबई, वाराणसी, जयपुर, पटना, कोलकाता और बेंगलुरु में स्थानीय अंतर कुछ मिनटों का रहता है।
+                  [{speakerB}]: (praying) नया शुभ कार्य शुरू करने के लिए आज सबसे श्रेष्ठ मुहूर्त कौन सा रहेगा और किस समय सावधान रहें?
+                  [{speakerA}]: (pointing) सर्वोत्तम अभिजीत मुहूर्त {p.AbhijitMuhurat}, ब्रह्म मुहूर्त {p.BrahmaMuhurat} तथा अमृत काल {p.AmritKaal} है। वहीं राहुकाल {p.RahuKaal} रहेगा — इस दौरान बड़े शुभ कार्य टालें।{sutraLine}
+                  [SCENE]: river ghat | dawn | peaceful
+                  [सूत्रधार]: (praying) आज की जीवन सीख — समय और तिथि के अनुरूप अनुशासित कर्म करने से हर प्रयास सफल व मंगलमय बनता है।
+                  [{speakerB}]: (waving) अपने शहर का चौघड़िया, होरा और पूरा पंचांग देखने के लिए डिस्क्रिप्शन में दिए गए हमारे पोर्टल लिंक पर जाएं: {primaryLink}
+                  """
+                : panchangScriptBody;
         }
         else if (isHindi)
         {
             script = $"""
-                [HOOK 0-4s] हर हर महादेव! आइए जानते हैं {p.DateKey} ({p.Location}) का संपूर्ण दैनिक पंचांग और आज का सबसे शुभ मुहूर्त।
+                [HOOK 0-4s] हर हर महादेव! आइए जानते हैं {p.DateKey} का संपूर्ण भारत (IST मानक) अनुसार दैनिक पंचांग और आज का सबसे शुभ मुहूर्त।
                 [CORE PANCHANG 4-35s]
                 • तिथि: {tithiDetailHi} | पक्ष: {p.Paksha ?? "शुक्ल/कृष्ण"}
                 • नक्षत्र: {p.Nakshatra}{(string.IsNullOrWhiteSpace(p.NakshatraEndTime) ? "" : $" ({p.NakshatraEndTime} तक)")} | योग: {p.Yoga} | करण: {p.Karana}
-                • सूर्योदय: {p.Sunrise} | सूर्यास्त: {p.Sunset}
+                • भारतीय मानक समय (IST) सूर्योदय ~{p.Sunrise} | सूर्यास्त ~{p.Sunset} (विभिन्न शहरों में कुछ मिनट का स्थानीय अंतर रहता है)
                 • आज का शुभ अभिजीत मुहूर्त: {p.AbhijitMuhurat} | ब्रह्म मुहूर्त: {p.BrahmaMuhurat}
-                • सावधान समय (राहुकाल): {p.RahuKaal} — इस दौरान शुभ कार्य व निवेश टालें।{sutraLine}
+                • सावधान समय (राहुकाल): {p.RahuKaal} — इस दौरान शुभ कार्य व निवेश टालें।{(string.IsNullOrWhiteSpace(p.DailySanskritSutra) ? "" : $"\nआज का श्लोक: {p.DailySanskritSutra} ({p.DailySutraMeaning})")}
                 [MORAL] सीख — अनुशासन और शुभ मुहूर्त के अनुसार किया गया कर्म सदैव कल्याणकारी होता है।
-                [WEBSITE CTA 35-50s] पूरे दिन का चौघड़िया, होरा, लाइव राशि-तारा फल और अपने शहर का सटीक पंचांग देखने के लिए डिस्क्रिप्शन या पिन कमेंट में दिए लिंक पर जाएं: {primaryLink}
+                [WEBSITE CTA 35-50s] पूरे दिन का चौघड़िया, होरा और अपने शहर (मुंबई, जयपुर, वाराणसी, पटना, बेंगलुरु, कोलकाता आदि) का सटीक पंचांग देखने के लिए डिस्क्रिप्शन लिंक पर जाएं: {primaryLink}
                 """;
         }
         else
         {
             script = fullStory
                 ? $"""
-                  [Narrator]: Welcome to today's complete Vedic Panchang guide for {p.DateKey} in {p.Location} — let us understand both the sacred timings and the dharma wisdom behind the day.
+                  [Narrator]: Welcome to today's complete Vedic Panchang guide for {p.DateKey} ({panIndiaRefEn}) — let us understand both the sacred timings and the dharma wisdom behind the day.
                   [{speakerB}]: Teacher, what is today's Tithi, Paksha, and planetary alignment for {p.DateKey}?
-                  [{speakerA}]: Today is {p.Vaara ?? "a sacred day"} under Tithi {tithiDetailEn}, Nakshatra {p.Nakshatra}, Yoga {p.Yoga}, and Karana {p.Karana}. Sunrise is at {p.Sunrise} and Sunset is at {p.Sunset}.
+                  [{speakerA}]: Today is {p.Vaara ?? "a sacred day"} under Tithi {tithiDetailEn}, Nakshatra {p.Nakshatra}, Yoga {p.Yoga}, and Karana {p.Karana}. Standard IST Sunrise is around {p.Sunrise} and Sunset around {p.Sunset}, shifting a few minutes by city.
                   [{speakerB}]: Which windows are most auspicious for prayers, study, and new beginnings, and when should we pause?
                   [{speakerA}]: Abhijit Muhurat ({p.AbhijitMuhurat}), Brahma Muhurat ({p.BrahmaMuhurat}), and Amrit Kaal ({p.AmritKaal}) carry uplifting harmony. Pause important starts during Rahu Kaal ({p.RahuKaal}).
                   [Narrator]: Moral of the day — aligning action with clarity, gratitude, and mindful timing turns ordinary hours into sacred progress.
-                  [{speakerB}]: Explore city-wise Choghadiya, Hora, Festivals, and Aaj Ka Itihaas directly on our portal: {primaryLink}
+                  [{speakerB}]: Explore exact city-wise Choghadiya, Sunrise, Hora, Festivals, and Aaj Ka Itihaas directly on our portal: {primaryLink}
                   """
                 : $"""
-                  [HOOK 0-4s] Namaste! Here is today's authentic Vedic Panchang for {p.DateKey} ({p.Location}).
+                  [HOOK 0-4s] Namaste! Here is today's authentic Vedic Panchang for {p.DateKey} ({panIndiaRefEn}).
                   [CORE PANCHANG 4-35s]
                   • Tithi: {tithiDetailEn} | Nakshatra: {p.Nakshatra} | Yoga: {p.Yoga} | Karana: {p.Karana}
-                  • Sunrise: {p.Sunrise} | Sunset: {p.Sunset}
+                  • Standard IST Sunrise: ~{p.Sunrise} | Sunset: ~{p.Sunset} (varies slightly by city)
                   • Best Auspicious Window (Abhijit Muhurat): {p.AbhijitMuhurat}
                   • Brahma Muhurat: {p.BrahmaMuhurat} | Amrit Kaal: {p.AmritKaal}
                   • Avoid Important Starts (Rahu Kaal): {p.RahuKaal}
-                  [WEBSITE CTA 35-50s] Check live city-wise Choghadiya, Hora, Festivals, and Aaj Ka Itihaas directly on our portal (link in pinned comment): {primaryLink}
+                  [WEBSITE CTA 35-50s] Check exact city-wise Sunrise, Choghadiya, Hora, and Festivals in the description link: {primaryLink}
                   """;
         }
 
@@ -206,9 +211,10 @@ public static class AutomationContentComposer
 
         var tags = MergeTags(["Hindu Panchang", "Aaj Ka Panchang", p.Tithi, p.Nakshatra, "Shubh Muhurat", "Rahu Kaal", "Sanatan Dharma", "Daily Panchang", "Shorts"], baseTags, baseHashtags);
         var description = BuildDescription(rule,
-            $"📅 दिनांक / Date: {p.DateKey} ({p.Location})\n" +
+            $"📅 दिनांक / Date: {p.DateKey} ({panIndiaRefHi})\n" +
             $"🔱 तिथि: {tithiDetailHi} | नक्षत्र: {p.Nakshatra} | योग: {p.Yoga} | करण: {p.Karana}\n" +
-            $"🌅 सूर्योदय: {p.Sunrise} | सूर्यास्त: {p.Sunset}\n" +
+            $"🌅 मानक भारतीय समय (IST) सूर्योदय ~{p.Sunrise} | सूर्यास्त ~{p.Sunset}\n" +
+            $"🏙️ विभिन्न शहर नोट: तिथि व मुहूर्त पूरे भारत में मान्य हैं; मुंबई, वाराणसी, जयपुर, लखनऊ, पटना, कोलकाता, अहमदाबाद व बेंगलुरु में सूर्योदय/चौघड़िया कुछ मिनट भिन्न होता है — नीचे वेबसाइट पर अपना शहर चुनें!\n" +
             $"✨ अभिजीत मुहूर्त (शुभ): {p.AbhijitMuhurat} | ⛔ राहुकाल: {p.RahuKaal}\n" +
             (!string.IsNullOrWhiteSpace(p.DailySanskritSutra) ? $"📜 सुभाषित: {p.DailySanskritSutra} — {p.DailySutraMeaning}" : string.Empty),
             links, tags);
@@ -258,10 +264,11 @@ public static class AutomationContentComposer
             var festLinks = isToday ? links : RetargetLinksDate(links, dateKey, f.DateKey);
             var festPrimaryLink = festLinks.FirstOrDefault()?.TrackedUrl ?? primaryLink;
             var whenLabel = isToday ? (isHindi ? "आज" : "Today") : f.DateKey;
-            var displayName = !string.IsNullOrWhiteSpace(f.NameHindi) ? $"{f.NameHindi} ({f.NameEnglish})" : f.NameEnglish;
+            var displayHindiName = LocalizeFestivalHindiLabel(!string.IsNullOrWhiteSpace(f.NameHindi) ? f.NameHindi : f.NameEnglish);
+            var displayName = !string.IsNullOrWhiteSpace(f.NameEnglish) ? $"{displayHindiName} ({f.NameEnglish})" : displayHindiName;
 
             var title = isHindi
-                ? Truncate($"{whenLabel} {f.NameHindi} | व्रत विधि, शुभ मुहूर्त व महत्व • {f.NameEnglish}", MaxTitleLength)
+                ? Truncate($"{whenLabel} {displayHindiName} | व्रत विधि, शुभ मुहूर्त व पूजा नियम", MaxTitleLength)
                 : Truncate($"{whenLabel}: {f.NameEnglish} | Puja Vidhi, Significance & Auspicious Time", MaxTitleLength);
 
             var (festA, festB) = ResolveSpeakerPair(rule, title, null, isHindi);
@@ -271,24 +278,27 @@ public static class AutomationContentComposer
             var script = isHindi && rule.EnableCharacterDialogue
                 ? (festFull
                     ? $"""
-                       [सूत्रधार]: (waving) {whenLabel} ({f.DateKey}) को भारत भर में {displayName} का पावन पर्व मनाया जा रहा है। आइए जानते हैं इसकी पौराणिक पृष्ठभूमि, संपूर्ण पूजा विधि और आध्यात्मिक संदेश।
-                       [SCENE]: temple | dawn | serene
-                       [{festB}]: (praying) जय श्री हरि पंडित जी! {displayName} किस वैदिक तिथि को आता है और इसके पीछे की कथा व महत्व क्या है?
-                       [{festA}]: (proud) शुभ कल्याण हो! यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
-                       [{festB}]: (sitting) घर में भक्ति व श्रद्धा के साथ पूजा और व्रत किस विधि से करना चाहिए?
+                       [SCENE]: temple | sunset | glowing
+                       [सूत्रधार]: (waving, wide) {whenLabel} ({f.DateKey}) को संपूर्ण भारत में {displayName} का पावन पर्व मनाया जा रहा है। आइए जानते हैं इसकी पौराणिक पृष्ठभूमि, संपूर्ण पूजा विधि और आध्यात्मिक संदेश।
+                       [{festB}]: (praying, diya) जय श्री हरि पंडित जी! {displayName} किस वैदिक तिथि को आता है और इसके पीछे की कथा व महत्व क्या है?
+                       [{festA}]: (proud, book) शुभ कल्याण हो! यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
+                       [SCENE]: river ghat | dawn | peaceful
+                       [{festB}]: (aarti, diya) घर में भक्ति व श्रद्धा के साथ पूजा और व्रत किस विधि से करना चाहिए?
                        [{festA}]: (praying) {festVidhiHi}
+                       [SCENE]: temple | night | radiant
                        [{festB}]: (confused) पंडित जी, इस पर्व का मुख्य जीवन संदेश क्या है जो हर परिवार को अपनाना चाहिए?
-                       [{festA}]: (praying) हर व्रत-त्योहार हमें संयम, कृतज्ञता, परोपकार और सत्य के मार्ग पर स्थिर रहने की प्रेरणा देता है।
-                       [सूत्रधार]: (praying) आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। संपूर्ण व्रत कथा व आरती समय देखें: {festPrimaryLink}
+                       [{festA}]: (praying, closeUpSpeaker) हर व्रत-त्योहार हमें संयम, कृतज्ञता, परोपकार और सत्य के मार्ग पर स्थिर रहने की प्रेरणा देता है।
+                       [सूत्रधार]: (praying, wide) आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। संपूर्ण व्रत कथा व आरती समय देखें: {festPrimaryLink}
                        """
                     : $"""
-                       [सूत्रधार]: (waving) {whenLabel} ({f.DateKey}) को {displayName} का पावन पर्व है — आइए जानें इसका महत्व व पूजा विधि।
-                       [SCENE]: temple | dawn | serene
-                       [{festB}]: (praying) जय श्री हरि पंडित जी! {displayName} का विशेष पौराणिक महत्व क्या है?
-                       [{festA}]: (proud) यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
-                       [{festB}]: (sitting) आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
-                       [{festA}]: (praying) {festVidhiHi}
-                       [सूत्रधार]: (praying) जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। संपूर्ण व्रत कथा व पारण समय देखें: {festPrimaryLink}
+                       [SCENE]: temple | sunset | glowing
+                       [सूत्रधार]: (waving, wide) {whenLabel} ({f.DateKey}) को {displayName} का पावन पर्व है — आइए जानें इसका महत्व व पूजा विधि।
+                       [{festB}]: (aarti, diya) हर हर महादेव पंडित जी! {displayName} का विशेष पौराणिक महत्व क्या है?
+                       [{festA}]: (proud, book) यह पर्व {f.Tithi ?? "पावन तिथि"} ({f.MonthVedic ?? "वैदिक मास"}) में आता है। {festDescHi}
+                       [SCENE]: forest ashram | dawn | peaceful
+                       [{festB}]: (praying) आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
+                       [{festA}]: (praying, diya) {festVidhiHi}
+                       [सूत्रधार]: (praying, wide) जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। संपूर्ण व्रत कथा व पारण समय देखें: {festPrimaryLink}
                        """)
                 : isHindi
                     ? $"""
@@ -384,8 +394,9 @@ public static class AutomationContentComposer
         var prompt = ApplyPromptOverride(rule,
             $"Create an attractive classical Indian multi-scene spiritual animation in {ratioLabel} depicting '{k.Title}' with characters {speakerA} and {speakerB} ({visualSubject}): act 1 sacred Madhuvan forest ashram at dawn with lotus pond and swaying temple bells, act 2 radiant guru-shishya mantra initiation with golden light orbs, act 3 steadfast tapasya glow culminating in eternal starlight & flower petals blessing. Expressive talking characters, rich depth, zero text watermarks.");
 
-        var thumbPrompt = $"Epic Indian devotional scene with {speakerA} and {speakerB}, golden celestial glow and sacred temple horizon, sharp area for bold Hindi title.";
-        var tags = MergeTags([visualSubject, speakerA, speakerB, "Vedic Katha", "Pauranik Katha", "Hindi Kahani", "Sanatan Wisdom", "Daily Katha", "Shorts"], baseTags, baseHashtags);
+        var thumbPrompt = $"Epic Indian devotional artwork with {speakerA} and {speakerB}, golden celestial glow and sacred temple horizon, crisp dark vignette space on the left for large gold Hindi headline, zero text";
+        var formatTag = IsFullStoryMode(rule) || rule.VideoFormat == AutomationVideoFormat.Wide ? "Full Katha Video" : "Shorts";
+        var tags = MergeTags([visualSubject, speakerA, speakerB, "Vedic Katha", "Pauranik Katha", "Hindi Kahani", "Sanatan Wisdom", "Daily Katha", formatTag], baseTags, baseHashtags);
         var hindiSummary = isHindi ? LocalizeBriefSummaryHindi(k.StorySummary, $"{speakerA} और {speakerB} की पावन भक्ति कथा।") : k.StorySummary;
         var hindiMoral = isHindi ? LocalizeBriefSummaryHindi(k.MoralTeaching, "सच्ची भक्ति और दृढ़ संकल्प से ईश्वर अवश्य दर्शन देते हैं।") : (k.MoralTeaching ?? string.Empty);
         var description = BuildDescription(rule,
@@ -431,20 +442,26 @@ public static class AutomationContentComposer
         var script = isHindi && rule.EnableCharacterDialogue
             ? (histFull
                 ? $"""
-                   [सूत्रधार]: आज की तारीख {dateKey} विश्व व भारत के इतिहास का एक निर्णायक मोड़ है। आइए समय के पन्नों से जानते हैं कि सन् {leadIncident.Year} में असल में क्या हुआ था और उसने हमारा आज कैसे बदला।
-                   [{histB}]: इतिहासकार महोदय, {dateKey} की तारीख विश्व और भारत के इतिहास में क्यों इतनी महत्वपूर्ण मानी जाती है?
-                   [{histA}]: आइए समय की यात्रा में पीछे चलते हैं! आज ही के दिन सन् {leadIncident.Year} में '{leadIncident.Title}' की ऐतिहासिक घटना घटी थी।
-                   [{histB}]: उस समय देश व समाज की परिस्थिति क्या थी और इसका भविष्य पर क्या प्रभाव पड़ा?
-                   [{histA}]: {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का एक निर्णायक मोड़ बनी।")} {LocalizeBriefSummaryHindi(leadIncident.CulturalSignificance, string.Empty)}
-                   {(secondary.Count > 0 ? $"[{histB}]: इसके अलावा आज के दिन इतिहास में {string.Join(" और ", secondary.Select(s => $"सन् {s.Year} की प्रमुख घटना '{s.Title}'"))} भी दर्ज है।" : $"[{histB}]: इतिहास की ये घटनाएं केवल तारीखें नहीं, बल्कि मानव साहस और दूरदृष्टि के प्रमाण हैं।")}
-                   [सूत्रधार]: आज की ऐतिहासिक सीख — अतीत के संघर्ष और नवाचार हमें वर्तमान में सही निर्णय लेने की स्पष्ट दृष्टि देते हैं। पूरी ऐतिहासिक टाइमलाइन व GK नोट्स देखें: {primaryLink}
+                   [SCENE]: archive | dawn | dramatic
+                   [सूत्रधार]: (waving, wide) आज की तारीख {dateKey} विश्व व भारत के इतिहास का एक निर्णायक मोड़ है। आइए समय के पन्नों से जानते हैं कि सन् {leadIncident.Year} में असल में क्या हुआ था और उसने हमारा आज कैसे बदला।
+                   [{histB}]: (confused, book) इतिहासकार महोदय, {dateKey} की तारीख विश्व और भारत के इतिहास में क्यों इतनी महत्वपूर्ण मानी जाती है?
+                   [{histA}]: (pointing, proud, closeUpSpeaker) आइए समय की यात्रा में पीछे चलते हैं! आज ही के दिन सन् {leadIncident.Year} में '{leadIncident.Title}' की ऐतिहासिक घटना घटी थी।
+                   [SCENE]: palace court | sunset | dramatic
+                   [{histB}]: (surprised) उस समय देश व समाज की परिस्थिति क्या थी और इसका भविष्य पर क्या प्रभाव पड़ा?
+                   [{histA}]: (proud, twoShot) {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का एक निर्णायक मोड़ बनी।")} {LocalizeBriefSummaryHindi(leadIncident.CulturalSignificance, string.Empty)}
+                   [SCENE]: modern city | day | radiant
+                   {(secondary.Count > 0 ? $"[{histB}]: (waving) इसके अलावा आज के दिन इतिहास में {string.Join(" और ", secondary.Select(s => $"सन् {s.Year} की प्रमुख घटना '{s.Title}'"))} भी दर्ज है।" : $"[{histB}]: (waving) इतिहास की ये घटनाएं केवल तारीखें नहीं, बल्कि मानव साहस और दूरदृष्टि के प्रमाण हैं।")}
+                   [सूत्रधार]: (proud, wide) आज की ऐतिहासिक सीख — अतीत के संघर्ष और नवाचार हमें वर्तमान में सही निर्णय लेने की स्पष्ट दृष्टि देते हैं। पूरी ऐतिहासिक टाइमलाइन व GK नोट्स देखें: {primaryLink}
                    """
                 : $"""
-                   [सूत्रधार]: जानिए {dateKey} की वो ऐतिहासिक घटना जिसने सन् {leadIncident.Year} में दिशा बदल दी!
-                   [{histB}]: {dateKey} इतिहास में क्यों खास है?
-                   [{histA}]: सन् {leadIncident.Year} में आज ही के दिन '{leadIncident.Title}' घटी थी। {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का प्रमुख मोड़ रही।")}
-                   {(secondary.Count > 0 ? $"[{histB}]: साथ ही आज के दिन {string.Join(" व ", secondary.Select(s => $"सन् {s.Year} की घटना '{s.Title}'"))} भी महत्वपूर्ण रही।" : $"[{histB}]: इसका दूरगामी प्रभाव आज भी महसूस किया जाता है।")}
-                   [सूत्रधार]: सीख — इतिहास हमें वर्तमान को संवारने की प्रेरणा देता है। पूरी टाइमलाइन व GK नोट्स देखें: {primaryLink}
+                   [SCENE]: archive | dawn | dramatic
+                   [सूत्रधार]: (waving, wide) जानिए {dateKey} की वो ऐतिहासिक घटना जिसने सन् {leadIncident.Year} में इतिहास बदल दिया!
+                   [{histB}]: (confused, book) {dateKey} इतिहास में क्यों खास है?
+                   [SCENE]: palace court | sunset | dramatic
+                   [{histA}]: (pointing, closeUpSpeaker) सन् {leadIncident.Year} में आज ही के दिन '{leadIncident.Title}' घटी थी। {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का प्रमुख मोड़ रही।")}
+                   [SCENE]: modern city | day | clear
+                   {(secondary.Count > 0 ? $"[{histB}]: (waving) साथ ही आज के दिन {string.Join(" व ", secondary.Select(s => $"सन् {s.Year} की घटना '{s.Title}'"))} भी महत्वपूर्ण रही।" : $"[{histB}]: (waving) इसका दूरगामी प्रभाव आज भी महसूस किया जाता है।")}
+                   [सूत्रधार]: (proud, wide) सीख — इतिहास हमें वर्तमान को संवारने की प्रेरणा देता है। पूरी टाइमलाइन व GK नोट्स देखें: {primaryLink}
                    """)
             : isHindi
                 ? $"""
@@ -787,10 +804,11 @@ public static class AutomationContentComposer
                 ? BuildHindiComedyScript(speakerA, speakerB, byStander, slot, effectiveTone, isFull, includeMemes, rule.EnableCharacterDialogue)
                 : BuildEnglishComedyScript(speakerA, speakerB, byStander, slot, isFull, includeMemes, rule.EnableCharacterDialogue, effectiveTone);
 
+        var styleLabelHi = FriendlyComedyStyleLabel(effectiveTone, isHindi: true);
         var summaryText = isTank
             ? $"{topicTitleEn} — {epTag} animated cartoon tank comedy"
             : isHindi
-                ? $"{topicTitleHi} — {effectiveTone} देसी कॉमेडी शॉर्ट"
+                ? $"{topicTitleHi} — {styleLabelHi}"
                 : $"{topicTitleEn} — unique 3D slapstick loop";
         var prompt = ApplyPromptOverride(rule,
             isTank
@@ -804,11 +822,28 @@ public static class AutomationContentComposer
         var isInternational = isTank || isGlobal || !isHindi;
         var tags = isInternational
             ? MergeTags(
-                ["3D Comedy", "Animated Shorts", "Cartoon Comedy", isTank ? "Cartoon Tank Series" : "Slapstick Loop", "Funny Animation", "Shorts"],
+                [
+                    "3D Comedy", "Animated Shorts", "Cartoon Comedy",
+                    isTank ? "Cartoon Tank Series" : "Slapstick Loop",
+                    "Funny 3D Animation", "Make Joke Of Style", "Comedy Cartoon",
+                    "Funny Animation Video", "Viral Comedy Shorts", "Animated Sitcom",
+                    "Cartoon Comedy Episode", "3D Character Comedy", "Laugh Out Loud",
+                    "Funny Animated Series", "Comedy Reel", "Funny Shorts",
+                    "Trending Shorts", "Shorts"
+                ],
                 baseTags,
                 baseHashtags)
             : MergeTags(
-                ["Comedy Shorts", "Desi Comedy", isKhadi ? "Khadi Bhasha Comedy" : "Tu Tadak Comedy", "Hindi Funny Animation", "KESHAV-ANIM-FF", "Shorts"],
+                [
+                    "Make Joke Of Style", "MJO Comedy", "Hindi Comedy Video",
+                    "Desi 3D Cartoon", "Funny Cartoon Animation", "Hindi Funny Video",
+                    "Kanpuria Comedy", "UP Style Comedy", "Comedy Shorts",
+                    "Desi Comedy", isKhadi ? "Khadi Bhasha Comedy" : "Tu Tadak Comedy",
+                    "Barber Shop Comedy", "Chai Tapri Comedy", "Mohalla Comedy",
+                    "Funny Dubbing Hindi", "Animated Comedy Series", "KESHAV-ANIM-FF",
+                    "Viral Hindi Shorts", "Hindi Cartoon Comedy", "3D Cartoon Comedy",
+                    "Hinglish Comedy", "Shorts"
+                ],
                 baseTags,
                 baseHashtags);
         var description = isInternational
@@ -1146,11 +1181,8 @@ public static class AutomationContentComposer
 
         if (links.Count > 0)
         {
-            sb.AppendLine("🌐 Official Website & Resources (Visit for full details):");
-            foreach (var link in links)
-            {
-                sb.AppendLine($"👉 {link.Label}: {link.TrackedUrl}");
-            }
+            var primary = links[0];
+            sb.AppendLine($"🌐 {primary.Label}: {primary.TrackedUrl}");
             sb.AppendLine();
         }
 
@@ -1168,6 +1200,18 @@ public static class AutomationContentComposer
 
         return sb.ToString().Trim();
     }
+
+    private static string FriendlyComedyStyleLabel(AnimStudio.Domain.Stories.ComedyToneStyle tone, bool isHindi) => tone switch
+    {
+        AnimStudio.Domain.Stories.ComedyToneStyle.DesiKhadiSitcom => isHindi ? "देसी खड़ी कॉमेडी शॉर्ट" : "Desi Sitcom Comedy",
+        AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha => isHindi ? "खड़ी भाषा देसी कॉमेडी" : "Khadi Bhasha Comedy",
+        AnimStudio.Domain.Stories.ComedyToneStyle.TuTadak => isHindi ? "असली यारों वाला देसी रोस्ट" : "Buddy Banter Comedy",
+        AnimStudio.Domain.Stories.ComedyToneStyle.RoastAndTwist => isHindi ? "रोस्ट और ट्विस्ट कॉमेडी" : "Roast & Twist Comedy",
+        AnimStudio.Domain.Stories.ComedyToneStyle.FamilyClean => isHindi ? "फैमिली कॉमेडी शॉर्ट" : "Family Comedy Short",
+        AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick => isHindi ? "3D स्लैपस्टिक कॉमेडी" : "3D Slapstick Comedy",
+        AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries => isHindi ? "कार्टून टैंक कॉमेडी" : "Cartoon Tank Series",
+        _ => isHindi ? "देसी 3D कॉमेडी शॉर्ट" : "3D Comedy Short"
+    };
 
     private static string BuildPinnedComment(string headline, IReadOnlyList<AutomationWebsiteLink> links)
     {
@@ -1228,6 +1272,14 @@ public static class AutomationContentComposer
         var combined = $"{title} {deityOrSage}".ToLowerInvariant();
         if (isHindi)
         {
+            if (combined.Contains("markandeya", StringComparison.Ordinal) || combined.Contains("मार्कण्डेय", StringComparison.Ordinal) || combined.Contains("प्रदोष", StringComparison.Ordinal))
+                return ("बालक मार्कण्डेय", "भगवान शिव");
+            if (combined.Contains("neelkanth", StringComparison.Ordinal) || combined.Contains("नीलकंठ", StringComparison.Ordinal) || combined.Contains("समुद्र मंथन", StringComparison.Ordinal))
+                return ("भगवान शिव", "नारद मुनि");
+            if (combined.Contains("savitri", StringComparison.Ordinal) || combined.Contains("सावित्री", StringComparison.Ordinal))
+                return ("देवी सावित्री", "धर्मराज यम");
+            if (combined.Contains("nachiketa", StringComparison.Ordinal) || combined.Contains("नचिकेता", StringComparison.Ordinal))
+                return ("बालक नचिकेता", "यमराज");
             if (combined.Contains("dhruv", StringComparison.Ordinal) || combined.Contains("ध्रुव", StringComparison.Ordinal))
                 return ("भक्त ध्रुव", "देवर्षि नारद मुनि");
             if (combined.Contains("harishchandra", StringComparison.Ordinal) || combined.Contains("हरिश्चंद्र", StringComparison.Ordinal))
@@ -1263,9 +1315,72 @@ public static class AutomationContentComposer
             ? k.SanskritMantra.Trim()
             : "ॐ नमो भगवते वासुदेवाय";
 
-        var fullStory = IsFullStoryMode(rule);
+        var fullStory = IsFullStoryMode(rule) || rule.VideoFormat == AutomationVideoFormat.Wide;
         var summaryBody = LocalizeBriefSummaryHindi(k.StorySummary, $"{k.Title} का यह अद्भुत प्रसंग हमें भक्ति, संयम और धर्म के मार्ग पर आगे बढ़ने की प्रेरणा देता है।");
         var moralBody = LocalizeBriefSummaryHindi(k.MoralTeaching, "सच्ची श्रद्धा, धैर्य और सद्कर्म से जीवन के हर संकट पर विजय मिलती है।");
+
+        if (combined.Contains("markandeya", StringComparison.Ordinal)
+            || combined.Contains("मार्कण्डेय", StringComparison.Ordinal)
+            || combined.Contains("प्रदोष", StringComparison.Ordinal))
+        {
+            var title = Truncate($"मार्कण्डेय ऋषि और भगवान शिव की अमर कथा | प्रदोष व्रत महामृत्युंजय महिमा", MaxTitleLength);
+            var script = fullStory
+                ? $"""
+                   [SCENE]: forest ashram | dawn | serene
+                   [सूत्रधार]: (waving, wide) आज की यह पावन पौराणिक कथा प्रदोष वेला की महाशक्ति और ऋषि मृकण्डु के तेजस्वी पुत्र बालक मार्कण्डेय की अटूट शिव-भक्ति की अमर गाथा है। प्राचीन समय में आर्यावर्त के शांत तपोवन में ऋषि मृकण्डु और उनकी धर्मपत्नी माता मरुदमती संतान सुख की कामना से महादेव की आराधना करते रहे।
+                   [ऋषि मृकण्डु]: (praying, diya) हे करुणासागर देवाधिदेव महादेव! हमारे तपोवन में धर्म और तपस्या का दीपक प्रज्वलित रखने के लिए एक सुयोग्य संतान का वरदान दीजिए।
+                   [माता मरुदमती]: (praying) हे आशुतोष शंभो! हम वर्षों से निष्काम भाव से आपकी उपासना में लीन हैं — कृपया हमारी भक्ति स्वीकार करें।
+                   [सूत्रधार]: (serene) उनकी निष्काम भक्ति से प्रसन्न होकर स्वयं महादेव प्रकट हुए और अनूठी परीक्षा रखी — सौ वर्ष का गुणहीन पुत्र या केवल सोलह वर्ष की अल्पायु वाला सर्वगुणसंपन्न शिवभक्त बालक?
+                   [ऋषि मृकण्डु]: (proud, twoShot) हे प्रभो! सौ वर्षों का अज्ञान भला किस काम का? हमें तो वह अल्पजीवी किंतु धर्मनिष्ठ और शिवभक्त पुत्र ही स्वीकार है जो जीवन को परम सत्य से आलोकित कर दे।
+                   [SCENE]: river ghat | day | peaceful
+                   [सूत्रधार]: (happy) महादेव के वरदान से तेजस्वी बालक मार्कण्डेय का जन्म हुआ। माता-पिता के संस्कारों से मार्कण्डेय बचपन से ही वेदों और शिव मंत्र के परम साधक बन गए।
+                   [{speakerA}]: (walking, happy, book) हे पूज्य पिताजी, मेरी सोलहवीं वर्षगाँठ समीप आ रही है, फिर आपके मुख पर यह गहरी चिंता और नेत्रों में अश्रु किस कारण हैं? कृपया यह रहस्य न छिपाएं।
+                   [ऋषि मृकण्डु]: (sad, reactionZoom) वत्स मार्कण्डेय, तुम्हारे जन्म से पूर्व महादेव ने केवल सोलह वर्ष की ही आयु का विधान लिखा था। अब तुम्हारे जीवन का अंतिम प्रहर निकट आ रहा है।
+                   [{speakerA}]: (proud, closeup) पिताजी, तनिक भी शोक न करें! जब महाकाल भगवान शिव सृष्टि के नियंता हैं, तब उनके चरणों की शरण में मृत्यु भी अमरता का द्वार बन जाती है।
+                   [SCENE]: temple | sunset | glowing
+                   [सूत्रधार]: (aarti, diya) बालक मार्कण्डेय प्रदोष वेला में संगम तट के पावन शिव मंदिर पहुँचे और दीप प्रज्वलित कर महादेव की एकाग्र भक्ति में लीन हो गए। चारों ओर मंत्रोच्चार गूँजने लगा: {mantra}।
+                   [{speakerA}]: (aarti, diya) हे देवाधिदेव महादेव, प्रदोष वेला में यह पार्थिव शिवलिंग मेरी शरण है — ॐ त्र्यम्बकं यजामहे सुगन्धिं पुष्टिवर्धनम्!
+                   [SCENE]: cosmos | night | radiant
+                   [यमराज]: (walking, angry, pointing, baton, lowDramatic) हे बालक मार्कण्डेय! सोलह वर्ष की आयु पूर्ण हो चुकी है। मृत्यु के अटल नियम से देवता और ऋषि भी मुक्त नहीं हो सकते। अब मेरे साथ यमलोक चलो!
+                   [{speakerA}]: (praying, diya, closeUpSpeaker) हे धर्मराज यम, मैं महादेव के ध्यान और प्रदोष पूजन में स्थित हूँ। जब तक शिव आराधना पूर्ण नहीं होती, मैं अपने आराध्य के चरण नहीं छोड़ सकता!
+                   [सूत्रधार]: (surprised, reactionZoom) जब यमराज ने कालपाश फेंका, तब नन्हे मार्कण्डेय ने भक्तिपूर्वक शिवलिंग का आलिंगन कर लिया — और उसी क्षण साक्षात् त्रिशूलधारी भगवान शिव प्रचंड दिव्य ज्योति से प्रकट हो गए!
+                   [{speakerB}]: (proud, trishul, closeUpSpeaker) ठहरो धर्मराज! जो भक्त निष्काम प्रेम और प्रदोष भक्ति से मेरे चरणों में समर्पित होता है, काल उसे स्पर्श भी नहीं कर सकता। आज से मार्कण्डेय कल्प के अंत तक अजर-अमर रहेंगे!
+                   [यमराज]: (praying, surprised) धन्य हो भक्तवत्सल महादेव! धन्य है बालक मार्कण्डेय की भक्ति — आज कालपाश स्वयं आपकी करुणा के आगे नतमस्तक है!
+                   [{speakerA}]: (praying, twoShot) हे भक्तवत्सल शंभो! आपकी असीम कृपा से संपूर्ण जगत में महामृत्युंजय मंत्र और प्रदोष व्रत की महिमा सदैव अमर रहेगी।
+                   [सूत्रधार]: (praying, wide) आज की पावन कथा की सीख — कठिनतम संकट में भी भय के बजाय ईश्वर पर अडिग विश्वास और सद्कर्म ही मनुष्य को विजयी बनाते हैं। संपूर्ण प्रदोष व्रत विधि और दैनिक पंचांग देखें: {primaryLink}
+                   """
+                : $"""
+                   [SCENE]: temple | sunset | glowing
+                   [सूत्रधार]: (waving) सोलह वर्ष की अल्पायु का वरदान पाने वाले बालक मार्कण्डेय ने प्रदोष वेला में साक्षात् महाकाल महादेव से अमरता कैसे प्राप्त की?
+                   [{speakerA}]: (aarti, diya) पिताजी, महादेव की शरण में मृत्यु भी झुक जाती है। मैं आज प्रदोष काल में अखंड महामृत्युंजय जप करूँगा: {mantra}।
+                   [SCENE]: cosmos | night | radiant
+                   [यमराज]: (pointing, angry, baton) बालक मार्कण्डेय! तुम्हारे सोलह वर्ष पूर्ण हुए!
+                   [{speakerB}]: (proud, trishul, closeUpSpeaker) ठहरो धर्मराज! मेरे अनन्य भक्त मार्कण्डेय पर कालपाश नहीं चल सकता — आज से यह अजर-अमर चिरंजीवी रहेगा!
+                   [सूत्रधार]: (praying) जीवन सीख — अटल श्रद्धा और समर्पण हर महासंकट को विजय में बदल देते हैं। पूरी कथा व पंचांग देखें: {primaryLink}
+                   """;
+            return (title, script);
+        }
+
+        if (combined.Contains("neelkanth", StringComparison.Ordinal)
+            || combined.Contains("नीलकंठ", StringComparison.Ordinal)
+            || combined.Contains("समुद्र मंथन", StringComparison.Ordinal))
+        {
+            var title = Truncate($"समुद्र मंथन और भगवान शिव के नीलकंठ अवतार की संपूर्ण कथा | जीवन संदेश", MaxTitleLength);
+            var script = $"""
+                [सूत्रधार]: (waving) यह दिव्य कथा उस महासमुद्र मंथन की है जब अमरत्व और सृष्टि कल्याण के लिए देवताओं और असुरों ने मिलकर विशाल क्षीरसागर को मथा। मंदराचल पर्वत की मथानी और नागराज वासुकि की नेती बनी, किंतु अमृत से पहले जो प्रकट हुआ उसने तीनों लोकों को कंपकंपा दिया।
+                [SCENE]: river bank | sunset | dramatic
+                [{speakerB}]: (surprised) हे प्रभो श्रीहरि, समुद्र मंथन से अमृत के स्थान पर यह भयंकर कालकूट हलाहल विष निकल आया है! इसकी ज्वाला से समस्त वनस्पतियाँ, आकाश और प्राणी भस्म होने लगे हैं, अब सृष्टि की रक्षा कैसे होगी?
+                [सूत्रधार]: चारों दिशाओं में त्राहि-त्राहि मच गई। ऐसे विकट क्षण में न कोई धन काम आया, न कोई अभिमान — तब सभी देवतागण करुण पुकार लेकर कैलाश पर्वत पर भगवान आशुतोष महादेव की शरण में पहुँचे।
+                [SCENE]: himalaya | dawn | radiant
+                [{speakerA}]: (praying) शांत हो जाओ देवगण! जब जीवन में विष और अमृत का मंथन होता है, तब पहले कड़वे संकटों को स्वीकार करना पड़ता है। लोककल्याण के लिए मैं स्वयं इस हलाहल विष को ग्रहण करता हूँ।
+                [{speakerB}]: (confused) किंतु हे देवाधिदेव महादेव! यह विष इतना प्रबल है कि यदि आपने इसे पिया, तो संपूर्ण सृष्टि का संतुलन डगमगा सकता है।
+                [{speakerA}]: (proud) चिन्ता न करो नारद! विश्व के मंगल के लिए मैं इस विष को न भीतर जाने दूँगा और न बाहर फैलने दूँगा — मैं इसे अपने कंठ में ही धारण करूँगा।
+                [सूत्रधार]: महादेव ने निर्भय होकर हथेली पर संपूर्ण हलाहल विष लिया और जगत कल्याण की भावना से उसे कंठ में धारण कर लिया। विष के प्रभाव से महादेव का कंठ नीला हो गया और वे संपूर्ण ब्रह्मांड में 'नीलकंठ' कहलाए!
+                [{speakerB}]: (praying) धन्य हो करुणासागर नीलकंठ! आज आपने हमें सिखाया कि सच्चा नेतृत्व सुख बांटने में नहीं, बल्कि समाज के विष को भी प्रेम और धैर्य से थाम लेने में है। {mantra}।
+                [सूत्रधार]: कुछ समय पश्चात् धन्वंतरि भगवान अमृत कलश लेकर प्रकट हुए और देवताओं को नवजीवन प्राप्त हुआ। आज भी जीवन में सफलता से पहले संघर्षों का विष सामने आता है — जो धैर्य और परोपकार से उसे थाम लेता है, वही महान बनता है। पूरी कथा व दैनिक पंचांग देखें: {primaryLink}
+                """;
+            return (title, script);
+        }
 
         if (combined.Contains("dhruv", StringComparison.Ordinal) || combined.Contains("ध्रुव", StringComparison.Ordinal))
         {
@@ -1341,6 +1456,27 @@ public static class AutomationContentComposer
             """;
 
         return (genericTitle, genericScript);
+    }
+
+    private static string LocalizeFestivalHindiLabel(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "पर्व";
+        var cleaned = raw.Trim()
+            .Replace("Kartika ", "कार्तिक ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Margashirsha ", "मार्गशीर्ष ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Pausha ", "पौष ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Magha ", "माघ ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Phalguna ", "फाल्गुन ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Chaitra ", "चैत्र ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Vaishakha ", "वैशाख ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Jyeshtha ", "ज्येष्ठ ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Ashadha ", "आषाढ़ ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Shravana ", "श्रावण ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Bhadrapada ", "भाद्रपद ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Ashwin ", "आश्विन ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Shukla ", "शुक्ल ", StringComparison.OrdinalIgnoreCase)
+            .Replace("Krishna ", "कृष्ण ", StringComparison.OrdinalIgnoreCase);
+        return System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ").Trim();
     }
 
     private static string LocalizeBriefSummaryHindi(string? raw, string hindiFallback)
@@ -1549,6 +1685,15 @@ public static class AutomationContentComposer
             BaseUrl = l.BaseUrl,
             TrackedUrl = l.TrackedUrl.Replace(oldStamp, newStamp, StringComparison.Ordinal)
         })];
+    }
+
+    private static bool IsGenericOrDefaultLocation(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location)) return true;
+        var loc = location.Trim();
+        return loc.Contains("New Delhi", StringComparison.OrdinalIgnoreCase)
+            || loc.Contains("India", StringComparison.OrdinalIgnoreCase) && !loc.Contains(',', StringComparison.Ordinal)
+            || loc.Contains("IST", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Truncate(string input, int maxLen) =>

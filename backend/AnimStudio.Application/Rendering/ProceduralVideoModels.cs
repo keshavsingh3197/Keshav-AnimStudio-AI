@@ -48,8 +48,8 @@ public sealed record ProceduralCaptionBeat(
 public sealed class ProceduralVideoRequest
 {
     public const int MinSeconds = 5;
-    /// <summary>Ten minutes: a full 16:9 story video. Shorts are capped lower (3 min) by the automation layer.</summary>
-    public const int MaxSeconds = 600;
+    /// <summary>Up to 60 minutes (1 hour): supports long-form 15m/20m/30m/60m episodes in 16:9 as well as 9:16 Shorts.</summary>
+    public const int MaxSeconds = 3600;
     public const int DefaultSeconds = 18;
 
     public string Title { get; init; } = string.Empty;
@@ -125,6 +125,12 @@ public sealed class ProceduralVideoRequest
 
     /// <summary>When true (or auto-enabled on comedy renders), mixes crisp synthesized cartoon SFX (boing/bonk/boom/scratch) on meme &amp; punchline beats.</summary>
     public bool EnableComedySfx { get; init; }
+
+    /// <summary>
+    /// MJO-style dialogue breathing room: plays upbeat intro, scene-transition, and outro comic jingles while dropping
+    /// BGM to whisper-quiet room tone during spoken lines so timing, sarcasm, and SFX hits cut cleanly.
+    /// </summary>
+    public bool SparseComedyAudio { get; init; }
 
     /// <summary>Series episode number (0 for standalone) used to vary procedural props, stage hues, and uniqueness seeds per upload.</summary>
     public int EpisodeNumber { get; init; }

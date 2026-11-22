@@ -17,6 +17,20 @@
     linear-gradient(45deg, var(--surface) 25%, transparent 25%, transparent 75%, var(--surface) 75%);
   background-size: 20px 20px; background-position: 0 0, 10px 10px;
 }
+.fx-reaction-result img.fx-wide-preview { width: 320px; height: 180px; }
+
+.fx-gen-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem 1rem; margin-bottom: .75rem; }
+.fx-gen-status { margin: 0 0 .65rem; font-size: .86rem; font-weight: 600; color: var(--ok, #34d399); }
+.fx-av-block { display: flex; flex-direction: column; gap: .6rem; }
+.fx-av-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem; }
+.fx-sfx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 245px), 1fr)); gap: .65rem; }
+.fx-sfx-card {
+  display: flex; flex-direction: column; gap: .35rem; padding: .65rem .75rem;
+  border-radius: 9px; border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.fx-sfx-title { font-weight: 700; font-size: .86rem; }
+.fx-sfx-desc { margin: 0; font-size: .76rem; line-height: 1.35; flex: 1; }
 
 /* ---------------------------------------------------------------- upload */
 

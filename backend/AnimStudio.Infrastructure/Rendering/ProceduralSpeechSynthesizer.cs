@@ -28,6 +28,9 @@ internal static class ProceduralSpeechSynthesizer
 {
     private const double LeadInSeconds = 0.35;
     private const double PauseBetweenTurnsSeconds = 0.24;
+    private const double ComedyStandardGapSeconds = 0.13;
+    private const double ComedyInterruptGapSeconds = 0.05;
+    private const double ComedyDeadpanBeatSeconds = 0.32;
     private const double MinTitleHoldSeconds = 1.25;
     private const double TailSeconds = 0.75;
 
@@ -87,27 +90,9 @@ internal static class ProceduralSpeechSynthesizer
             }
         }
 
-        // Preserve sub-6s micro smoke renders when no AI registry is wired; for all real videos guarantee local spoken voice.
-        if (ai is null && baseDurationSeconds <= 6)
-            return null;
-
-        if (OperatingSystem.IsWindows())
-        {
-            request.Progress?.Report(new ProceduralRenderProgress(
-                ProceduralRenderStages.VoicesStart, "Synthesizing voices with the local Windows voice"));
-            var local = await TrySynthesizeWithWindowsSapiAsync(
-                speechTurns, langCode, workspaceInputDir, ffmpegOptions, logger, ct).ConfigureAwait(false);
-            if (local is not null)
-            {
-                return await AssembleFinalSpeechTrackAsync(
-                    local.Value.ClipBytes, local.Value.Durations,
-                    initialPlan, speechTurns, spokenTitleOnly,
-                    workspaceInputDir, minVideoSeconds, fitCap, ffmpegOptions,
-                    local.Value.ProviderLabel, local.Value.VoicesUsed, logger, ct).ConfigureAwait(false);
-            }
-        }
-
-        logger?.LogWarning("Procedural video speech could not be synthesized from either AI TTS chain or OS speech engine.");
+        // Never fall back to offline OS Microsoft SAPI phonetic robotics on real videos; rely strictly on configured
+        // AI/Google speech providers (gemini-tts -> gtts / kokoro / piper-local).
+        logger?.LogWarning("Procedural video speech could not be synthesized from any configured AI/Google TTS provider.");
         return null;
     }
 
@@ -125,6 +110,8 @@ internal static class ProceduralSpeechSynthesizer
         CancellationToken ct)
     {
         var (voiceA, voiceB) = await ResolveVoicesAsync(provider, initialPlan, request, ct).ConfigureAwait(false);
+        var isGemini = string.Equals(provider.Id.Value, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase)
+            || provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase);
         var clipBytesList = new List<byte[]>(speechTurns.Count);
         var clipDurations = new List<double>(speechTurns.Count);
         var voicesUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -145,13 +132,13 @@ internal static class ProceduralSpeechSynthesizer
                 ProceduralRenderStages.VoicePercent(i, speechTurns.Count),
                 $"Voice line {i + 1} of {speechTurns.Count} ({provider.Id.Value})"));
 
-            var isRight = turn.Slot == DialogueSpeakerSlot.Right;
-            var voiceId = isRight ? voiceB : voiceA;
-            var style = initialPlan.HasCharacters
-                ? (isRight
-                    ? "Curious, warm, expressive dialogue delivery, clear pronunciation"
-                    : "Calm, wise, engaging storytelling dialogue tone, clear expressive delivery")
-                : "Warm, clear, engaging narrator tone with balanced pacing";
+            var isComedy = IsComedyRequest(request, initialPlan);
+            var speakerProfile = ResolveSpeakerProfile(initialPlan, turn);
+            var voiceId = isGemini
+                ? ResolveGeminiTurnVoice(initialPlan, request, turn, voiceA, voiceB, isComedy)
+                : (turn.Slot == DialogueSpeakerSlot.Right ? voiceB : voiceA);
+            var style = BuildSpeechStyle(turn, speakerProfile, isComedy, initialPlan.HasCharacters, langCode);
+            var rate = ComputeSpeechRate(turn, speakerProfile, isComedy);
 
             AiOutcome<AiSpeechResult> outcome;
             try
@@ -160,7 +147,7 @@ internal static class ProceduralSpeechSynthesizer
                 {
                     Text = spokenText,
                     VoiceId = voiceId,
-                    Rate = 1.0,
+                    Rate = rate,
                     LanguageCode = langCode,
                     Style = style,
                     Model = overrideModel,
@@ -177,7 +164,7 @@ internal static class ProceduralSpeechSynthesizer
                     {
                         Text = spokenText,
                         VoiceId = voiceId,
-                        Rate = 1.0,
+                        Rate = rate,
                         LanguageCode = langCode,
                         Style = style,
                         Model = overrideModel,
@@ -206,6 +193,18 @@ internal static class ProceduralSpeechSynthesizer
                 return null;
             }
 
+            var isSingleVoiceGoogle = string.Equals(provider.Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase);
+            normalizedWav = await ApplyTurnVoiceCharacterAsync(
+                normalizedWav,
+                turn,
+                speakerProfile,
+                isComedy,
+                isSingleVoiceGoogle,
+                workspaceInputDir,
+                200 + i,
+                ffmpegOptions,
+                ct).ConfigureAwait(false);
+
             var dur = AiAudioValidator.TryGetWavDuration(normalizedWav) ?? speech.DurationSeconds ?? 0;
             if (dur <= 0.05)
                 dur = Math.Max(1.2, spokenText.Length / 14.0);
@@ -218,188 +217,12 @@ internal static class ProceduralSpeechSynthesizer
         return (clipBytesList, clipDurations, [.. voicesUsed]);
     }
 
-    private sealed record LocalTtsTurnPayload(int Index, string Slot, string Text, string OutputPath);
-
-    private static async Task<(List<byte[]> ClipBytes, List<double> Durations, string ProviderLabel, List<string> VoicesUsed)?> TrySynthesizeWithWindowsSapiAsync(
-        List<ProceduralDialogueTurn> speechTurns,
-        string langCode,
-        string workspaceInputDir,
-        FfmpegOptions ffmpegOptions,
-        ILogger? logger,
-        CancellationToken ct)
-    {
-        var payloadPath = Path.Combine(workspaceInputDir, "sapi_turns.json");
-        var metaOutPath = Path.Combine(workspaceInputDir, "sapi_meta.txt");
-        var scriptPath = Path.Combine(workspaceInputDir, "sapi_synth.ps1");
-
-        var rawItems = new List<LocalTtsTurnPayload>(speechTurns.Count);
-        var hasHindi = false;
-
-        for (var i = 0; i < speechTurns.Count; i++)
-        {
-            var spoken = DialogueScriptParser.ToSpokenText(speechTurns[i].Text, langCode);
-            if (ContainsDevanagari(spoken)) hasHindi = true;
-            var outWav = Path.Combine(workspaceInputDir, $"sapi_turn_{i:D2}.wav");
-            rawItems.Add(new LocalTtsTurnPayload(
-                i,
-                speechTurns[i].Slot == DialogueSpeakerSlot.Right ? "right" : "left",
-                spoken,
-                outWav));
-        }
-
-        // First probe & synthesize in a single clean PowerShell execution; script chooses hi-IN / en-IN SAPI voice if present,
-        // otherwise converts Devanagari cleanly to phonetic Roman syllables so en-US voices pronounce Hindi dialogue audibly.
-        var phoneticItems = rawItems.Select(item => new
-        {
-            item.Index,
-            item.Slot,
-            RawText = item.Text,
-            PhoneticText = ContainsDevanagari(item.Text) ? DevanagariToPhonetic(item.Text) : item.Text,
-            item.OutputPath
-        }).ToList();
-
-        await File.WriteAllTextAsync(payloadPath, JsonSerializer.Serialize(phoneticItems), Encoding.UTF8, ct).ConfigureAwait(false);
-
-        const string psScript = """
-            param([string]$PayloadPath, [string]$MetaOutPath, [string]$Lang)
-            $ErrorActionPreference = 'Stop'
-            Add-Type -AssemblyName System.Speech
-            $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-            $voices = @($synth.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo })
-            $hindiVoices = @($voices | Where-Object { $_.Culture.Name -like 'hi*' -or $_.Culture.Name -eq 'en-IN' })
-            $hasNativeHindi = $hindiVoices.Count -gt 0
-            $pool = if ($hasNativeHindi) { $hindiVoices } else { $voices }
-            $leftVoice = ($pool | Select-Object -First 1).Name
-            $rightVoice = if ($pool.Count -gt 1) { ($pool | Select-Object -Last 1).Name } else { $leftVoice }
-            Set-Content -Path $MetaOutPath -Value "$hasNativeHindi|$leftVoice|$rightVoice" -Encoding UTF8
-
-            $items = Get-Content -Path $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($item in $items) {
-                $textToSpeak = if ($hasNativeHindi -or $Lang -eq 'en') { $item.RawText } else { $item.PhoneticText }
-                if ([string]::IsNullOrWhiteSpace($textToSpeak)) { continue }
-                $voice = if ($item.Slot -eq 'right') { $rightVoice } else { $leftVoice }
-                if (-not [string]::IsNullOrWhiteSpace($voice)) {
-                    $synth.SelectVoice($voice)
-                }
-                $synth.Rate = if ($item.Slot -eq 'right' -and $leftVoice -eq $rightVoice) { 1 } else { 0 }
-                $synth.Volume = 100
-                $synth.SetOutputToWaveFile($item.OutputPath)
-                $synth.Speak($textToSpeak)
-                $synth.SetOutputToNull()
-            }
-            $synth.Dispose()
-            """;
-
-        await File.WriteAllTextAsync(scriptPath, psScript, Encoding.UTF8, ct).ConfigureAwait(false);
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = "powershell",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        psi.ArgumentList.Add("-NoProfile");
-        psi.ArgumentList.Add("-NonInteractive");
-        psi.ArgumentList.Add("-ExecutionPolicy");
-        psi.ArgumentList.Add("Bypass");
-        psi.ArgumentList.Add("-File");
-        psi.ArgumentList.Add(scriptPath);
-        psi.ArgumentList.Add("-PayloadPath");
-        psi.ArgumentList.Add(payloadPath);
-        psi.ArgumentList.Add("-MetaOutPath");
-        psi.ArgumentList.Add(metaOutPath);
-        psi.ArgumentList.Add("-Lang");
-        psi.ArgumentList.Add(langCode);
-
-        try
-        {
-            using var proc = Process.Start(psi);
-            if (proc is null) return null;
-
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(50));
-            var errTask = proc.StandardError.ReadToEndAsync(timeout.Token);
-            _ = proc.StandardOutput.ReadToEndAsync(timeout.Token);
-            await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-            var stderr = await errTask.ConfigureAwait(false);
-            if (proc.ExitCode != 0)
-            {
-                logger?.LogWarning("Windows SAPI speech fallback exited {Code}: {Error}", proc.ExitCode, stderr);
-                return null;
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger?.LogWarning(ex, "Windows SAPI speech fallback failed to run.");
-            return null;
-        }
-        finally
-        {
-            TryDelete(payloadPath);
-            TryDelete(scriptPath);
-        }
-
-        var metaParts = File.Exists(metaOutPath)
-            ? (await File.ReadAllTextAsync(metaOutPath, ct).ConfigureAwait(false)).Trim().Split('|')
-            : [];
-        TryDelete(metaOutPath);
-
-        var usedNativeHindi = metaParts.Length > 0 && string.Equals(metaParts[0], "True", StringComparison.OrdinalIgnoreCase);
-        var voiceAName = metaParts.Length > 1 && !string.IsNullOrWhiteSpace(metaParts[1]) ? metaParts[1].Trim() : "Windows-SAPI-A";
-        var voiceBName = metaParts.Length > 2 && !string.IsNullOrWhiteSpace(metaParts[2]) ? metaParts[2].Trim() : "Windows-SAPI-B";
-
-        var clipBytesList = new List<byte[]>(rawItems.Count);
-        var clipDurations = new List<double>(rawItems.Count);
-        var voicesUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        for (var i = 0; i < rawItems.Count; i++)
-        {
-            var wavPath = rawItems[i].OutputPath;
-            if (!File.Exists(wavPath))
-            {
-                clipBytesList.Add([]);
-                clipDurations.Add(FallbackSeconds(speechTurns[i]));
-                continue;
-            }
-
-            var rawWav = await File.ReadAllBytesAsync(wavPath, ct).ConfigureAwait(false);
-            TryDelete(wavPath);
-
-            var normalized = await EnsureStereo48kWavAsync(rawWav, workspaceInputDir, 100 + i, ffmpegOptions, ct)
-                .ConfigureAwait(false);
-            if (normalized is null)
-            {
-                clipBytesList.Add([]);
-                clipDurations.Add(FallbackSeconds(speechTurns[i]));
-                continue;
-            }
-
-            var dur = AiAudioValidator.TryGetWavDuration(normalized) ?? Math.Max(1.2, rawItems[i].Text.Length / 13.0);
-            clipBytesList.Add(normalized);
-            clipDurations.Add(dur);
-            voicesUsed.Add(rawItems[i].Slot == "right" ? ShortVoiceName(voiceBName) : ShortVoiceName(voiceAName));
-        }
-
-        if (clipBytesList.All(b => b.Length <= 44))
-            return null;
-
-        var providerLabel = hasHindi && !usedNativeHindi ? "local-sapi-phonetic" : "local-sapi";
-        return (clipBytesList, clipDurations, providerLabel, [.. voicesUsed]);
-    }
-
     /// <summary>
     /// Caption time for a line whose voice clip failed: its planned slot, but never longer than it takes to read the
     /// line (~13 characters a second), so a single failed clip cannot leave a long silent gap in the video.
     /// </summary>
     private static double FallbackSeconds(ProceduralDialogueTurn turn) =>
         Math.Max(1.0, Math.Min(turn.EndSeconds - turn.StartSeconds, 0.6 + (turn.Text?.Length ?? 0) / 13.0));
-
-    private static string ShortVoiceName(string full) =>
-        full.Replace("Microsoft ", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace(" Desktop", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Trim();
 
     private static async Task<ProceduralSpeechSynthesisResult?> AssembleFinalSpeechTrackAsync(
         List<byte[]> clipBytesList,
@@ -420,6 +243,9 @@ internal static class ProceduralSpeechSynthesizer
         if (referenceClip is null)
             return null;
 
+        var isComedyTrack = IsComedyPlan(initialPlan);
+        var defaultTurnGap = isComedyTrack ? ComedyStandardGapSeconds : PauseBetweenTurnsSeconds;
+
         // Keep the finished video inside its cap (a Short must stay <= 180s): speed the voices up a little
         // and, when that is not enough, drop middle lines so the opening and the ending moral still play.
         var memePauseByTurnIdx = initialPlan.Memes
@@ -427,7 +253,7 @@ internal static class ProceduralSpeechSynthesizer
             .ToDictionary(g => g.Key, g => Math.Clamp(g.First().Seconds * 0.65, 0.72, 1.05));
         var extraMemePauseSeconds = memePauseByTurnIdx.Values.Sum();
         var fit = SpeechFitPlanner.Plan(
-            clipDurations, maxDurationSeconds, LeadInSeconds + extraMemePauseSeconds, PauseBetweenTurnsSeconds, TailSeconds, MaxSpeechTempo);
+            clipDurations, maxDurationSeconds, LeadInSeconds + extraMemePauseSeconds, defaultTurnGap, TailSeconds, MaxSpeechTempo);
         var speechWavPath = Path.Combine(workspaceInputDir, "speech.wav");
 
         var built = await WriteSpeechTrackAsync(fit.KeptIndices).ConfigureAwait(false);
@@ -436,6 +262,8 @@ internal static class ProceduralSpeechSynthesizer
         var (updatedTurns, cursor) = built.Value;
 
         var tempo = fit.Tempo;
+        if (maxDurationSeconds is > 0 and var capSec && cursor + TailSeconds > capSec + 0.05)
+            tempo = Math.Clamp(Math.Max(tempo, cursor / Math.Max(0.5, capSec - LeadInSeconds - TailSeconds)), 1.0, MaxSpeechTempo);
         if (tempo > 1.001)
         {
             if (await TryApplyTempoAsync(speechWavPath, tempo, ffmpegOptions, logger, ct).ConfigureAwait(false))
@@ -453,7 +281,7 @@ internal static class ProceduralSpeechSynthesizer
             {
                 // No speed-up available: fit by dropping lines alone.
                 var plain = SpeechFitPlanner.Plan(
-                    clipDurations, maxDurationSeconds, LeadInSeconds + extraMemePauseSeconds, PauseBetweenTurnsSeconds, TailSeconds, maxTempo: 1.0);
+                    clipDurations, maxDurationSeconds, LeadInSeconds + extraMemePauseSeconds, defaultTurnGap, TailSeconds, maxTempo: 1.0);
                 built = await WriteSpeechTrackAsync(plain.KeptIndices).ConfigureAwait(false);
                 if (built is null)
                     return null;
@@ -516,7 +344,18 @@ internal static class ProceduralSpeechSynthesizer
                     ? (AiAudioValidator.TryGetWavDuration(clip) ?? clipDurations[i])
                     : clipDurations[i];
                 if (clip.Length > 44)
+                {
                     nonEmptyClips.Add(clip);
+                }
+                else
+                {
+                    var sfxOnlyGap = BuildSilenceWavLike(referenceClip, clipDur);
+                    if (sfxOnlyGap is not null)
+                    {
+                        nonEmptyClips.Add(sfxOnlyGap);
+                        clipDur = AiAudioValidator.TryGetWavDuration(sfxOnlyGap) ?? clipDur;
+                    }
+                }
 
                 turns.Add(speechTurns[i] with
                 {
@@ -526,11 +365,15 @@ internal static class ProceduralSpeechSynthesizer
 
                 at += clipDur;
 
-                // Dedicated silent reaction beat after turns carrying a [MEME] cue so memes & SFX never stomp dialogue.
+                // Dedicated silent reaction beat after turns carrying a [MEME] cue so memes & SFX never stomp dialogue;
+                // otherwise use crisp comedy interruption gaps (0.05s) or deadpan stares (0.32s).
                 var hasMemeHere = memePauseByTurnIdx.TryGetValue(speechTurns[i].Index, out var memeBeat);
                 if (k < kept.Count - 1)
                 {
-                    var pauseSecs = hasMemeHere ? memeBeat : PauseBetweenTurnsSeconds;
+                    var nextTurn = speechTurns[kept[k + 1]];
+                    var pauseSecs = hasMemeHere
+                        ? memeBeat
+                        : ResolveTurnGapSeconds(speechTurns[i], nextTurn, isComedyTrack);
                     var pause = BuildSilenceWavLike(referenceClip, pauseSecs);
                     if (pause is not null)
                     {
@@ -641,145 +484,6 @@ internal static class ProceduralSpeechSynthesizer
         return [.. preferred, .. rest];
     }
 
-    private static bool ContainsDevanagari(string text)
-    {
-        foreach (var ch in text)
-        {
-            if (ch is >= '\u0900' and <= '\u097F') return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Transliterates Devanagari Hindi into clean phonetic Romanized syllables so English-only
-    /// Windows SAPI voices still speak every Hindi word aloud when native Hindi voices or cloud
-    /// Gemini TTS are not configured.
-    /// </summary>
-    internal static string DevanagariToPhonetic(string input)
-    {
-        if (string.IsNullOrEmpty(input)) return string.Empty;
-        var sb = new StringBuilder(input.Length * 2);
-        var i = 0;
-
-        while (i < input.Length)
-        {
-            var ch = input[i];
-            if (ch == '\u0950') // Om ॐ
-            {
-                sb.Append("Om ");
-                i++;
-                continue;
-            }
-            if (ch == '\u0964' || ch == '\u0965') // Danda । ॥
-            {
-                sb.Append(". ");
-                i++;
-                continue;
-            }
-
-            if (DevanagariDigits.TryGetValue(ch, out var digit))
-            {
-                sb.Append(digit);
-                i++;
-                continue;
-            }
-
-            if (IndependentVowels.TryGetValue(ch, out var indep))
-            {
-                sb.Append(indep);
-                i++;
-                continue;
-            }
-
-            if (Consonants.TryGetValue(ch, out var cons))
-            {
-                // Handle nukta modifier \u093C right after consonant
-                if (i + 1 < input.Length && input[i + 1] == '\u093C')
-                {
-                    cons = NuktaConsonant(ch, cons);
-                    i++;
-                }
-
-                sb.Append(cons);
-                i++;
-
-                // Consume halant, dependent matra, or inherit clean 'a'
-                if (i < input.Length && input[i] == '\u094D') // Virama / Halant
-                {
-                    i++;
-                }
-                else if (i < input.Length && DependentMatras.TryGetValue(input[i], out var matra))
-                {
-                    sb.Append(matra);
-                    i++;
-                }
-                else
-                {
-                    var isWordEnd = i >= input.Length || !IsDevanagariLetter(input[i]);
-                    if (!isWordEnd)
-                        sb.Append('a');
-                }
-                continue;
-            }
-
-            if (ch == '\u0902') { sb.Append('n'); i++; continue; } // Anusvara
-            if (ch == '\u0901') { sb.Append('n'); i++; continue; } // Chandrabindu
-            if (ch == '\u0903') { sb.Append("ha"); i++; continue; } // Visarga
-            if (ch == '\u093C' || ch == '\u094D') { i++; continue; }
-
-            sb.Append(ch);
-            i++;
-        }
-
-        return sb.ToString();
-    }
-
-    private static bool IsDevanagariLetter(char ch) =>
-        IndependentVowels.ContainsKey(ch) || Consonants.ContainsKey(ch);
-
-    private static string NuktaConsonant(char baseChar, string fallback) => baseChar switch
-    {
-        '\u0915' => "k",
-        '\u0916' => "kh",
-        '\u0917' => "g",
-        '\u091C' => "z",
-        '\u0921' => "r",
-        '\u0922' => "rh",
-        '\u092B' => "f",
-        _ => fallback
-    };
-
-    private static readonly Dictionary<char, string> DevanagariDigits = new()
-    {
-        ['\u0966'] = "0", ['\u0967'] = "1", ['\u0968'] = "2", ['\u0969'] = "3", ['\u096A'] = "4",
-        ['\u096B'] = "5", ['\u096C'] = "6", ['\u096D'] = "7", ['\u096E'] = "8", ['\u096F'] = "9"
-    };
-
-    private static readonly Dictionary<char, string> IndependentVowels = new()
-    {
-        ['\u0905'] = "a", ['\u0906'] = "aa", ['\u0907'] = "i", ['\u0908'] = "ee",
-        ['\u0909'] = "u", ['\u090A'] = "oo", ['\u090B'] = "ri", ['\u090F'] = "e",
-        ['\u0910'] = "ai", ['\u0913'] = "o", ['\u0914'] = "au", ['\u090D'] = "ae", ['\u0911'] = "o"
-    };
-
-    private static readonly Dictionary<char, string> DependentMatras = new()
-    {
-        ['\u093E'] = "aa", ['\u093F'] = "i", ['\u0940'] = "ee", ['\u0941'] = "u",
-        ['\u0942'] = "oo", ['\u0943'] = "ri", ['\u0947'] = "e", ['\u0948'] = "ai",
-        ['\u094B'] = "o", ['\u094C'] = "au", ['\u0945'] = "ae", ['\u0949'] = "o"
-    };
-
-    private static readonly Dictionary<char, string> Consonants = new()
-    {
-        ['\u0915'] = "k", ['\u0916'] = "kh", ['\u0917'] = "g", ['\u0918'] = "gh", ['\u0919'] = "ng",
-        ['\u091A'] = "ch", ['\u091B'] = "chh", ['\u091C'] = "j", ['\u091D'] = "jh", ['\u091E'] = "ny",
-        ['\u091F'] = "t", ['\u0920'] = "th", ['\u0921'] = "d", ['\u0922'] = "dh", ['\u0923'] = "n",
-        ['\u0924'] = "t", ['\u0925'] = "th", ['\u0926'] = "d", ['\u0927'] = "dh", ['\u0928'] = "n",
-        ['\u092A'] = "p", ['\u092B'] = "ph", ['\u092C'] = "b", ['\u092D'] = "bh", ['\u092E'] = "m",
-        ['\u092F'] = "y", ['\u0930'] = "r", ['\u0932'] = "l", ['\u0935'] = "v",
-        ['\u0936'] = "sh", ['\u0937'] = "sh", ['\u0938'] = "s", ['\u0939'] = "h"
-    };
-
     private static async Task<(string VoiceA, string VoiceB)> ResolveVoicesAsync(
         ISpeechAiProvider provider,
         ProceduralDialoguePlan plan,
@@ -795,22 +499,8 @@ internal static class ProceduralSpeechSynthesizer
         if (string.Equals(pid, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase)
             || pid.Contains("gemini", StringComparison.OrdinalIgnoreCase))
         {
-            voiceA = plan.LeftCharacter?.Role switch
-            {
-                CharacterVisualRole.KingCrown => "Orus",
-                CharacterVisualRole.SageRishi => "Rasalgethi",
-                CharacterVisualRole.Divine => "Sadaltager",
-                _ => "Charon"
-            };
-            voiceB = plan.RightCharacter?.Role switch
-            {
-                CharacterVisualRole.KingCrown => "Alnilam",
-                CharacterVisualRole.SageRishi => "Sadaltager",
-                CharacterVisualRole.Divine => "Sulafat",
-                _ => "Aoede"
-            };
-            if (string.Equals(voiceA, voiceB, StringComparison.OrdinalIgnoreCase))
-                voiceB = "Puck";
+            var isComedy = IsComedyRequest(request, plan);
+            (voiceA, voiceB) = SelectGeminiCastVoices(plan, isComedy);
         }
         else if (pid.Contains("kokoro", StringComparison.OrdinalIgnoreCase))
         {
@@ -853,6 +543,128 @@ internal static class ProceduralSpeechSynthesizer
 
         return (voiceA, voiceB);
     }
+
+    internal static (string VoiceA, string VoiceB) SelectGeminiCastVoices(ProceduralDialoguePlan plan, bool isComedy)
+    {
+        var leftFemale = IsLikelyFemaleSpeaker(plan.LeftCharacter?.Name, plan.LeftCharacter?.Role);
+        var rightFemale = IsLikelyFemaleSpeaker(plan.RightCharacter?.Name, plan.RightCharacter?.Role);
+
+        var voiceA = leftFemale
+            ? "Kore"
+            : plan.LeftCharacter?.Role switch
+            {
+                CharacterVisualRole.KingCrown => "Orus",
+                CharacterVisualRole.SageRishi => isComedy ? "Algenib" : "Rasalgethi",
+                CharacterVisualRole.Divine => "Sadaltager",
+                _ => isComedy ? "Fenrir" : "Orus"
+            };
+
+        var voiceB = rightFemale
+            ? (string.Equals(voiceA, "Aoede", StringComparison.OrdinalIgnoreCase) ? "Leda" : "Aoede")
+            : plan.RightCharacter?.Role switch
+            {
+                CharacterVisualRole.KingCrown => "Alnilam",
+                CharacterVisualRole.SageRishi => isComedy ? "Algenib" : "Sadaltager",
+                CharacterVisualRole.Divine => "Sulafat",
+                _ => isComedy ? "Puck" : "Charon"
+            };
+
+        if (string.Equals(voiceA, voiceB, StringComparison.OrdinalIgnoreCase))
+            voiceB = rightFemale ? "Zephyr" : (string.Equals(voiceA, "Puck", StringComparison.OrdinalIgnoreCase) ? "Algenib" : "Puck");
+
+        return (voiceA, voiceB);
+    }
+
+    internal static string ResolveGeminiTurnVoice(
+        ProceduralDialoguePlan plan,
+        ProceduralVideoRequest request,
+        ProceduralDialogueTurn turn,
+        string voiceA,
+        string voiceB,
+        bool isComedy)
+    {
+        if (ResolveSpeakerProfile(plan, turn) is { VoiceId.Length: > 0 } castProfile)
+            return castProfile.VoiceId.Trim();
+
+        var speaker = turn.SpeakerName?.Trim();
+        var matchesLeft = !string.IsNullOrWhiteSpace(speaker)
+            && !string.IsNullOrWhiteSpace(plan.LeftCharacter?.Name)
+            && string.Equals(speaker, plan.LeftCharacter.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+        var matchesRight = !string.IsNullOrWhiteSpace(speaker)
+            && !string.IsNullOrWhiteSpace(plan.RightCharacter?.Name)
+            && string.Equals(speaker, plan.RightCharacter.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        if (!matchesLeft && !matchesRight && !string.IsNullOrWhiteSpace(speaker))
+        {
+            var supIdx = -1;
+            for (var k = 0; k < plan.Supporting.Count; k++)
+            {
+                if (string.Equals(plan.Supporting[k].Name.Trim(), speaker, StringComparison.OrdinalIgnoreCase))
+                {
+                    supIdx = k;
+                    break;
+                }
+            }
+
+            if (supIdx >= 0 || (plan.LeftCharacter is not null && plan.RightCharacter is not null))
+            {
+                var slotIdx = supIdx >= 0 ? supIdx : Math.Abs(speaker.GetHashCode(StringComparison.OrdinalIgnoreCase));
+                var role = supIdx >= 0 ? plan.Supporting[supIdx].Role : turn.SpeakerRole;
+                if (IsLikelyFemaleSpeaker(speaker, role))
+                {
+                    var femalePool = new[] { "Aoede", "Leda", "Zephyr", "Kore" };
+                    foreach (var v in femalePool)
+                    {
+                        if (!string.Equals(v, voiceA, StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(v, voiceB, StringComparison.OrdinalIgnoreCase))
+                            return v;
+                    }
+                    return femalePool[slotIdx % femalePool.Length];
+                }
+
+                var malePool = isComedy
+                    ? new[] { "Algenib", "Sadachbia", "Alnilam", "Orus", "Rasalgethi" }
+                    : new[] { "Charon", "Alnilam", "Rasalgethi", "Sadaltager" };
+                for (var attempt = 0; attempt < malePool.Length; attempt++)
+                {
+                    var candidate = malePool[(Math.Max(0, slotIdx) + attempt) % malePool.Length];
+                    if (!string.Equals(candidate, voiceA, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(candidate, voiceB, StringComparison.OrdinalIgnoreCase))
+                        return candidate;
+                }
+                return malePool[Math.Max(0, slotIdx) % malePool.Length];
+            }
+        }
+
+        if (turn.Slot == DialogueSpeakerSlot.Right)
+            return !string.IsNullOrWhiteSpace(request.SpeakerBVoiceId) ? request.SpeakerBVoiceId.Trim() : voiceB;
+        return !string.IsNullOrWhiteSpace(request.SpeakerAVoiceId) ? request.SpeakerAVoiceId.Trim() : voiceA;
+    }
+
+    internal static bool IsLikelyFemaleSpeaker(string? speakerName, CharacterVisualRole? role)
+    {
+        if (role == CharacterVisualRole.Divine && string.IsNullOrWhiteSpace(speakerName))
+            return false;
+        if (string.IsNullOrWhiteSpace(speakerName))
+            return false;
+
+        var s = speakerName.ToLowerInvariant();
+        foreach (var marker in FemaleSpeakerMarkers)
+        {
+            if (s.Contains(marker, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    private static readonly string[] FemaleSpeakerMarkers =
+    [
+        "आंटी", "अम्मा", "दादी", "नानी", "मम्मी", "माँ", "माता", "दीदी", "भाभी", "बहन",
+        "बेटी", "चची", "चाची", "ताई", "बुआ", "मामी", "मौसी", "रानी", "सुनीति", "सुरुचि",
+        "सीता", "राधा", "पिंकी", "प्रिया", "मीरा", "देवी", "लक्ष्मी", "सरस्वती", "पार्वती",
+        "aunty", "aunt", "mom", "mother", "sister", "queen", "girl", "lady",
+        "dadi", "nani", "bhabhi", "didi", "rani", "suniti", "suruchi", "seeta", "radha", "pinki", "priya"
+    ];
 
     private static async Task<byte[]?> EnsureStereo48kWavAsync(
         byte[] rawAudio,
@@ -1121,5 +933,265 @@ internal static class ProceduralSpeechSynthesizer
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { /* ignore */ }
+    }
+
+    internal static bool IsComedyRequest(ProceduralVideoRequest request, ProceduralDialoguePlan plan) =>
+        string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
+        || request.Theme == ProceduralSceneTheme.ComedyStage3D
+        || request.EnableComedySfx
+        || request.SparseComedyAudio
+        || IsComedyPlan(plan);
+
+    internal static bool IsComedyPlan(ProceduralDialoguePlan plan) =>
+        plan.LeftCharacter?.Role is CharacterVisualRole.ComicBobble or CharacterVisualRole.CartoonTank
+        || plan.RightCharacter?.Role is CharacterVisualRole.ComicBobble or CharacterVisualRole.CartoonTank
+        || plan.Memes.Count > 0
+        || plan.Turns.Any(t => !t.IsTitleHook && (
+            t.Emotion is "angry" or "laughing" or "sarcastic" or "mischievous"
+            || t.Action is "cutting" or "spraying" or "punching" or "kicking" or "slapForehead" or "removingTowel" or "shockedFall"));
+
+    internal static ProceduralCharacterProfile? ResolveSpeakerProfile(ProceduralDialoguePlan plan, ProceduralDialogueTurn turn)
+    {
+        var speaker = turn.SpeakerName?.Trim();
+        if (!string.IsNullOrWhiteSpace(speaker))
+        {
+            if (plan.LeftCharacter is not null && string.Equals(plan.LeftCharacter.Name.Trim(), speaker, StringComparison.OrdinalIgnoreCase))
+                return plan.LeftCharacter;
+            if (plan.RightCharacter is not null && string.Equals(plan.RightCharacter.Name.Trim(), speaker, StringComparison.OrdinalIgnoreCase))
+                return plan.RightCharacter;
+            var sup = plan.Supporting.FirstOrDefault(s => string.Equals(s.Name.Trim(), speaker, StringComparison.OrdinalIgnoreCase));
+            if (sup is not null)
+                return sup;
+        }
+
+        if (turn.Slot == DialogueSpeakerSlot.Left && plan.LeftCharacter is not null)
+            return plan.LeftCharacter;
+        if (turn.Slot == DialogueSpeakerSlot.Right && plan.RightCharacter is not null)
+            return plan.RightCharacter;
+        return null;
+    }
+
+    internal static string BuildSpeechStyle(
+        ProceduralDialogueTurn turn,
+        ProceduralCharacterProfile? speakerProfile,
+        bool isComedy,
+        bool hasCharacters,
+        string langCode)
+    {
+        var emotion = (turn.Emotion ?? "calm").Trim().ToLowerInvariant();
+        if (!hasCharacters && !isComedy)
+            return "Warm, clear, engaging narrator tone with balanced pacing";
+
+        if (!isComedy)
+        {
+            if (emotion == "angry")
+                return "Firm, intense, commanding dramatic dialogue delivery, clear pronunciation";
+            if (emotion == "surprised")
+                return "Awed, heightened emotional reaction dialogue delivery, clear pronunciation";
+            if (emotion == "sad")
+                return "Gentle, poignant emotional storytelling delivery, clear pronunciation";
+
+            return turn.Slot == DialogueSpeakerSlot.Right
+                ? "Curious, warm, expressive dialogue delivery, clear pronunciation"
+                : "Calm, wise, engaging storytelling dialogue tone, clear expressive delivery";
+        }
+
+        var role = speakerProfile?.Role ?? turn.SpeakerRole;
+        var persona = turn.Slot switch
+        {
+            DialogueSpeakerSlot.Left => role switch
+            {
+                CharacterVisualRole.SageRishi => "gruff irritable elder uncle scolding tone",
+                CharacterVisualRole.KingCrown => "loud street-smart bossy swagger",
+                _ => "assertive grumpy desi comic character"
+            },
+            DialogueSpeakerSlot.Right => role switch
+            {
+                CharacterVisualRole.KingCrown => "booming overconfident comic rival",
+                CharacterVisualRole.SageRishi => "deadpan dry comic elder",
+                _ => "frantic high-energy cheeky comic youth"
+            },
+            _ => "sharp animated bystander comic voice"
+        };
+
+        var emotionCue = emotion switch
+        {
+            "angry" => "Explosive angry furious shouting at top lung capacity, cracking exasperated MJO comedy rage, biting impatient interruption",
+            "surprised" or "scared" => "Loud panicked shouting disbelief, frantic high-pitch gasp and rapid comic outrage",
+            "laughing" => "Sharp mocking cackle and wicked giggling teasing belly-laugh",
+            "proud" or "sarcastic" => "Loud cocky irritated swagger and snapping sarcastic comedy pressure",
+            "confused" => "Incredulous aggressive yelling confusion, sharp impatient irritated interrogation",
+            "sad" => "Exaggerated loud comical wailing whine and dramatic outrage",
+            _ => "Heated irritated animated comedy snapping, high-energy urgent exasperation, punchy UP/Kanpuria outburst cadence"
+        };
+
+        var dialect = string.Equals(langCode, "hi", StringComparison.OrdinalIgnoreCase)
+            ? "colloquial UP/Haryana Hindi flavour"
+            : "vivid animated comedy delivery";
+
+        return $"{emotionCue}; {persona}; {dialect}";
+    }
+
+    internal static double ComputeSpeechRate(ProceduralDialogueTurn turn, ProceduralCharacterProfile? speakerProfile, bool isComedy)
+    {
+        if (!isComedy) return 1.0;
+        return (turn.Emotion ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "angry" => 1.18,
+            "surprised" or "scared" => 1.16,
+            "laughing" or "sarcastic" or "mischievous" => 1.11,
+            "proud" or "confused" => 1.09,
+            "sad" => 0.98,
+            _ => 1.10
+        };
+    }
+
+    internal static double ResolveTurnGapSeconds(ProceduralDialogueTurn current, ProceduralDialogueTurn next, bool isComedy)
+    {
+        if (!isComedy) return PauseBetweenTurnsSeconds;
+
+        var trimmed = (current.Text ?? string.Empty).TrimEnd();
+        var interruptedMidLine = trimmed.EndsWith("...", StringComparison.Ordinal)
+            || trimmed.EndsWith('\u2026')
+            || trimmed.EndsWith('\u2014')
+            || trimmed.EndsWith('-');
+        var nextEmotion = (next.Emotion ?? string.Empty).Trim().ToLowerInvariant();
+        var currentEmotion = (current.Emotion ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (interruptedMidLine || nextEmotion is "angry" or "surprised" or "scared" || next.Action is "shockedFall")
+            return ComedyInterruptGapSeconds;
+
+        if (currentEmotion == "angry" && nextEmotion is "calm" or "sad" or "confused")
+            return ComedyDeadpanBeatSeconds;
+
+        return ComedyStandardGapSeconds;
+    }
+
+    internal static (double PitchRatio, double SpeedFactor, double VolumeGain, double MidBoostDb) ResolveVoiceCharacterDsp(
+        ProceduralDialogueTurn turn,
+        ProceduralCharacterProfile? speakerProfile,
+        bool isComedy,
+        bool isSingleVoiceGoogle = false)
+    {
+        if (!isComedy)
+        {
+            if (!isSingleVoiceGoogle || turn.Slot == DialogueSpeakerSlot.Narrator)
+                return (1.0, 1.0, 1.0, 0.0);
+
+            var gtRole = speakerProfile?.Role ?? turn.SpeakerRole;
+            if (IsLikelyFemaleSpeaker(turn.SpeakerName, gtRole) || gtRole == CharacterVisualRole.ChildDevotee)
+                return (1.03, 1.01, 1.0, 0.0);
+            if (gtRole is CharacterVisualRole.Divine or CharacterVisualRole.SageRishi or CharacterVisualRole.KingCrown)
+                return (0.96, 1.0, 1.02, 0.0);
+            return (0.98, 1.0, 1.0, 0.0);
+        }
+
+        var role = speakerProfile?.Role ?? turn.SpeakerRole;
+        var basePitch = turn.Slot switch
+        {
+            DialogueSpeakerSlot.Left => role is CharacterVisualRole.SageRishi or CharacterVisualRole.KingCrown ? 0.93 : 0.95,
+            DialogueSpeakerSlot.Right => role is CharacterVisualRole.SageRishi ? 0.94 : role is CharacterVisualRole.KingCrown ? 0.98 : 1.07,
+            _ => Math.Abs((turn.SpeakerName ?? string.Empty).GetHashCode(StringComparison.OrdinalIgnoreCase)) % 2 == 0 ? 0.92 : 1.05
+        };
+
+        var emotion = (turn.Emotion ?? string.Empty).Trim().ToLowerInvariant();
+        var (emoPitchMul, emoSpeed, volGain, midDb) = emotion switch
+        {
+            "angry" => (1.04, 1.13, 1.32, 4.0),
+            "surprised" or "scared" => (1.06, 1.10, 1.18, 2.5),
+            "laughing" or "sarcastic" or "mischievous" => (1.02, 1.06, 1.12, 1.5),
+            "proud" => (0.99, 1.03, 1.10, 1.5),
+            "sad" => (0.97, 0.96, 0.95, 0.0),
+            _ => (1.00, 1.02, 1.00, 0.5)
+        };
+
+        var pitch = Math.Clamp(basePitch * emoPitchMul, 0.86, 1.18);
+        var speed = Math.Clamp(emoSpeed, 0.90, 1.22);
+        return (Math.Round(pitch, 3), Math.Round(speed, 3), volGain, midDb);
+    }
+
+    private static async Task<byte[]> ApplyTurnVoiceCharacterAsync(
+        byte[] wav48kStereo,
+        ProceduralDialogueTurn turn,
+        ProceduralCharacterProfile? speakerProfile,
+        bool isComedy,
+        bool isSingleVoiceGoogle,
+        string dir,
+        int index,
+        FfmpegOptions ffmpegOptions,
+        CancellationToken ct)
+    {
+        if ((!isComedy && !isSingleVoiceGoogle) || wav48kStereo.Length <= 44 || !IsStereo48kPcmWav(wav48kStereo))
+            return wav48kStereo;
+
+        var (pitch, speed, volGain, midDb) = ResolveVoiceCharacterDsp(turn, speakerProfile, isComedy, isSingleVoiceGoogle);
+        if (Math.Abs(pitch - 1.0) < 0.01 && Math.Abs(speed - 1.0) < 0.01 && Math.Abs(volGain - 1.0) < 0.02 && midDb <= 0.1)
+            return wav48kStereo;
+
+        var srcPath = Path.Combine(dir, $"turn_{index:D3}.pre.wav");
+        var dstPath = Path.Combine(dir, $"turn_{index:D3}.dsp.wav");
+        var ffmpegPath = string.IsNullOrWhiteSpace(ffmpegOptions.FfmpegPath) ? "ffmpeg" : ffmpegOptions.FfmpegPath;
+
+        var shiftedRate = Math.Clamp((int)Math.Round(48_000 * pitch), 38_000, 60_000);
+        var tempoFix = Math.Clamp(speed / pitch, 0.55, 1.85);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        var afParts = new List<string>
+        {
+            $"asetrate={shiftedRate}",
+            "aresample=48000",
+            $"atempo={tempoFix.ToString("0.000", inv)}"
+        };
+        if (midDb > 0.2)
+            afParts.Add($"equalizer=f=1900:t=q:w=1.1:g={midDb.ToString("0.0", inv)},equalizer=f=3200:t=q:w=1.2:g={(midDb * 0.75).ToString("0.0", inv)}");
+        if (volGain > 1.15)
+            afParts.Add("acompressor=threshold=-20dB:ratio=3.5:attack=4:release=85:makeup=2.0dB");
+        if (Math.Abs(volGain - 1.0) >= 0.02)
+            afParts.Add($"volume={volGain.ToString("0.00", inv)}");
+        afParts.Add("alimiter=limit=0.95");
+        afParts.Add("aformat=sample_fmts=s16:channel_layouts=stereo");
+
+        await File.WriteAllBytesAsync(srcPath, wav48kStereo, ct).ConfigureAwait(false);
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var arg in new[] { "-y", "-i", srcPath, "-af", string.Join(',', afParts), "-c:a", "pcm_s16le", dstPath })
+            psi.ArgumentList.Add(arg);
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc is null) return wav48kStereo;
+
+            proc.StandardInput.Close();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            _ = proc.StandardError.ReadToEndAsync(timeout.Token);
+            await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+
+            if (proc.ExitCode == 0 && File.Exists(dstPath))
+            {
+                var shaped = await File.ReadAllBytesAsync(dstPath, ct).ConfigureAwait(false);
+                if (IsStereo48kPcmWav(shaped) && shaped.Length > 44)
+                    return TrimLeadingAndTrailingSilence(shaped);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Keep clean base WAV if FFmpeg DSP fails on host
+        }
+        finally
+        {
+            TryDelete(srcPath);
+            TryDelete(dstPath);
+        }
+
+        return wav48kStereo;
     }
 }

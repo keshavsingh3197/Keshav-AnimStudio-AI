@@ -559,6 +559,7 @@ public sealed class AutomationServiceSafetyTests
         services.AddSingleton<IRenderJobRepository, FakeRenderJobRepository>();
         services.AddSingleton<IProjectRepository, FakeProjectRepository>();
         services.AddSingleton<IContentTopicRepository, FakeContentTopicRepository>();
+        services.AddSingleton<IContentPlanItemRepository, FakeContentPlanItemRepository>();
         services.AddSingleton<IProceduralVideoGenerator, FakeProceduralVideoGenerator>();
         services.AddSingleton<IAiExecutor, DisabledAiExecutor>();
         services.AddSingleton<IObjectStore, InMemoryObjectStore>();
@@ -830,6 +831,18 @@ public sealed class AutomationServiceSafetyTests
         public Task<IReadOnlyList<ContentTopic>> ListActiveAsync(int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentTopic>>([]);
         public Task UpsertAsync(ContentTopic topic, CancellationToken ct) => Task.CompletedTask;
         public Task<bool> DeleteAsync(string id, CancellationToken ct) => Task.FromResult(false);
+    }
+
+    private sealed class FakeContentPlanItemRepository : IContentPlanItemRepository
+    {
+        public Task<ContentPlanItem?> GetAsync(string id, CancellationToken ct) => Task.FromResult<ContentPlanItem?>(null);
+        public Task<IReadOnlyList<ContentPlanItem>> ListByUserAsync(string userId, DateTime fromUtc, DateTime toUtc, string? topicId, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentPlanItem>>([]);
+        public Task<IReadOnlyList<ContentPlanItem>> ListByTopicAsync(string topicId, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentPlanItem>>([]);
+        public Task<IReadOnlyList<ContentPlanItem>> ListInWindowAsync(DateTime fromUtc, DateTime toUtc, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<ContentPlanItem>>([]);
+        public Task<ContentPlanItem?> FindByVideoIdAsync(string userId, string videoId, CancellationToken ct) => Task.FromResult<ContentPlanItem?>(null);
+        public Task UpsertAsync(ContentPlanItem item, CancellationToken ct) => Task.CompletedTask;
+        public Task<bool> DeleteAsync(string id, CancellationToken ct) => Task.FromResult(false);
+        public Task<int> DeleteByTopicAsync(string topicId, CancellationToken ct) => Task.FromResult(0);
     }
 
     private sealed class FakeProceduralVideoGenerator : IProceduralVideoGenerator

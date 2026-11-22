@@ -23,7 +23,8 @@ public sealed class VisualsStage(
     IAiProviderRegistry? registry = null,
     IAssetRepository? assets = null,
     IAiUsageRepository? usage = null,
-    TimeProvider? clock = null) : IStoryStage
+    TimeProvider? clock = null,
+    AnimStudio.Application.Abstractions.Rendering.IProceduralSceneIllustrationRenderer? proceduralRenderer = null) : IStoryStage
 {
     /// <summary>Pictures larger than this are not kept; a generated one this large is a provider misbehaving.</summary>
     public const int MaxImageBytes = 10 * 1024 * 1024;
@@ -135,7 +136,10 @@ public sealed class VisualsStage(
             }
 
             await KeepPlainAsync(run, scene, vertical, ct).ConfigureAwait(false);
-            plain++;
+            if (string.Equals(scene.ImageSource, "procedural-3d", StringComparison.Ordinal))
+                generated++;
+            else
+                plain++;
             await context.Save().ConfigureAwait(false);
         }
 
@@ -206,6 +210,31 @@ public sealed class VisualsStage(
         {
             if (await CopyStorageToThumbnailAsync(run, script, storagePool[0], ct).ConfigureAwait(false))
             {
+                thumbnail = true;
+                await context.Save().ConfigureAwait(false);
+            }
+        }
+        if (!thumbnail && proceduralRenderer is not null)
+        {
+            var thumbBytes = await proceduralRenderer.RenderSceneIllustrationAsync(
+                script.ThumbnailPrompt ?? script.Summary,
+                script.Title,
+                run.Genre?.Name,
+                run.Genre?.Category ?? run.Brief.GenreId,
+                eventType: run.Brief.GenreId,
+                vertical: false,
+                width: 1280,
+                height: 720,
+                seed: (int)Seed(run.Id, 0),
+                ct).ConfigureAwait(false);
+            if (thumbBytes is { Length: > 0 })
+            {
+                var thumbKey = StoryObjectKeys.Thumbnail(run.Id, ".png");
+                await using (var ms = new MemoryStream(thumbBytes, writable: false))
+                    await store.SaveAsync(thumbKey, ms, AiImageValidator.Png, ct).ConfigureAwait(false);
+                script.ThumbnailKey = thumbKey;
+                script.ThumbnailSource = "procedural-3d";
+                script.ThumbnailName = "Thumbnail (3D Illustrated)";
                 thumbnail = true;
                 await context.Save().ConfigureAwait(false);
             }
@@ -436,6 +465,32 @@ public sealed class VisualsStage(
     private async Task KeepPlainAsync(StoryRun run, StoryScene scene, bool vertical, CancellationToken ct)
     {
         var key = StoryObjectKeys.Image(run.Id, scene.Number, ".png");
+        if (proceduralRenderer is not null)
+        {
+            var (pw, ph) = vertical ? (720, 1280) : (1280, 720);
+            var illustrated = await proceduralRenderer.RenderSceneIllustrationAsync(
+                scene.ImagePrompt ?? scene.Narration,
+                scene.Headline,
+                scene.Mood,
+                run.Genre?.Category ?? run.Brief.GenreId,
+                eventType: run.Brief.GenreId,
+                vertical: vertical,
+                width: pw,
+                height: ph,
+                seed: (int)Seed(run.Id, scene.Number),
+                ct).ConfigureAwait(false);
+            if (illustrated is { Length: > 0 })
+            {
+                await using (var content = new MemoryStream(illustrated, writable: false))
+                    await store.SaveAsync(key, content, AiImageValidator.Png, ct).ConfigureAwait(false);
+
+                scene.ImageKey = key;
+                scene.ImageSource = "procedural-3d";
+                scene.ImageName = $"Scene {scene.Number} (3D Illustrated)";
+                return;
+            }
+        }
+
         await using (var content = new MemoryStream(StoryPlaceholderImage.Create(scene.Number, vertical), writable: false))
             await store.SaveAsync(key, content, AiImageValidator.Png, ct).ConfigureAwait(false);
 

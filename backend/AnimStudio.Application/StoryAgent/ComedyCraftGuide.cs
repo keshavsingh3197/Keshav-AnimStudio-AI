@@ -93,7 +93,7 @@ public static class ComedyCraftGuide
                 ComedyToneStyle.TankSeries =>
                     "International 3D cartoon tank series (| EP XX): expressive googly-eyed tanks with personality, dramatic canyon standoffs, tiny cannon recoil twist, comic smoke puffs, crisp SFX punchline.",
                 ComedyToneStyle.DesiKhadiSitcom =>
-                    "MJO / HardToonz viral Hindi comedy rhythm: 0:02 mid-shout cold open, extreme wide-angle close-ups vs background partner, bulging eyes & sweat drops, rapid escalation & 1-3 word Hinglish thumbnail hook.",
+                    "MJO (@MakeJokeOf) / HardToonz viral Hindi comedy rhythm: 0:02 mid-shout cold open, snowball situational escalation every 60-90s, reverse OTS dialogue cuts + sudden bulging-eye angry close-ups, deadpan pauses before zingers, Kanpuria/UP colloquial puns, and crisp SFX reaction hits.",
                 _ =>
                     "YouTube high-retention comedy blend: snappy buddy roast banter, exaggerated setups, instant interruptions, zero stiff lecturing."
             };
@@ -114,7 +114,7 @@ public static class ComedyCraftGuide
             ComedyToneStyle.TankSeries =>
                 "कार्टून टैंक कॉमेडी सीरीज़ (| EP XX): गोल-मटोल आँखों वाले 3D टैंक कैरेक्टर, रणभूमि में बड़ा दावा और अचानक फुस्स तोप का ज़बरदस्त ट्विस्ट।",
             ComedyToneStyle.DesiKhadiSitcom =>
-                "MJO / HardToonz स्टाइल देसी खड़ी भाषा सिटकॉम (| EP XX): पहले 2 सेकंड में तेज़ बहस से शुरुआत, बड़े कैमरे के सामने शॉक-फेस क्लोज़-अप, तेज़ कट्स और 1-3 शब्दों का वायरल हिंग्लिश थंबनेल हुक।",
+                "MJO (@MakeJokeOf) स्टाइल देसी खड़ी/कानपुरिया कॉमेडी सिटकॉम (| EP XX): पहले 2 सेकंड में तेज़ नोकझोंक से शुरुआत, 'अरे बावले / टोपा हो का / अबे सुन' जैसी बोलचाल की भाषा, हर 60-90 सेकंड में नया पड़ोसी/किरदार या बखेड़ा (Snowball Escalation), रिवर्स क्लोज़-अप पंच और अंत में उल्टा ट्विस्ट + मुस्कुराने वाला आउट्रो ('Share this to make someone smile').",
             _ =>
                 "यूट्यूब हाई-रिटेंशन देसी कॉमेडी (खड़ी भाषा + तू-तड़ाक याराना मिक्स): 'अबे सुन', 'इब के करैगो', 'अरे बावले', 'तू रहने दे भाई' जैसी आम बोलचाल की मज़ेदार भाषा बोलें। कोई किताबी उपदेश या 'आइए जानें / मित्र' वाली औपचारिकता बिल्कुल न रखें।"
         };
@@ -163,14 +163,18 @@ public static class ComedyCraftGuide
         sb.AppendLine($"- Spoken Dialect & Voice: {DescribeTone(style, language)}");
         sb.AppendLine(targetSeconds <= 45
             ? "- 0-2.5s Cold-Open Hook: Start mid-argument, absurd lie, or hilarious chaos on line 1 (NEVER 'नमस्कार दोस्तों' / 'आज की कहानी है')."
-            : "- Fast Retention Pacing: Open with a provocative comic problem in the first 3 seconds, then escalate via Rule of Three (small exaggeration -> double-down -> hilarious crash).");
-        sb.AppendLine("- Punchy Timing: Keep dialogue lines short (6-15 words), interrupting each other with quick comebacks and wild emotion switches (confident -> sarcastic -> shocked -> laughing).");
+            : targetSeconds >= 600
+                ? "- Long Episode Snowball Arc (10m-60m): Start immediately inside a funny everyday friction (barber queue, neighborhood gate, courtroom, clinic, classroom, tea shop), escalate absurdly every 60-90 seconds as stubborn bystanders join with wild misunderstandings, land deadpan silent beats before zingers, and end on an ironic reversal twist."
+                : "- Fast Retention Pacing: Open with a provocative comic problem in the first 3 seconds, then escalate via Rule of Three (small exaggeration -> double-down -> hilarious crash).");
+        sb.AppendLine("- Angry Interruptions, Clear Blame & Contrast Voices: Write snappy conversational cut-offs where one character's bragging/excuse trails off (`...`) and the victim/listener IMMEDIATELY explodes back with `(angry)` or `(surprised)` rage — keep fault & perspective 100% logical (only the victim who got bald/cheated yells 'तूने मुझे टकला कर दिया!', never the barber blaming the victim awkwardly), vary energy fiercely with loud irritated shouting & deadpan stares instead of flat polite narration.");
+        sb.AppendLine("- Punchy Timing: Keep dialogue lines crisp (6-16 words), interrupting each other with quick comebacks and wild emotion switches (proud -> angry cut-off -> panicked excuse -> cheeky laugh).");
         sb.AppendLine("- Ending: End on a sudden comedic reversal, deadpan mic-drop, or relatable comment-bait roast — NEVER give a pious 'कथा की सीख / Moral of the story' sermon.");
         if (isProceduralFormat)
         {
-            sb.AppendLine("- Physical Comedy Tags: Start a line with one action tag in brackets so the 3D characters move, the camera reacts and sound effects fire: (running) (dancing) (eating) (facepalm) (surprised) (sleeping) (punch) (kick) (ouch). Use 2-4 tags per short, never on every line.");
+            sb.AppendLine("- Physical Comedy, Props & Blocking Tags: Start a line with action/prop cues in brackets so the 3D cast visibly holds tools and acts it out — e.g. `(cutting)`, `(combing)`, `(spraying)`, `(removing towel)`, `(look in mirror)`, `(adjusting glasses)`, `(phone)`, `(key)`, `(gavel)`, `(mic)`, `(tea)`, `(ladle)`, `(running)`, `(dancing)`, `(eating)`, `(facepalm)`, `(angry)`, `(laughing)`, `(surprised)`, `(sleeping)`, `(punch)`, `(kick)` or `[PROP]: scissors | comb | towel | sprayBottle`.");
+            sb.AppendLine("- Show Don't Just Tell: Whenever dialogue mentions scissors/कटिंग/केंची, towel/तौलिया, upside-down/crooked glasses (चश्मा उल्टा), mirror check (शीशे में देख), phone call/फ़ोन, key/चाबी, teacup/चाय, gavel/ऑर्डर, mic, stethoscope, or cooking kadhai, write explicit action/emotion contrast (`angry` triggers red cheek flush + ear steam + kettle SFX; `laughing` triggers crescent-eye guffaws) AND keep mechanical sounds only in SFX triggers rather than robotic spoken reading.");
             sb.AppendLine("- Slapstick Only: a (punch)/(kick) beat must be cartoon slapstick between friends (bonk, dhishoom, both laugh after) — no blood, weapons, injury detail or real people, so the video stays advertiser-friendly.");
-            sb.AppendLine("- Places: a `[SCENE]: <place> | <dawn/day/sunset/night> | <mood>` line moves the story (forest, river ghat, himalaya, village, city, chai stall, kitchen, bedroom); outdoor places add their natural ambience automatically.");
+            sb.AppendLine("- Places: a `[SCENE]: <place> | <dawn/day/sunset/night> | <mood>` line moves the story (barber shop, courtroom, doctor clinic, classroom, quiz studio, neighborhood gate, forest, river ghat, village, city, chai stall, kitchen, living room, bedroom); outdoor places add their natural ambience automatically.");
         }
 
         if (includeMidMemes)

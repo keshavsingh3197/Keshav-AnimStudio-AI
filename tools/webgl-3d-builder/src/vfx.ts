@@ -16,6 +16,9 @@ export interface VfxRig {
   shockBurstGroup: THREE.Group;
   dizzyStarsGroup: THREE.Group;
   dustGroup: THREE.Group;
+  hairCutGroup: THREE.Group;
+  angrySteamGroup: THREE.Group;
+  sprayMistGroup: THREE.Group;
 }
 
 export function createVfxRig(
@@ -46,7 +49,7 @@ export function createVfxRig(
   if (vfxStyle === 'ComedyBurst' || setting === 'ComedyStage') mode = 'star';
   else if (setting === 'ForestAshram') mode = 'firefly';
   else if (setting === 'Himalaya') mode = 'snow';
-  else if (vfxStyle === 'DivineAura') mode = 'petal';
+  else if (vfxStyle === 'DivineAura' || setting === 'PalaceCourt') mode = 'petal';
 
   const count = 110;
   const positions = new Float32Array(count * 3);
@@ -85,15 +88,16 @@ export function createVfxRig(
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const ambientMat = new THREE.PointsMaterial({
-    size: mode === 'star' ? 0.14 : 0.12,
+    size: mode === 'star' ? 0.065 : 0.12,
     map: particleTex,
     vertexColors: true,
     transparent: true,
-    opacity: 0.78,
+    opacity: mode === 'star' ? 0.16 : 0.78,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
   const ambientPoints = new THREE.Points(geo, ambientMat);
+  if (mode === 'star') ambientPoints.visible = false;
   group.add(ambientPoints);
 
   // Comic / Emotion reaction burst ring
@@ -114,8 +118,9 @@ export function createVfxRig(
   group.add(burstPoints);
 
   // Soft volumetric diagonal god-ray light cones with smooth edge & vertical falloff shader
+  // Keep MJO-style comedy rooms razor-clean without dusty beam haze over faces.
   const godRays: THREE.Mesh[] = [];
-  if (setting !== 'ModernCity') {
+  if (setting !== 'ModernCity' && mode !== 'star') {
     for (let r = 0; r < 4; r++) {
       const rayMat = new THREE.ShaderMaterial({
         transparent: true,
@@ -224,6 +229,39 @@ export function createVfxRig(
   dustGroup.visible = false;
   group.add(dustGroup);
 
+  const hairCutGroup = new THREE.Group();
+  const hairMat = new THREE.MeshBasicMaterial({ color: 0x111827, transparent: true, opacity: 0.94 });
+  for (let h = 0; h < 12; h++) {
+    const strand = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.022, 0.024), hairMat);
+    hairCutGroup.add(strand);
+  }
+  hairCutGroup.visible = false;
+  group.add(hairCutGroup);
+
+  // MJO Cartoon Angry Ear-Steam Puffs + Anger Bolt Pop
+  const angrySteamGroup = new THREE.Group();
+  const steamPuffMat = new THREE.MeshBasicMaterial({ color: 0xfef2f2, transparent: true, opacity: 0.85 });
+  const redAngerMat = new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.92 });
+  for (let p = 0; p < 6; p++) {
+    const puff = new THREE.Mesh(
+      new THREE.SphereGeometry(0.065 + (p % 2) * 0.022, 8, 6),
+      p % 3 === 2 ? redAngerMat : steamPuffMat,
+    );
+    angrySteamGroup.add(puff);
+  }
+  angrySteamGroup.visible = false;
+  group.add(angrySteamGroup);
+
+  // Salon Water Spray Mist Droplets
+  const sprayMistGroup = new THREE.Group();
+  const mistMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.82 });
+  for (let m = 0; m < 10; m++) {
+    const drop = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 5), mistMat);
+    sprayMistGroup.add(drop);
+  }
+  sprayMistGroup.visible = false;
+  group.add(sprayMistGroup);
+
   return {
     group,
     ambientPoints,
@@ -239,6 +277,9 @@ export function createVfxRig(
     shockBurstGroup,
     dizzyStarsGroup,
     dustGroup,
+    hairCutGroup,
+    angrySteamGroup,
+    sprayMistGroup,
   };
 }
 
@@ -258,6 +299,8 @@ export function updateVfxRig(
   leftY = 0,
   rightY = 0,
   memeActive = false,
+  leftEmotion: EmotionKind = 'calm',
+  rightEmotion: EmotionKind = 'calm',
 ): void {
   const count = vfx.ambientPositions.length / 3;
   const climbDown = vfx.particleMode === 'snow' || (vfx.particleMode === 'petal' && u > 0.6);
@@ -285,13 +328,14 @@ export function updateVfxRig(
     mat.uniforms.uOpacity.value = 0.075 + 0.04 * Math.sin(t * 0.8 + r * 1.1);
   }
 
-  // Speaker dialogue energy wave motes flowing toward listener
+  // Speaker dialogue energy wave motes flowing toward listener (suppressed in Comedy mode for razor-clean faces)
+  const isComedySet = vfx.particleMode === 'star';
   const hasActiveSpeaker = activeSlot === 'Left' || activeSlot === 'Right';
   const streamColor = activeSlot === 'Left' ? primaryHex : secondaryHex;
   for (let d = 0; d < vfx.streamDots.length; d++) {
     const dot = vfx.streamDots[d];
     const mat = dot.material as THREE.MeshBasicMaterial;
-    if (!hasActiveSpeaker) {
+    if (!hasActiveSpeaker || isComedySet) {
       mat.opacity = 0;
       continue;
     }
@@ -307,21 +351,22 @@ export function updateVfxRig(
     mat.opacity = Math.sin(frac * Math.PI) * 0.22;
   }
 
-  // Reaction VFX burst near active speaker on Laughing / Surprised / Proud / Angry lines (kept behind character silhouette)
-  const showBurst = hasActiveSpeaker && (emotion === 'laughing' || emotion === 'surprised' || emotion === 'proud' || memeActive) && (turnLocalProgress < 0.45 || memeActive);
+  // Reaction VFX burst near active speaker (kept behind silhouette; in Comedy mode reserved for meme cutaways so acting stays clean)
+  const showBurst = hasActiveSpeaker && (isComedySet ? memeActive : ((emotion === 'laughing' || emotion === 'surprised' || emotion === 'proud' || memeActive) && (turnLocalProgress < 0.40 || memeActive)));
   if (showBurst) {
-    const k = Math.min(1, turnLocalProgress / 0.45);
+    const k = Math.min(1, turnLocalProgress / 0.40);
     const centerX = activeSlot === 'Left' ? leftX : rightX;
+    vfx.burstMat.color.setHex(emotion === 'angry' ? 0xf97316 : 0xfde047);
     const bCount = vfx.burstPositions.length / 3;
     for (let i = 0; i < bCount; i++) {
       const ang = (i / bCount) * Math.PI * 2;
-      const rad = 0.62 + k * 0.95;
+      const rad = 0.68 + k * 0.92;
       vfx.burstPositions[i * 3] = centerX + Math.cos(ang) * rad;
-      vfx.burstPositions[i * 3 + 1] = 1.55 + Math.sin(ang) * rad * 0.85 - k * 0.18;
-      vfx.burstPositions[i * 3 + 2] = -0.35;
+      vfx.burstPositions[i * 3 + 1] = 1.55 + Math.sin(ang) * rad * 0.85 - k * 0.16;
+      vfx.burstPositions[i * 3 + 2] = isComedySet ? -1.08 : -0.42;
     }
     vfx.burstPoints.geometry.attributes.position.needsUpdate = true;
-    vfx.burstMat.opacity = (1 - k * 0.8) * 0.45;
+    vfx.burstMat.opacity = (1 - k * 0.82) * (isComedySet ? 0.36 : 0.45);
   } else {
     vfx.burstMat.opacity = 0;
   }
@@ -401,5 +446,60 @@ export function updateVfxRig(
     });
   } else {
     vfx.dustGroup.visible = false;
+  }
+
+  // 5) Prominent falling dark clipped hair locks dropping off Customer's head onto cape & floor during cutting
+  const leftCutting = leftAction === 'cutting';
+  const rightCutting = rightAction === 'cutting';
+  if (leftCutting || rightCutting) {
+    vfx.hairCutGroup.visible = true;
+    const custX = leftCutting ? rightX : leftX;
+    const custCrownY = (leftCutting ? rightY : leftY) + 1.44;
+    const custZ = -0.60;
+    vfx.hairCutGroup.children.forEach((strand, idx) => {
+      const cycle = (t * 2.25 + idx * 0.13) % 1;
+      const side = (idx % 2 === 0 ? 1 : -1) * (0.09 + cycle * 0.28);
+      strand.position.set(custX + side + Math.sin(t * 7 + idx) * 0.04, custCrownY - cycle * 1.12, custZ + 0.08);
+      strand.rotation.set(t * 6 + idx, idx * 0.9, t * 8);
+      strand.scale.setScalar(Math.max(0.08, Math.sin(cycle * Math.PI) * 1.25));
+    });
+  } else {
+    vfx.hairCutGroup.visible = false;
+  }
+
+  // 6) MJO Cartoon Angry Ear-Steam Puffs when either character turns "Angry Bird" furious
+  const leftAngry = leftEmotion === 'angry';
+  const rightAngry = rightEmotion === 'angry';
+  if (leftAngry || rightAngry) {
+    vfx.angrySteamGroup.visible = true;
+    const ax = rightAngry ? rightX : leftX;
+    const ay = (rightAngry ? rightY : leftY) + 1.56;
+    const az = rightAngry ? -0.68 : -0.58;
+    vfx.angrySteamGroup.children.forEach((puff, idx) => {
+      const side = idx % 2 === 0 ? -1 : 1;
+      const cycle = (t * 2.4 + Math.floor(idx / 2) * 0.34) % 1;
+      puff.position.set(ax + side * (0.28 + cycle * 0.36), ay + cycle * 0.45, az);
+      puff.scale.setScalar(Math.max(0.05, Math.sin(cycle * Math.PI) * 1.35));
+    });
+  } else {
+    vfx.angrySteamGroup.visible = false;
+  }
+
+  // 7) Water Spray Mist burst when Barber uses Spray Bottle
+  const leftSpraying = leftAction === 'spraying';
+  const rightSpraying = rightAction === 'spraying';
+  if (leftSpraying || rightSpraying) {
+    vfx.sprayMistGroup.visible = true;
+    const tx = leftSpraying ? rightX : leftX;
+    const ty = (leftSpraying ? rightY : leftY) + 1.48;
+    const sx = leftSpraying ? leftX : rightX;
+    vfx.sprayMistGroup.children.forEach((drop, idx) => {
+      const cycle = (t * 3.6 + idx * 0.10) % 1;
+      const spreadY = ((idx % 5) - 2) * 0.055;
+      drop.position.set(sx + (tx - sx) * (0.35 + cycle * 0.65), ty + spreadY + Math.sin(cycle * 3) * 0.04, -0.62);
+      drop.scale.setScalar(Math.max(0.1, (1 - cycle * 0.4) * 1.15));
+    });
+  } else {
+    vfx.sprayMistGroup.visible = false;
   }
 }

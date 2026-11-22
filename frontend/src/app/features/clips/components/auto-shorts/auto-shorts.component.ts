@@ -140,6 +140,9 @@ const SOURCE_SORTS: readonly { id: SourceSort; label: string }[] = [
 
 /** Kept in step with AutoShortPackager.Designs on the server by id; the colours draw the swatches. */
 const DESIGNS: readonly { id: string; label: string; bar: string; top: string; bottom: string }[] = [
+  { id: 'sacred-gold', label: 'Sacred Gold', bar: '#14091f', top: '#78350f', bottom: '#9a3412' },
+  { id: 'desi-sitcom', label: 'Desi Sitcom', bar: '#0f172a', top: '#fde047', bottom: '#ea580c' },
+  { id: 'emerald-pro', label: 'Emerald Pro', bar: '#042f2e', top: '#065f46', bottom: '#a3e635' },
   { id: 'comic', label: 'Comic', bar: '#fde047', top: '#ffffff', bottom: '#111111' },
   { id: 'quiz-show', label: 'Quiz show', bar: '#1d4ed8', top: '#0b1b4d', bottom: '#facc15' },
   { id: 'bubblegum', label: 'Bubblegum', bar: '#db2777', top: '#831843', bottom: '#fce7f3' },
@@ -353,9 +356,9 @@ export class AutoShortsComponent {
   // --- whole clips and packaging ---
   /** Videos play start to finish - never trimmed, split or reused for another stretch. */
   readonly keepWhole = signal(true);
-  /** 'none', 'auto' or a design id. Default 'none' keeps Divine / full-bleed visuals uncluttered. */
-  readonly design = signal('none');
-  readonly top = signal<AutoShortTopMode>('None');
+  /** Richly decorated frames by default so newly created Shorts never ship plain/bare. */
+  readonly design = signal('sacred-gold');
+  readonly top = signal<AutoShortTopMode>('Hook');
   readonly topHint = computed(() => TOP_MODES.find((t) => t.id === this.top())?.hint ?? '');
   readonly language = signal<AutoShortLanguage>('English');
   readonly languageHint = computed(() => LANGUAGES.find((l) => l.id === this.language())?.hint ?? '');
@@ -365,9 +368,9 @@ export class AutoShortsComponent {
   readonly numberParts = signal(false);
   readonly partLabel = signal<AutoShortPartLabel>('Number');
   readonly countDown = signal(false);
-  readonly cta = signal(false);
+  readonly cta = signal(true);
   readonly ctaText = signal('');
-  readonly showPackaging = signal(false);
+  readonly showPackaging = signal(true);
   readonly hasPackagingActive = computed(() =>
     this.design() !== 'none' || this.top() !== 'None' || this.numberParts() || this.cta()
     || this.title().trim().length > 0 || this.lines().length > 0 || this.memeIds().size > 0);
@@ -778,20 +781,37 @@ export class AutoShortsComponent {
       this.numberParts.set(false);
       this.cta.set(true);
       this.showPackaging.set(true);
-    } else {
-      this.atmosphere.set('Auto');
-      this.design.set('none');
-      this.top.set('None');
+    } else if (p.style === 'Divine') {
+      this.atmosphere.set('SacredMix');
+      this.design.set('sacred-gold');
+      this.top.set(this.lines().length > 0 ? 'Hook' : 'None');
       this.numberParts.set(false);
       this.countDown.set(false);
-      this.cta.set(false);
+      this.cta.set(true);
+      this.showPackaging.set(true);
+    } else if (p.style === 'Viral' || p.style === 'Hype') {
+      this.atmosphere.set('Sparkles');
+      this.design.set('desi-sitcom');
+      this.top.set(this.lines().length > 0 ? 'Hook' : 'Poll');
+      this.numberParts.set(false);
+      this.countDown.set(false);
+      this.cta.set(true);
+      this.showPackaging.set(true);
+    } else {
+      this.atmosphere.set('Auto');
+      this.design.set('auto');
+      this.top.set(this.lines().length > 0 ? 'Hook' : 'Auto');
+      this.numberParts.set(false);
+      this.countDown.set(false);
+      this.cta.set(true);
+      this.showPackaging.set(true);
     }
     if (this.lines().length > 0 && this.textMode() === 'None') this.textMode.set('Hook');
   }
 
   /**
    * One-click pure devotional / Bhakti setup: sweeping motion on every still photo, varied smooth
-   * junctions, warm golden light, and family-safe Flowers/Petals/Sparkles/Cosmic FX (never Hearts).
+   * junctions, warm golden light, rich Sacred Gold frame & pure Flowers/Petals/Sparkles FX (never Hearts).
    */
   divineSetup(): void {
     this.keepWhole.set(true);
@@ -802,7 +822,10 @@ export class AutoShortsComponent {
       : 3.6), 0);
     const seconds = this.formatId() === '16:9' && natural >= 90 ? 90 : natural >= 60 ? 60 : 30;
     this.applyPreset({ ...PRESETS[0], seconds });
-    this.showPackaging.set(false);
+    this.design.set('sacred-gold');
+    this.atmosphere.set('SacredMix');
+    this.cta.set(true);
+    this.showPackaging.set(true);
     this.reshuffle();
   }
 

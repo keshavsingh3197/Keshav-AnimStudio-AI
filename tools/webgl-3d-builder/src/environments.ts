@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { RenderJobJson, SceneSetting, SceneTimeOfDay, StageLayoutJson } from './types';
 
 export interface StageSpot {
@@ -214,6 +215,41 @@ function addTempleMandap(group: THREE.Group, env: EnvironmentRig): void {
   addDiya(group, 1.25, 0, -0.5, 1.9, env, true);
   addDiya(group, -0.45, 0, -1.4, 3.1, env, false);
   addDiya(group, 0.45, 0, -1.4, 4.4, env, false);
+
+  // Sacred carved 3D Shivling & Yoni Peetham altar centerpiece at center sanctum
+  const sanctum = new THREE.Group();
+  sanctum.position.set(0, 0, -1.58);
+  const basaltMat = new THREE.MeshStandardMaterial({ color: 0x1e202c, metalness: 0.35, roughness: 0.22 });
+  const peeth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.50, 0.26, 24), stoneMat);
+  peeth.position.y = 0.13;
+  peeth.castShadow = true;
+  peeth.receiveShadow = true;
+  sanctum.add(peeth);
+  const yoniRim = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.06, 10, 24), goldMat);
+  yoniRim.rotation.x = Math.PI / 2;
+  yoniRim.position.y = 0.27;
+  sanctum.add(yoniRim);
+  const lingaCol = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.36, 12, 20), basaltMat);
+  lingaCol.position.y = 0.50;
+  lingaCol.castShadow = true;
+  sanctum.add(lingaCol);
+  // Gold Tripundra lines & marigold garland dots on the Shivling
+  for (const ty of [0.54, 0.58, 0.62]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.015, 0.02), new THREE.MeshBasicMaterial({ color: 0xfef3c7 }));
+    bar.position.set(0, ty, 0.155);
+    sanctum.add(bar);
+  }
+  const marigoldMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.55 });
+  for (let m = 0; m < 10; m++) {
+    const a = (m / 10) * Math.PI * 2;
+    const petal = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), marigoldMat);
+    petal.position.set(Math.cos(a) * 0.28, 0.30, Math.sin(a) * 0.28);
+    sanctum.add(petal);
+  }
+  const sanctumLight = new THREE.PointLight(0xffb74d, 1.9, 4.5, 1.5);
+  sanctumLight.position.set(0, 1.05, 0.25);
+  sanctum.add(sanctumLight);
+  group.add(sanctum);
 }
 
 function addForestAshram(group: THREE.Group, env: EnvironmentRig): void {
@@ -290,15 +326,27 @@ function addCosmosStage(group: THREE.Group, env: EnvironmentRig, accentHex: stri
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.85, roughness: 0.2 });
 
   const orbitGroup = new THREE.Group();
-  orbitGroup.position.set(0, 2.0, -3.4);
-  const ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.025, 10, 64), goldMat);
-  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.022, 10, 48), accentMat);
+  orbitGroup.position.set(0, 2.05, -3.3);
+  const ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.58, 0.032, 10, 64), goldMat);
+  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.16, 0.026, 10, 48), accentMat);
+  const ring3 = new THREE.Mesh(new THREE.TorusGeometry(0.76, 0.022, 10, 48), goldMat);
   ring2.rotation.x = 0.7;
-  orbitGroup.add(ring1, ring2);
+  ring3.rotation.y = 0.55;
+  const sunDisc = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 20, 16),
+    new THREE.MeshBasicMaterial({ color: 0xfde047 }),
+  );
+  orbitGroup.add(ring1, ring2, ring3, sunDisc);
   group.add(orbitGroup);
+
+  const cosmosLight = new THREE.PointLight(0xfbbf24, 3.0, 9, 1.4);
+  cosmosLight.position.set(0, 2.1, -2.5);
+  group.add(cosmosLight);
+  env.ambientFireLights.push({ light: cosmosLight, baseIntensity: 3.0, phase: 0.3 });
 
   env.animatedProps.push({ object: ring1, kind: 'ring', phase: 0.2, speed: 0.35 });
   env.animatedProps.push({ object: ring2, kind: 'ring', phase: 1.5, speed: -0.55 });
+  env.animatedProps.push({ object: ring3, kind: 'ring', phase: 0.9, speed: 0.48 });
 
   // Emerging Dhruva Tara (Pole Star) + Saptarishi beacon
   const starGroup = new THREE.Group();
@@ -460,6 +508,143 @@ function addHimalayaStage(group: THREE.Group, env: EnvironmentRig): void {
     group.add(cap);
   }
   addDiya(group, 0, 0, -1.1, 0.8, env, true);
+}
+
+function addPalaceCourt(group: THREE.Group, env: EnvironmentRig): void {
+  const sandstoneMat = new THREE.MeshStandardMaterial({ color: 0xe6d2b5, roughness: 0.72 });
+  const warmMarbleMat = new THREE.MeshStandardMaterial({ color: 0xcab596, roughness: 0.58 });
+  const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xf4c44e, metalness: 0.85, roughness: 0.22 });
+  const burgundyMat = new THREE.MeshStandardMaterial({ color: 0x6b1426, roughness: 0.8 });
+  const alcoveGlowMat = new THREE.MeshStandardMaterial({
+    color: 0x2b130a,
+    emissive: 0xd97706,
+    emissiveIntensity: 0.42,
+    roughness: 0.6,
+  });
+
+  // Grand courtyard sandstone floor + raised inner marble dance plinth + Persian carpet runner
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(10.5, 48), warmMarbleMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const dais = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.06, 5.2), sandstoneMat);
+  dais.position.set(0, -0.02, -0.6);
+  dais.receiveShadow = true;
+  group.add(dais);
+
+  const rugBorder = new THREE.Mesh(new THREE.BoxGeometry(3.75, 0.016, 2.35), goldTrimMat);
+  rugBorder.position.set(0, 0.012, 0.15);
+  rugBorder.receiveShadow = true;
+  group.add(rugBorder);
+
+  const rug = new THREE.Mesh(new THREE.BoxGeometry(3.45, 0.022, 2.08), burgundyMat);
+  rug.position.set(0, 0.015, 0.15);
+  rug.receiveShadow = true;
+  group.add(rug);
+
+  // Scalloped Rajputana/Mughal sandstone colonnade in the background
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(10.8, 4.4, 0.28), warmMarbleMat);
+  backWall.position.set(0, 2.2, -3.55);
+  backWall.receiveShadow = true;
+  group.add(backWall);
+
+  const stepLip = new THREE.Mesh(new THREE.BoxGeometry(10.4, 0.24, 0.72), sandstoneMat);
+  stepLip.position.set(0, 0.12, -2.55);
+  stepLip.receiveShadow = true;
+  group.add(stepLip);
+
+  const pillarXs = [-3.6, -1.25, 1.25, 3.6];
+  for (const px of pillarXs) {
+    const colBase = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.42), sandstoneMat);
+    colBase.position.set(px, 0.26, -2.55);
+    colBase.castShadow = true;
+    group.add(colBase);
+
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 2.75, 14), sandstoneMat);
+    shaft.position.set(px, 1.78, -2.55);
+    shaft.castShadow = true;
+    group.add(shaft);
+
+    const capital = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.22, 0.46), goldTrimMat);
+    capital.position.set(px, 3.20, -2.55);
+    group.add(capital);
+  }
+
+  // Three cusped arch bays with velvet curtains, golden jharokha alcoves, and mirror lattice panes
+  const bayCenters = [-2.42, 0, 2.42];
+  for (let b = 0; b < bayCenters.length; b++) {
+    const bx = bayCenters[b];
+    const archSpan = b === 1 ? 2.42 : 2.28;
+    const archHeader = new THREE.Mesh(new THREE.BoxGeometry(archSpan, 0.65, 0.26), sandstoneMat);
+    archHeader.position.set(bx, 3.55, -2.55);
+    archHeader.castShadow = true;
+    group.add(archHeader);
+
+    const archTrim = new THREE.Mesh(new THREE.TorusGeometry(0.88, 0.065, 8, 20, Math.PI), sandstoneMat);
+    archTrim.position.set(bx, 2.52, -2.52);
+    group.add(archTrim);
+
+    const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.18, 1.72, 0.08), goldTrimMat);
+    mirrorFrame.position.set(bx, 1.56, -3.38);
+    group.add(mirrorFrame);
+
+    const alcove = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.56, 0.10), alcoveGlowMat);
+    alcove.position.set(bx, 1.56, -3.35);
+    group.add(alcove);
+
+    // Velvet arched side drapes framing each gallery window
+    for (const ds of [-1, 1]) {
+      const drape = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 1.95, 10), burgundyMat);
+      drape.position.set(bx + ds * 0.54, 1.55, -3.28);
+      drape.rotation.z = ds * 0.06;
+      group.add(drape);
+    }
+
+    // Upper carved jharokha lattice glow
+    const jharokha = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.56, 0.12), alcoveGlowMat);
+    jharokha.position.set(bx, 3.12, -3.32);
+    group.add(jharokha);
+  }
+
+  // Tall golden brass floor candelabras ("Samode Palace / Guzarish" warm candlelight framed clearly inside 16:9 & 9:16)
+  const candelabraX = [-2.18, 2.18];
+  for (let c = 0; c < candelabraX.length; c++) {
+    const cx = candelabraX[c];
+    const cz = -0.35;
+    const stand = new THREE.Group();
+    stand.position.set(cx, 0, cz);
+
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.22, 0.16, 14), goldTrimMat);
+    foot.position.y = 0.08;
+    stand.add(foot);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.036, 1.18, 10), goldTrimMat);
+    stem.position.y = 0.74;
+    stem.castShadow = true;
+    stand.add(stem);
+
+    for (const [ox, oz] of [[-0.14, 0], [0.14, 0], [0, 0.12], [0, -0.10]]) {
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.024, 0.05, 8), goldTrimMat);
+      cup.position.set(ox, 1.34, oz);
+      stand.add(cup);
+      const flame = new THREE.Mesh(
+        new THREE.ConeGeometry(0.022, 0.09, 8),
+        new THREE.MeshBasicMaterial({ color: 0xfef08a }),
+      );
+      flame.position.set(ox, 1.40, oz);
+      stand.add(flame);
+      env.animatedProps.push({ object: flame, kind: 'diya', phase: c * 1.4 + ox * 3, speed: 12.5 });
+    }
+
+    const warmLight = new THREE.PointLight(0xffb454, 1.9, 6.2, 1.6);
+    warmLight.position.set(0, 1.48, 0);
+    stand.add(warmLight);
+    env.ambientFireLights.push({ light: warmLight, baseIntensity: 1.9, phase: c * 1.7 });
+    group.add(stand);
+  }
+
+  addDiya(group, -1.65, 0.24, -2.2, 0.3, env, false);
+  addDiya(group, 1.65, 0.24, -2.2, 1.9, env, true);
 }
 
 function addGenericRichSet(group: THREE.Group, setting: SceneSetting, env: EnvironmentRig, accentHex: string): void {
@@ -647,6 +832,62 @@ function addDoorwaySet(group: THREE.Group, env: EnvironmentRig, variantSeed: num
   env.animatedProps.push({ object: doorPivot, kind: 'door', phase: 0.3, speed: 2.2 });
 }
 
+function addEnclosedRoomWalls(
+  group: THREE.Group,
+  opts: {
+    backColor: number;
+    sideColor?: number;
+    trimColor?: number;
+    backZ?: number;
+    height?: number;
+    width?: number;
+    depth?: number;
+  },
+): THREE.MeshStandardMaterial {
+  const w = opts.width ?? 12.6;
+  const h = opts.height ?? 5.4;
+  const zBack = opts.backZ ?? -2.9;
+  const depth = opts.depth ?? 10.5;
+  const wallMat = new THREE.MeshStandardMaterial({ color: opts.backColor, roughness: 0.82 });
+  const sideMat = new THREE.MeshStandardMaterial({ color: opts.sideColor ?? opts.backColor, roughness: 0.84 });
+
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.18), wallMat);
+  backWall.position.set(0, h * 0.5, zBack);
+  backWall.receiveShadow = true;
+  group.add(backWall);
+
+  // Side return walls + ceiling cornice eliminate any blue sky void during angled pans or crash zooms.
+  const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.18, h, depth), sideMat);
+  leftWall.position.set(-w * 0.5 + 0.09, h * 0.5, zBack + depth * 0.5 - 0.1);
+  leftWall.receiveShadow = true;
+  group.add(leftWall);
+
+  const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.18, h, depth), sideMat);
+  rightWall.position.set(w * 0.5 - 0.09, h * 0.5, zBack + depth * 0.5 - 0.1);
+  rightWall.receiveShadow = true;
+  group.add(rightWall);
+
+  const trimColor = opts.trimColor ?? 0x475569;
+  const trimMat = new THREE.MeshStandardMaterial({ color: trimColor, roughness: 0.65 });
+  const baseboardBack = new THREE.Mesh(new THREE.BoxGeometry(w, 0.16, 0.22), trimMat);
+  baseboardBack.position.set(0, 0.08, zBack + 0.04);
+  group.add(baseboardBack);
+
+  const ceilingBand = new THREE.Mesh(new THREE.BoxGeometry(w, 0.35, depth), trimMat);
+  ceilingBand.position.set(0, h + 0.1, zBack + depth * 0.5 - 0.1);
+  group.add(ceilingBand);
+
+  // Rear interior closure wall behind camera (z = zBack + depth) so salon/studio mirrors reflect a warm room instead of empty blue sky!
+  const frontClosureWall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2), wallMat);
+  frontClosureWall.position.set(0, h * 0.5, zBack + depth - 0.15);
+  group.add(frontClosureWall);
+  const frontBaseboard = new THREE.Mesh(new THREE.BoxGeometry(w, 0.72, 0.22), trimMat);
+  frontBaseboard.position.set(0, 0.36, zBack + depth - 0.16);
+  group.add(frontBaseboard);
+
+  return wallMat;
+}
+
 function addBedroom(group: THREE.Group, env: EnvironmentRig): void {
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x5c3d28, roughness: 0.78 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), floorMat);
@@ -663,12 +904,8 @@ function addBedroom(group: THREE.Group, env: EnvironmentRig): void {
   rug.receiveShadow = true;
   group.add(rug);
 
-  // Cozy bedroom back wall & arched window with moonlight/golden glow
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3b2f52, roughness: 0.82 });
-  const backWall = new THREE.Mesh(new THREE.BoxGeometry(10, 4.6, 0.18), wallMat);
-  backWall.position.set(0, 2.3, -2.9);
-  backWall.receiveShadow = true;
-  group.add(backWall);
+  // Cozy bedroom walls & arched window with moonlight/golden glow
+  addEnclosedRoomWalls(group, { backColor: 0x3b2f52, sideColor: 0x312647, trimColor: 0x5c3d28, backZ: -2.9 });
 
   const windowMoon = new THREE.PointLight(0xdbeafe, 2.2, 9.5, 1.3);
   windowMoon.position.set(0.75, 2.65, 0.65);
@@ -770,12 +1007,7 @@ function addLivingRoom(group: THREE.Group, env: EnvironmentRig): void {
   rug.receiveShadow = true;
   group.add(rug);
 
-  const backWall = new THREE.Mesh(
-    new THREE.BoxGeometry(10, 4.6, 0.18),
-    new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.84 }),
-  );
-  backWall.position.set(0, 2.3, -2.95);
-  group.add(backWall);
+  addEnclosedRoomWalls(group, { backColor: 0x334155, sideColor: 0x263244, trimColor: 0x6b3a1e, backZ: -2.95 });
 
   // Cushioned 3D Sofa on left-center
   const sofaMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.7 });
@@ -852,10 +1084,7 @@ function addKitchen(group: THREE.Group, env: EnvironmentRig): void {
   grid.position.y = 0.01;
   group.add(grid);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.76 });
-  const backWall = new THREE.Mesh(new THREE.BoxGeometry(10, 4.6, 0.18), wallMat);
-  backWall.position.set(0, 2.3, -2.85);
-  group.add(backWall);
+  addEnclosedRoomWalls(group, { backColor: 0x9a3412, sideColor: 0x7c2d12, trimColor: 0xfde68a, backZ: -2.85 });
 
   const backsplash = new THREE.Mesh(
     new THREE.BoxGeometry(6.8, 0.92, 0.05),
@@ -935,6 +1164,50 @@ function addKitchen(group: THREE.Group, env: EnvironmentRig): void {
   env.spots.door = { x: 1.35, y: 0, z: -1.15, rotY: -0.45 };
 }
 
+function addStudioPlaque(
+  group: THREE.Group,
+  label: string,
+  subtitle: string,
+  x: number,
+  y: number,
+  z: number,
+  bgHex = '#0f172a',
+  borderHex = '#f59e0b',
+): void {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = bgHex;
+  ctx.fillRect(0, 0, 512, 192);
+  ctx.strokeStyle = borderHex;
+  ctx.lineWidth = 10;
+  ctx.strokeRect(10, 10, 492, 172);
+  ctx.fillStyle = borderHex;
+  ctx.font = 'bold 42px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, 256, 86);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '600 24px sans-serif';
+  ctx.fillText(subtitle, 256, 138);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(1.48, 0.56, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45, metalness: 0.4 }),
+  );
+  frame.position.set(x, y, z - 0.02);
+  group.add(frame);
+
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.38, 0.48),
+    new THREE.MeshBasicMaterial({ map: tex }),
+  );
+  sign.position.set(x, y, z + 0.01);
+  group.add(sign);
+}
+
 function addSweetShop(group: THREE.Group, env: EnvironmentRig): void {
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(14, 14),
@@ -943,6 +1216,8 @@ function addSweetShop(group: THREE.Group, env: EnvironmentRig): void {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   group.add(floor);
+  addEnclosedRoomWalls(group, { backColor: 0x7c2d12, sideColor: 0x5c200e, trimColor: 0xf59e0b, backZ: -2.9 });
+  addStudioPlaque(group, 'MITHAI & KESHAV', 'FRESH SHAHI HALWAI', 0, 2.75, -2.76, '#431407', '#fbbf24');
 
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.58 });
   const counter = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.92, 0.85), woodMat);
@@ -994,6 +1269,518 @@ function addSweetShop(group: THREE.Group, env: EnvironmentRig): void {
   env.ambientFireLights.push({ light: lantern, baseIntensity: 3.0, phase: 0.5 });
 
   env.spots.counter = { x: 0.38, y: 0, z: -0.62, rotY: 0.22 };
+}
+
+function addLiveMirror(
+  group: THREE.Group,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  z: number,
+  rotY: number,
+  chromeMat: THREE.Material,
+  texW = 512,
+  texH = 256,
+): void {
+  const mirrorGroup = new THREE.Group();
+  mirrorGroup.position.set(x, y, z);
+  mirrorGroup.rotation.y = rotY;
+
+  const backing = new THREE.Mesh(
+    new THREE.BoxGeometry(width + 0.20, height + 0.20, 0.08),
+    chromeMat,
+  );
+  backing.position.z = -0.045;
+  mirrorGroup.add(backing);
+
+  // Real planar Three.js Reflector (multisample: 0 avoids SwiftShader FBO issues and renders crisp 3D reflection!)
+  const reflector = new Reflector(new THREE.PlaneGeometry(width, height), {
+    clipBias: 0.003,
+    textureWidth: texW,
+    textureHeight: texH,
+    color: 0xdbeafe,
+    multisample: 0,
+  });
+  reflector.position.z = 0.002;
+  mirrorGroup.add(reflector);
+
+  // Subtle corner glass sheen so mirror frame pops clearly in highlights
+  const sheen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.07, height * 0.92),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16 }),
+  );
+  sheen.position.set(-width * 0.34, 0, 0.006);
+  sheen.rotation.z = -0.35;
+  mirrorGroup.add(sheen);
+
+  group.add(mirrorGroup);
+}
+
+function addBarberShop(group: THREE.Group, rig: EnvironmentRig): void {
+  // Polished checkerboard salon tiles
+  const darkTile = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.42, metalness: 0.12 });
+  const lightTile = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.45, metalness: 0.08 });
+  const baseFloor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), darkTile);
+  baseFloor.rotation.x = -Math.PI / 2;
+  baseFloor.receiveShadow = true;
+  group.add(baseFloor);
+  for (let tx = -4; tx <= 4; tx++) {
+    for (let tz = -4; tz <= 3; tz++) {
+      if ((tx + tz) % 2 !== 0) continue;
+      const tile = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), lightTile);
+      tile.rotation.x = -Math.PI / 2;
+      tile.position.set(tx * 1.0, 0.004, tz * 1.0);
+      tile.receiveShadow = true;
+      group.add(tile);
+    }
+  }
+
+  // Cream upper wall + enclosed side walls + teal ceramic lower dado + cleanly spaced studio signs (zero clipping!)
+  addEnclosedRoomWalls(group, { backColor: 0xf4ece1, sideColor: 0xe6dac8, trimColor: 0x0f766e, backZ: -2.9 });
+  const dadoWall = new THREE.Mesh(
+    new THREE.BoxGeometry(12.6, 1.02, 0.21),
+    new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.45 }),
+  );
+  dadoWall.position.set(0, 0.51, -2.86);
+  group.add(dadoWall);
+  addStudioPlaque(group, 'SHAHI SALON', 'KESHAV STUDIO • VIP CUTS', 2.34, 2.26, -2.75, '#0f172a', '#f59e0b');
+  addStudioPlaque(group, 'STYLE CHART', '1. BAHUBALI  2. FADE  3. KATORA', 2.34, 1.64, -2.75, '#1e293b', '#38bdf8');
+
+  // DUAL LIVE SALON MIRRORS:
+  // 1) Main Back Wall Mirror (reflects back-of-head haircut + barber snipping!)
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.88, roughness: 0.16 });
+  addLiveMirror(group, 3.25, 1.38, -0.25, 1.92, -2.70, 0, chrome, 512, 256);
+
+  // 2) Angled Side/Front Swivel Salon Mirror on left wall arm (lets Customer & Viewer see front reflection live!)
+  const swivelArm = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.65, 10), chrome);
+  swivelArm.rotation.z = Math.PI / 2;
+  swivelArm.position.set(-2.50, 1.62, -0.88);
+  group.add(swivelArm);
+  addLiveMirror(group, 1.42, 1.18, -2.14, 1.62, -0.78, 1.04, chrome, 384, 320);
+
+  // Glowing overhead vanity fixture
+  const vanityLamp = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.08, 0.14), new THREE.MeshBasicMaterial({ color: 0xfffbeb }));
+  vanityLamp.position.set(-0.25, 2.78, -2.70);
+  group.add(vanityLamp);
+  const warmLight = new THREE.PointLight(0xfffbeb, 3.2, 9.5, 1.3);
+  warmLight.position.set(-0.25, 2.65, -1.25);
+  group.add(warmLight);
+
+  // Overhead salon ceiling light strip + front-wall decor reflected cleanly in back mirror
+  const salonCeilingLamp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.08, 0.22), new THREE.MeshBasicMaterial({ color: 0xfef3c7 }));
+  salonCeilingLamp.position.set(0, 3.85, 1.2);
+  group.add(salonCeilingLamp);
+  const frontDecorMat = new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.48 });
+  const oppositeShelf = new THREE.Mesh(new THREE.BoxGeometry(6.4, 1.2, 0.12), frontDecorMat);
+  oppositeShelf.position.set(0, 1.85, 7.25);
+  group.add(oppositeShelf);
+  const salonRug = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 0.015, 2.2),
+    new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.9 }),
+  );
+  salonRug.position.set(-0.55, 0.008, -0.78);
+  salonRug.receiveShadow = true;
+  group.add(salonRug);
+
+  // Rotating Red-White-Blue Barber Pole placed cleanly right of STYLE CHART (zero occlusion!)
+  const poleGroup = new THREE.Group();
+  poleGroup.position.set(3.48, 1.68, -2.55);
+  const poleCore = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.92, 16), new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25 }));
+  poleGroup.add(poleCore);
+  [0xdc2626, 0x2563eb, 0xdc2626].forEach((col, i) => {
+    const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.112, 0.028, 8, 18), new THREE.MeshStandardMaterial({ color: col, roughness: 0.3 }));
+    stripe.rotation.x = Math.PI / 2 + 0.42;
+    stripe.position.y = -0.26 + i * 0.26;
+    poleGroup.add(stripe);
+  });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.85, roughness: 0.2 });
+  for (const cy of [-0.50, 0.50]) {
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.125, 12, 10), capMat);
+    cap.position.y = cy;
+    poleGroup.add(cap);
+  }
+  group.add(poleGroup);
+  rig.animatedProps.push({ object: poleGroup, kind: 'hazard', phase: 0, speed: 3.2 });
+
+  // Shampoo Wash Basin + Hanging Checkered Towels (left wall station below SHAHI SALON sign)
+  const sinkPedestal = new THREE.Mesh(
+    new THREE.BoxGeometry(0.75, 0.72, 0.56),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.32 }),
+  );
+  sinkPedestal.position.set(-2.98, 0.36, -2.42);
+  group.add(sinkPedestal);
+  const basinBowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.28, 0.20, 0.18, 16),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.22 }),
+  );
+  basinBowl.position.set(-2.98, 0.78, -2.38);
+  group.add(basinBowl);
+  const faucet = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.24, 8), chrome);
+  faucet.position.set(-2.98, 0.92, -2.58);
+  group.add(faucet);
+
+  // Wall Shampoo Shelf + Powder Shaker + Spray Bottle + Hanging Salon Towel Rack
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.08, 0.36), new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.6 }));
+  shelf.position.set(-0.25, 1.02, -2.6);
+  group.add(shelf);
+  [0xe11d48, 0x0ea5e9, 0xf59e0b, 0x10b981, 0x8b5cf6].forEach((c, idx) => {
+    const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.22, 10), new THREE.MeshStandardMaterial({ color: c, roughness: 0.3 }));
+    bottle.position.set(-1.2 + idx * 0.48, 1.17, -2.55);
+    group.add(bottle);
+  });
+
+  // Rolling Chrome Salon Tool Trolley shifted cleanly right of Barber so characters never overlap trolley or each other
+  const trolley = new THREE.Group();
+  trolley.position.set(0.96, 0, -1.26);
+  const tFrame = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.80, 0.36), new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 }));
+  tFrame.position.y = 0.42;
+  trolley.add(tFrame);
+  const tTop = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.05, 0.40), chrome);
+  tTop.position.y = 0.84;
+  trolley.add(tTop);
+  const cartSpray = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.052, 0.16, 10), new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.3 }));
+  cartSpray.position.set(-0.14, 0.94, 0.04);
+  trolley.add(cartSpray);
+  const cartClipper = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), chrome);
+  cartClipper.position.set(0, 0.89, 0.06);
+  trolley.add(cartClipper);
+  // Stack of folded Tolia (striped cotton towels) on trolley
+  [0xfef3c7, 0xe0f2fe].forEach((tc, ti) => {
+    const tStack = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.055, 0.22), new THREE.MeshStandardMaterial({ color: tc, roughness: 0.85 }));
+    tStack.position.set(0.11, 0.895 + ti * 0.056, -0.02);
+    trolley.add(tStack);
+  });
+  group.add(trolley);
+
+  // Ornate Hydraulic Barber Swivel Chair (centered closer to stage midline so both 9:16 & 16:9 keep Customer + Barber in frame)
+  const chairGroup = new THREE.Group();
+  chairGroup.position.set(-0.44, 0, -0.78);
+  chairGroup.rotation.y = 0.20;
+  const chairMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.42 });
+  const cBase = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.40, 0.08, 18), chrome);
+  cBase.position.y = 0.04;
+  chairGroup.add(cBase);
+  const cStem = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.42, 12), chrome);
+  cStem.position.y = 0.25;
+  chairGroup.add(cStem);
+  const cSeat = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.16, 0.72), chairMat);
+  cSeat.position.y = 0.46;
+  cSeat.castShadow = true;
+  chairGroup.add(cSeat);
+  const cBack = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.76, 0.14), chairMat);
+  cBack.position.set(0, 0.84, -0.32);
+  cBack.rotation.x = -0.14;
+  cBack.castShadow = true;
+  chairGroup.add(cBack);
+  for (const ax of [-0.41, 0.41]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.62), chrome);
+    arm.position.set(ax, 0.68, 0);
+    chairGroup.add(arm);
+  }
+  const footRest = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.05, 0.22), chrome);
+  footRest.position.set(0, 0.22, 0.48);
+  chairGroup.add(footRest);
+  group.add(chairGroup);
+
+  // Customer waiting sofa bench (cleanly shifted right of instrument trolley)
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.42, 0.68), new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.6 }));
+  bench.position.set(1.76, 0.21, -1.68);
+  bench.castShadow = true;
+  group.add(bench);
+
+  // sofa = barber swivel chair customer seat; counter = barber standing behind-right of chair with open 3/4 view & zero nose clipping
+  rig.spots.sofa = { x: -0.44, y: 0.28, z: -0.66, rotY: 0.18 };
+  rig.spots.counter = { x: 0.34, y: 0, z: -0.96, rotY: -0.36 };
+  rig.spots.door = { x: 1.76, y: 0, z: -1.45, rotY: -0.35 };
+}
+
+function addCourtroom(group: THREE.Group, rig: EnvironmentRig): void {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x4b2e1b, roughness: 0.68 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const oak = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.62 });
+  addEnclosedRoomWalls(group, { backColor: 0x6b4423, sideColor: 0x57361a, trimColor: 0x92400e, backZ: -2.9 });
+  addStudioPlaque(group, 'SATYAMEVA JAYATE', 'KESHAV DISTRICT COURT', 0, 3.05, -2.76, '#451a03', '#f59e0b');
+
+  // Raised Judge bench + gavel pad
+  const judgeBench = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.25, 1.0), oak);
+  judgeBench.position.set(0, 0.62, -1.9);
+  judgeBench.castShadow = true;
+  group.add(judgeBench);
+
+  const scalesGold = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 10, 24), new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 }));
+  scalesGold.position.set(0, 2.4, -2.76);
+  group.add(scalesGold);
+
+  // Witness box
+  const witnessBox = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.92, 0.9), oak);
+  witnessBox.position.set(-0.95, 0.46, -0.55);
+  witnessBox.castShadow = true;
+  group.add(witnessBox);
+
+  rig.spots.sofa = { x: 0, y: 0.42, z: -1.45, rotY: 0.08 };
+  rig.spots.counter = { x: -0.95, y: 0.1, z: -0.35, rotY: 0.38 };
+}
+
+function addDoctorClinic(group: THREE.Group, rig: EnvironmentRig): void {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0xdbeafe, roughness: 0.52 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  addEnclosedRoomWalls(group, { backColor: 0xf8fafc, sideColor: 0xe2e8f0, trimColor: 0x0284c7, backZ: -2.9 });
+  addStudioPlaque(group, 'CITY CLINIC', 'DR. DIAGNOSTICS • OPD 1', 2.25, 2.35, -2.75, '#0c4a6e', '#38bdf8');
+
+  // Medical red cross emblem
+  const redCrossMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 0.05), redCrossMat);
+  crossV.position.set(0, 2.35, -2.78);
+  group.add(crossV);
+  const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.22, 0.05), redCrossMat);
+  crossH.position.set(0, 2.35, -2.78);
+  group.add(crossH);
+
+  // Patient bed & doctor desk
+  const bed = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.52, 0.88), new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.6 }));
+  bed.position.set(-0.95, 0.26, -0.88);
+  bed.castShadow = true;
+  group.add(bed);
+
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.75, 0.72), new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.5 }));
+  desk.position.set(0.85, 0.38, -0.85);
+  desk.castShadow = true;
+  group.add(desk);
+
+  rig.spots.bed = { x: -0.95, y: 0.52, z: -0.82, rotY: 0.32 };
+  rig.spots.sofa = { x: 0.85, y: 0, z: -0.45, rotY: -0.35 };
+}
+
+function addClassroom(group: THREE.Group, rig: EnvironmentRig): void {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x785a3c, roughness: 0.72 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  addEnclosedRoomWalls(group, { backColor: 0xfef3c7, sideColor: 0xfde68a, trimColor: 0x78350f, backZ: -2.9 });
+
+  // Green chalkboard + wood frame
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.55, 0.08), new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.6 }));
+  frame.position.set(0, 1.95, -2.78);
+  group.add(frame);
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(3.95, 1.32), new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.9 }));
+  board.position.set(0, 1.95, -2.73);
+  group.add(board);
+
+  // School bunting streamer flags (15 August / school event vibe)
+  const flagColors = [0xff9933, 0xffffff, 0x138808];
+  for (let i = -5; i <= 5; i++) {
+    const flag = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.22, 4), new THREE.MeshStandardMaterial({ color: flagColors[((i + 5) % 3)], roughness: 0.5 }));
+    flag.rotation.x = Math.PI;
+    flag.position.set(i * 0.42, 3.05 - Math.cos(i * 0.28) * 0.16, -1.6);
+    group.add(flag);
+    rig.animatedProps.push({ object: flag, kind: 'sway', phase: i * 0.4, speed: 2.1 });
+  }
+
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.85, 0.65), new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.6 }));
+  podium.position.set(-0.85, 0.42, -0.75);
+  group.add(podium);
+
+  rig.spots.sofa = { x: 0.8, y: 0, z: -0.45, rotY: -0.4 };
+  rig.spots.counter = { x: -0.85, y: 0, z: -0.45, rotY: 0.35 };
+}
+
+function addQuizStudio(group: THREE.Group, rig: EnvironmentRig): void {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x090d24, roughness: 0.35, metalness: 0.3 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const stageRing = new THREE.Mesh(new THREE.TorusGeometry(2.15, 0.06, 12, 48), ringMat);
+  stageRing.rotation.x = Math.PI / 2;
+  stageRing.position.set(0, 0.04, 0);
+  group.add(stageRing);
+  rig.animatedProps.push({ object: stageRing, kind: 'ring', phase: 0, speed: 0.4 });
+
+  const archRing = new THREE.Mesh(new THREE.TorusGeometry(2.7, 0.08, 12, 48), new THREE.MeshBasicMaterial({ color: 0xa855f7 }));
+  archRing.position.set(0, 1.9, -2.5);
+  group.add(archRing);
+  rig.animatedProps.push({ object: archRing, kind: 'portal', phase: 0.4, speed: 0.8 });
+
+  // Host & Contestant hot-seat desks
+  const podMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.55, roughness: 0.3 });
+  [-0.95, 0.95].forEach((px) => {
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.82, 16), podMat);
+    pod.position.set(px, 0.41, -0.35);
+    pod.castShadow = true;
+    group.add(pod);
+  });
+
+  const spot = new THREE.SpotLight(0x38bdf8, 8.5, 16, Math.PI / 5, 0.4);
+  spot.position.set(0, 4.6, 1.5);
+  group.add(spot);
+  group.add(spot.target);
+  rig.animatedProps.push({ object: spot, kind: 'spotlight', phase: 0, speed: 1.5 });
+}
+
+function addNeighborhoodGate(group: THREE.Group, rig: EnvironmentRig): void {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.85 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  // Brick boundary walls + glowing gate carriage lamps + iron picket compound gate (open-bar design)
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.82 });
+  const pillarCapMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.55 });
+  const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+  [-2.6, 2.6].forEach((wx) => {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.2, 0.28), wallMat);
+    wall.position.set(wx, 1.1, -2.4);
+    wall.castShadow = true;
+    group.add(wall);
+  });
+
+  [-1.08, 1.08].forEach((px) => {
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.38, 2.55, 0.38), wallMat);
+    pillar.position.set(px, 1.28, -2.35);
+    pillar.castShadow = true;
+    group.add(pillar);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.12, 0.46), pillarCapMat);
+    cap.position.set(px, 2.58, -2.35);
+    group.add(cap);
+    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), lampGlowMat);
+    lantern.position.set(px, 2.74, -2.35);
+    group.add(lantern);
+  });
+
+  const gatePivot = new THREE.Group();
+  gatePivot.position.set(-0.92, 0, -2.35);
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.65, roughness: 0.35 });
+  for (const ry of [0.35, 1.85]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.08, 0.08), ironMat);
+    rail.position.set(0.92, ry, 0);
+    gatePivot.add(rail);
+  }
+  for (let i = 0; i <= 7; i++) {
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.05, 8), ironMat);
+    bar.position.set(0.08 + i * 0.24, 1.05, 0);
+    bar.castShadow = true;
+    gatePivot.add(bar);
+  }
+  // Golden padlock at center gate
+  const lockBody = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.08), new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 }));
+  lockBody.position.set(1.72, 1.12, 0.08);
+  gatePivot.add(lockBody);
+  group.add(gatePivot);
+  rig.animatedProps.push({ object: gatePivot, kind: 'door', phase: 0.1, speed: 0.7 });
+
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 3.8, 12), new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5, roughness: 0.5 }));
+  pole.position.set(2.15, 1.9, -1.6);
+  group.add(pole);
+
+  addTree(group, -2.75, -1.25, 1.05, 0x15803d, 0.3, rig);
+  rig.spots.door = { x: 0.0, y: 0, z: -1.35, rotY: 0.1 };
+}
+
+function addArchiveLibrary(group: THREE.Group, env: EnvironmentRig): void {
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3b2316, roughness: 0.72 });
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x5c341d, roughness: 0.65 });
+  const brassMat = new THREE.MeshStandardMaterial({ color: 0xf4c44e, metalness: 0.85, roughness: 0.25 });
+  const globeOceanMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.45, metalness: 0.2 });
+  const carpetMat = new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.82 });
+
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(10, 44), floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const rug = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.02, 2.2), carpetMat);
+  rug.position.set(0, 0.015, 0.1);
+  rug.receiveShadow = true;
+  group.add(rug);
+
+  // Archival mahogany bookshelves flanking back gallery wall
+  for (const bx of [-2.4, 2.4]) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.0, 3.1, 0.45), woodMat);
+    shelf.position.set(bx, 1.55, -2.9);
+    shelf.castShadow = true;
+    group.add(shelf);
+    for (const sy of [0.85, 1.65, 2.45]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.22, 0.48), brassMat);
+      strip.position.set(bx, sy, -2.9);
+      group.add(strip);
+    }
+  }
+
+  // Illuminating rotating brass meridian globe on pedestal center-back
+  const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.56, 1.05, 20), woodMat);
+  ped.position.set(0, 0.525, -2.35);
+  ped.castShadow = true;
+  group.add(ped);
+
+  const globeGroup = new THREE.Group();
+  globeGroup.position.set(0, 1.55, -2.35);
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.46, 24, 18), globeOceanMat);
+  globeGroup.add(sphere);
+  const meridianRing = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.032, 10, 42), brassMat);
+  globeGroup.add(meridianRing);
+  const equatorRing = new THREE.Mesh(new THREE.TorusGeometry(0.51, 0.024, 10, 42), brassMat);
+  equatorRing.rotation.x = Math.PI / 2;
+  globeGroup.add(equatorRing);
+  group.add(globeGroup);
+  env.animatedProps.push({ object: globeGroup, kind: 'ring', phase: 0, speed: 0.45 });
+
+  const lamp = new THREE.PointLight(0xfde68a, 3.2, 8, 1.4);
+  lamp.position.set(0, 2.65, -1.65);
+  group.add(lamp);
+  env.ambientFireLights.push({ light: lamp, baseIntensity: 3.2, phase: 0.4 });
+}
+
+function addModernCityStage(group: THREE.Group, env: EnvironmentRig, accentHex: string): void {
+  const plinthMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, metalness: 0.25 });
+  const bldgMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45, metalness: 0.35 });
+  const glowMat = new THREE.MeshBasicMaterial({ color: accentHex || '#38bdf8' });
+
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(10, 44), plinthMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.3, 0.04, 10, 48), glowMat);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.02;
+  group.add(ring);
+
+  const towers: [number, number, number, number][] = [
+    [-3.6, -4.2, 1.1, 4.2],
+    [-2.1, -4.6, 1.0, 5.1],
+    [-0.4, -5.0, 1.25, 5.8],
+    [1.4, -4.6, 1.0, 4.8],
+    [3.1, -4.2, 1.15, 4.0],
+  ];
+  for (const [tx, tz, w, h] of towers) {
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.9), bldgMat);
+    tower.position.set(tx, h * 0.5, tz);
+    group.add(tower);
+    for (let wy = 1.0; wy < h - 0.5; wy += 0.95) {
+      const win = new THREE.Mesh(new THREE.BoxGeometry(w * 0.72, 0.14, 0.94), glowMat);
+      win.position.set(tx, wy, tz);
+      group.add(win);
+    }
+  }
+
+  const pulseRing = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.035, 10, 48), glowMat);
+  pulseRing.position.set(0, 2.6, -3.1);
+  group.add(pulseRing);
+  env.animatedProps.push({ object: pulseRing, kind: 'ring', phase: 0.4, speed: 0.35 });
+
+  const cityLight = new THREE.PointLight(accentHex || '#38bdf8', 2.8, 9, 1.4);
+  cityLight.position.set(0, 2.8, -1.8);
+  group.add(cityLight);
+  env.ambientFireLights.push({ light: cityLight, baseIntensity: 2.8, phase: 0.6 });
 }
 
 export function buildEnvironment(
@@ -1073,8 +1860,8 @@ export function buildEnvironment(
     spots: {},
   };
 
-  if (backdropTextures.length > 0) {
-    // User/AI photo backdrop mode: clean floor shadow catcher + textured background cinema plane
+  if (backdropTextures.length > 0 && job.stageLayout?.templateBackdrop) {
+    // Explicit user static photo template mode: clean floor shadow catcher + locked cinema backdrop plane
     const shadowCatcher = new THREE.Mesh(
       new THREE.PlaneGeometry(14, 14),
       new THREE.ShadowMaterial({ opacity: 0.42 }),
@@ -1094,6 +1881,21 @@ export function buildEnvironment(
     group.add(backdropMesh);
     rig.backdropMesh = backdropMesh;
     return rig;
+  }
+
+  if (backdropTextures.length > 0) {
+    // AI / multi-scene sky plate mode: mount painted vista far at the back horizon so 3D temples,
+    // ashram trees, ghats, Shivling & swinging bells still build richly in foreground 3D space!
+    const aspect = job.width / job.height;
+    const planeHeight = 11.2;
+    const planeWidth = planeHeight * aspect;
+    const backdropMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(planeWidth, planeHeight),
+      new THREE.MeshBasicMaterial({ map: backdropTextures[0], depthWrite: false, fog: false }),
+    );
+    backdropMesh.position.set(0, 2.75, -6.5);
+    group.add(backdropMesh);
+    rig.backdropMesh = backdropMesh;
   }
 
   switch (setting) {
@@ -1127,6 +1929,9 @@ export function buildEnvironment(
     case 'Himalaya':
       addHimalayaStage(group, rig);
       break;
+    case 'PalaceCourt':
+      addPalaceCourt(group, rig);
+      break;
     case 'Bedroom':
       addBedroom(group, rig);
       break;
@@ -1138,6 +1943,30 @@ export function buildEnvironment(
       break;
     case 'SweetShop':
       addSweetShop(group, rig);
+      break;
+    case 'BarberShop':
+      addBarberShop(group, rig);
+      break;
+    case 'Courtroom':
+      addCourtroom(group, rig);
+      break;
+    case 'DoctorClinic':
+      addDoctorClinic(group, rig);
+      break;
+    case 'Classroom':
+      addClassroom(group, rig);
+      break;
+    case 'QuizStudio':
+      addQuizStudio(group, rig);
+      break;
+    case 'Archive':
+      addArchiveLibrary(group, rig);
+      break;
+    case 'ModernCity':
+      addModernCityStage(group, rig, job.palette.primaryHex);
+      break;
+    case 'NeighborhoodGate':
+      addNeighborhoodGate(group, rig);
       break;
     default:
       addGenericRichSet(group, setting, rig, job.palette.primaryHex);

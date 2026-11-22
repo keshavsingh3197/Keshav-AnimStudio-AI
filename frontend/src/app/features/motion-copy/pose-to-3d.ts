@@ -1,8 +1,11 @@
-import { MotionPoint, POSE, VISIBLE } from '../live-camera/motion';
+import { MotionPoint, POSE, VISIBLE, WorldPoint } from '../live-camera/motion';
+import type { SampledBody } from './dance-track';
 import type {
   CameraAngleMode,
   CharacterRole3D,
   ExternalBodyPose,
+  JointPoint3D,
+  PoseJoints3D,
   SceneSetting3D,
   VfxStyle3D,
 } from './motion-3d-stage';
@@ -18,17 +21,22 @@ export interface StageOption3D {
 }
 
 export const ROLES_3D: readonly RoleOption3D[] = [
+  { id: 'KingCrown', label: 'Royal Sufi / Maharaj (Sherwani & Pagdi)' },
+  { id: 'NobleWoman', label: 'Royal Dancer (Anarkali & Lehenga)' },
   { id: 'BrainrotLog', label: 'Wooden Buddy (Viral Slapstick)' },
   { id: 'CupDancer', label: 'Cuppy Mascot (Bouncy Dancer)' },
   { id: 'CartoonTank', label: 'Cartoon Tank (KV-Mini)' },
   { id: 'ComicBobble', label: 'Bobble Comedian (MJO Style)' },
   { id: 'Warrior', label: 'Warrior Hero' },
-  { id: 'KingCrown', label: 'Royal King' },
   { id: 'SageRishi', label: 'Mystical Sage' },
+  { id: 'ChildDevotee', label: 'Young Prodigy Dancer' },
   { id: 'Scholar', label: 'Streetwear Buddy' },
 ];
 
 export const STAGES_3D: readonly StageOption3D[] = [
+  { id: 'PalaceCourt', label: 'Samode Palace & Sheesh Mahal (Royal Courtyard)' },
+  { id: 'Temple', label: 'Golden Temple Mandap' },
+  { id: 'RiverGhat', label: 'Moonlit River Ghat & Diyas' },
   { id: 'SkyGauntlet', label: 'Sky Gauntlet (Floating Portals)' },
   { id: 'DoorwaySet', label: 'Doorway Hallway (Viral Loop)' },
   { id: 'TankArena', label: 'Tank Canyon Arena' },
@@ -64,6 +72,11 @@ export interface PoseTrackerState {
   anchorTorso?: number;
   lastWristY?: number;
   lastSfxAtMs?: number;
+  /** Picture y of the floor under the dancer (running estimate from the lowest ankle). */
+  floorY?: number;
+  lastT?: number;
+  lastExtremities?: WorldPoint[];
+  energy?: number;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -157,6 +170,106 @@ export function posePointsToExternal3D(
       hipBounceY,
       emotion: kineticEnergy > 0.58 ? 'surprised' : kineticEnergy > 0.28 ? 'laughing' : 'happy',
       mouthOpen: kineticEnergy > 0.5 ? 0.85 : 0.28,
+    },
+    kineticEnergy,
+  };
+}
+
+/** Arms and torso are usable a little below "visible"; MediaPipe's estimates there are still good. */
+const UPPER_VISIBLE = 0.4;
+/** Legs need a clear view and must be inside the picture, or they come from the beat groove. */
+const LEG_VISIBLE = 0.55;
+/** Approximate rig torso length (hips to shoulders), metres, for scaling jumps. */
+const RIG_TORSO = 0.5;
+
+/**
+ * Converts one smoothed, tracked body (2D + 3D world landmarks) into rig-space 3D joints for the
+ * full-body retarget. The copy is screen-faithful: the dancer's own left (on the right of the
+ * picture) drives the rig's screen-right bones. Mirroring is done later by the stage.
+ */
+export function sampleToPose3D(
+  body: SampledBody,
+  state: PoseTrackerState,
+  travelScale: number,
+  timeSec: number,
+): { pose: ExternalBodyPose; kineticEnergy: number } {
+  const { points, world } = body;
+  const legacy = posePointsToExternal3D(points, state, travelScale);
+
+  const joint = (index: number, minVis: number, mustBeInFrame = false): JointPoint3D | null => {
+    const p = points[index];
+    const w = world[index];
+    if (!p || !w || p.v < minVis) return null;
+    if (mustBeInFrame && (p.y > 0.995 || p.y < 0 || p.x < 0 || p.x > 1)) return null;
+    return { x: w.x, y: -w.y, z: -w.z };
+  };
+
+  const joints: PoseJoints3D = {
+    rShoulder: joint(POSE.leftShoulder, UPPER_VISIBLE),
+    lShoulder: joint(POSE.rightShoulder, UPPER_VISIBLE),
+    rElbow: joint(POSE.leftElbow, UPPER_VISIBLE),
+    lElbow: joint(POSE.rightElbow, UPPER_VISIBLE),
+    rWrist: joint(POSE.leftWrist, UPPER_VISIBLE),
+    lWrist: joint(POSE.rightWrist, UPPER_VISIBLE),
+    rHip: joint(POSE.leftHip, UPPER_VISIBLE),
+    lHip: joint(POSE.rightHip, UPPER_VISIBLE),
+    rKnee: joint(POSE.leftKnee, LEG_VISIBLE, true),
+    lKnee: joint(POSE.rightKnee, LEG_VISIBLE, true),
+    rAnkle: joint(POSE.leftAnkle, LEG_VISIBLE, true),
+    lAnkle: joint(POSE.rightAnkle, LEG_VISIBLE, true),
+    nose: joint(POSE.nose, UPPER_VISIBLE),
+    rEar: joint(POSE.leftEar, UPPER_VISIBLE),
+    lEar: joint(POSE.rightEar, UPPER_VISIBLE),
+  };
+
+  // Jumps: require BOTH visible ankles and a deliberate >18% torso rise above floor so
+  // camera pans/zooms and minor landmark jitter never make standing dancers levitate ("high issue").
+  let liftY = 0;
+  const la = points[POSE.leftAnkle];
+  const ra = points[POSE.rightAnkle];
+  const visibleAnkles = [la, ra].filter((p): p is MotionPoint => !!p && p.v >= LEG_VISIBLE && p.y <= 0.995);
+  const lowAnkle = visibleAnkles.reduce((m, p) => Math.max(m, p.y), -1);
+  const ls = points[POSE.leftShoulder];
+  const rs = points[POSE.rightShoulder];
+  const lh = points[POSE.leftHip];
+  const rh = points[POSE.rightHip];
+  if (visibleAnkles.length === 2 && lowAnkle > 0 && ls && rs && lh && rh) {
+    const torso = Math.max(0.05, (lh.y + rh.y) / 2 - (ls.y + rs.y) / 2);
+    if (state.floorY === undefined || lowAnkle > state.floorY) {
+      state.floorY = lowAnkle;
+    } else {
+      const gap = Math.abs(lowAnkle - state.floorY);
+      state.floorY += (lowAnkle - state.floorY) * (gap < 0.05 ? 0.14 : 0.03);
+    }
+    const rise = (state.floorY - lowAnkle) / torso;
+    liftY = rise > 0.18 ? clamp((rise - 0.18) * RIG_TORSO, 0, 0.45) : 0;
+  }
+
+  // Energy: how fast hands and feet move in 3D (m/s), eased so it reads as "intensity".
+  const extremities = [POSE.leftWrist, POSE.rightWrist, POSE.leftAnkle, POSE.rightAnkle].map((i) => world[i]);
+  let speed = 0;
+  if (state.lastExtremities && state.lastT !== undefined && timeSec > state.lastT) {
+    const dt = Math.min(0.25, timeSec - state.lastT);
+    for (let i = 0; i < extremities.length; i++) {
+      const a = extremities[i];
+      const b = state.lastExtremities[i];
+      if (a && b) speed += Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) / dt;
+    }
+    speed /= extremities.length;
+  }
+  state.lastExtremities = extremities;
+  state.lastT = timeSec;
+  const target = clamp(speed / 2.2, 0, 1);
+  state.energy = (state.energy ?? 0) + (target - (state.energy ?? 0)) * (target > (state.energy ?? 0) ? 0.5 : 0.12);
+  const kineticEnergy = clamp(Math.max(state.energy, liftY * 1.6), 0, 1);
+
+  return {
+    pose: {
+      ...legacy.pose,
+      joints,
+      liftY,
+      emotion: kineticEnergy > 0.62 ? 'surprised' : kineticEnergy > 0.3 ? 'laughing' : 'happy',
+      mouthOpen: kineticEnergy > 0.5 ? 0.8 : 0.28,
     },
     kineticEnergy,
   };

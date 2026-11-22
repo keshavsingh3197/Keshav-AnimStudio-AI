@@ -296,7 +296,7 @@ public static partial class AutomationFactVerifier
                 Message: $"No live Panchang signal available for {effectiveDate}.",
                 SourceName: "HinduPanchang API",
                 SourceUrl: "https://panchang.keshavsingh.in",
-                VerifySearchUrl: GoogleVerifyUrl($"{effectiveDate} Hindu Panchang New Delhi DrikPanchang")));
+                VerifySearchUrl: GoogleVerifyUrl($"{effectiveDate} Hindu Panchang India Tithi Nakshatra DrikPanchang")));
         }
 
         // 2. Festivals check

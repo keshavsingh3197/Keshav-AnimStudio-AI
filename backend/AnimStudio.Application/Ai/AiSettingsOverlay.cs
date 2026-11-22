@@ -51,7 +51,20 @@ public static class AiSettingsOverlay
             // configured order, which would silently switch every capability off.
             if (chain.Count == 0) continue;
 
-            options.Chains[capability] = [.. chain];
+            var merged = new List<string>(chain);
+            // Automatically keep free keyless Google gTTS available after stored speech engines
+            // so rate-limits (e.g. Gemini 429) never silence or degrade speech onto offline OS voices,
+            // unless the operator explicitly disabled gtts in provider settings.
+            if (string.Equals(capability, nameof(AiCapability.Speech), StringComparison.OrdinalIgnoreCase)
+                && !merged.Any(id => string.Equals(id, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase))
+                && options.Providers.TryGetValue(KnownAiProviders.GoogleTts, out var gttsOpt)
+                && gttsOpt.Enabled
+                && !settings.Providers.Any(p => string.Equals(p.ProviderId, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase) && !p.Enabled))
+            {
+                merged.Add(KnownAiProviders.GoogleTts);
+            }
+
+            options.Chains[capability] = merged;
         }
     }
 

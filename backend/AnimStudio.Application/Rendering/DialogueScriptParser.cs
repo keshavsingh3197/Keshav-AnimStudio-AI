@@ -29,7 +29,9 @@ public sealed record ProceduralCharacterProfile(
     DialogueSpeakerSlot Slot,
     string Name,
     CharacterVisualRole Role,
-    string? RobeHex = null);
+    string? RobeHex = null,
+    bool? HasGlasses = null,
+    string? VoiceId = null);
 
 public sealed record ProceduralDialogueTurn(
     int Index,
@@ -45,7 +47,11 @@ public sealed record ProceduralDialogueTurn(
     string? Action = null,
     string? ListenerAction = null,
     string? CameraShot = null,
-    string? StageTarget = null);
+    string? StageTarget = null,
+    string? SpeakerProp = null,
+    string? ListenerProp = null,
+    string? SpeakerGlasses = null,
+    string? ListenerGlasses = null);
 
 /// <param name="AfterTurnIndex">The 0-based index in <see cref="ProceduralDialoguePlan.Turns"/> that this meme punctuates.</param>
 public sealed record ProceduralMemeCue(
@@ -83,24 +89,24 @@ public sealed record ProceduralDialoguePlan(
 public static partial class DialogueScriptParser
 {
     private static readonly string[] KingTokens =
-        ["raja", "king", "maharaj", "samrat", "emperor", "rana", "prince", "vikram", "harishchandra", "dasharath", "ashok", "राजा", "सम्राट", "महाराज", "हरिश्चंद्र"];
+        ["raja", "king", "maharaj", "samrat", "emperor", "rana", "prince", "vikram", "harishchandra", "dasharath", "ashok", "yamraj", "dharmaraj", "hiranyakashipu", "राजा", "सम्राट", "महाराज", "हरिश्चंद्र", "यमराज", "धर्मराज", "हिरण्यकशिपु"];
 
     private static readonly string[] SageTokens =
-        ["rishi", "maharishi", "guru", "acharya", "pandit", "muni", "swami", "vishwamitra", "vasishtha", "chanakya", "narad", "narada", "devarshi", "valmiki", "vyas", "ऋषि", "महर्षि", "आचार्य", "गुरु", "मुनि", "नारद", "देवर्षि", "पंडित"];
+        ["rishi", "maharishi", "guru", "acharya", "pandit", "muni", "swami", "vishwamitra", "vasishtha", "chanakya", "narad", "narada", "devarshi", "valmiki", "vyas", "mrikandu", "historian", "ऋषि", "महर्षि", "आचार्य", "गुरु", "मुनि", "नारद", "देवर्षि", "पंडित", "मृकण्डु", "इतिहासकार", "विश्लेषक"];
 
     private static readonly string[] DivineTokens =
-        ["shri", "lord", "bhagwan", "devi", "mata", "krishna", "ram", "shiv", "shiva", "vishnu", "surya", "hanuman", "durga", "parvati", "ganesh", "भगवान", "श्री", "माता", "विष्णु", "कृष्ण", "शिव"];
+        ["shri", "lord", "bhagwan", "devi", "mata", "krishna", "ram", "shiv", "shiva", "vishnu", "narasimha", "surya", "hanuman", "durga", "parvati", "ganesh", "mahadev", "shambho", "neelkanth", "भगवान", "श्री", "माता", "विष्णु", "नरसिंह", "कृष्ण", "शिव", "महादेव", "शंभो", "नीलकंठ"];
 
     private static readonly string[] NobleWomanTokens =
-        ["rani", "queen", "sita", "radha", "parvati", "durga", "lakshmi", "laxmi", "saraswati", "devi", "mata", "mother", "suniti", "suruchi", "kunti", "draupadi", "yashoda", "savitri", "anasuya", "princess",
-         "रानी", "सीता", "राधा", "पार्वती", "दुर्गा", "लक्ष्मी", "सरस्वती", "देवी", "माता", "सुनीति", "सुरुचि", "कुंती", "द्रौपदी", "यशोदा", "सावित्री"];
+        ["rani", "queen", "sita", "radha", "parvati", "durga", "lakshmi", "laxmi", "saraswati", "devi", "mata", "mother", "suniti", "suruchi", "kunti", "draupadi", "yashoda", "savitri", "anasuya", "marudmati", "princess",
+         "रानी", "सीता", "राधा", "पार्वती", "दुर्गा", "लक्ष्मी", "सरस्वती", "देवी", "माता", "सुनीति", "सुरुचि", "कुंती", "द्रौपदी", "यशोदा", "सावित्री", "मरुदमती"];
 
     private static readonly string[] WarriorTokens =
         ["warrior", "soldier", "general", "sainik", "yoddha", "senapati", "arjun", "bhima", "karna", "abhimanyu", "birsa", "bhagat singh", "revolutionary",
          "योद्धा", "सैनिक", "सेनापति", "अर्जुन", "भीम", "कर्ण", "अभिमन्यु", "बिरसा", "क्रांतिकारी"];
 
     private static readonly string[] ChildDevoteeTokens =
-        ["dhruva", "dhruv", "prahlad", "bhakta", "bhakt", "bal", "shishya", "jigyasu", "nachiketa", "eklavya", "lav", "kush", "child", "ध्रुव", "प्रह्लाद", "भक्त", "बाल", "शिष्य", "जिज्ञासु"];
+        ["dhruva", "dhruv", "prahlad", "markandeya", "bhakta", "bhakt", "bal", "shishya", "jigyasu", "nachiketa", "eklavya", "lav", "kush", "child", "student", "learner", "ध्रुव", "प्रह्लाद", "मार्कण्डेय", "भक्त", "बाल", "शिष्य", "जिज्ञासु", "विद्यार्थी", "छात्र"];
 
     private static readonly string[] CartoonTankTokens =
         ["kv-2", "panzer", "tank", "cannon", "turret", "टैंक", "तोप"];
@@ -144,11 +150,13 @@ public static partial class DialogueScriptParser
         var (parsedLines, castDirectives, sceneDirectives, rawMemes) = ExtractDialogueSegments(rawBody, preferredSpeakerA, preferredSpeakerB, cleanTitle, eventType);
 
         if (parsedLines.Count == 0)
-            parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null, null, null));
+            parsedLines.Add((PreferredDefaultA(preferredSpeakerA, eventType), cleanTitle, null, null, null, null));
 
         var isComedyContext = string.Equals(eventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
             || sceneDirectives.Any(s => s.Setting is SceneSetting.ComedyStage or SceneSetting.ChaiStall or SceneSetting.Bedroom
                 or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop
+                or SceneSetting.BarberShop or SceneSetting.Courtroom or SceneSetting.DoctorClinic
+                or SceneSetting.Classroom or SceneSetting.QuizStudio or SceneSetting.NeighborhoodGate
                 or SceneSetting.DoorwaySet or SceneSetting.SkyGauntlet or SceneSetting.TankArena);
 
         var castByName = castDirectives
@@ -212,16 +220,19 @@ public static partial class DialogueScriptParser
             return new ProceduralDialoguePlan(false, null, null, turns);
         }
 
+        string? VoiceOf(string name) =>
+            castByName.TryGetValue(name, out var c) && !string.IsNullOrWhiteSpace(c.VoiceId) ? c.VoiceId : null;
+
         var leftRole = RoleOf(leftName!, DialogueSpeakerSlot.Left);
         var rightRole = RoleOf(rightName!, DialogueSpeakerSlot.Right);
         var leftRobe = RobeOf(leftName!, DialogueSpeakerSlot.Left);
         var rightRobe = RobeOf(rightName!, DialogueSpeakerSlot.Right);
         if (isComedyContext && leftRole == CharacterVisualRole.Scholar && rightRole == CharacterVisualRole.Scholar)
             leftRole = CharacterVisualRole.ComicBobble;
-        var leftProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, leftName!, leftRole, leftRobe);
-        var rightProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, rightName!, rightRole, rightRobe);
+        var leftProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, leftName!, leftRole, leftRobe, VoiceId: VoiceOf(leftName!));
+        var rightProfile = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, rightName!, rightRole, rightRobe, VoiceId: VoiceOf(rightName!));
 
-        // Everyone else who speaks, then silent [CAST] extras, fills the back row (max three).
+        // Everyone else who speaks, then [CAST] extras, fills the supporting ensemble (up to 5 supporting = 7 cast total!).
         var supporting = parsedLines
             .Select(x => x.Speaker)
             .Concat(castDirectives.Select(c => c.Name))
@@ -231,7 +242,7 @@ public static partial class DialogueScriptParser
             .Select(n => n!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(MaxSupportingCast)
-            .Select(n => new ProceduralCharacterProfile(DialogueSpeakerSlot.Narrator, n, RoleOf(n), RobeOf(n)))
+            .Select(n => new ProceduralCharacterProfile(DialogueSpeakerSlot.Narrator, n, RoleOf(n), RobeOf(n), VoiceId: VoiceOf(n)))
             .ToList();
 
         var resultTurns = new List<ProceduralDialogueTurn>();
@@ -255,7 +266,7 @@ public static partial class DialogueScriptParser
 
         for (var i = 0; i < consolidated.Count; i++)
         {
-            var (rawSpeaker, lineText, sceneCue, pendingAction, pendingShot) = consolidated[i];
+            var (rawSpeaker, lineText, sceneCue, pendingAction, pendingShot, pendingProp) = consolidated[i];
             var end = i == consolidated.Count - 1 ? total - 0.12 : start + step - 0.08;
             if (end <= start + 0.35) break;
 
@@ -303,13 +314,17 @@ public static partial class DialogueScriptParser
                 prevSceneCue = sceneCue;
             }
 
-            var (cleanLineText, emotion, inlineAction, inlineShot) = ExtractInlineStageCues(lineText);
+            var (cleanLineText, emotion, inlineAction, inlineShot, inlineProp) = ExtractInlineStageCues(lineText);
             var (setting, _) = SceneDirectives.FromCue(sceneCue);
-            var (action, listenerAction, cameraShot, stageTarget) = ResolveTurnCinematics(
+            var partnerName = slot == DialogueSpeakerSlot.Left ? rightProfile.Name : leftProfile.Name;
+            var (action, listenerAction, cameraShot, stageTarget, speakerProp, listenerProp) = ResolveTurnCinematics(
                 cleanLineText,
                 emotion,
                 pendingAction ?? inlineAction,
                 pendingShot ?? inlineShot,
+                pendingProp ?? inlineProp,
+                speakerLabel,
+                partnerName,
                 slot,
                 setting,
                 turnInScene,
@@ -332,7 +347,9 @@ public static partial class DialogueScriptParser
                 Action: action,
                 ListenerAction: listenerAction,
                 CameraShot: cameraShot,
-                StageTarget: stageTarget));
+                StageTarget: stageTarget,
+                SpeakerProp: speakerProp,
+                ListenerProp: listenerProp));
 
             turnInScene++;
             start += step;
@@ -352,24 +369,29 @@ public static partial class DialogueScriptParser
             }
         }
 
+        // Story-arc continuity pass for comedy visual gags (Ulta -> Sidha Chasma, Mirror look, Towel prop):
+        // Detects if any lead character confesses "चश्मा उल्टा पहना था" / mentions glasses and animates
+        // upside-down frames before that confession, flipping right-side up when corrected, and crooked on shock/anger!
+        (leftProfile, rightProfile) = ApplyVisualContinuityArcs(resultTurns, leftProfile, rightProfile);
+
         var memeCues = MapMemeCues(rawMemes, parsedLines.Count, resultTurns);
         return new ProceduralDialoguePlan(true, leftProfile, rightProfile, resultTurns, supporting, sceneDirectives, memeCues);
     }
 
-    public const int MaxSupportingCast = 3;
+    public const int MaxSupportingCast = 5;
     public const int MaxMemeCues = 4;
 
     /// <summary>A spoken line is kept whole up to this length (about 120 words); captions split it into readable chunks.</summary>
     public const int MaxSpokenLineChars = 800;
 
-    private static List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)> ConsolidateDialogueTurns(
-        List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)> parsedLines,
+    private static List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot, string? Prop)> ConsolidateDialogueTurns(
+        List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot, string? Prop)> parsedLines,
         int maxSlots)
     {
         if (parsedLines.Count <= maxSlots)
             return parsedLines;
 
-        var grouped = new List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)>(maxSlots);
+        var grouped = new List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot, string? Prop)>(maxSlots);
         var perSlot = (double)parsedLines.Count / maxSlots;
         for (var i = 0; i < maxSlots; i++)
         {
@@ -378,7 +400,7 @@ public static partial class DialogueScriptParser
             if (to <= from) continue;
 
             var slice = parsedLines.Skip(from).Take(to - from).ToList();
-            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text)), slice[0].Cue, slice[0].Action, slice[0].Shot));
+            grouped.Add((slice[0].Speaker, string.Join(". ", slice.Select(s => s.Text)), slice[0].Cue, slice[0].Action, slice[0].Shot, slice[0].Prop));
         }
 
         return grouped.Count > 0 ? grouped : parsedLines;
@@ -396,6 +418,9 @@ public static partial class DialogueScriptParser
 
         var text = SectionMarkerRegex().Replace(rawText, " ");
         text = UrlRegex().Replace(text, isHindi ? " नीचे डिस्क्रिप्शन और पिन कमेंट के लिंक पर " : " via the link in the description and pinned comment ");
+        // Strip mechanical/tool/animal onomatopoeia tokens ("चक-चक-चक", "ख्र्र्र", "ट्रिंग-ट्रिंग", "snip-snip", "zzz")
+        // so voices never speak sound effects aloud while original Turn.Text retains them for Foley SFX cues.
+        text = SfxOnomatopoeiaRegex().Replace(text, " ");
         text = text.Replace("(+1d)", isHindi ? " अगले दिन " : " next day ", StringComparison.OrdinalIgnoreCase)
                    .Replace("•", ", ")
                    .Replace("|", ", ")
@@ -403,7 +428,10 @@ public static partial class DialogueScriptParser
                    .Replace("👇", string.Empty)
                    .Replace("🔗", string.Empty);
 
-        text = MultiSpaceRegex().Replace(text, " ").Trim(' ', ',', ';');
+        text = OrphanedPunctuationRegex().Replace(text, "$1");
+        text = MultiSpaceRegex().Replace(text, " ")
+            .TrimStart(' ', ',', ';', '-', '—', '!', '?', '।', '.')
+            .Trim(' ', ',', ';');
         return text;
     }
 
@@ -516,14 +544,14 @@ public static partial class DialogueScriptParser
         return cues;
     }
 
-    private static (List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes, List<(int AfterLineIndex, MemeDirective Directive)> Memes) ExtractDialogueSegments(
+    private static (List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot, string? Prop)> Lines, List<CastDirective> Cast, List<SceneDirective> Scenes, List<(int AfterLineIndex, MemeDirective Directive)> Memes) ExtractDialogueSegments(
         string raw,
         string? preferredA,
         string? preferredB,
         string title,
         string? eventType)
     {
-        var list = new List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot)>();
+        var list = new List<(string? Speaker, string Text, string? Cue, string? Action, string? Shot, string? Prop)>();
         var cast = new List<CastDirective>();
         var scenes = new List<SceneDirective>();
         var memes = new List<(int AfterLineIndex, MemeDirective Directive)>();
@@ -534,6 +562,7 @@ public static partial class DialogueScriptParser
         string? currentCue = null;
         string? pendingAction = null;
         string? pendingShot = null;
+        string? pendingProp = null;
         var (defaultA, defaultB) = !string.IsNullOrWhiteSpace(preferredA) && !string.IsNullOrWhiteSpace(preferredB)
             ? (preferredA.Trim(), preferredB.Trim())
             : InferCharacterPairFromTitle(title, eventType);
@@ -569,6 +598,13 @@ public static partial class DialogueScriptParser
                     memes.Add((Math.Max(0, list.Count - 1), meme));
                 continue;
             }
+            if (speakerMatch.Success && IsStagePropTag(speakerMatch.Groups[1].Value))
+            {
+                var body = speakerMatch.Groups[2].Value;
+                foreach (var token in body.Split(['|', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    pendingProp ??= NormalizePropTag(token);
+                continue;
+            }
             if (speakerMatch.Success && IsStageActionTag(speakerMatch.Groups[1].Value))
             {
                 var body = speakerMatch.Groups[2].Value;
@@ -576,6 +612,7 @@ public static partial class DialogueScriptParser
                 {
                     pendingAction ??= NormalizeActionTag(token);
                     pendingShot ??= NormalizeCameraShotTag(token);
+                    pendingProp ??= NormalizePropTag(token);
                 }
                 continue;
             }
@@ -605,9 +642,10 @@ public static partial class DialogueScriptParser
                 if (cleanedPart.Length < 4) continue;
                 if (cleanedPart.Length <= 140)
                 {
-                    list.Add((currentSpeaker, cleanedPart, currentCue, pendingAction, pendingShot));
+                    list.Add((currentSpeaker, cleanedPart, currentCue, pendingAction, pendingShot, pendingProp));
                     pendingAction = null;
                     pendingShot = null;
+                    pendingProp = null;
                     if (!speakerMatch.Success)
                         currentSpeaker = string.Equals(currentSpeaker, defaultA, StringComparison.OrdinalIgnoreCase) ? defaultB : defaultA;
                 }
@@ -618,9 +656,10 @@ public static partial class DialogueScriptParser
                     {
                         var sc = Clean(s);
                         if (sc.Length < 4) continue;
-                        list.Add((currentSpeaker, sc, currentCue, pendingAction, pendingShot));
+                        list.Add((currentSpeaker, sc, currentCue, pendingAction, pendingShot, pendingProp));
                         pendingAction = null;
                         pendingShot = null;
+                        pendingProp = null;
                         if (!speakerMatch.Success)
                             currentSpeaker = string.Equals(currentSpeaker, defaultA, StringComparison.OrdinalIgnoreCase) ? defaultB : defaultA;
                     }
@@ -631,7 +670,7 @@ public static partial class DialogueScriptParser
         return (list, cast, scenes, memes);
     }
 
-    public const int MaxScenes = 12;
+    public const int MaxScenes = 120;
 
     private static string? PreferredDefaultA(string? preferredA, string? eventType) =>
         !string.IsNullOrWhiteSpace(preferredA)
@@ -667,12 +706,13 @@ public static partial class DialogueScriptParser
     private static string Truncate(string value, int maxLen) =>
         value.Length <= maxLen ? value : value[..(maxLen - 1)].TrimEnd() + "…";
 
-    private static (string CleanText, string Emotion, string? Action, string? CameraShot) ExtractInlineStageCues(string text)
+    private static (string CleanText, string Emotion, string? Action, string? CameraShot, string? Prop) ExtractInlineStageCues(string text)
     {
         var raw = text ?? string.Empty;
         string? explicitEmotion = null;
         string? explicitAction = null;
         string? explicitShot = null;
+        string? explicitProp = null;
 
         // Strip recognized leading or inline parenthetical stage directions without removing factual time/date notes.
         raw = InlineCueParenRegex().Replace(raw, match =>
@@ -688,7 +728,8 @@ public static partial class DialogueScriptParser
                 var emo = NormalizeEmotionTag(token);
                 var act = NormalizeActionTag(token);
                 var shot = NormalizeCameraShotTag(token);
-                if (emo is null && act is null && shot is null)
+                var prop = NormalizePropTag(token);
+                if (emo is null && act is null && shot is null && prop is null)
                 {
                     allMatched = false;
                     continue;
@@ -697,20 +738,24 @@ public static partial class DialogueScriptParser
                 explicitEmotion ??= emo;
                 explicitAction ??= act;
                 explicitShot ??= shot;
+                explicitProp ??= prop;
             }
             return matchedAny && allMatched ? " " : match.Value;
         });
 
         raw = Clean(raw);
         if (string.IsNullOrWhiteSpace(raw)) raw = text ?? string.Empty;
-        return (raw, explicitEmotion ?? InferEmotion(raw), explicitAction, explicitShot);
+        return (raw, explicitEmotion ?? InferEmotion(raw), explicitAction, explicitShot, explicitProp);
     }
 
-    private static (string Action, string ListenerAction, string CameraShot, string StageTarget) ResolveTurnCinematics(
+    private static (string Action, string ListenerAction, string CameraShot, string StageTarget, string? SpeakerProp, string? ListenerProp) ResolveTurnCinematics(
         string text,
         string emotion,
         string? explicitAction,
         string? explicitShot,
+        string? explicitProp,
+        string speakerName,
+        string partnerName,
         DialogueSpeakerSlot slot,
         SceneSetting setting,
         int turnInScene,
@@ -720,10 +765,85 @@ public static partial class DialogueScriptParser
         ref DialogueSpeakerSlot? sleepingSlot)
     {
         var lower = (text ?? string.Empty).ToLowerInvariant();
+        var speakerLower = (speakerName ?? string.Empty).ToLowerInvariant();
+        var partnerLower = (partnerName ?? string.Empty).ToLowerInvariant();
         var isComedy = string.Equals(eventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
             || setting is SceneSetting.ComedyStage or SceneSetting.ChaiStall or SceneSetting.DoorwaySet
                 or SceneSetting.SkyGauntlet or SceneSetting.TankArena or SceneSetting.Bedroom
-                or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop;
+                or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop
+                or SceneSetting.BarberShop or SceneSetting.Courtroom or SceneSetting.DoctorClinic
+                or SceneSetting.Classroom or SceneSetting.QuizStudio or SceneSetting.NeighborhoodGate;
+
+        var (inferredProp, inferredPropAction) = InferPropAndAction(lower, speakerLower, setting);
+        var speakerProp = string.Equals(explicitProp, "none", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : explicitProp ?? inferredProp;
+
+        // Role Lock in practitioner/customer sets (BarberShop, Courtroom, DoctorClinic):
+        // Saying "कटिंग करना" as a Customer describes what you want on your hair — it must NOT turn
+        // the Customer into the Barber holding scissors or move both characters onto barberStand!
+        var hasBarberInCast = IsBarberName(speakerLower) || IsBarberName(partnerLower);
+        var isSupportingGuest = slot == DialogueSpeakerSlot.Narrator
+            || ContainsAnyToken(speakerLower, "चाचा", "आंटी", "पड़ोसी", "uncle", "aunt", "neighbor", "friend", "teacher", "guest", "बबलू", "छोटू", "मामा", "दादा");
+        var isBarberRole = !isSupportingGuest && (IsBarberName(speakerLower) || (!hasBarberInCast && slot == DialogueSpeakerSlot.Right));
+        if (setting == SceneSetting.BarberShop && !isBarberRole)
+        {
+            if (speakerProp is "scissors" or "comb" or "sprayBottle")
+                speakerProp = null;
+            if (inferredPropAction is "cutting" or "combing")
+                inferredPropAction = null;
+        }
+        var hasJudgeInCast = IsJudgeName(speakerLower) || IsJudgeName(partnerLower);
+        var isJudgeRole = IsJudgeName(speakerLower) || (!hasJudgeInCast && slot == DialogueSpeakerSlot.Left);
+        if (setting == SceneSetting.Courtroom && !isJudgeRole)
+        {
+            if (speakerProp is "gavel")
+                speakerProp = null;
+            if (inferredPropAction is "bangingGavel")
+                inferredPropAction = null;
+        }
+        var hasDoctorInCast = IsDoctorName(speakerLower) || IsDoctorName(partnerLower);
+        var isDoctorRole = IsDoctorName(speakerLower) || (!hasDoctorInCast && slot == DialogueSpeakerSlot.Left);
+        if (setting == SceneSetting.DoctorClinic && !isDoctorRole)
+        {
+            if (speakerProp is "stethoscope" or "syringe")
+                speakerProp = null;
+            if (inferredPropAction is "examining")
+                inferredPropAction = null;
+        }
+
+        string? listenerProp = null;
+        if (setting == SceneSetting.BarberShop)
+        {
+            if (isBarberRole)
+            {
+                speakerProp ??= "scissors";
+                listenerProp = "cape";
+            }
+            else if (slot is DialogueSpeakerSlot.Left or DialogueSpeakerSlot.Right)
+            {
+                if (!ContainsAnyToken(lower, "तौलिया", "towel", "remove", "हटा"))
+                    speakerProp ??= "cape";
+                listenerProp = IsBarberName(partnerLower) ? "scissors" : null;
+            }
+            else if (IsBarberName(partnerLower))
+            {
+                listenerProp = "scissors";
+            }
+        }
+        else if (setting == SceneSetting.Courtroom)
+        {
+            if (isJudgeRole) speakerProp ??= "gavel";
+            else listenerProp = "gavel";
+        }
+        else if (setting == SceneSetting.DoctorClinic)
+        {
+            if (isDoctorRole) speakerProp ??= "stethoscope";
+        }
+        else if (setting == SceneSetting.QuizStudio)
+        {
+            speakerProp ??= "mic";
+        }
 
         var action = explicitAction;
         if (action is null)
@@ -731,7 +851,6 @@ public static partial class DialogueScriptParser
             var wasThisSpeakerSleeping = sleepingSlot == slot;
             if (ContainsAnyToken(lower, "सो रहा", "सोते", "सोने दे", "सोने दो", "खर्राटे", "ख्र्र", "खर्र", "नींद", "sleeping", "snoring", "asleep", "zzz", "in bed", "five more minutes", "पाँच मिनट", "पांच मिनट"))
             {
-                // Asking "are you still sleeping?" points at the sleeping partner; declaring sleep lies down.
                 if (lower.Contains('?') && ContainsAnyToken(lower, "तू", "तुम", "you", "bro", "क्या"))
                 {
                     action = "pointing";
@@ -754,6 +873,24 @@ public static partial class DialogueScriptParser
             {
                 action = "punching";
             }
+            else if (ContainsAnyToken(lower, "तौलिया तो हटा", "तौलिया हटा", "तौलिया हटाया", "तौलिया खींच", "हटा तौलिया", "remove towel", "cape off"))
+            {
+                action = "removingTowel";
+                speakerProp = "towel";
+            }
+            else if (ContainsAnyToken(lower, "शीशे में", "शीशा देख", "mirror") && setting == SceneSetting.BarberShop)
+            {
+                action = isBarberRole || ContainsAnyToken(speakerLower, "चाचा", "पड़ोसी") ? "pointing" : "lookInMirror";
+            }
+            else if (ContainsAnyToken(lower, "चश्मा उल्टा", "उल्टा चश्मा", "चश्मा सीधा", "ulta chasma", "upside down glasses"))
+            {
+                action = "adjustingGlasses";
+            }
+            else if (inferredPropAction is not null
+                && !(emotion == "surprised" && inferredPropAction is "eating" or "stirring" or "sipping"))
+            {
+                action = inferredPropAction;
+            }
             else if (ContainsAnyToken(lower, "भाग", "दौड़", "run", "running", "sprint", "chase", "flee", "चप्पल"))
             {
                 action = "running";
@@ -775,7 +912,15 @@ public static partial class DialogueScriptParser
             {
                 action = "praying";
             }
-            else if (ContainsAnyToken(lower, "नाच", "dance", "party", "कूद", "jump", "bouncy"))
+            else if (ContainsAnyToken(lower, "अदाब", "adaab", "aadaab", "salam", "सलाम"))
+            {
+                action = "adaab";
+            }
+            else if (ContainsAnyToken(lower, "चक्कर", "chakkar", "twirl", "spin", "sufi"))
+            {
+                action = "sufiSpin";
+            }
+            else if (ContainsAnyToken(lower, "नाच", "dance", "kathak", "party", "कूद", "jump", "bouncy"))
             {
                 action = "dancing";
             }
@@ -799,13 +944,11 @@ public static partial class DialogueScriptParser
             }
         }
 
-        // Update sleep tracker cleanly for left/right wakeup transitions
         if (action == "sleeping" && slot != DialogueSpeakerSlot.Narrator)
             sleepingSlot = slot;
         else if (action == "wakingUp" && sleepingSlot == slot)
             sleepingSlot = null;
 
-        // Listener reacts naturally to the speaker (e.g., stays asleep until shouted at, or facepalms at savage roasts)
         var listenerAction = "none";
         if (slot is DialogueSpeakerSlot.Left or DialogueSpeakerSlot.Right)
         {
@@ -824,6 +967,14 @@ public static partial class DialogueScriptParser
             else if (action == "kicking")
             {
                 listenerAction = "shockedFall";
+            }
+            else if (setting == SceneSetting.BarberShop && ContainsAnyToken(lower, "शीशे में", "शीशा देख", "mirror"))
+            {
+                listenerAction = "lookInMirror";
+            }
+            else if (listenerProp == "scissors")
+            {
+                listenerAction = "cutting";
             }
             else if (action is "shockedFall" or "wakingUp")
             {
@@ -846,41 +997,121 @@ public static partial class DialogueScriptParser
         // Stage target tells WebGL where the speaker moves/sits/interacts inside the 3D set
         var stageTarget = setting switch
         {
+            SceneSetting.BarberShop => isBarberRole ? "barberStand" : "barberChair",
+            SceneSetting.Courtroom => isJudgeRole ? "judgeBench" : "witnessStand",
+            SceneSetting.DoctorClinic => isDoctorRole ? "doctorDesk" : "patientBed",
             SceneSetting.Bedroom when action is "sleeping" or "wakingUp" or "sitting" => "bed",
             SceneSetting.LivingRoom when action is "sitting" or "sleeping" => "sofa",
-            SceneSetting.Kitchen or SceneSetting.SweetShop or SceneSetting.ChaiStall when action is "eating" or "walking" or "pointing" => "counter",
+            SceneSetting.Kitchen or SceneSetting.SweetShop or SceneSetting.ChaiStall when action is "eating" or "stirring" or "sipping" or "walking" or "pointing" => "counter",
             SceneSetting.DoorwaySet when action is "walking" or "running" => "door",
             _ when action is "walking" or "running" => "center",
             _ => "default"
         };
 
-        // Cinematography: smash cuts between establishing wide, tight MJO close-ups, crash punches & two-shots
         var cameraShot = explicitShot;
         if (cameraShot is null)
         {
             if (turnInScene == 0 || action is "walking" or "running" || slot == DialogueSpeakerSlot.Narrator)
                 cameraShot = "wideEstablishing";
             else if (action is "punching" or "kicking")
-                cameraShot = "twoShot"; // the hit only reads when attacker and target are both in frame
+                cameraShot = "twoShot";
             else if (action is "shockedFall" or "wakingUp" || (turnIndex == totalTurns - 1 && isComedy))
                 cameraShot = "crashPunch";
-            else if (emotion is "angry" or "confused" || action is "slapForehead" || action is "eating")
+            else if (action is "removingTowel" or "lookInMirror")
+                cameraShot = "twoShot";
+            else if (action is "cutting" or "combing")
+                cameraShot = turnIndex % 2 == 0 ? "twoShot" : "overShoulder";
+            else if (emotion is "angry" or "confused" || action is "slapForehead" || action is "eating" or "callingPhone" or "showingKey")
                 cameraShot = "closeUpSpeaker";
             else if (emotion == "surprised")
-                cameraShot = "reactionZoom";
-            else if (action == "praying")
+                cameraShot = isComedy ? "reactionZoom" : "closeUpSpeaker";
+            else if (action is "praying" or "aarti" || emotion == "proud")
                 cameraShot = "lowDramatic";
+            else if (isComedy)
+                cameraShot = (turnIndex % 5) switch
+                {
+                    0 => "closeUpSpeaker",
+                    1 => "overShoulder",
+                    2 => "reactionZoom",
+                    3 => "closeUpSpeaker",
+                    _ => "twoShot"
+                };
             else
                 cameraShot = (turnIndex % 3) switch
                 {
                     0 => "closeUpSpeaker",
-                    1 => isComedy ? "closeUpSpeaker" : "twoShot",
-                    _ => "twoShot"
+                    1 => "twoShot",
+                    _ => "overShoulder"
                 };
         }
 
-        return (action, listenerAction, cameraShot, stageTarget);
+        return (action, listenerAction, cameraShot, stageTarget, speakerProp, listenerProp);
     }
+
+    private static (string? Prop, string? Action) InferPropAndAction(string lower, string speakerLower, SceneSetting setting)
+    {
+        if (ContainsAnyToken(lower, "केंची", "कैंची", "scissor", "कटिंग", "हेयरकट", "haircut", "ट्रिम", "trim", "चक-चक", "चक चक", "बाहुबली कट", "जीरो", "शेव", "shave"))
+            return ("scissors", "cutting");
+        if (ContainsAnyToken(lower, "स्प्रे", "spray", "पानी छिड़क", "फुस्स-फुस्स"))
+            return ("sprayBottle", "spraying");
+        if (ContainsAnyToken(lower, "कंघी", "comb"))
+            return ("comb", "combing");
+        if (ContainsAnyToken(lower, "चाबी", "key", "unlock", "जेब में", "pocket"))
+            return ("key", "showingKey");
+        if (ContainsAnyToken(lower, "फ़ोन", "फोन", "phone", "call", "नंबर", "मिलाओ", "mobile"))
+            return ("phone", "callingPhone");
+        if (ContainsAnyToken(lower, "ऑर्डर", "order", "तारीख", "फ़ैसला", "सजा", "ज़मानत", "मुकदमा", "gavel", "अदालत"))
+            return ("gavel", "bangingGavel");
+        if (ContainsAnyToken(lower, "इंजेक्शन", "सुई", "injection", "syringe"))
+            return ("syringe", "examining");
+        if (ContainsAnyToken(lower, "बुखार", "नब्ज़", "चेकअप", "stethoscope", "दवा", "doctor", "डॉक्टर"))
+            return ("stethoscope", "examining");
+        if (ContainsAnyToken(lower, "करोड़पति", "सवाल", "ऑप्शन", "माइक", "mic", "quiz", "anchor", "लॉक कर"))
+            return ("mic", "holdingMic");
+        if (ContainsAnyToken(lower, "करछी", "चम्मच", "stir", "cook", "पका", "खड़का"))
+            return ("ladle", "stirring");
+        if (ContainsAnyToken(lower, "कड़ाही", "रबड़ी", "लड्डू", "जलेबी", "बर्फी", "मिठाई", "समोसा", "laddoo", "sweet"))
+            return ("sweetplate", "eating");
+        if (ContainsAnyToken(lower, "चाय", "tea", "कुल्हड़", "कॉफी", "coffee", "केतली"))
+            return ("teacup", "sipping");
+        if (ContainsAnyToken(lower, "ब्लैकबोर्ड", "चॉक", "chalk", "board"))
+            return ("chalk", "writingBoard");
+        if (ContainsAnyToken(lower, "किताब", "कॉपी", "होमवर्क", "ग्रंथ", "शास्त्र", "वेद", "book", "scroll"))
+            return ("book", "pointing");
+        if (ContainsAnyToken(lower, "हवलदार", "दरोगा", "पुलिस", "कानून", "डंडा", "केस", "police", "constable"))
+            return ("baton", "pointing");
+        if (ContainsAnyToken(lower, "आरती", "दीया", "दीप", "aarti", "lamp"))
+            return ("diya", "aarti");
+        if (ContainsAnyToken(lower, "बाँसुरी", "बांसुरी", "मुरली", "flute"))
+            return ("flute", "playingFlute");
+        if (ContainsAnyToken(lower, "त्रिशूल", "trishul"))
+            return ("trishul", "pointing");
+        if (ContainsAnyToken(lower, "धनुष", "बाण", "bow"))
+            return ("bow", "pointing");
+        if (ContainsAnyToken(lower, "पैसे", "रुपये", "उधार", "नोट", "बिल", "money", "rupee", "bill", "wallet"))
+            return ("money", "pointing");
+        if (ContainsAnyToken(lower, "झाड़ू", "broom"))
+            return ("broom", "sweeping");
+        if (ContainsAnyToken(lower, "छाता", "छतरी", "umbrella"))
+            return ("umbrella", "pointing");
+
+        if (setting == SceneSetting.BarberShop && IsBarberName(speakerLower))
+            return ("scissors", "cutting");
+        if (setting == SceneSetting.ChaiStall)
+            return ("teacup", null);
+        if (setting == SceneSetting.Kitchen)
+            return ("ladle", null);
+        return (null, null);
+    }
+
+    private static bool IsBarberName(string lowerName) =>
+        ContainsAnyToken(lowerName, "नाई", "barber", "salon", "amrendra", "अमरेंद्र", "stylist", "कटिंग मास्टर", "हेयर", "hair");
+
+    private static bool IsJudgeName(string lowerName) =>
+        ContainsAnyToken(lowerName, "जज", "judge", "न्यायाधीश", "magistrate");
+
+    private static bool IsDoctorName(string lowerName) =>
+        ContainsAnyToken(lowerName, "डॉक्टर", "doctor", "dr.", "वैद्य");
 
     private static bool IsStageActionTag(string tag) =>
         tag.Trim().Equals("ACTION", StringComparison.OrdinalIgnoreCase)
@@ -888,16 +1119,21 @@ public static partial class DialogueScriptParser
         || tag.Trim().Equals("SHOT", StringComparison.OrdinalIgnoreCase)
         || tag.Trim().Equals("CAMERA", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsStagePropTag(string tag) =>
+        tag.Trim().Equals("PROP", StringComparison.OrdinalIgnoreCase)
+        || tag.Trim().Equals("PROPS", StringComparison.OrdinalIgnoreCase)
+        || tag.Trim().Equals("TOOL", StringComparison.OrdinalIgnoreCase);
+
     internal static string InferEmotion(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "calm";
         var lower = text.ToLowerInvariant();
+        if (ContainsAnyToken(lower, "क्रोध", "गुस्सा", "चिल्ला", "खबरदार", "पकड़ लिया", "नालायक", "बावले", "टोपा", "टकला", "अबे", "दिमाग़", "दिमाग", "बकवास", "मारूँगा", "थप्पड़", "चप्पल", "बदतमीज़", "छोड़ूँगा", "किस बात का", "angry", "furious", "rage", "shut up", "beware", "stop!"))
+            return "angry";
         if (ContainsAnyToken(lower, "हाहा", "हँस", "हंस", "haha", "hehe", "lol", "laugh", "funny", "मज़ाक", "कमाल कर दिया"))
             return "laughing";
         if (ContainsAnyToken(lower, "अरे", "हैरान", "चौंक", "omg", "what!", "shocked", "surprised", "gasp", "असंभव", "सच में"))
             return "surprised";
-        if (ContainsAnyToken(lower, "क्रोध", "गुस्सा", "खबरदार", "पकड़ लिया", "नालायक", "बावले", "angry", "furious", "beware", "stop!"))
-            return "angry";
         if (ContainsAnyToken(lower, "दुःख", "दुख", "क्षमा", "रो", "sad", "sorry", "tears", "worried", "चिंता"))
             return "sad";
         if (ContainsAnyToken(lower, "गर्व", "वरदान", "शाबाश", "ध्रुव तारा", "proud", "victory", "triumph", "bless", "आशीर्वाद"))
@@ -906,6 +1142,8 @@ public static partial class DialogueScriptParser
             return "happy";
         if (lower.Contains('?'))
             return "confused";
+        if (lower.TrimEnd().EndsWith('!'))
+            return "angry";
         return "calm";
     }
 
@@ -942,13 +1180,65 @@ public static partial class DialogueScriptParser
             "fall" or "falling" or "shocked fall" or "stumble" or "गिरते हुए" or "चौंका" => "shockedFall",
             "facepalm" or "slap forehead" or "headslap" or "माथा पकड़कर" or "सिर पकड़कर" => "slapForehead",
             "eat" or "eating" or "drinking" or "sipping" or "खाते हुए" or "पीते हुए" => "eating",
-            "dance" or "dancing" or "नाचते हुए" => "dancing",
+            "dance" or "dancing" or "kathak" or "नाचते हुए" => "dancing",
+            "adaab" or "aadaab" or "salam" or "अदाब" or "सलाम" => "adaab",
+            "spin" or "sufispin" or "chakkar" or "twirl" or "चक्कर" => "sufiSpin",
             "jump" or "jumping" or "hop" or "कूदते हुए" => "jumping",
             "wave" or "waving" or "लहराते हुए" => "waving",
             "punch" or "punching" or "attack" or "attacking" or "fight" or "fighting" or "hit" or "dhishoom"
                 or "मुक्का मारते हुए" or "घूंसा मारते हुए" or "लड़ते हुए" or "हमला" => "punching",
             "kick" or "kicking" or "flying kick" or "लात मारते हुए" or "किक" => "kicking",
             "hit react" or "hurt" or "ouch" or "चोट खाकर" => "hitReact",
+            "cut" or "cutting" or "snip" or "snipping" or "केंची चलाते" or "केंची" => "cutting",
+            "comb" or "combing" or "कंघी" => "combing",
+            "stir" or "stirring" or "चलाते हुए" => "stirring",
+            "sip" or "sipping" or "चाय पीते" => "sipping",
+            "gavel" or "banging gavel" or "ऑर्डर" => "bangingGavel",
+            "examining" or "checkup" or "इंजेक्शन" => "examining",
+            "phone" or "calling" or "calling phone" or "फ़ोन" => "callingPhone",
+            "mic" or "holding mic" or "माइक" => "holdingMic",
+            "key" or "showing key" or "चाबी" => "showingKey",
+            "removing towel" or "towel" or "तौलिया" => "removingTowel",
+            "spray" or "spraying" or "स्प्रे" => "spraying",
+            "mirror" or "शीशा" or "look in mirror" => "lookInMirror",
+            "glasses" or "chasma" or "चश्मा" or "adjusting glasses" => "adjustingGlasses",
+            "aarti" or "diya" or "आरती" => "aarti",
+            "flute" or "playing flute" or "बाँसुरी" => "playingFlute",
+            "sweep" or "sweeping" or "झाड़ू" => "sweeping",
+            _ => null
+        };
+    }
+
+    private static string? NormalizePropTag(string rawTag)
+    {
+        var tag = rawTag.Trim().ToLowerInvariant();
+        return tag switch
+        {
+            "none" or "empty" or "nothing" => "none",
+            "scissors" or "scissor" or "kainchi" or "केंची" or "कैंची" => "scissors",
+            "comb" or "kanghi" or "कंघी" => "comb",
+            "towel" or "तौलिया" => "towel",
+            "cape" or "apron" => "cape",
+            "spray" or "spraybottle" or "spray bottle" => "sprayBottle",
+            "tea" or "teacup" or "cup" or "chai" or "kulhad" or "चाय" => "teacup",
+            "ladle" or "spoon" or "karchhi" or "करछी" => "ladle",
+            "sweet" or "sweetplate" or "laddoo" or "लड्डू" => "sweetplate",
+            "key" or "keys" or "chabi" or "चाबी" => "key",
+            "phone" or "mobile" or "cell" or "फ़ोन" or "फोन" => "phone",
+            "gavel" or "hammer" or "हथौड़ा" => "gavel",
+            "stethoscope" or "doctor" => "stethoscope",
+            "syringe" or "injection" or "सुई" => "syringe",
+            "mic" or "microphone" or "माइक" => "mic",
+            "chalk" or "चॉक" => "chalk",
+            "book" or "scroll" or "किताब" => "book",
+            "baton" or "stick" or "डंडा" => "baton",
+            "diya" or "lamp" or "दीया" => "diya",
+            "flute" or "bansuri" or "बाँसुरी" or "बांसुरी" => "flute",
+            "trishul" or "त्रिशूल" => "trishul",
+            "bow" or "धनुष" => "bow",
+            "money" or "cash" or "पैसे" => "money",
+            "broom" or "झाड़ू" => "broom",
+            "umbrella" or "छाता" => "umbrella",
             _ => null
         };
     }
@@ -967,6 +1257,104 @@ public static partial class DialogueScriptParser
             "over shoulder" or "ots" => "overShoulder",
             _ => null
         };
+    }
+
+    private static (ProceduralCharacterProfile Left, ProceduralCharacterProfile Right) ApplyVisualContinuityArcs(
+        List<ProceduralDialogueTurn> turns,
+        ProceduralCharacterProfile left,
+        ProceduralCharacterProfile right)
+    {
+        var leftIsBarber = IsBarberName(left.Name.ToLowerInvariant());
+        var rightIsBarber = IsBarberName(right.Name.ToLowerInvariant());
+        var leftHasGlasses = left.HasGlasses ?? leftIsBarber || (!rightIsBarber);
+        var rightHasGlasses = right.HasGlasses ?? rightIsBarber;
+        int? ultaTurnLeft = null;
+        int? ultaTurnRight = null;
+
+        for (var i = 0; i < turns.Count; i++)
+        {
+            var t = turns[i];
+            if (t.IsTitleHook) continue;
+            var lower = (t.Text ?? string.Empty).ToLowerInvariant();
+            if (!ContainsAnyToken(lower, "चश्मा", "chasma", "specs", "glasses", "ऐनक")) continue;
+
+            var speakerIsRight = string.Equals(t.SpeakerName?.Trim(), right.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+            var speakerIsLeft = string.Equals(t.SpeakerName?.Trim(), left.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+            var speakerLower = (t.SpeakerName ?? string.Empty).ToLowerInvariant();
+            var selfClaimsReverse = ContainsAnyToken(lower, "पहना था मैंने", "मेरा चश्मा", "मैंने उल्टा", "my glasses");
+
+            if (leftIsBarber && !rightIsBarber && (!speakerIsRight || !selfClaimsReverse))
+            {
+                leftHasGlasses = true;
+                if (ContainsAnyToken(lower, "उल्टा", "ulta", "upside down") && (speakerIsLeft || ultaTurnLeft is not null || ContainsAnyToken(lower, "तेरा", "अमरेंद्र", "नाई")))
+                    ultaTurnLeft = i;
+            }
+            else if (rightIsBarber && !leftIsBarber && (!speakerIsLeft || !selfClaimsReverse))
+            {
+                rightHasGlasses = true;
+                if (ContainsAnyToken(lower, "उल्टा", "ulta", "upside down") && (speakerIsRight || ultaTurnRight is not null || ContainsAnyToken(lower, "तेरा", "अमरेंद्र", "नाई")))
+                    ultaTurnRight = i;
+            }
+            else if (speakerIsRight)
+            {
+                rightHasGlasses = true;
+                if (ContainsAnyToken(lower, "उल्टा", "ulta", "upside down"))
+                    ultaTurnRight ??= i;
+            }
+            else if (speakerIsLeft)
+            {
+                leftHasGlasses = true;
+                if (ContainsAnyToken(lower, "उल्टा", "ulta", "upside down"))
+                    ultaTurnLeft ??= i;
+            }
+        }
+
+        for (var i = 0; i < turns.Count; i++)
+        {
+            var t = turns[i];
+            var lower = (t.Text ?? string.Empty).ToLowerInvariant();
+            string stateForSlot(DialogueSpeakerSlot s, int? revealIdx, bool hasSpec, string? act)
+            {
+                if (!hasSpec) return "none";
+                if (revealIdx is { } rIdx)
+                {
+                    if (i < rIdx) return "ulta";
+                    if (i == rIdx) return "flipping";
+                }
+                if (ContainsAnyToken(lower, "चश्मा उतार", "उतार दे", "take off glasses", "remove glasses"))
+                    return "forehead";
+                if (act is "hitReact" or "shockedFall" or "slapForehead")
+                    return "crooked";
+                return "normal";
+            }
+
+            var leftAction = t.Slot == DialogueSpeakerSlot.Left ? t.Action : t.ListenerAction;
+            var rightAction = t.Slot == DialogueSpeakerSlot.Right ? t.Action : t.ListenerAction;
+            var leftState = stateForSlot(DialogueSpeakerSlot.Left, ultaTurnLeft, leftHasGlasses, leftAction);
+            var rightState = stateForSlot(DialogueSpeakerSlot.Right, ultaTurnRight, rightHasGlasses, rightAction);
+
+            // When a supporting guest tells the customer to look in the mirror ("शीशे में देख"), trigger customer lookInMirror!
+            var updatedListenerAct = t.ListenerAction;
+            if (ContainsAnyToken(lower, "शीशे में", "शीशा देख", "mirror")
+                && t.Action is not "lookInMirror"
+                && t.ListenerAction is null or "none" or "laughing" or "calm" or "cutting")
+            {
+                updatedListenerAct = "lookInMirror";
+            }
+
+            turns[i] = t with
+            {
+                ListenerAction = updatedListenerAct,
+                SpeakerGlasses = t.Slot == DialogueSpeakerSlot.Left ? leftState
+                    : t.Slot == DialogueSpeakerSlot.Right ? rightState
+                    : leftState,
+                ListenerGlasses = t.Slot == DialogueSpeakerSlot.Left ? rightState
+                    : t.Slot == DialogueSpeakerSlot.Right ? leftState
+                    : rightState
+            };
+        }
+
+        return (left with { HasGlasses = leftHasGlasses }, right with { HasGlasses = rightHasGlasses });
     }
 
     private static bool ContainsAnyToken(string haystack, params string[] tokens) =>
@@ -998,6 +1386,12 @@ public static partial class DialogueScriptParser
 
     [GeneratedRegex(@"https?://\S+", RegexOptions.IgnoreCase)]
     private static partial Regex UrlRegex();
+
+    [GeneratedRegex(@"(?<=^|[\s,!.।:;?\-—""'()])(?:(?:चक|चक्|कच|खच|टप|फुस|फुस्स|सूं|भौं|म्याऊँ)(?:[\s-]*(?:चक|चक्|कच|खच|टप|फुस|फुस्स|सूं))*|ख्र+[\u0900-\u097F]*|खर्र+[\u0900-\u097F]*|(?:ट्रिंग|टिक|खट|टन|घन|फट)(?:[\s-]*(?:ट्रिंग|टिक|खट|टन|घन|फट))+|खटखट|ढिशुम|धिशुम|धड़ाम|(?:snip|tick|knock|ring|ding)(?:[\s-]*(?:snip|tick|knock|ring|ding))+|z{3,})(?=$|[\s,!.।:;?\-—""'()])", RegexOptions.IgnoreCase)]
+    private static partial Regex SfxOnomatopoeiaRegex();
+
+    [GeneratedRegex(@"\s+([!।?.,])")]
+    private static partial Regex OrphanedPunctuationRegex();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultiSpaceRegex();

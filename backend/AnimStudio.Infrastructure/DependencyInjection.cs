@@ -242,9 +242,11 @@ public static class DependencyInjection
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IImageAnimationRenderer, ImageAnimationRenderer>();
         services.AddSingleton<AnimStudio.Infrastructure.Rendering.ProceduralBgmCacheService>();
+        services.AddSingleton<IProceduralSceneIllustrationRenderer, AnimStudio.Infrastructure.Rendering.ProceduralSceneIllustrationRenderer>();
         services.AddScoped<IProceduralVideoGenerator, AnimStudio.Infrastructure.Rendering.ProceduralVideoGeneratorService>();
         services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralCommunityCardGenerator>();
         services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralFixedThumbnailGenerator>();
+        services.AddScoped<AnimStudio.Infrastructure.Rendering.ProceduralComedyThumbnailService>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
 
         // The user's effects library: clips, stills and sounds reused across every project.
@@ -559,6 +561,16 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<GeminiSpeechProvider>>()));
+                    break;
+
+                case AiProviderFamily.GoogleTranslateTts:
+                    services.AddSingleton<IAiProvider>(sp => new GoogleTranslateTtsProvider(
+                        providerId,
+                        sp.GetRequiredService<IAiHttpClientFactory>(),
+                        sp.GetRequiredService<IAiSecretResolver>(),
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<IOptions<FfmpegOptions>>(),
+                        sp.GetRequiredService<ILogger<GoogleTranslateTtsProvider>>()));
                     break;
 
                 case AiProviderFamily.ComfyUiImage:

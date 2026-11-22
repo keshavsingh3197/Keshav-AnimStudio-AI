@@ -554,13 +554,15 @@ public sealed class ProceduralTemplateAndDialogueTests
     }
 
     [Fact]
-    public void DevanagariToPhonetic_transliterates_Hindi_prayer_into_speakable_Roman_syllables()
+    public void GoogleTranslateTtsProvider_splits_Hindi_clauses_and_resolves_language_cleanly()
     {
-        var spoken = ProceduralSpeechSynthesizer.DevanagariToPhonetic("भक्त ध्रुव! ॐ नमो भगवते वासुदेवाय।");
-        Assert.False(string.IsNullOrWhiteSpace(spoken));
-        Assert.DoesNotContain("भक्त", spoken);
-        Assert.Contains("Om", spoken, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("namo", spoken, StringComparison.OrdinalIgnoreCase);
+        var longHindi = "आज की यह पावन कथा प्रदोष वेला की महाशक्ति और बालक मार्कण्डेय की अटूट शिव भक्ति की अमर गाथा है। "
+            + "प्राचीन समय में आर्यावर्त के शांत तपोवन में ऋषि मृकण्डु और माता मरुदमती वर्षों तक महादेव की आराधना करते रहे।";
+        var chunks = AnimStudio.Infrastructure.Ai.Providers.GoogleTranslateTtsProvider.SplitIntoChunks(longHindi, 120);
+        Assert.True(chunks.Count >= 2);
+        Assert.All(chunks, c => Assert.True(c.Length <= 120));
+        Assert.Equal("hi", AnimStudio.Infrastructure.Ai.Providers.GoogleTranslateTtsProvider.ResolveLanguageCode(longHindi, "en"));
+        Assert.Equal("en", AnimStudio.Infrastructure.Ai.Providers.GoogleTranslateTtsProvider.ResolveLanguageCode("Hello world", "en"));
     }
 
     [Fact]
@@ -661,5 +663,290 @@ public sealed class ProceduralTemplateAndDialogueTests
         Assert.Contains("बालक ध्रुव", distinctSpeakers);
         Assert.Contains("रानी सुनीति", distinctSpeakers);
         Assert.Contains("देवर्षि नारद मुनि", distinctSpeakers);
+    }
+
+    [Fact]
+    public void ProceduralSpeechSynthesizer_comedy_vocals_use_explosive_angry_prompts_contrast_pitch_and_snappy_interruption_gaps()
+    {
+        var barber = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, "अमरेंद्र नाई", CharacterVisualRole.KingCrown);
+        var customer = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, "पप्पू ग्राहक", CharacterVisualRole.ChildDevotee);
+        var calmCut = new ProceduralDialogueTurn(0, 0, 2, DialogueSpeakerSlot.Left, barber.Name, "अरे बैठ जा अब...", false, barber.Role, Emotion: "proud");
+        var angryJumpIn = new ProceduralDialogueTurn(1, 2, 4, DialogueSpeakerSlot.Right, customer.Name, "अरे बावले!! सारा कटोरा काट दिया बे!", false, customer.Role, Emotion: "angry");
+        var deadpanStare = new ProceduralDialogueTurn(2, 4, 5, DialogueSpeakerSlot.Left, barber.Name, "चश्मा उल्टा था भाई।", false, barber.Role, Emotion: "confused");
+
+        var angryStyle = ProceduralSpeechSynthesizer.BuildSpeechStyle(angryJumpIn, customer, isComedy: true, hasCharacters: true, "hi");
+        var calmStyle = ProceduralSpeechSynthesizer.BuildSpeechStyle(calmCut, barber, isComedy: false, hasCharacters: true, "hi");
+        Assert.Contains("angry", angryStyle, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("shouting", angryStyle, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Calm, wise", angryStyle, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Calm, wise", calmStyle, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(ProceduralSpeechSynthesizer.ComputeSpeechRate(angryJumpIn, customer, isComedy: true) > 1.10);
+        Assert.Equal(1.0, ProceduralSpeechSynthesizer.ComputeSpeechRate(calmCut, barber, isComedy: false));
+
+        var leftDsp = ProceduralSpeechSynthesizer.ResolveVoiceCharacterDsp(calmCut, barber, isComedy: true);
+        var angryDsp = ProceduralSpeechSynthesizer.ResolveVoiceCharacterDsp(angryJumpIn, customer, isComedy: true);
+        Assert.True(leftDsp.PitchRatio < 1.0 && angryDsp.PitchRatio > 1.05);
+        Assert.True(angryDsp.VolumeGain >= 1.25 && angryDsp.MidBoostDb >= 3.5);
+
+        Assert.Equal(0.05, ProceduralSpeechSynthesizer.ResolveTurnGapSeconds(calmCut, angryJumpIn, isComedy: true));
+        Assert.Equal(0.32, ProceduralSpeechSynthesizer.ResolveTurnGapSeconds(angryJumpIn, deadpanStare, isComedy: true));
+        Assert.Equal(0.24, ProceduralSpeechSynthesizer.ResolveTurnGapSeconds(calmCut, angryJumpIn, isComedy: false));
+    }
+
+    [Fact]
+    public async Task ProceduralSpeechSynthesizer_TrySynthesizeAsync_applies_comedy_anger_dsp_and_keeps_valid_wav()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-comedy-speech-");
+        try
+        {
+            var wavBytesPath = Path.Combine(tempDir.FullName, "sample-2s.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(wavBytesPath, ProceduralSceneTheme.ComedyStage3D, 2, CancellationToken.None);
+            var sampleWavBytes = await File.ReadAllBytesAsync(wavBytesPath);
+
+            var fakeExecutor = new FakeSpeechAiExecutor(sampleWavBytes);
+            var fakeRegistry = new FakeSpeechRegistry(new FakeSpeechProvider());
+
+            var script = """
+                [अमरेंद्र नाई]: (proud) आज ऐसी कटिंग करूँगा कि...
+                [पप्पू ग्राहक]: (angry, pointing) अरे बावले!! यह क्या कर दिया सिर का?!
+                [अमरेंद्र नाई]: (confused) अरे चश्मा उल्टा था भाई।
+                """;
+            var plan = DialogueScriptParser.ParsePlan("Barber Angry Test", script, prompt: null, 10, true, "अमरेंद्र नाई", "पप्पू ग्राहक", "FunnyComedy");
+            var request = new ProceduralVideoRequest
+            {
+                Title = "Barber Angry Test",
+                Script = script,
+                EventType = "FunnyComedy",
+                Theme = ProceduralSceneTheme.ComedyStage3D,
+                Language = "hi",
+                DurationSeconds = 10,
+                IncludeSpeech = true
+            };
+
+            var result = await ProceduralSpeechSynthesizer.TrySynthesizeAsync(
+                request,
+                plan,
+                Path.Combine(tempDir.FullName, "in"),
+                "user-1",
+                baseDurationSeconds: 10,
+                fakeExecutor,
+                fakeRegistry,
+                new FfmpegOptions(),
+                logger: null,
+                CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.True(File.Exists(result!.SpeechWavPath));
+            var angryCall = fakeExecutor.Calls[1];
+            Assert.True(angryCall.Rate > 1.10);
+            Assert.Contains("shouting", angryCall.Style ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+            var turns = result.UpdatedPlan.Turns.Where(t => !t.IsTitleHook).ToList();
+            Assert.Equal(3, turns.Count);
+            var interruptGap = turns[1].StartSeconds - turns[0].EndSeconds;
+            var deadpanGap = turns[2].StartSeconds - turns[1].EndSeconds;
+            Assert.InRange(interruptGap, 0.01, 0.12);
+            Assert.InRange(deadpanGap, 0.25, 0.42);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DialogueScriptParser_And_SpeechSynthesizer_Support_Seven_Cast_Custom_Voices_And_Angry_Tone()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-7cast-test-");
+        try
+        {
+            var wavBytesPath = Path.Combine(tempDir.FullName, "sample-2s.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(wavBytesPath, ProceduralSceneTheme.ComedyStage3D, 2, CancellationToken.None);
+            var sampleWavBytes = await File.ReadAllBytesAsync(wavBytesPath);
+
+            var fakeExecutor = new FakeSpeechAiExecutor(sampleWavBytes);
+            var fakeRegistry = new FakeSpeechRegistry(new FakeSpeechProvider());
+
+            var script = """
+                [CAST]: अमरेंद्र नाई | scholar | red apron | voice=Fenrir
+                [CAST]: पप्पू ग्राहक | scholar | yellow sweater | voice=Puck
+                [CAST]: सुखिया चाचा | elder | white dhoti | voice=Algenib
+                [CAST]: चिंटू बालक | child | green tee | voice=Sadachbia
+                [CAST]: शर्मा आंटी | woman | pink saree | voice=Kore
+                [CAST]: दरोगा जी | king | khaki coat | voice=Orus
+                [CAST]: राजू यार | scholar | blue shirt | voice=Alnilam
+                [SCENE]: barber shop | day | angry comedy
+                [अमरेंद्र नाई]: (proud) आज हीरो कट कर दूँगा!
+                [पप्पू ग्राहक]: अबे नालायक! तूने मुझे टकला कर दिया!
+                [सुखिया चाचा]: (surprised) तेरा तो चश्मा उल्टा है बे!
+                [चिंटू बालक]: (laughing) हाहाहा कटोरा कट!
+                [शर्मा आंटी]: हाय राम दिमाग़ खराब है नाई!
+                [दरोगा जी]: बंद करो बकवास सब!
+                [राजू यार]: अरे बाप रे मारपीट हो गई!
+                """;
+
+            var plan = DialogueScriptParser.ParsePlan(
+                "7 Cast Salon Kaand",
+                script,
+                prompt: null,
+                durationSeconds: 30,
+                enableDialogue: true,
+                preferredSpeakerA: "अमरेंद्र नाई",
+                preferredSpeakerB: "पप्पू ग्राहक",
+                eventType: "FunnyComedy");
+
+            Assert.True(plan.HasCharacters);
+            Assert.Equal(5, plan.Supporting.Count);
+            Assert.Equal("Fenrir", plan.LeftCharacter?.VoiceId);
+            Assert.Equal("Puck", plan.RightCharacter?.VoiceId);
+            Assert.Contains(plan.Supporting, s => s.Name == "सुखिया चाचा" && s.VoiceId == "Algenib");
+            Assert.Contains(plan.Supporting, s => s.Name == "शर्मा आंटी" && s.VoiceId == "Kore");
+            Assert.Contains(plan.Supporting, s => s.Name == "राजू यार" && s.VoiceId == "Alnilam");
+
+            Assert.Equal("angry", plan.Turns.First(t => t.SpeakerName == "पप्पू ग्राहक").Emotion);
+
+            var request = new ProceduralVideoRequest
+            {
+                Title = "7 Cast Salon Kaand",
+                Script = script,
+                EventType = "FunnyComedy",
+                Theme = ProceduralSceneTheme.ComedyStage3D,
+                Language = "hi",
+                DurationSeconds = 30,
+                IncludeSpeech = true
+            };
+
+            var result = await ProceduralSpeechSynthesizer.TrySynthesizeAsync(
+                request,
+                plan,
+                Path.Combine(tempDir.FullName, "in"),
+                "user-1",
+                baseDurationSeconds: 30,
+                fakeExecutor,
+                fakeRegistry,
+                new FfmpegOptions(),
+                logger: null,
+                CancellationToken.None);
+
+            Assert.NotNull(result);
+            var usedVoices = fakeExecutor.Calls.Select(c => c.VoiceId).Distinct().ToList();
+            Assert.Contains("Fenrir", usedVoices);
+            Assert.Contains("Puck", usedVoices);
+            Assert.Contains("Algenib", usedVoices);
+            Assert.Contains("Sadachbia", usedVoices);
+            Assert.Contains("Kore", usedVoices);
+            Assert.Contains("Orus", usedVoices);
+            Assert.Contains("Alnilam", usedVoices);
+            Assert.True(fakeExecutor.Calls.All(c => c.Rate >= 1.08));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Thumbnail_Dimensions_And_PeakCleanFrame_Match_Format_And_Reveal_Turn()
+    {
+        Assert.Equal((720, 1280), ProceduralComedyThumbnailService.ResolveOutputDimensions(720, 1280));
+        Assert.Equal((1280, 720), ProceduralComedyThumbnailService.ResolveOutputDimensions(1280, 720));
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "टकला कांड",
+            """
+            [SCENE]: barber shop | day | funny
+            [अमरेंद्र नाई]: चक-चक-चक!
+            [पप्पू ग्राहक]: (removing towel, look in mirror, angry) अबे टकला कर दिया!
+            [अमरेंद्र नाई]: अरे चश्मा उल्टा था!
+            """,
+            prompt: null,
+            durationSeconds: 12,
+            enableDialogue: true,
+            eventType: "FunnyComedy");
+
+        var peakFrame = ProceduralVideoGeneratorService.PickPeakCleanThumbnailFrame(plan, fps: 24, totalFrames: 12 * 24);
+        Assert.True(peakFrame >= 24 * 2, $"Expected peak clean thumbnail frame past intro hook (>=48), got {peakFrame}");
+    }
+
+    [Fact]
+    public void PalaceCourt_SufiDance_Script_Resolves_Setting_Adaab_And_SufiSpin_Actions()
+    {
+        const string script = """
+            [SCENE]: palace court | sunset | festive
+            [Prince Sartaaj]: (adaab, proud) गुज़ारिश है इन हवाओं से, आज दरबार में सुर और नृत्य सजेगा।
+            [Rani Meera]: (dancing, happy) आहा! हर ताल पर कदम और घुँघरू एक साथ थिरक रहे हैं।
+            [Royal Dancer 1]: (sufiSpin, happy) शीश महल के आँगन में सूफी चक्कर की रौनक देखिए!
+            """;
+
+        Assert.Equal(SceneSetting.PalaceCourt, SceneDirectives.InferSetting("sheesh mahal sufi court"));
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "Guzarish Palace Sufi Dance",
+            script,
+            prompt: "Samode palace courtyard dance",
+            durationSeconds: 12,
+            enableDialogue: true,
+            eventType: "HistoryChronicle");
+
+        Assert.NotNull(plan.Scenes);
+        Assert.Contains(plan.Scenes, s => s.Setting == SceneSetting.PalaceCourt);
+        Assert.Contains(plan.Turns, t => t.Action == "adaab");
+        Assert.Contains(plan.Turns, t => t.Action == "dancing");
+        Assert.Contains(plan.Turns, t => t.Action == "sufiSpin");
+    }
+
+    [Fact]
+    public void Devotional_ThumbnailCopy_And_CleanThumbFrame_Score_Divine_Climax()
+    {
+        var kathaCopy = ThumbnailPosterCopy.Build(
+            "DailyKatha",
+            "मार्कण्डेय ऋषि और भगवान शिव की अमर कथा | सम्पूर्ण पौराणिक कथा",
+            "भक्ति और अमरता",
+            "2026-11-22",
+            isPortrait: false);
+        Assert.Equal("संपूर्ण पौराणिक कथा", kathaCopy.CategoryPill);
+        Assert.Equal("मार्कण्डेय ऋषि और भगवान शिव की अमर कथा", kathaCopy.HeroTitle);
+        Assert.Contains("महाकाल", kathaCopy.PurposeSubline);
+
+        var panchangCopy = ThumbnailPosterCopy.Build(
+            "HinduPanchang",
+            "आज का पंचांग 2026-11-22 | शुक्ल द्वादशी • शुभ मुहूर्त व राहुकाल",
+            null,
+            "2026-11-22",
+            isPortrait: true);
+        Assert.Equal("आज का पंचांग", panchangCopy.HeroTitle);
+        Assert.DoesNotContain("मुहू…", panchangCopy.PurposeSubline);
+
+        var prahladCopy = ThumbnailPosterCopy.Build(
+            "DailyKatha",
+            "भक्त प्रह्लाद की अटूट भक्ति और नरसिंह अवतार की अमर कथा | संपूर्ण पौराणिक गाथा",
+            null,
+            "2026-11-23",
+            isPortrait: false);
+        Assert.Equal("भक्त प्रह्लाद की अटूट भक्ति और नरसिंह अवतार की अमर कथा", prahladCopy.HeroTitle);
+        Assert.Contains("नरसिंह", prahladCopy.PurposeSubline);
+
+        var timedText = "अभिजीत मुहूर्त 11:44 AM - 12:28 PM और ब्रह्म मुहूर्त 05:06 AM - 05:56 AM अत्यंत शुभ हैं।";
+        var chunks = CaptionChunker.Split(timedText, 0, 10, maxChars: 64);
+        Assert.DoesNotContain(chunks, c => c.Text.StartsWith("56 AM", StringComparison.Ordinal) || c.Text.EndsWith("05:", StringComparison.Ordinal));
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "मार्कण्डेय ऋषि और भगवान शिव की अमर कथा",
+            """
+            [SCENE]: forest | morning | serene
+            [ऋषि मृकण्डु]: हे पुत्र, तुम्हारी आयु सीमित है।
+            [बालक मार्कण्डेय]: मैं महादेव की भक्ति करूँगा।
+            [SCENE]: temple | sunset | glowing
+            [यमराज]: (pointing, angry) मेरा पाश अटल है!
+            [भगवान शिव]: (blessing, trishul, lowDramatic) मार्कण्डेय मेरा भक्त है, यह अमर रहेगा!
+            """,
+            prompt: null,
+            durationSeconds: 30,
+            enableDialogue: true,
+            eventType: "DailyKatha");
+
+        var peakFrame = ProceduralVideoGeneratorService.PickPeakCleanThumbnailFrame(plan, fps: 24, totalFrames: 30 * 24);
+        Assert.True(peakFrame >= 24 * 12, $"Expected peak clean thumbnail frame during Divine Shiva climax (>=288), got {peakFrame}");
     }
 }

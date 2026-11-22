@@ -359,7 +359,9 @@ public class StoryScriptPromptTests
     [InlineData(60, 5)]
     [InlineData(150, 12)]
     [InlineData(180, 14)]
-    [InlineData(5000, 40)]
+    [InlineData(900, 69)]
+    [InlineData(1800, 138)]
+    [InlineData(5000, 160)]
     public void The_target_length_turns_into_a_number_of_scenes(int seconds, int scenes) =>
         Assert.Equal(scenes, StoryScriptPrompt.SceneCount(seconds));
 

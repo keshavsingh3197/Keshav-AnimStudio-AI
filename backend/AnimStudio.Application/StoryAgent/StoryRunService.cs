@@ -138,8 +138,8 @@ public sealed partial class StoryRunService(
     public const int MaxTitleChars = 160;
     public const int MaxNotesChars = 2_000;
     public const int MinTargetSeconds = 30;
-    public const int MaxTargetSeconds = 600;
-    public const int MaxScriptReplyChars = 120_000;
+    public const int MaxTargetSeconds = 3600;
+    public const int MaxScriptReplyChars = 360_000;
 
     private static readonly TimeSpan StopWait = TimeSpan.FromSeconds(20);
 

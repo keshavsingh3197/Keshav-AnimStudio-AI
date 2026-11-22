@@ -24,7 +24,13 @@ public enum SceneSetting
     Bedroom = 16,
     LivingRoom = 17,
     Kitchen = 18,
-    SweetShop = 19
+    SweetShop = 19,
+    BarberShop = 20,
+    Courtroom = 21,
+    DoctorClinic = 22,
+    Classroom = 23,
+    QuizStudio = 24,
+    NeighborhoodGate = 25
 }
 
 /// <summary>Light of a scene: shifts sky colours, sun position and particle kind.</summary>
@@ -40,8 +46,8 @@ public enum SceneTimeOfDay
 /// <summary>One <c>[SCENE]</c> directive: where and when the following lines take place, plus an image prompt.</summary>
 public sealed record SceneDirective(SceneSetting Setting, SceneTimeOfDay TimeOfDay, string? Mood, string? ImagePrompt);
 
-/// <summary>One <c>[CAST]</c> directive: a named character with an archetype and an outfit colour.</summary>
-public sealed record CastDirective(string Name, CharacterVisualRole Role, string? RobeHex, string? Look);
+/// <summary>One <c>[CAST]</c> directive: a named character with an archetype, outfit colour, and optional Gemini voice.</summary>
+public sealed record CastDirective(string Name, CharacterVisualRole Role, string? RobeHex, string? Look, string? VoiceId = null);
 
 /// <summary>One <c>[MEME]</c> directive: a reaction meme overlay or freeze-frame punchline dropped after a comic line.</summary>
 public sealed record MemeDirective(string Name, string? Caption, double Seconds = 1.6);
@@ -64,7 +70,7 @@ public static partial class SceneDirectives
         (SceneSetting.ForestAshram, ["forest", "ashram", "jungle", "woods", "tapovan", "वन", "जंगल", "आश्रम", "तपोवन", "कुटिया"]),
         (SceneSetting.RiverGhat, ["river", "ghat", "ganga", "yamuna", "lake", "pond", "sea", "ocean", "shore", "नदी", "घाट", "गंगा", "यमुना", "सरोवर", "समुद्र", "तट"]),
         (SceneSetting.Himalaya, ["himalaya", "mountain", "kailash", "snow", "peak", "hill", "हिमालय", "पर्वत", "कैलाश", "पहाड़", "शिखर"]),
-        (SceneSetting.PalaceCourt, ["palace", "court", "darbar", "throne", "fort", "kingdom", "महल", "दरबार", "राजमहल", "सिंहासन", "किला", "राज्य"]),
+        (SceneSetting.PalaceCourt, ["palace", "court", "darbar", "throne", "fort", "kingdom", "sheesh mahal", "mahal", "sufi", "kathak", "ghazal", "महल", "दरबार", "राजमहल", "सिंहासन", "किला", "राज्य", "शीश महल", "हवेली"]),
         (SceneSetting.Cosmos, ["cosmos", "space", "heaven", "swarga", "vaikuntha", "stars", "sky", "galaxy", "brahmand", "स्वर्ग", "वैकुंठ", "ब्रह्मांड", "आकाश", "तारे", "अंतरिक्ष"]),
         (SceneSetting.Village, ["village", "home", "house", "hut", "farm", "field", "courtyard", "गाँव", "गांव", "घर", "खेत", "आँगन", "आंगन"]),
         (SceneSetting.Battlefield, ["battlefield", "battle", "war", "kurukshetra", "army", "rebellion", "revolt", "fight", "युद्ध", "रणभूमि", "कुरुक्षेत्र", "सेना", "विद्रोह", "संग्राम"]),
@@ -72,14 +78,20 @@ public static partial class SceneDirectives
         (SceneSetting.SkyGauntlet, ["sky gauntlet", "gauntlet", "obstacle course", "portal", "sky bridge", "catwalk", "clean or dirty", "ब्रिज", "बाधा"]),
         (SceneSetting.TankArena, ["tank arena", "tank battle", "bunker", "panzer", "kv-2", "tank", "टैंक", "बंकर"]),
         (SceneSetting.DoorwaySet, ["doorway", "hallway", "corridor", "peek", "pos ronda", "shed door", "दरवाज़ा", "दरवाजा", "गलियारा"]),
-        (SceneSetting.ChaiStall, ["chai", "tapri", "tea stall", "nukkad", "dhaba", "mohalla", "gali", "टपरी", "चाय", "नुक्कड़", "मोहल्ला", "ढाबा"]),
+        (SceneSetting.ChaiStall, ["chai", "tapri", "tea stall", "nukkad", "dhaba", "gali", "टपरी", "चाय", "नुक्कड़", "ढाबा"]),
         (SceneSetting.ComedyStage, ["comedy", "funny", "meme", "standup", "stage", "roast", "sketch", "prank", "laugh", "joker", "joke", "कॉमेडी", "हंसी", "मज़ाक", "चुटकुला"]),
         (SceneSetting.ModernCity, ["city", "office", "street", "modern", "tech", "lab", "studio", "शहर", "दफ्तर", "सड़क", "आधुनिक"]),
         (SceneSetting.Temple, ["temple", "mandir", "shrine", "sanctum", "garbhagriha", "aarti", "puja", "मंदिर", "देवालय", "गर्भगृह", "आरती", "पूजा"]),
         (SceneSetting.Bedroom, ["bedroom", "bed", "cot", "charpai", "pillow", "blanket", "sleeping", "snoring", "woke up", "alarm", "बेडरूम", "पलंग", "चारपाई", "बिस्तर", "तकिया", "रजाई", "खर्राटे", "सो रहा", "नींद"]),
         (SceneSetting.LivingRoom, ["living room", "drawing room", "sofa", "couch", "tv room", "hallway", "सोफा", "सोफे", "बैठक", "हॉल", "टीवी", "लिविंग रूम"]),
         (SceneSetting.Kitchen, ["kitchen", "stove", "cooking", "kadhai", "rabdi", "rasoi", "paratha", "भोजन", "रसोई", "किचन", "चूल्हा", "कड़ाही", "कढ़ाई", "रबड़ी", "सब्ज़ी", "नाश्ता"]),
-        (SceneSetting.SweetShop, ["sweet shop", "halwai", "mithai", "jalebi", "laddoo", "laddu", "bakery", "sweets", "हलवाई", "मिठाई", "दुकान", "जलेबी", "लड्डू", "दुकानदार"])
+        (SceneSetting.SweetShop, ["sweet shop", "halwai", "mithai", "jalebi", "laddoo", "laddu", "bakery", "sweets", "हलवाई", "मिठाई", "दुकान", "जलेबी", "लड्डू", "दुकानदार"]),
+        (SceneSetting.BarberShop, ["barber", "salon", "haircut", "naai", "trimmer", "scissor", "shave", "नाई", "सैलून", "हजामत", "बाल कट", "दाढ़ी", "केंची"]),
+        (SceneSetting.Courtroom, ["court", "courtroom", "judge", "vakeel", "lawyer", "witness", "order order", "trial", "कचहरी", "अदालत", "जज", "वकील", "गवाह", "मुकदमा"]),
+        (SceneSetting.DoctorClinic, ["clinic", "doctor", "hospital", "vaidya", "patient", "stethoscope", "checkup", "medicine", "डॉक्टर", "अस्पताल", "क्लिनिक", "वैद्य", "मरीज़", "दवाई", "इलाज"]),
+        (SceneSetting.Classroom, ["school", "classroom", "teacher", "masterji", "principal", "backbencher", "blackboard", "exam", "स्कूल", "कक्षा", "मास्टरजी", "प्रिंसिपल", "परीक्षा", "क्लास"]),
+        (SceneSetting.QuizStudio, ["kbc", "quiz", "hot seat", "crorepati", "contestant", "buzzer", "lifeline", "केबीसी", "करोड़पति", "सवाल", "बज़र"]),
+        (SceneSetting.NeighborhoodGate, ["gate", "mohalla", "colony", "padosi", "society", "main gate", "knock", "मोहल्ला", "गेट", "कॉलोनी", "पड़ोसी", "दरवाज़ा खट"])
     ];
 
     private static readonly (SceneTimeOfDay Time, string[] Tokens)[] TimeTokens =
@@ -173,7 +185,7 @@ public static partial class SceneDirectives
         return new SceneDirective(setting, time, mood, imagePrompt);
     }
 
-    /// <summary><c>Name | role | look</c>. Null when there is no usable name.</summary>
+    /// <summary><c>Name | role | look | voice=VoiceId</c>. Null when there is no usable name.</summary>
     public static CastDirective? ParseCast(string body)
     {
         var parts = (body ?? string.Empty).Split('|', StringSplitOptions.TrimEntries);
@@ -181,10 +193,49 @@ public static partial class SceneDirectives
         if (string.IsNullOrWhiteSpace(name) || IsDirectiveTag(name)) return null;
 
         var roleText = parts.ElementAtOrDefault(1) ?? string.Empty;
-        var look = Clip(string.Join(' ', parts.Skip(2)), 160);
+        string? voiceId = null;
+        var lookSegments = new List<string>();
+        foreach (var rawPart in parts.Skip(2))
+        {
+            var matchedVoice = MatchVoiceToken(rawPart);
+            if (matchedVoice is not null && rawPart.Trim().StartsWith("voice", StringComparison.OrdinalIgnoreCase))
+            {
+                voiceId ??= matchedVoice;
+                continue;
+            }
+            if (matchedVoice is not null && string.Equals(rawPart.Trim(), matchedVoice, StringComparison.OrdinalIgnoreCase))
+            {
+                voiceId ??= matchedVoice;
+                continue;
+            }
+            if (matchedVoice is not null)
+                voiceId ??= matchedVoice;
+            if (!string.IsNullOrWhiteSpace(rawPart))
+                lookSegments.Add(rawPart);
+        }
+
+        var look = Clip(string.Join(' ', lookSegments), 160);
         var role = MatchRole(roleText) ?? MatchRole(look) ?? DialogueScriptParser.InferRole(name);
         var robe = MatchColour(look) ?? MatchColour(roleText);
-        return new CastDirective(name, role, robe, string.IsNullOrWhiteSpace(look) ? null : look);
+        return new CastDirective(name, role, robe, string.IsNullOrWhiteSpace(look) ? null : look, voiceId);
+    }
+
+    private static readonly string[] AllowedCastVoices =
+        ["Fenrir", "Puck", "Algenib", "Sadachbia", "Orus", "Charon", "Alnilam", "Rasalgethi", "Sadaltager", "Kore", "Aoede", "Leda", "Zephyr", "Sulafat"];
+
+    private static string? MatchVoiceToken(string? segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment)) return null;
+        var trimmed = segment.Trim();
+        if (trimmed.StartsWith("voice", StringComparison.OrdinalIgnoreCase))
+        {
+            var sep = trimmed.IndexOfAny(['=', ':']);
+            if (sep >= 0 && sep + 1 < trimmed.Length)
+                trimmed = trimmed[(sep + 1)..].Trim();
+        }
+        return AllowedCastVoices.FirstOrDefault(v => string.Equals(v, trimmed, StringComparison.OrdinalIgnoreCase))
+            ?? AllowedCastVoices.FirstOrDefault(v => trimmed.Contains($"voice={v}", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Contains($"voice:{v}", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Best-matching painted setting for free text (a scene line, or a spoken line with no scene given).</summary>
@@ -202,6 +253,8 @@ public static partial class SceneDirectives
         SceneSetting.ModernCity => ProceduralSceneTheme.NeonCyberGrid3D,
         SceneSetting.ChaiStall or SceneSetting.ComedyStage or SceneSetting.SkyGauntlet or SceneSetting.TankArena or SceneSetting.DoorwaySet
             or SceneSetting.Bedroom or SceneSetting.LivingRoom or SceneSetting.Kitchen or SceneSetting.SweetShop
+            or SceneSetting.BarberShop or SceneSetting.Courtroom or SceneSetting.DoctorClinic or SceneSetting.Classroom
+            or SceneSetting.QuizStudio or SceneSetting.NeighborhoodGate
             => ProceduralSceneTheme.ComedyStage3D,
         _ => fallback
     };

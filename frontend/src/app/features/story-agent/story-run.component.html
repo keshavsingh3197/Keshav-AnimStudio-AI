@@ -359,7 +359,7 @@
             <span><strong>✓ Script approved.</strong> <span class="muted">Next: the pictures.</span></span>
             <button type="button" (click)="go('pictures')">Go to the pictures →</button>
           } @else {
-            <span><strong>Happy with this script?</strong> <span class="muted">Approving saves it and moves on to the pictures.</span></span>
+            <span><strong>Happy with this script?</strong>&nbsp;<span class="muted">Approving saves it and moves on to the pictures.</span></span>
             <button type="button" [disabled]="busy() !== null || r.status === 'AwaitingScript'" (click)="approve()">
               @if (busy() === 'approve') { <span class="spinner" aria-hidden="true"></span> }
               ✓ Approve the script

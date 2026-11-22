@@ -150,7 +150,12 @@ public sealed class ProceduralVideoGeneratorService(
             dialoguePlan = PlanFor(durationSeconds);
         }
 
-        // 2. Clean stereo BGM bed (one-time cached reusable studio BGM preset when DI cache is wired, else warm pad)
+        // 2. Clean stereo BGM bed (MJO dialogue breathing room on comedy, or cached studio pad)
+        var isComedy = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
+            || resolvedTheme == ProceduralSceneTheme.ComedyStage3D
+            || request.EnableComedySfx;
+        var sparseComedyBgm = request.SparseComedyAudio || (isComedy && string.IsNullOrWhiteSpace(request.CustomBgmPath));
+
         var hasBgm = false;
         string? bgmSource = null;
         if (request.IncludeAmbientAudio)
@@ -160,15 +165,15 @@ public sealed class ProceduralVideoGeneratorService(
             if (!string.IsNullOrWhiteSpace(request.CustomBgmPath) && File.Exists(request.CustomBgmPath))
             {
                 var customOk = bgmCache is not null
-                    ? await bgmCache.NormalizeCustomAudioToWavAsync(request.CustomBgmPath, bgmDst, request.DurationSeconds, ct).ConfigureAwait(false)
-                    : await TranscodeCustomBgmAsync("ffmpeg", request.CustomBgmPath, bgmDst, request.DurationSeconds, ct).ConfigureAwait(false);
+                    ? await bgmCache.NormalizeCustomAudioToWavAsync(request.CustomBgmPath, bgmDst, durationSeconds, ct).ConfigureAwait(false)
+                    : await TranscodeCustomBgmAsync(ffmpegOptions.Value.FfmpegPath is { Length: > 0 } p ? p : "ffmpeg", request.CustomBgmPath, bgmDst, durationSeconds, ct).ConfigureAwait(false);
                 if (customOk && File.Exists(bgmDst))
                 {
                     hasBgm = true;
                     bgmSource = "custom-song";
                 }
             }
-            if (!hasBgm && bgmCache is not null)
+            if (!hasBgm && bgmCache is not null && !sparseComedyBgm)
             {
                 var (cachedPath, src) = await bgmCache.EnsurePresetWavAsync(resolvedTheme, ct: ct).ConfigureAwait(false);
                 if (File.Exists(cachedPath))
@@ -182,9 +187,9 @@ public sealed class ProceduralVideoGeneratorService(
 
             if (!hasBgm)
             {
-                await ProceduralAudioSynthesizer.WriteAmbientWavAsync(bgmDst, resolvedTheme, durationSeconds, ct).ConfigureAwait(false);
+                await ProceduralAudioSynthesizer.WriteAmbientWavAsync(bgmDst, resolvedTheme, durationSeconds, ct, sparseDialogueBed: sparseComedyBgm).ConfigureAwait(false);
                 hasBgm = true;
-                bgmSource = "studio-pad-v2";
+                bgmSource = sparseComedyBgm ? "mjo-comic-jingle-v1" : "studio-pad-v2";
             }
         }
 
@@ -198,9 +203,6 @@ public sealed class ProceduralVideoGeneratorService(
             dialoguePlan = dialoguePlan with { MemeCues = effectiveMemeCues };
 
         // 2.6 Deterministic cartoon & situational action SFX layer (comedy + multi-scene story renders)
-        var isComedy = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
-            || resolvedTheme == ProceduralSceneTheme.ComedyStage3D
-            || request.EnableComedySfx;
         var hasActions = dialoguePlan.Turns.Any(t => !t.IsTitleHook && !string.IsNullOrWhiteSpace(t.Action) && t.Action != "none");
         // A story set somewhere real (forest, river ghat, mountain, city, night) gets its natural sound bed even
         // when nobody moves, so long narrated stories feel like a place rather than a voice over music.
@@ -244,18 +246,27 @@ public sealed class ProceduralVideoGeneratorService(
         var swPrep = Stopwatch.StartNew();
         var frameBytes = width * height * 4;
         byte[][] handOff = [new byte[frameBytes], new byte[frameBytes]];
+        var cleanThumbFrameIdx = request.SaveAsRenderJob
+            ? PickPeakCleanThumbnailFrame(dialoguePlan, fps, totalFrames)
+            : -1;
+        var cleanThumbRgba = request.SaveAsRenderJob ? new byte[frameBytes] : null;
+        var hasCleanThumbRgba = false;
 
         // Prefer real-time Three.js WebGL2 3D rendering when Node + Edge/Chrome are available; verify frame 0
         // BEFORE starting FFmpeg so Auto mode can fall back seamlessly to the C# CPU rasterizer.
+        // For long videos (15m-60m), stream in 2,400-frame Chromium epochs so GPU/JS memory stays flat and resilient.
+        const int WebGlEpochFrames = 2400;
+        var epochIndex = 0;
+        var epochEndFrame = Math.Min(totalFrames, WebGlEpochFrames);
         WebGlFrameSession? webGlSession = null;
         var hasFirstWebGlFrame = false;
         if (request.RenderEngine != ProceduralRenderEngine.CpuFast)
         {
             webGlSession = await WebGlVideoFrameRenderer.TryStartSessionAsync(
-                workspace.Resolve("webgl3d"),
+                workspace.Resolve($"webgl3d-e{epochIndex}"),
                 width, height, fps, durationSeconds, totalFrames, seed,
                 resolvedTheme, request, palette, dialoguePlan, speechEnvelope, backdropFrames,
-                configuration, logger, ct).ConfigureAwait(false);
+                configuration, logger, ct, startFrame: 0, endFrame: epochEndFrame).ConfigureAwait(false);
 
             if (webGlSession is not null)
             {
@@ -285,7 +296,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         var useWebGl = webGlSession is not null && hasFirstWebGlFrame;
         var engineLabel = useWebGl ? "webgl-3d" : "cpu-fast";
-        var rasterizer = useWebGl
+        ProceduralSceneRasterizer? rasterizer = useWebGl
             ? null
             : new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames,
                 request.StageLayout);
@@ -354,16 +365,63 @@ public sealed class ProceduralVideoGeneratorService(
                     var buffer = handOff[frameIndex & 1];
                     if (useWebGl)
                     {
-                        if (frameIndex > 0)
+                        if (frameIndex >= epochEndFrame)
+                        {
+                            if (webGlSession is not null)
+                            {
+                                await webGlSession.DisposeAsync().ConfigureAwait(false);
+                                webGlSession = null;
+                            }
+                            epochIndex++;
+                            epochEndFrame = Math.Min(totalFrames, frameIndex + WebGlEpochFrames);
+                            webGlSession = await WebGlVideoFrameRenderer.TryStartSessionAsync(
+                                workspace.Resolve($"webgl3d-e{epochIndex}"),
+                                width, height, fps, durationSeconds, totalFrames, seed,
+                                resolvedTheme, request, palette, dialoguePlan, speechEnvelope, backdropFrames,
+                                configuration, logger, renderCt, startFrame: frameIndex, endFrame: epochEndFrame).ConfigureAwait(false);
+
+                            var gotEpochHead = webGlSession is not null
+                                && await webGlSession.ReadNextFrameAsync(buffer, renderCt).ConfigureAwait(false);
+                            if (!gotEpochHead)
+                            {
+                                if (webGlSession is not null)
+                                {
+                                    await webGlSession.DisposeAsync().ConfigureAwait(false);
+                                    webGlSession = null;
+                                }
+                                if (request.RenderEngine == ProceduralRenderEngine.WebGl3D)
+                                {
+                                    throw new RenderException(RenderErrorCode.FfmpegError,
+                                        $"WebGL 3D renderer failed starting chunk at frame {frameIndex} of {totalFrames}.");
+                                }
+                                // Fail-safe seamlessly into CPU 3D rasterizer so long renders NEVER leave missing frames
+                                logger.LogWarning("WebGL epoch {Epoch} unavailable at frame {Frame}; completing remaining frames via CPU 3D rasterizer.", epochIndex, frameIndex);
+                                useWebGl = false;
+                                engineLabel = "webgl-cpu-hybrid";
+                                rasterizer ??= new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames, request.StageLayout);
+                                rasterizer.RenderFrame((double)frameIndex / fps, durationSeconds).CopyTo(buffer);
+                            }
+                        }
+                        else if (frameIndex > 0)
                         {
                             var gotFrame = await webGlSession!.ReadNextFrameAsync(buffer, renderCt).ConfigureAwait(false);
                             if (!gotFrame)
                             {
                                 var errTail = await webGlSession.GetStderrAsync().ConfigureAwait(false);
-                                throw new RenderException(
-                                    RenderErrorCode.FfmpegError,
-                                    $"WebGL 3D renderer stopped early at frame {frameIndex} of {totalFrames}.",
-                                    errTail);
+                                await webGlSession.DisposeAsync().ConfigureAwait(false);
+                                webGlSession = null;
+                                if (request.RenderEngine == ProceduralRenderEngine.WebGl3D)
+                                {
+                                    throw new RenderException(
+                                        RenderErrorCode.FfmpegError,
+                                        $"WebGL 3D renderer stopped early at frame {frameIndex} of {totalFrames}.",
+                                        errTail);
+                                }
+                                logger.LogWarning("WebGL 3D stopped early at frame {Frame}; completing remaining frames seamlessly via CPU 3D rasterizer: {Err}", frameIndex, errTail);
+                                useWebGl = false;
+                                engineLabel = "webgl-cpu-hybrid";
+                                rasterizer ??= new ProceduralSceneRasterizer(width, height, resolvedTheme, seed, palette, dialoguePlan, speechEnvelope, fps, $"{title} {request.Prompt}", backdropFrames, request.StageLayout);
+                                rasterizer.RenderFrame((double)frameIndex / fps, durationSeconds).CopyTo(buffer);
                             }
                         }
                     }
@@ -371,6 +429,12 @@ public sealed class ProceduralVideoGeneratorService(
                     {
                         var timeSeconds = (double)frameIndex / fps;
                         rasterizer!.RenderFrame(timeSeconds, durationSeconds).CopyTo(buffer);
+                    }
+
+                    if (cleanThumbRgba is not null && (frameIndex == cleanThumbFrameIdx || (!hasCleanThumbRgba && frameIndex == totalFrames - 1)))
+                    {
+                        Buffer.BlockCopy(buffer, 0, cleanThumbRgba, 0, frameBytes);
+                        hasCleanThumbRgba = true;
                     }
 
                     await pendingWrite.ConfigureAwait(false);
@@ -427,7 +491,10 @@ public sealed class ProceduralVideoGeneratorService(
                 tail);
         }
 
-        var mp4Bytes = await File.ReadAllBytesAsync(outPath, ct).ConfigureAwait(false);
+        var outputBytesCount = new FileInfo(outPath).Length;
+        byte[]? inlineMp4Bytes = request.ReturnInlineBytes
+            ? await File.ReadAllBytesAsync(outPath, ct).ConfigureAwait(false)
+            : null;
         swTotal.Stop();
 
         string? jobId = null;
@@ -441,8 +508,15 @@ public sealed class ProceduralVideoGeneratorService(
             jobId = Guid.NewGuid().ToString("N");
             storageKey = $"renders/{jobId}.mp4";
 
-            await using (var ms = new MemoryStream(mp4Bytes, writable: false))
-                await objectStore.SaveAsync(storageKey, ms, "video/mp4", ct).ConfigureAwait(false);
+            await using (var fs = new FileStream(outPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, useAsync: true))
+                await objectStore.SaveAsync(storageKey, fs, "video/mp4", ct).ConfigureAwait(false);
+
+            if (hasCleanThumbRgba && cleanThumbRgba is not null)
+            {
+                var cleanPng = PngFrameEncoder.EncodeRgba(cleanThumbRgba, width, height);
+                await using var cleanMs = new MemoryStream(cleanPng, writable: false);
+                await objectStore.SaveAsync($"renders/{jobId}.cleanthumb.png", cleanMs, "image/png", ct).ConfigureAwait(false);
+            }
 
             var now = clock.GetUtcNow().UtcDateTime;
             var job = new RenderJob
@@ -460,7 +534,7 @@ public sealed class ProceduralVideoGeneratorService(
                 ScenesTotal = 1,
                 ScenesDone = 1,
                 OutputStorageKey = storageKey,
-                OutputSizeBytes = mp4Bytes.Length,
+                OutputSizeBytes = outputBytesCount,
                 OutputDurationFrames = totalFrames,
                 Width = width,
                 Height = height,
@@ -485,7 +559,7 @@ public sealed class ProceduralVideoGeneratorService(
 
         logger.LogInformation(
             "Generated {Theme} 3D animated video via {Engine} ({Width}x{Height}, {Duration}s, {Bytes} bytes) in {Elapsed}ms for user {UserId}.",
-            resolvedTheme, engineLabel, width, height, durationSeconds, mp4Bytes.Length, swTotal.ElapsedMilliseconds, userId);
+            resolvedTheme, engineLabel, width, height, durationSeconds, outputBytesCount, swTotal.ElapsedMilliseconds, userId);
 
         var summaryVoice = string.IsNullOrWhiteSpace(voiceSummary) ? string.Empty : $", voice={voiceSummary}";
         return new ProceduralVideoResult(
@@ -496,9 +570,9 @@ public sealed class ProceduralVideoGeneratorService(
             width,
             height,
             durationSeconds,
-            mp4Bytes.Length,
+            outputBytesCount,
             storageKey,
-            request.ReturnInlineBytes ? mp4Bytes : null,
+            inlineMp4Bytes,
             $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}, engine={engineLabel}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
     }
 
@@ -540,30 +614,74 @@ public sealed class ProceduralVideoGeneratorService(
         var isPortrait = height > width;
         var isHindi = !string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase);
 
-        // 1. Fixed Top Header Template ("Content of the Day" badge + clean 2-line full title without "..." cutoff)
-        var categoryText = string.IsNullOrWhiteSpace(request.TopCategoryLabel)
-            ? palette.HeaderBadgeText
-            : request.TopCategoryLabel.Trim();
-        lines.Add(new DialogueLine
-        {
-            Index = index++,
-            SpeakerLabel = "Banner",
-            SpeakerCharacterId = TopCategoryStyleCharId,
-            Text = $"* {categoryText} *",
-            RelativeStartFrame = 0,
-            RelativeEndFrame = endFrame
-        });
+        var isComedyEvent = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase);
 
-        var headerTitle = WrapLinesForAss(title, isPortrait ? 34 : 56, maxLines: 2);
-        lines.Add(new DialogueLine
+        // 1. Safe-zoned cover header & opening poster title (on non-comedy portrait Shorts, stays well below YouTube's
+        // top status/Scheduled pill AND renders a big, crisp opening headline so Shorts shelf thumbnails clearly tell what it's for)
+        var posterCopy = ThumbnailPosterCopy.Build(request.EventType, title, request.Prompt, request.TopCategoryLabel, isPortrait);
+        var categoryText = !isComedyEvent && isPortrait && !string.IsNullOrWhiteSpace(posterCopy.CategoryPill)
+            ? posterCopy.CategoryPill
+            : string.IsNullOrWhiteSpace(request.TopCategoryLabel)
+                ? palette.HeaderBadgeText
+                : request.TopCategoryLabel.Trim();
+        var coverEndFrame = Math.Clamp((int)Math.Round(2.5 * fps), 2, Math.Max(2, endFrame));
+
+        if (!isComedyEvent && isPortrait)
         {
-            Index = index++,
-            SpeakerLabel = "HeaderTitle",
-            SpeakerCharacterId = TopTitleStyleCharId,
-            Text = headerTitle,
-            RelativeStartFrame = 0,
-            RelativeEndFrame = endFrame
-        });
+            lines.Add(new DialogueLine
+            {
+                Index = index++,
+                SpeakerLabel = "Banner",
+                SpeakerCharacterId = TopCategoryStyleCharId,
+                Text = categoryText,
+                RelativeStartFrame = 0,
+                RelativeEndFrame = endFrame
+            });
+            lines.Add(new DialogueLine
+            {
+                Index = index++,
+                SpeakerLabel = "HeaderTitle",
+                SpeakerCharacterId = TopTitleStyleCharId,
+                Text = WrapLinesForAss(posterCopy.HeroTitle, 20, maxLines: 2),
+                RelativeStartFrame = 0,
+                RelativeEndFrame = endFrame
+            });
+            if (!string.IsNullOrWhiteSpace(posterCopy.PurposeSubline))
+            {
+                lines.Add(new DialogueLine
+                {
+                    Index = index++,
+                    SpeakerLabel = "TitleHook",
+                    SpeakerCharacterId = TitleStyleCharId,
+                    Text = WrapLinesForAss(posterCopy.PurposeSubline, 26, maxLines: 2),
+                    RelativeStartFrame = 0,
+                    RelativeEndFrame = coverEndFrame
+                });
+            }
+        }
+        else
+        {
+            lines.Add(new DialogueLine
+            {
+                Index = index++,
+                SpeakerLabel = "Banner",
+                SpeakerCharacterId = TopCategoryStyleCharId,
+                Text = $"* {categoryText} *",
+                RelativeStartFrame = 0,
+                RelativeEndFrame = endFrame
+            });
+
+            var headerTitle = WrapLinesForAss(title, isPortrait ? 34 : 56, maxLines: 2);
+            lines.Add(new DialogueLine
+            {
+                Index = index++,
+                SpeakerLabel = "HeaderTitle",
+                SpeakerCharacterId = TopTitleStyleCharId,
+                Text = headerTitle,
+                RelativeStartFrame = 0,
+                RelativeEndFrame = endFrame
+            });
+        }
 
         // 2. Colorful Animated Subtitles (safe-zoned above YouTube Shorts UI on 9:16 portrait)
         var bodyWrapWidth = isPortrait ? 30 : 54;
@@ -631,7 +749,7 @@ public sealed class ProceduralVideoGeneratorService(
                 Index = index++,
                 SpeakerLabel = "MemePop",
                 SpeakerCharacterId = MemePopStyleCharId,
-                Text = WrapLinesForAss($"😂 {memeLabel}", isPortrait ? 24 : 38, maxLines: 2),
+                Text = WrapLinesForAss(memeLabel, isPortrait ? 24 : 38, maxLines: 2),
                 RelativeStartFrame = startFrame,
                 RelativeEndFrame = cueEndFrame
             });
@@ -657,9 +775,15 @@ public sealed class ProceduralVideoGeneratorService(
             _ => SubtitleMotionPreset.EventGlow
         };
 
-        var topCategoryMargin = Math.Max(14, height / 62);
-        var topTitleMargin = isPortrait ? Math.Max(48, height / 23) : Math.Max(42, height / 20);
-        var titleHookMargin = isPortrait ? Math.Max(148, (int)Math.Round(height * 0.118)) : Math.Max(105, (int)Math.Round(height * 0.145));
+        var topCategoryMargin = isPortrait
+            ? (isComedyEvent ? Math.Max(14, height / 68) : Math.Max(92, (int)Math.Round(height * 0.072)))
+            : 12;
+        var topTitleMargin = isPortrait
+            ? (isComedyEvent ? Math.Max(54, (int)Math.Round(height * 0.045)) : Math.Max(134, (int)Math.Round(height * 0.105)))
+            : Math.Max(42, (int)Math.Round(height * 0.060));
+        var titleHookMargin = isPortrait
+            ? (isComedyEvent ? Math.Max(152, (int)Math.Round(height * 0.120)) : Math.Max(228, (int)Math.Round(height * 0.178)))
+            : Math.Max(94, (int)Math.Round(height * 0.132));
 
         // On 9:16 mobile Shorts, reserve bottom ~27% for YouTube @handle/title/Share overlay and right ~18% for Like/Save/Comment/Share buttons.
         var dialogueMargin = isPortrait
@@ -674,13 +798,13 @@ public sealed class ProceduralVideoGeneratorService(
         var karaokeSecondary = motionPreset == SubtitleMotionPreset.KaraokePulse;
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
         {
-            [TopCategoryStyleCharId] = new("TopCategory", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: isPortrait ? 54 : 56, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 40, MarginR: 40),
-            [TopTitleStyleCharId] = new("HeaderTitle", palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? 70 : 76, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 38, MarginR: 38),
-            [TitleStyleCharId] = new("TitleHook", palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? 68 : 80, OutlineColorHex: "#111827", SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait ? captionMarginR : captionMarginL),
-            [MemePopStyleCharId] = new("MemePop", "#FEF08A", Bold: true, Alignment: 8, MarginV: isPortrait ? Math.Max(255, (int)Math.Round(height * 0.20)) : Math.Max(130, (int)Math.Round(height * 0.17)), FontScalePercent: isPortrait ? 86 : 92, OutlineColorHex: "#7C2D12", SecondaryColorHex: "#F97316", MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: 48, MarginR: 48),
-            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: karaokeSecondary ? "#F8FAFC" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 88 : 94, OutlineColorHex: "#0F172A", SecondaryColorHex: karaokeSecondary ? "#F8FAFC" : palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#0F172A", SecondaryColorHex: karaokeSecondary ? "#F8FAFC" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [TopCategoryStyleCharId] = new("TopCategory", isPortrait && !isComedyEvent ? "#FFFFFF" : palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: topCategoryMargin, FontScalePercent: isPortrait ? (isComedyEvent ? 52 : 66) : 48, OutlineColorHex: isPortrait ? (isComedyEvent ? "#111827" : "#9A3412") : null, BackColorHex: isPortrait ? (isComedyEvent ? "#111827" : "#9A3412") : null, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 40, MarginR: 40, OpaqueBox: isPortrait),
+            [TopTitleStyleCharId] = new("HeaderTitle", isPortrait ? "#FACC15" : palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? (isComedyEvent ? 72 : 112) : 66, OutlineColorHex: isPortrait ? (isComedyEvent ? "#B91C1C" : "#1C1917") : "#020617", BackColorHex: isPortrait ? (isComedyEvent ? "#B91C1C" : "#7C2D12") : null, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 42, MarginR: 42, OpaqueBox: isPortrait && isComedyEvent),
+            [TitleStyleCharId] = new("TitleHook", isPortrait && !isComedyEvent ? "#FFFFFF" : palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? (isComedyEvent ? 68 : 78) : 80, OutlineColorHex: isPortrait && !isComedyEvent ? "#B91C1C" : "#111827", BackColorHex: isPortrait && !isComedyEvent ? "#B91C1C" : null, SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait && isComedyEvent ? captionMarginR : captionMarginL, OpaqueBox: isPortrait && !isComedyEvent),
+            [MemePopStyleCharId] = new("MemePop", "#FEF08A", Bold: true, Alignment: 8, MarginV: isPortrait ? Math.Max(255, (int)Math.Round(height * 0.20)) : Math.Max(130, (int)Math.Round(height * 0.17)), FontScalePercent: isPortrait ? 86 : 92, OutlineColorHex: "#7C2D12", BackColorHex: isPortrait ? "#7C2D12" : null, SecondaryColorHex: "#F97316", MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: 48, MarginR: 48, OpaqueBox: isPortrait),
+            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 92 : 98, OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
             [FooterStyleCharId] = new("FooterTag", "#E2E8F0", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: isPortrait ? 52 : 54, OutlineColorHex: "#0F172A", MotionPreset: SubtitleMotionPreset.None, MarginL: captionMarginL, MarginR: captionMarginR)
         };
 
@@ -691,6 +815,70 @@ public sealed class ProceduralVideoGeneratorService(
             styles,
             AssSubtitleWriter.StockFontName,
             fontSize));
+    }
+
+    internal static int PickPeakCleanThumbnailFrame(ProceduralDialoguePlan plan, int fps, int totalFrames)
+    {
+        if (totalFrames <= 1 || fps <= 0)
+            return 0;
+
+        var activeTurns = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+        if (activeTurns.Count == 0)
+            return Math.Clamp((int)Math.Round(totalFrames * 0.45), 0, totalFrames - 1);
+
+        var totalSeconds = Math.Max(1.0, activeTurns.Max(t => t.EndSeconds));
+        ProceduralDialogueTurn best = activeTurns[activeTurns.Count / 2];
+        var bestScore = int.MinValue;
+
+        var isDevotionalOrHistory = plan.Memes.Count == 0
+            && !activeTurns.Any(t => t.SpeakerRole == CharacterVisualRole.ComicBobble
+                || t.Action is "lookInMirror" or "shockedFall" or "slapForehead" or "removingTowel" or "cutting");
+        foreach (var turn in activeTurns)
+        {
+            var score = 0;
+            if (turn.Action is "lookInMirror" or "shockedFall" or "slapForehead" or "removingTowel") score += 14;
+            if (turn.SpeakerRole == CharacterVisualRole.Divine) score += 16;
+            else if (turn.SpeakerRole == CharacterVisualRole.ChildDevotee) score += 7;
+            else if (isDevotionalOrHistory && turn.SpeakerRole == CharacterVisualRole.KingCrown) score -= 5;
+            if (turn.SpeakerProp is "trishul" or "flute" or "bow" or "diya" or "scroll" or "kalash") score += 8;
+            if (turn.Action is "aarti" or "praying" or "blessing" or "pointing" or "walking") score += 6;
+            if (!isDevotionalOrHistory && turn.Emotion is "angry" or "surprised") score += 9;
+            else if (turn.Emotion is "serene" or "devotional" or "inspired" or "happy") score += 6;
+            else if (turn.Emotion is "laughing" or "confused" or "sarcastic") score += 4;
+            if (turn.CameraShot is "twoShot" or "reactionZoom" or "crashPunch") score += (isDevotionalOrHistory ? 14 : 8);
+            else if (turn.CameraShot == "lowDramatic") score += 7;
+            else if (turn.CameraShot == "wideEstablishing" && isDevotionalOrHistory) score += 5;
+            else if (turn.CameraShot is "closeUpSpeaker" && !isDevotionalOrHistory && turn.Slot == DialogueSpeakerSlot.Right) score += 6;
+            else if (turn.CameraShot == "closeUpSpeaker" && isDevotionalOrHistory) score -= 4;
+            if (turn.CameraShot == "overShoulder") score -= 12;
+            if (turn.Action == "cutting" && turn.CameraShot == "closeUpSpeaker") score -= 6;
+            if (!string.IsNullOrWhiteSpace(turn.Text))
+            {
+                var lower = turn.Text.ToLowerInvariant();
+                if (lower.Contains("टकला") || lower.Contains("कटोरा") || lower.Contains("चाँद") || lower.Contains("चांद")
+                    || lower.Contains("बकवास") || lower.Contains("बाप रे") || lower.Contains("नालायक"))
+                    score += 7;
+                if (lower.Contains("प्रकट") || lower.Contains("अमर") || lower.Contains("महादेव")
+                    || lower.Contains("भगवान") || lower.Contains("शिव") || lower.Contains("वरदान")
+                    || lower.Contains("नरसिंह") || lower.Contains("विष्णु") || lower.Contains("प्रह्लाद") || lower.Contains("मार्कण्डेय"))
+                    score += 7;
+            }
+            if (isDevotionalOrHistory && turn.StartSeconds >= totalSeconds * 0.50 && turn.EndSeconds <= totalSeconds * 0.96)
+                score += 6;
+            else if (turn.StartSeconds >= totalSeconds * 0.28 && turn.EndSeconds <= totalSeconds * 0.94)
+                score += 3;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = turn;
+            }
+        }
+
+        var peakSeconds = best.StartSeconds + (Math.Max(0.2, best.EndSeconds - best.StartSeconds) * 0.62);
+        var minFrame = Math.Min(totalFrames - 1, (int)Math.Round(fps * 2.2));
+        var targetFrame = (int)Math.Round(peakSeconds * fps);
+        return Math.Clamp(targetFrame, Math.Min(minFrame, Math.Max(0, totalFrames - 1)), Math.Max(0, totalFrames - 2));
     }
 
     private static string WrapLinesForAss(string text, int maxCharsPerLine, int maxLines)
@@ -1228,7 +1416,7 @@ public sealed class ProceduralVideoGeneratorService(
             UseShellExecute = false,
             CreateNoWindow = true
         };
-        var limit = Math.Clamp(maxSeconds, 10, 600).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var limit = Math.Clamp(maxSeconds, 10, ProceduralVideoRequest.MaxSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
         foreach (var arg in new[]
         {
             "-y",
@@ -1249,7 +1437,7 @@ public sealed class ProceduralVideoGeneratorService(
         if (proc is null) return false;
         proc.StandardInput.Close();
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(45, maxSeconds / 12)));
         _ = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
         await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
         return proc.ExitCode == 0 && File.Exists(outputWavPath);

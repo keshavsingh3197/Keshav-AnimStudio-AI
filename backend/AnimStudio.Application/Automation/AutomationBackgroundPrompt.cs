@@ -65,6 +65,12 @@ public static partial class AutomationBackgroundPromptBuilder
         SceneSetting.LivingRoom => "bright Indian family living room with sofa seating, coffee table, framed wall art, curtains and wooden door",
         SceneSetting.Kitchen => "lively Indian home kitchen with gas stove, steaming brass rabdi kadhai, spice rack jars and warm counter light",
         SceneSetting.SweetShop => "vibrant Indian halwai mithai sweet shop counter with stacked laddoo trays, marigold garlands and warm lantern glow",
+        SceneSetting.BarberShop => "busy Indian neighborhood barber salon interior with framed wall mirror, barber swivel chair, hair tonic bottles on shelf and tiled floor",
+        SceneSetting.Courtroom => "classic Indian courtroom interior with elevated wooden judge bench, brass justice scales, wood-paneled walls and witness stand",
+        SceneSetting.DoctorClinic => "bright clean neighborhood doctor clinic room with wooden desk, examination bed, medical chart and cabinet",
+        SceneSetting.Classroom => "traditional Indian school classroom with wooden benches, wide green chalkboard, ceiling fan and sunlit windows",
+        SceneSetting.QuizStudio => "vibrant television quiz studio stage with glowing golden circular floor rings, twin podiums and dramatic spotlight beams",
+        SceneSetting.NeighborhoodGate => "sunny Indian colony street main gate with brick boundary wall, wrought iron gate, banyan tree shade and street pole",
         _ => "cinematic Indian landscape with a clear open foreground"
     };
 

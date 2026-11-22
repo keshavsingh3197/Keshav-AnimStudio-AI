@@ -28,7 +28,7 @@ export function reviewComedyStory(file: StoryExportFile): ComedyReview {
   if (!script) throw new Error('The story has no script.');
   const cast = Array.isArray(script['cast']) ? script['cast'].map((person) => text(object(person)['name'])).filter(Boolean) : [];
   const warnings: string[] = [];
-  if (script.scenes.length < 2 || script.scenes.length > 60) warnings.push('A story needs 2 to 60 scenes with spoken words.');
+  if (script.scenes.length < 2 || script.scenes.length > 200) warnings.push('A story needs 2 to 200 scenes with spoken words.');
   const scenes = script.scenes.map((value, index) => {
     const scene = object(value);
     const lines = Array.isArray(scene['lines']) ? scene['lines'].map(object) : [];

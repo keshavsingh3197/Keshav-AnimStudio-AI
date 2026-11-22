@@ -1,5 +1,7 @@
 using AnimStudio.Application.Automation;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Domain.Automation;
+using AnimStudio.Domain.Publishing;
 
 namespace AnimStudio.Application.Tests.Automation;
 
@@ -72,4 +74,66 @@ public class AutopilotReleaseSlotTests
         Assert.Null(AutomationPublishAdvisor.PickAutopilotReleaseUtc(
             Advice(now.AddMinutes(5)), AutomationSourceType.FunnyComedy, "2026-11-21", Utc, now, Lead));
     }
+
+    [Fact]
+    public void ChannelAudiencePeakAnalyzer_promotes_high_performing_channel_hours_on_target_date()
+    {
+        var ist = PublishSlotSuggester.ResolveTimeZone("Asia/Kolkata");
+        var nowUtc = new DateTime(2026, 11, 21, 16, 30, 0, DateTimeKind.Utc); // 22:00 IST Nov 21
+
+        // Historical uploads on KeshavSinghWorld: 10:00 IST videos avg 400 views/day, 15:00 IST videos avg 40 views/day
+        var videos = new List<YouTubeAnalyzedVideo>
+        {
+            VideoAtIst("v1", new DateTime(2026, 11, 10, 10, 0, 0), 4000, ist),
+            VideoAtIst("v2", new DateTime(2026, 11, 12, 10, 0, 0), 3600, ist),
+            VideoAtIst("v3", new DateTime(2026, 11, 14, 15, 0, 0), 280, ist),
+            VideoAtIst("v4", new DateTime(2026, 11, 16, 15, 0, 0), 240, ist),
+        };
+        var analysis = new AnimStudio.Domain.Publishing.YouTubeChannelAnalysis
+        {
+            Id = "yca_1",
+            UserId = "u1",
+            ChannelId = "UCVP_DbP7xIOc_LFQTqaLbyg",
+            ChannelTitle = "KeshavSinghWorld",
+            Videos = videos,
+            FetchedAtUtc = nowUtc
+        };
+
+        var baseAdvice = AutomationPublishAdvisor.BuildAdvice(
+            AutomationSourceType.AajKaItihaas,
+            AutomationVideoFormat.Vertical,
+            ist,
+            nowUtc,
+            [],
+            []);
+
+        var enriched = ChannelAudiencePeakAnalyzer.EnrichAdvice(
+            baseAdvice,
+            AutomationSourceType.AajKaItihaas,
+            AutomationVideoFormat.Vertical,
+            analysis,
+            ist,
+            nowUtc,
+            [],
+            count: 4,
+            targetDateKey: "2026-11-22");
+
+        Assert.NotEmpty(enriched.Slots);
+        var firstLocal = TimeZoneInfo.ConvertTimeFromUtc(enriched.RecommendedAtUtc, ist);
+        Assert.Equal(new DateTime(2026, 11, 22), firstLocal.Date);
+        Assert.Equal(10, firstLocal.Hour);
+        Assert.Contains("Channel Peak", enriched.Slots[0].ExpectedReachTier, StringComparison.Ordinal);
+    }
+
+    private static YouTubeAnalyzedVideo VideoAtIst(string id, DateTime istLocal, long views, TimeZoneInfo ist) => new()
+    {
+        VideoId = id,
+        Title = $"History {id}",
+        Privacy = "public",
+        DurationSeconds = 55,
+        PublishedAtUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(istLocal, DateTimeKind.Unspecified), ist),
+        Views = views,
+        Likes = views / 15,
+        Comments = views / 80
+    };
 }

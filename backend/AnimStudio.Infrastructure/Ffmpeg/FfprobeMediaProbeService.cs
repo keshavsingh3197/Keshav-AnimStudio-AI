@@ -71,7 +71,23 @@ public sealed class FfprobeMediaProbeService(
                 Timeout = TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds)
             }, progress: null, ct).ConfigureAwait(false);
 
-            return result.ExitCode == 0 ? Parse(result.StdOut) : new MediaProbe();
+            if (result.ExitCode != 0) return new MediaProbe();
+
+            var probe = Parse(result.StdOut);
+            if ((probe.DurationSeconds is null || probe.DurationSeconds <= 0)
+                && (probe.Width is not null || probe.AudioCodec is not null))
+            {
+                // Live browser MediaRecorder WebM streams omit header Duration; compute exact duration from stream packets.
+                var streamSel = probe.Width is not null ? "v:0" : "a:0";
+                var scanned = await ProbePacketDurationAsync(fileName, streamSel, directory, ct).ConfigureAwait(false);
+                if (scanned > 0)
+                {
+                    probe.DurationSeconds = scanned;
+                    if (probe.Width is not null && (probe.VideoDurationSeconds is null || probe.VideoDurationSeconds <= 0))
+                        probe.VideoDurationSeconds = scanned;
+                }
+            }
+            return probe;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -143,5 +159,44 @@ public sealed class FfprobeMediaProbeService(
         }
 
         return probe;
+    }
+
+    private async Task<double> ProbePacketDurationAsync(string fileName, string streamSelector, string workingDirectory, CancellationToken ct)
+    {
+        var scan = await runner.RunAsync(new FfmpegInvocation
+        {
+            Tool = FfmpegTool.Ffprobe,
+            WorkingDirectory = workingDirectory,
+            Arguments =
+            [
+                "-v", "error",
+                "-select_streams", streamSelector,
+                "-show_entries", "packet=pts_time,duration_time",
+                "-of", "csv=p=0",
+                fileName
+            ],
+            Timeout = TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds),
+            FailureExpected = true
+        }, progress: null, ct).ConfigureAwait(false);
+
+        if (scan.ExitCode != 0 || string.IsNullOrWhiteSpace(scan.StdOut)) return 0;
+
+        double maxEnd = 0;
+        foreach (var line in scan.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split(',');
+            if (parts.Length >= 1
+                && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var pts)
+                && double.IsFinite(pts))
+            {
+                var dur = parts.Length >= 2
+                    && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+                    && double.IsFinite(d) && d > 0
+                    ? d
+                    : 1.0 / 30.0;
+                maxEnd = Math.Max(maxEnd, pts + dur);
+            }
+        }
+        return maxEnd;
     }
 }

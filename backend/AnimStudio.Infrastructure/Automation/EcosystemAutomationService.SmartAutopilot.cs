@@ -15,12 +15,6 @@ public sealed partial class EcosystemAutomationService
     /// </summary>
     private async Task PublishAutopilotPostAsync(AutomationPost post, AutomationWorkspaceConfig settings, CancellationToken ct)
     {
-        if (!settings.AutopilotReleaseAtPeakTime || post.ScheduledAtUtc.HasValue)
-        {
-            await ExecutePublishAsync(post.UserId, post, publishNow: true, scheduledAtUtc: null, ct).ConfigureAwait(false);
-            return;
-        }
-
         try
         {
             post = await AutoFillMissingDetailsAsync(post.UserId, post.Id, ct).ConfigureAwait(false);
@@ -28,22 +22,38 @@ public sealed partial class EcosystemAutomationService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Missing SEO isn't worth blocking a release over; the upload path still validates the metadata.
-            logger.LogInformation(ex, "Autopilot could not auto-fill details for post {PostId}; publishing with what it has", post.Id);
+            logger.LogInformation(ex, "Autopilot could not auto-fill details for post {PostId}; continuing with existing metadata", post.Id);
         }
 
-        DateTime? releaseAt = null;
-        try
+        if (!settings.AutopilotReleaseAtPeakTime)
         {
-            var advice = await GetPublishAdviceAsync(post.UserId, post.SourceType, post.Format, post.TargetChannelId,
-                settings.DefaultTimeZone, ct).ConfigureAwait(false);
-            var tz = PublishSlotSuggester.ResolveTimeZone(settings.DefaultTimeZone);
-            // A little more than YouTube's minimum, so processing a long upload can't make the release time stale.
-            releaseAt = AutomationPublishAdvisor.PickAutopilotReleaseUtc(advice, post.SourceType, post.DateKey, tz, UtcNow,
-                PublishQueueRules.MinYouTubeReleaseLead + TimeSpan.FromMinutes(10));
+            await ExecutePublishAsync(post.UserId, post, publishNow: true, scheduledAtUtc: null, ct).ConfigureAwait(false);
+            return;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+
+        var minReleaseLead = PublishQueueRules.MinYouTubeReleaseLead + TimeSpan.FromMinutes(10);
+        DateTime? releaseAt = null;
+        var tz = PublishSlotSuggester.ResolveTimeZone(settings.DefaultTimeZone);
+
+        if (post.ScheduledAtUtc is { } preScheduled && preScheduled >= UtcNow + minReleaseLead)
         {
-            logger.LogInformation(ex, "Autopilot could not compute a peak slot for post {PostId}; publishing now", post.Id);
+            releaseAt = preScheduled;
+        }
+        else
+        {
+            try
+            {
+                var advice = await GetPublishAdviceAsync(
+                    post.UserId, post.SourceType, post.Format, post.TargetChannelId,
+                    settings.DefaultTimeZone, ct, targetDateKey: post.DateKey).ConfigureAwait(false);
+                // A little more than YouTube's minimum, so processing a long upload can't make the release time stale.
+                releaseAt = AutomationPublishAdvisor.PickAutopilotReleaseUtc(
+                    advice, post.SourceType, post.DateKey, tz, UtcNow, minReleaseLead);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogInformation(ex, "Autopilot could not compute a peak slot for post {PostId}; publishing now", post.Id);
+            }
         }
 
         if (releaseAt is { } at)

@@ -422,6 +422,22 @@ public sealed partial class ContentPlanningService(
         item.Status = status;
     }
 
+    /// <summary>Clears a deleted or replaced YouTube video from its planned post so it can be re-published.</summary>
+    public async Task UnlinkRemovedVideoAsync(string userId, string videoId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(videoId)) return;
+        var item = await items.FindByVideoIdAsync(userId, videoId.Trim(), ct);
+        if (item is null) return;
+        item.VideoId = null;
+        item.VideoAutoLinked = false;
+        item.YouTube = null;
+        item.SyncMessage = null;
+        if (item.Status is ContentPlanStatus.Scheduled or ContentPlanStatus.Published)
+            item.Status = ContentPlanStatus.Ready;
+        item.UpdatedAt = Now;
+        await items.UpsertAsync(item, ct);
+    }
+
     // ---------------------------------------------------------------- links
 
     public async Task<IReadOnlyList<ContentSourceLink>> ListLinksAsync(string userId, string? topicId, string? planItemId, CancellationToken ct)

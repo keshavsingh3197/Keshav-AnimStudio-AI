@@ -162,7 +162,7 @@ public sealed record ComedyWorkspaceRequest
     [RegularExpression("^(2D|3D)$")]
     public string Style { get; init; } = "3D";
 
-    [Range(10, 600)]
+    [Range(10, 3600)]
     public int TargetSeconds { get; init; } = 60;
 
     [RegularExpression("^(CharactersOnly|Narrated)$")]

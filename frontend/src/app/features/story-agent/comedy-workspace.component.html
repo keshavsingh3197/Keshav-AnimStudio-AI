@@ -12,12 +12,11 @@
 
     <div class="cw-hero-row">
       <div class="cw-hero-copy">
-        <span class="cw-eyebrow">All-In-One 3D Comedy Video Studio</span>
-        <h1>3D Animated Comedy — Local &amp; International</h1>
+        <span class="cw-eyebrow">Keshav Director Console · 3D Prop &amp; Multi-Cast Engine</span>
+        <h1>3D Animated Comedy Studio — Desi &amp; Global Series</h1>
         <p class="muted">
-          Create real <strong>3D animated MP4 comedy videos</strong> right here — zero switching between screens or guessing which engine to pick.
-          Switch tracks between <strong>🇮🇳 Local Desi (&#64;KESHAV-ANIM-FF)</strong> &amp; <strong>🌍 International Slapstick / Tank Series</strong>,
-          generate AI backgrounds, verify YouTube &amp; Ad Policy readiness, and publish directly.
+          Direct multi-character <strong>3D animated MP4 episodes &amp; Shorts</strong> (up to 60 min) with live hands-on props
+          (scissors, combs, keys, teacups, gavels, mics), role-locked 3D rooms, synchronized SFX, policy checks, and peak-slot publishing.
         </p>
       </div>
 
@@ -106,11 +105,42 @@
       </div>
 
       <div class="presets-bar">
-        <span class="presets-label">Starter Presets:</span>
-        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('desi')">🇮🇳 Desi Khadi Sitcom</button>
-        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('international')">🌍 Global 3D Loop</button>
-        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('tank')">🛡️ Tank Series EP</button>
+        <span class="presets-label">Signature Presets:</span>
+        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('desi')">🫖 Midnight Tapri Sitcom</button>
+        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('mjo-barber')">💈 Salon Scissor Kaand</button>
+        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('mjo-gate')">🚪 Mohalla Gate Drama</button>
+        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('international')">🌍 Doorway Slapstick</button>
+        <button type="button" class="secondary small" [disabled]="busy()" (click)="applyAutoComedyPreset('tank')">🛡️ Tank Arena EP</button>
+        <button type="button" class="small" [disabled]="busy()" (click)="showTemplateDrawer.set(!showTemplateDrawer())">
+          {{ showTemplateDrawer() ? '✕ Close Templates' : '📋 + Insert Template' }}
+        </button>
       </div>
+
+      @if (showTemplateDrawer()) {
+        <div class="template-drawer">
+          <div class="section-head">
+            <div>
+              <strong>🎬 Multi-Character Comedy Templates (MJO Angry Banter Ready)</strong>
+              <p class="muted">Insert any multi-character episode into your script while keeping your chosen 9:16 Vertical or 16:9 Wide format.</p>
+            </div>
+          </div>
+          <div class="template-grid">
+            @for (tpl of multiCastTemplates; track tpl.id) {
+              <div class="template-card">
+                <div class="track-top">
+                  <strong>{{ tpl.label }}</strong>
+                  <span class="pill ok">{{ tpl.cast.length }} Cast</span>
+                </div>
+                <small class="muted">{{ tpl.summary }}</small>
+                <div class="cw-actions">
+                  <button type="button" class="small" (click)="insertMultiCastTemplate(tpl, 'replace')">Replace Script</button>
+                  <button type="button" class="secondary small" (click)="insertMultiCastTemplate(tpl, 'append')">+ Append Scene</button>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
 
       <div class="track-grid">
         <button type="button"
@@ -203,8 +233,19 @@
             <option [ngValue]="30">30 seconds (Sweet Spot)</option>
             <option [ngValue]="45">45 seconds (Mid-build Skit)</option>
             <option [ngValue]="60">60 seconds (Full Short)</option>
+            <option [ngValue]="90">90 seconds (MJO Skit Short 1:30)</option>
+            <option [ngValue]="120">2 minutes (Extended Short)</option>
+            <option [ngValue]="150">2½ minutes (Max Short &lt;3m)</option>
             @if (format() === 'Wide') {
-              <option [ngValue]="90">90 seconds (Wide Episode)</option>
+              <option [ngValue]="300">5 minutes (Short Episode 16:9)</option>
+              <option [ngValue]="480">8 minutes (Classic MJO Episode)</option>
+              <option [ngValue]="600">10 minutes (Full Episode)</option>
+              <option [ngValue]="780">13 minutes (Long Episode)</option>
+              <option [ngValue]="900">15 minutes (Feature Episode)</option>
+              <option [ngValue]="1200">20 minutes (MJO Blockbuster Story)</option>
+              <option [ngValue]="1800">30 minutes (Half-Hour Feature)</option>
+              <option [ngValue]="2700">45 minutes (Extended Feature)</option>
+              <option [ngValue]="3600">60 minutes (1 Hour Full Story)</option>
             }
           </select>
         </label>
@@ -233,6 +274,62 @@
           <input type="text" maxlength="40" [ngModel]="speakerBName()" (ngModelChange)="speakerBName.set($event)" />
         </label>
       </div>
+
+      <div class="cast-roster-panel">
+        <div class="section-head">
+          <div>
+            <strong>🎭 3D Cast &amp; Voices ({{ castRoster().length }}/{{ maxCastMembers }} Characters)</strong>
+            <p class="muted">Add extra 3D cast members, assign distinct Gemini voices &amp; click <code>+ Line</code> to insert angry banter.</p>
+          </div>
+          <button type="button" class="small" [disabled]="castRoster().length >= maxCastMembers" (click)="addCastMember()">
+            + Add Character
+          </button>
+        </div>
+
+        <div class="cast-roster-grid">
+          @for (member of castRoster(); track member.id; let idx = $index) {
+            <div class="cast-member-card">
+              <div class="cast-member-head">
+                <span class="pill ok">#{{ idx + 1 }} {{ idx === 0 ? 'Lead A' : idx === 1 ? 'Lead B' : 'Cast' }}</span>
+                <div class="cw-actions">
+                  <button type="button" class="secondary small" (click)="insertLineForCharacter(member)">+ Line</button>
+                  @if (castRoster().length > 2 && idx >= 2) {
+                    <button type="button" class="secondary small" (click)="removeCastMember(member.id)" aria-label="Remove character">✕</button>
+                  }
+                </div>
+              </div>
+              <div class="cast-member-fields">
+                <label>
+                  <span>Name</span>
+                  <input type="text" maxlength="34" [ngModel]="member.name" (ngModelChange)="updateCastMember(member.id, { name: $event })" />
+                </label>
+                <label>
+                  <span>3D Look / Role</span>
+                  <select [ngModel]="member.role" (ngModelChange)="updateCastMember(member.id, { role: $event })">
+                    @for (r of castRoleOptions; track r.value) {
+                      <option [value]="r.value">{{ r.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="full">
+                  <span>Gemini Angry Comedy Voice</span>
+                  <select [ngModel]="member.voiceId" (ngModelChange)="updateCastMember(member.id, { voiceId: $event })">
+                    @for (v of castVoiceOptions; track v.id) {
+                      <option [value]="v.id">{{ v.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="full">
+                  <span>Outfit &amp; Glasses Cue</span>
+                  <input type="text" maxlength="100" [ngModel]="member.look" (ngModelChange)="updateCastMember(member.id, { look: $event })" />
+                </label>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="cw-voice-badge" role="note">{{ voiceDeliverySummary() }}</div>
     </section>
 
     <!-- RIGHT COLUMN: SCRIPT, MEMES, MUSIC, AUTO BACKGROUNDS & GENERATE CTA -->
@@ -247,7 +344,7 @@
 
       <label for="cw-material">
         <span>Story Idea or Directed Script (accepts [SCENE]: &amp; [Speaker]: lines)</span>
-        <textarea #materialBox id="cw-material" rows="5" maxlength="20000" [ngModel]="material()" (ngModelChange)="material.set($event)"
+        <textarea #materialBox id="cw-material" rows="5" maxlength="20000" [ngModel]="material()" (ngModelChange)="onScriptEdited($event)"
                   placeholder="Write your dialogue lines or plot idea here — or enter a Title and let Comedy Composer auto-generate your script!"></textarea>
       </label>
 
@@ -259,9 +356,23 @@
         }
       </div>
       <p class="muted cw-tag-hint">
-        Actions drive the 3D moves, camera &amp; sound effects; <code>[SCENE]</code> lines switch the place and its natural
-        ambience. Fight words in the dialogue (मुक्का, लात मार, dhishoom, punch, kick) are picked up automatically too.
+        Spoken words (<code>केंची</code>, <code>चाबी</code>, <code>फ़ोन</code>, <code>चाय</code>, <code>ऑर्डर</code>, <code>माइक</code>, <code>इंजेक्शन</code>, <code>मुक्का</code>) and <code>[PROP]</code>/<code>[SCENE]</code> tags automatically equip 3D tools in characters&apos; hands &amp; sync SFX.
       </p>
+
+      @if (directorRadar(); as radar) {
+        <div class="cw-director-hud" aria-label="Live 3D Prop and Stage Radar">
+          <div class="hud-row">
+            <span class="hud-badge hud-set">{{ radar.setLabel }}</span>
+            <span class="hud-badge hud-cast">🎭 Cast: {{ radar.activeCast.join(' · ') }}</span>
+          </div>
+          <div class="hud-props-row">
+            <span class="hud-label">🧰 Auto-Equipped 3D Props &amp; Actions:</span>
+            @for (prop of radar.props; track prop) {
+              <span class="hud-prop">{{ prop }}</span>
+            }
+          </div>
+        </div>
+      }
 
       <div class="cw-inline-controls">
         <label class="inline-check">
@@ -442,7 +553,7 @@
     <section class="card cw-section">
       <div class="section-head">
         <div>
-          <h2>3. Comedy Queue, Policy Compliance &amp; YouTube Publishing ({{ filteredComedyPosts().length }}/{{ comedyPosts().length }})</h2>
+          <h2>3. Comedy Queue, Policy Compliance &amp; YouTube Publishing ({{ (loadingWorkspace() || (auth.isAuthenticated() && overview() === null && !error())) ? '…' : filteredComedyPosts().length + '/' + comedyPosts().length }})</h2>
           <p class="muted">Cards stay compact &amp; collapsed by default for fast browsing. Check live YouTube status to re-upload deleted videos, pick peak release slots, and auto-comply with AdSense/YouTube policies.</p>
         </div>
         <div class="cw-actions">
@@ -523,7 +634,7 @@
       <!-- Queue Filter + Pagination Toolbar -->
       <div class="queue-toolbar">
         <div class="queue-filter-pills">
-          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'all'" (click)="setQueueFilter('all')">All ({{ comedyPosts().length }})</button>
+          <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'all'" (click)="setQueueFilter('all')">All ({{ overview() === null && auth.isAuthenticated() ? '…' : comedyPosts().length }})</button>
           <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'ready'" (click)="setQueueFilter('ready')">Ready / Drafts</button>
           <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'removed'" (click)="setQueueFilter('removed')">Deleted on YT</button>
           <button type="button" class="secondary small" [class.active-pill]="queueFilter() === 'published'" (click)="setQueueFilter('published')">Published</button>
@@ -544,8 +655,13 @@
         </div>
       </div>
 
-      @if (loadingWorkspace()) {
+      @if (loadingWorkspace() || (auth.isAuthenticated() && overview() === null && !error())) {
         <p class="muted"><span class="btn-spin" aria-hidden="true"></span> Loading comedy queue…</p>
+      } @else if (auth.isAuthenticated() && overview() === null && error()) {
+        <div class="notice error retry-box">
+          <span>Could not load Comedy queue: {{ error() }}</span>
+          <button type="button" class="secondary small" (click)="loadWorkspaceData(false)">↻ Retry</button>
+        </div>
       } @else if (filteredComedyPosts().length === 0) {
         <div class="notice notice-info">No Comedy episodes match the current filter. Adjust filters above or create a new 3D Comedy video!</div>
       } @else {
@@ -562,11 +678,15 @@
                     {{ post.language === 'en' ? '🌍 EN' : '🇮🇳 HI' }}
                   </span>
                   <span class="pill"
-                        [class.ok]="post.status === 'VideoReadyForReview' || post.status === 'Published'"
-                        [class.cw-info-pill]="post.status === 'GeneratingVideo' || post.status === 'Approved' || post.status === 'Publishing'"
+                        [class.ok]="post.status === 'VideoReadyForReview' || (post.status === 'Published' && !isFutureSchedule(post))"
+                        [class.cw-info-pill]="post.status === 'GeneratingVideo' || post.status === 'Approved' || post.status === 'Publishing' || (post.status === 'Published' && isFutureSchedule(post))"
                         [class.err]="post.status === 'Failed'">
-                    {{ post.status }}
-                    @if (post.storyProgressPercent) { · {{ post.storyProgressPercent }}% }
+                    @if (post.status === 'Published' && isFutureSchedule(post)) {
+                      🔒 Private on YT · Scheduled {{ post.scheduledAtUtc | date:'MMM d, h:mm a' }}
+                    } @else {
+                      {{ post.status }}
+                      @if (post.storyProgressPercent && post.status !== 'Published') { · {{ post.storyProgressPercent }}% }
+                    }
                   </span>
                   @if (wasDeleted) {
                     <span class="pill warn" title="Deleted from YouTube — Re-upload enabled below">⚠ Deleted on YT</span>
@@ -577,6 +697,9 @@
                   <span class="pill" [class.ok]="policy.readyToPublish" [class.warn]="!policy.readyToPublish">
                     {{ policy.readyToPublish ? '✓ Policy 9/9' : '⚠ Policy Review' }}
                   </span>
+                  @if (post.thumbnailStorageKey) {
+                    <span class="pill ok" title="Custom 1280x720 3D scene thumbnail attached for YouTube upload">🖼️ 3D Thumb</span>
+                  }
                 </div>
                 <div style="display:flex;align-items:center;gap:0.45rem;" (click)="$event.stopPropagation()">
                   <label class="inline-check">
@@ -654,10 +777,10 @@
                 @if (post.attachedRenderJobId || post.thumbnailStorageKey) {
                   <div class="media-preview-row">
                     @if (post.attachedRenderJobId; as jobId) {
-                      <video class="video-player" [src]="previewVideoUrl(jobId)" controls playsinline preload="metadata"></video>
+                      <video class="video-player" [class.vertical-media]="post.format === 'Vertical'" [class.wide-media]="post.format !== 'Vertical'" [src]="previewVideoUrl(jobId)" controls playsinline preload="metadata"></video>
                     }
                     @if (post.thumbnailStorageKey) {
-                      <img class="post-thumb" [src]="postThumbUrl(post)" alt="Video thumbnail" />
+                      <img class="post-thumb" [class.vertical-media]="post.format === 'Vertical'" [class.wide-media]="post.format !== 'Vertical'" [src]="postThumbUrl(post)" alt="Video thumbnail" />
                     }
                   </div>
                 }
@@ -696,7 +819,7 @@
                 <div class="cw-actions">
                   <button type="button" class="secondary small" (click)="loadPostIntoStudio(post)">↙ Load into Studio</button>
                   <button type="button" class="secondary small" [disabled]="busy()" (click)="autoFillPostSeo(post)">✨ Auto-Fill Compliant SEO</button>
-                  <button type="button" class="secondary small" [disabled]="busy()" (click)="generatePostThumbnail(post)">🖼️ Generate Thumbnail</button>
+                  <button type="button" class="secondary small" [disabled]="busy()" (click)="generatePostThumbnail(post)" title="Compose bold 1280x720 3D scene thumbnail from rendered episode (or AI prompt)">🎬 3D Thumbnail</button>
                   @if (post.attachedRenderJobId; as jobId) {
                     <a class="cw-pill" [href]="downloadVideoUrl(jobId)" download>⬇ Download MP4</a>
                   }

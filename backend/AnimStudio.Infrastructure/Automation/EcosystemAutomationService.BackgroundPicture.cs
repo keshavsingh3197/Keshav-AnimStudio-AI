@@ -146,6 +146,32 @@ public sealed partial class EcosystemAutomationService
     /// The configured image chain, then (like the story engine) Gemini's image model on the speech key when no image
     /// engine is set up. Throws a user-facing <see cref="EditingException"/> when neither can make the picture.
     /// </summary>
+    private async Task<AiImageResult?> TryMakeBackgroundPictureAsync(string userId, AiImageRequest request, CancellationToken ct)
+    {
+        var outcome = await ai.ImageAsync(request, new AiCallContext(null, userId), ct).ConfigureAwait(false);
+        if (outcome.IsSuccess && outcome.Value is { Content.Length: > 0 } made) return made;
+
+        if (outcome.Kind == AiOutcomeKind.Unavailable)
+        {
+            var gemini = aiRegistry?.SpeechChain().OfType<IGeminiImageGeneratingProvider>().FirstOrDefault(p => p.IsConfigured);
+            if (gemini is not null)
+            {
+                try
+                {
+                    var image = await gemini.GenerateSceneImageAsync(request, null, ct).ConfigureAwait(false);
+                    await RecordGeminiImageUsageAsync(userId, gemini, image.Provenance.Model, AiCallOutcome.Succeeded, null, ct).ConfigureAwait(false);
+                    return image;
+                }
+                catch (AiProviderException ex)
+                {
+                    await RecordGeminiImageUsageAsync(userId, gemini, null, AiCallOutcome.Failed, ex.Code, ct).ConfigureAwait(false);
+                    logger.LogWarning("Background picture: Gemini image fallback failed: {Code}", ex.Code);
+                }
+            }
+        }
+        return null;
+    }
+
     private async Task<AiImageResult> MakeBackgroundPictureAsync(string userId, AiImageRequest request, CancellationToken ct)
     {
         var outcome = await ai.ImageAsync(request, new AiCallContext(null, userId), ct).ConfigureAwait(false);

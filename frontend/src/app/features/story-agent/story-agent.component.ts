@@ -71,6 +71,11 @@ const LENGTHS: { minutes: number; label: string }[] = [
   { minutes: 4, label: 'About 4 minutes' },
   { minutes: 6, label: 'About 6 minutes' },
   { minutes: 10, label: 'About 10 minutes' },
+  { minutes: 15, label: 'About 15 minutes (Long Story)' },
+  { minutes: 20, label: 'About 20 minutes (Extended Episode)' },
+  { minutes: 30, label: 'About 30 minutes (Half-Hour Feature)' },
+  { minutes: 45, label: 'About 45 minutes (Full Feature)' },
+  { minutes: 60, label: 'About 60 minutes (1 Hour Complete Story)' },
 ];
 
 /**
