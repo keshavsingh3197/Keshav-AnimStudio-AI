@@ -21,15 +21,23 @@ public sealed class EcosystemSignalsClient(
     ILogger<EcosystemSignalsClient> logger) : IEcosystemSignalsClient
 {
     private sealed record WikiCacheEntry(IReadOnlyList<EcosystemHistoricalSignal> Items, DateTimeOffset ExpiresAtUtc);
+    private sealed record SnapshotCacheEntry(EcosystemSignalsSnapshot Snapshot, DateTimeOffset FreshUntilUtc, DateTimeOffset StaleUntilUtc);
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private static readonly ConcurrentDictionary<string, WikiCacheEntry> WikiHistoryCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, WikiCacheEntry> _wikiHistoryCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SnapshotCacheEntry> _snapshotCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Task<EcosystemSignalsSnapshot>> _inFlight = new(StringComparer.Ordinal);
     private static readonly TimeSpan WikiCacheDuration = TimeSpan.FromHours(12);
-    private static readonly TimeSpan UpstreamTimeout = TimeSpan.FromSeconds(18);
+    private static readonly TimeSpan FreshSnapshotCacheDuration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan PartialSnapshotCacheDuration = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan StaleFallbackDuration = TimeSpan.FromHours(6);
+    private static readonly TimeSpan UpstreamTimeout = TimeSpan.FromSeconds(3.5);
+    private static readonly TimeSpan HistoryUpstreamTimeout = TimeSpan.FromSeconds(2.5);
+    private static readonly TimeSpan WikimediaTimeout = TimeSpan.FromSeconds(2.5);
     private static readonly string[] IndiaFocusTerms =
     [
         "india", "indian", "delhi", "jaipur", "varanasi", "kashi", "bengal", "mumbai", "bombay",
@@ -66,6 +74,50 @@ public sealed class EcosystemSignalsClient(
         var socialBase = ResolveSafeBaseUrl(socialOverrideUrl, opts.SocialApiBaseUrl, ecosystem, "social", "https://keshav-social-analytics.onrender.com");
         var pratiyogitaBase = ResolveSafeBaseUrl(pratiyogitaOverrideUrl, opts.PratiyogitaApiBaseUrl, ecosystem, "pratiyogita", "https://pratiyogita.onrender.com");
 
+        var cacheKey = $"{effectiveDate}|{apiQueryLoc}|{panchangBase}|{socialBase}|{pratiyogitaBase}";
+        var nowUtc = DateTimeOffset.UtcNow;
+        SnapshotCacheEntry? cachedEntry = null;
+        if (_snapshotCache.TryGetValue(cacheKey, out cachedEntry) && cachedEntry.FreshUntilUtc > nowUtc)
+        {
+            return cachedEntry.Snapshot;
+        }
+
+        // Single-flight coalesce concurrent callers for the exact same cache key so UI reloads & background polls
+        // share one HTTP round instead of flooding upstream Render services.
+        var task = _inFlight.GetOrAdd(cacheKey, _ => FetchLiveAndCacheAsync(
+            cacheKey,
+            effectiveDate,
+            apiQueryLoc,
+            displayLoc,
+            ecosystem,
+            panchangBase,
+            socialBase,
+            pratiyogitaBase,
+            cachedEntry));
+
+        try
+        {
+            return await task.WaitAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (task.IsCompleted)
+                _inFlight.TryRemove(new KeyValuePair<string, Task<EcosystemSignalsSnapshot>>(cacheKey, task));
+        }
+    }
+
+    private async Task<EcosystemSignalsSnapshot> FetchLiveAndCacheAsync(
+        string cacheKey,
+        string effectiveDate,
+        string apiQueryLoc,
+        string displayLoc,
+        StudioEcosystemConfig ecosystem,
+        string panchangBase,
+        string socialBase,
+        string pratiyogitaBase,
+        SnapshotCacheEntry? staleEntry)
+    {
+        var ct = CancellationToken.None;
         var warnings = new List<string>();
         var client = httpFactory.CreateClient();
         client.Timeout = UpstreamTimeout;
@@ -91,8 +143,11 @@ public sealed class EcosystemSignalsClient(
             warnings,
             ct);
 
+        var historyClient = httpFactory.CreateClient();
+        historyClient.Timeout = HistoryUpstreamTimeout;
+
         var historyTask = SafeGetJsonAsync<List<HistoricalPayload>>(
-            client,
+            historyClient,
             $"{panchangBase}/api/culturalhistory/aaj-ka-itihaas?date={Uri.EscapeDataString(effectiveDate)}",
             "Aaj Ka Itihaas history feed",
             warnings,
@@ -259,20 +314,33 @@ public sealed class EcosystemSignalsClient(
                 f.CallToActionText))
             .ToList();
 
+        var now = DateTimeOffset.UtcNow;
+        var hasValidStale = staleEntry is not null && staleEntry.StaleUntilUtc > now;
+        var mergedPanchang = panchang ?? (hasValidStale ? staleEntry!.Snapshot.Panchang : null);
+        var mergedFestivals = festivals.Count > 0 || !hasValidStale ? festivals : staleEntry!.Snapshot.UpcomingFestivals;
+        var mergedKatha = kathaTask.Result ?? (hasValidStale ? staleEntry!.Snapshot.DailyKatha : null);
+        var mergedIncidents = incidents.Count > 0 || !hasValidStale ? incidents : staleEntry!.Snapshot.HistoricalIncidents;
+        var mergedCompetitions = competitions.Count > 0 || !hasValidStale ? competitions : staleEntry!.Snapshot.Competitions;
+        var mergedFunnels = funnels.Count > 0 || !hasValidStale ? funnels : staleEntry!.Snapshot.FunnelCampaigns;
+
         var snapshot = new EcosystemSignalsSnapshot(
             effectiveDate,
             displayLoc,
-            panchang,
-            festivals,
-            kathaTask.Result,
-            incidents,
-            competitions,
-            funnels,
+            mergedPanchang,
+            mergedFestivals,
+            mergedKatha,
+            mergedIncidents,
+            mergedCompetitions,
+            mergedFunnels,
             warnings,
-            DateTimeOffset.UtcNow);
+            now);
 
         var verification = AutomationFactVerifier.VerifySignals(effectiveDate, snapshot);
-        return snapshot with { Verification = verification };
+        var verified = snapshot with { Verification = verification };
+
+        var freshTtl = panchang is not null ? FreshSnapshotCacheDuration : PartialSnapshotCacheDuration;
+        _snapshotCache[cacheKey] = new SnapshotCacheEntry(verified, now + freshTtl, now + StaleFallbackDuration);
+        return verified;
     }
 
     private async Task<List<EcosystemHistoricalSignal>> ResolveVerifiedExactHistoryAsync(
@@ -305,8 +373,12 @@ public sealed class EcosystemSignalsClient(
     {
         var key = $"{month}-{day}";
         var now = DateTimeOffset.UtcNow;
-        if (WikiHistoryCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > now)
+        if (_wikiHistoryCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > now)
             return cached.Items;
+
+        using var wikiCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        wikiCts.CancelAfter(WikimediaTimeout);
+        var wCt = wikiCts.Token;
 
         try
         {
@@ -316,12 +388,12 @@ public sealed class EcosystemSignalsClient(
             req.Headers.TryAddWithoutValidation("User-Agent", "AnimStudioAI/1.0 (https://studio.keshavsingh.in)");
             req.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, wCt).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
                 return cached?.Items ?? [];
 
-            await using var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            var payload = await JsonSerializer.DeserializeAsync<WikiOnThisDayResponse>(stream, JsonOpts, ct).ConfigureAwait(false);
+            await using var stream = await res.Content.ReadAsStreamAsync(wCt).ConfigureAwait(false);
+            var payload = await JsonSerializer.DeserializeAsync<WikiOnThisDayResponse>(stream, JsonOpts, wCt).ConfigureAwait(false);
             if (payload is null) return [];
 
             var scored = new List<(EcosystemHistoricalSignal Item, int Score)>();
@@ -375,12 +447,12 @@ public sealed class EcosystemSignalsClient(
                 .ToList();
 
             if (top.Count > 0)
-                WikiHistoryCache[key] = new WikiCacheEntry(top, now + WikiCacheDuration);
+                _wikiHistoryCache[key] = new WikiCacheEntry(top, now + WikiCacheDuration);
             return top;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            logger.LogDebug(ex, "Wikimedia OnThisDay lookup skipped or unavailable for {MonthDay}", key);
+            logger.LogDebug(ex, "Wikimedia OnThisDay lookup skipped or timed out for {MonthDay}", key);
             return cached?.Items ?? [];
         }
     }
@@ -421,7 +493,7 @@ public sealed class EcosystemSignalsClient(
             await using var stream = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             return await JsonSerializer.DeserializeAsync<T>(stream, JsonOpts, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not fetch {Label} from {Host}", label, uri.Host);
             warnings.Add($"{label} is warming up or unreachable right now.");

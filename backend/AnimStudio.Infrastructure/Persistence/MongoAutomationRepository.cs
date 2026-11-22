@@ -63,6 +63,48 @@ public sealed class MongoAutomationRepository(MongoDbService mongo) : IAutomatio
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<AutomationPost>> ListBufferSlotsAsync(
+        string userId,
+        string? fromDateKey,
+        string? toDateKey,
+        int limit,
+        CancellationToken ct)
+    {
+        var f = Builders<AutomationPost>.Filter;
+        var filter = f.Eq(p => p.UserId, userId);
+        if (!string.IsNullOrWhiteSpace(fromDateKey))
+            filter &= f.Gte(p => p.DateKey, fromDateKey);
+        if (!string.IsNullOrWhiteSpace(toDateKey))
+            filter &= f.Lte(p => p.DateKey, toDateKey);
+
+        var proj = Builders<AutomationPost>.Projection
+            .Include(p => p.Id)
+            .Include(p => p.UserId)
+            .Include(p => p.RuleId)
+            .Include(p => p.RuleName)
+            .Include(p => p.SourceType)
+            .Include(p => p.DateKey)
+            .Include(p => p.Fingerprint)
+            .Include(p => p.Status)
+            .Include(p => p.TargetChannelId)
+            .Include(p => p.AttachedRenderJobId)
+            .Include(p => p.AttachedHandoffId)
+            .Include(p => p.ThumbnailStorageKey)
+            .Include(p => p.ThumbnailFrameAtSeconds)
+            .Include(p => p.ScheduledAtUtc)
+            .Include(p => p.PublishedVideoId)
+            .Include(p => p.CreatedAtUtc)
+            .Include(p => p.UpdatedAtUtc);
+
+        return await Posts.Find(filter)
+            .Project<AutomationPost>(proj)
+            .SortByDescending(p => p.DateKey)
+            .ThenByDescending(p => p.CreatedAtUtc)
+            .Limit(Math.Clamp(limit, 1, 1000))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<AutomationPost>> ListPostsByStatusesAsync(
         IReadOnlyList<AutomationPostStatus> statuses,
         int limit,

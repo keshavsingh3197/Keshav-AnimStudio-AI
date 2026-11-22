@@ -65,7 +65,8 @@ public sealed record AutomationOverview(
     IReadOnlyList<AutomationRule> Rules,
     IReadOnlyList<AutomationPost> Posts,
     int UnusedDriveClipsCount,
-    int FinishedRendersCount);
+    int FinishedRendersCount,
+    WeeklyBufferSummary? WeeklyBuffer = null);
 
 public sealed record AutomationStorageImageItem(
     string Id,
@@ -198,6 +199,7 @@ public sealed partial class EcosystemAutomationService(
         config.PanchangDefaultBackgroundAssetId = string.IsNullOrWhiteSpace(config.PanchangDefaultBackgroundAssetId) ? null : config.PanchangDefaultBackgroundAssetId.Trim();
         config.PanchangThumbnailTitleTemplate = string.IsNullOrWhiteSpace(config.PanchangThumbnailTitleTemplate) ? null : config.PanchangThumbnailTitleTemplate.Trim();
         config.PanchangThumbnailSubtitleTemplate = string.IsNullOrWhiteSpace(config.PanchangThumbnailSubtitleTemplate) ? null : config.PanchangThumbnailSubtitleTemplate.Trim();
+        config.AdvanceBufferDays = Math.Clamp(config.AdvanceBufferDays <= 0 ? 14 : config.AdvanceBufferDays, 7, 14);
         config.UpdatedAtUtc = UtcNow;
 
         await webSettings.UpsertAsync(new WebSetting
@@ -213,34 +215,81 @@ public sealed partial class EcosystemAutomationService(
 
     public async Task<AutomationOverview> GetOverviewAsync(string userId, string? dateKey, CancellationToken ct)
     {
+        var swTotal = System.Diagnostics.Stopwatch.StartNew();
         var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var effectiveDate = ResolveDateKey(dateKey, settings.DefaultTimeZone);
 
-        var ecosystemTask = ecosystemProvider.GetAsync(forceRefresh: false, ct);
-        var signalsTask = signalsClient.FetchAsync(
+        static async Task<(T Value, long ElapsedMs)> MeasureAsync<T>(Task<T> task)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var value = await task.ConfigureAwait(false);
+            return (value, sw.ElapsedMilliseconds);
+        }
+
+        var ecosystemTask = MeasureAsync(ecosystemProvider.GetAsync(forceRefresh: false, ct));
+        var signalsTask = MeasureAsync(signalsClient.FetchAsync(
             effectiveDate,
             settings.DefaultLocation,
             settings.PanchangApiBaseUrl,
             settings.SocialApiBaseUrl,
             settings.PratiyogitaApiBaseUrl,
-            ct);
-        var channelsTask = connections.ListAsync(userId, ct);
-        var topicsTask = topicsRepo.ListByUserAsync(userId, ct);
-        var rulesTask = repository.ListRulesAsync(userId, ct);
-        var postsTask = repository.ListPostsAsync(
+            ct));
+        var channelsTask = MeasureAsync(connections.ListAsync(userId, ct));
+        var topicsTask = MeasureAsync(topicsRepo.ListByUserAsync(userId, ct));
+        var rulesTask = MeasureAsync(repository.ListRulesAsync(userId, ct));
+        var postsTask = MeasureAsync(repository.ListPostsAsync(
             userId,
-            DateOnly.Parse(effectiveDate).AddDays(-7).ToString("yyyy-MM-dd"),
-            DateOnly.Parse(effectiveDate).AddDays(7).ToString("yyyy-MM-dd"),
+            effectiveDate,
+            effectiveDate,
             null,
-            200,
-            ct);
-        var handoffsTask = handoffs.ListByUserAsync(userId, null, 500, ct);
-        var projectsTask = projects.ListAsync(userId, ct);
+            100,
+            ct));
+        var bufferSlotsTask = MeasureAsync(repository.ListBufferSlotsAsync(
+            userId,
+            effectiveDate,
+            DateOnly.Parse(effectiveDate).AddDays(13).ToString("yyyy-MM-dd"),
+            500,
+            ct));
+        var unusedDriveTask = MeasureAsync(handoffs.CountUnusedDriveAsync(userId, ct));
+        var projectsTask = MeasureAsync(projects.ListIdsByUserAsync(userId, 40, ct));
 
-        await Task.WhenAll(ecosystemTask, signalsTask, channelsTask, topicsTask, rulesTask, postsTask, handoffsTask, projectsTask)
+        await Task.WhenAll(ecosystemTask, signalsTask, channelsTask, topicsTask, rulesTask, postsTask, bufferSlotsTask, unusedDriveTask, projectsTask)
             .ConfigureAwait(false);
+        var afterFetchMs = swTotal.ElapsedMilliseconds;
 
-        var posts = postsTask.Result.ToList();
+        logger.LogInformation(
+            "Overview Breakdown({DateKey}): eco={EcoMs}ms, sig={SigMs}ms, chan={ChanMs}ms, topics={TopMs}ms, rules={RuleMs}ms, posts={PostMs}ms, buf={BufMs}ms, drive={DriveMs}ms, proj={ProjMs}ms",
+            effectiveDate,
+            ecosystemTask.Result.ElapsedMs,
+            signalsTask.Result.ElapsedMs,
+            channelsTask.Result.ElapsedMs,
+            topicsTask.Result.ElapsedMs,
+            rulesTask.Result.ElapsedMs,
+            postsTask.Result.ElapsedMs,
+            bufferSlotsTask.Result.ElapsedMs,
+            unusedDriveTask.Result.ElapsedMs,
+            projectsTask.Result.ElapsedMs);
+
+        var rules = rulesTask.Result.Value.ToList();
+        var rulesToUpgrade = rules.Where(r =>
+            IsWorldHistorySource(r.SourceType)
+            && IsGlobalEnglishChannelHint(r.TargetChannelHandle, r.TargetChannelTitle)
+            && (!string.Equals(r.Language, "en", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(r.Location)
+                || r.Location.Contains("India", StringComparison.OrdinalIgnoreCase))).ToList();
+        if (rulesToUpgrade.Count > 0)
+        {
+            foreach (var r in rulesToUpgrade)
+            {
+                r.Language = "en";
+                if (string.IsNullOrWhiteSpace(r.Location) || r.Location.Contains("India", StringComparison.OrdinalIgnoreCase))
+                    r.Location = "Global (English)";
+                r.UpdatedAtUtc = UtcNow;
+            }
+            await Task.WhenAll(rulesToUpgrade.Select(r => repository.UpsertRuleAsync(r, ct))).ConfigureAwait(false);
+        }
+
+        var posts = postsTask.Result.Value.ToList();
         foreach (var post in posts.Where(p => p.Status == AutomationPostStatus.GeneratingVideo))
         {
             await PollStoryRunProgressAsync(post, settings, ct).ConfigureAwait(false);
@@ -248,31 +297,36 @@ public sealed partial class EcosystemAutomationService(
         // Cards prepared twice for one pipeline + day (older unstable keys, or two API instances racing) collapse here.
         await RemoveDuplicateDraftsAsync(posts, ct).ConfigureAwait(false);
 
-        var unusedDriveCount = handoffsTask.Result.Count(h =>
-            h.State != PhoneHandoffState.Cancelled && !h.DriveMissing && !h.Archived && h.UsedAt is null);
+        var unusedDriveCount = unusedDriveTask.Result.Value;
+        var projectIds = projectsTask.Result.Value.ToList();
+        var finishedRenders = await renderJobs.CountCompletedWithOutputAsync(projectIds, ct).ConfigureAwait(false);
 
-        var finishedRenders = 0;
-        foreach (var project in projectsTask.Result.Take(40))
-        {
-            var jobs = await renderJobs.ListByProjectAsync(project.Id, ct).ConfigureAwait(false);
-            finishedRenders += jobs.Count(j =>
-                j.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings
-                && !string.IsNullOrWhiteSpace(j.OutputStorageKey));
-        }
+        await RefreshOverviewVerificationAsync(posts, signalsTask.Result.Value, ct).ConfigureAwait(false);
 
-        await RefreshOverviewVerificationAsync(posts, signalsTask.Result, ct).ConfigureAwait(false);
+        var weeklyBuffer = ComputeWeeklyBufferSummary(
+            effectiveDate,
+            rules,
+            bufferSlotsTask.Result.Value,
+            channelsTask.Result.Value,
+            ecosystemTask.Result.Value,
+            settings.AdvanceBufferDays);
+
+        logger.LogInformation(
+            "Automation GetOverview({DateKey}) completed in {TotalMs}ms (parallelFetch={FetchMs}ms, posts={PostsCount}, rules={RulesCount})",
+            effectiveDate, swTotal.ElapsedMilliseconds, afterFetchMs, posts.Count, rules.Count);
 
         return new AutomationOverview(
             effectiveDate,
             settings,
-            signalsTask.Result,
-            ecosystemTask.Result.Websites,
-            channelsTask.Result,
-            topicsTask.Result,
-            rulesTask.Result,
+            signalsTask.Result.Value,
+            ecosystemTask.Result.Value.Websites,
+            channelsTask.Result.Value,
+            topicsTask.Result.Value,
+            rules,
             posts,
             unusedDriveCount,
-            finishedRenders);
+            finishedRenders,
+            weeklyBuffer);
     }
 
     public Task<IReadOnlyList<AutomationRule>> ListRulesAsync(string userId, CancellationToken ct) =>
@@ -387,6 +441,14 @@ public sealed partial class EcosystemAutomationService(
             }
         }
 
+        // Personal/global English outlets (@keshavsinghworld) target international viewers cleanly in English.
+        if (IsGlobalEnglishChannelHint(rule.TargetChannelHandle, rule.TargetChannelTitle) && IsWorldHistorySource(rule.SourceType))
+        {
+            rule.Language = "en";
+            if (string.IsNullOrWhiteSpace(rule.Location) || rule.Location.Contains("India", StringComparison.OrdinalIgnoreCase))
+                rule.Location = "Global (English)";
+        }
+
         await repository.UpsertRuleAsync(rule, ct).ConfigureAwait(false);
         return rule;
     }
@@ -446,16 +508,27 @@ public sealed partial class EcosystemAutomationService(
         kathaRule.NarrativeMode = AutomationNarrativeMode.FullStory;
         kathaRule.TargetSeconds = 220;
 
+        var isWorldGlobalEnglish = IsGlobalEnglishChannelHint(worldChannel?.Handle, worldChannel?.Title);
+        var historyRule = BuildStarterRule(userId, 4, "World Milestones & On This Day History", "Global English documentary stories & verified On-This-Day milestones for international viewers.",
+            AutomationSourceType.AajKaItihaas, worldChannel, historyTopic, "18:00", settings, ["panchang", "pratiyogita", "blog", "studio"], "27", now);
+        var spotlightRule = BuildStarterRule(userId, 5, "Global AI Creator Tools & Ecosystem Spotlight", "Showcases AI storytelling, YouTube growth analytics & creator workflows in clean international English.",
+            AutomationSourceType.EcosystemSpotlight, worldChannel, spotlightTopic, "20:30", settings, ["pratiyogita", "social", "studio", "blog"], "28", now);
+        if (isWorldGlobalEnglish)
+        {
+            historyRule.Language = "en";
+            historyRule.Location = "Global (English)";
+            spotlightRule.Language = "en";
+            spotlightRule.Location = "Global (English)";
+        }
+
         var defaults = new[]
         {
             panchangRule,
             BuildStarterRule(userId, 2, "Upcoming Festivals, Ekadashi & Vrat Alert", "Automatic Puja Vidhi & significance alerts from the Panchang festival engine.",
                 AutomationSourceType.HinduFestival, devotionalChannel, festivalTopic, "07:15", settings, ["panchang", "studio"], "22", now),
             kathaRule,
-            BuildStarterRule(userId, 4, "Aaj Ka Itihaas (On This Day History)", "Historical events & milestones for world/knowledge channel linking back to Archive & Exam GK.",
-                AutomationSourceType.AajKaItihaas, worldChannel, historyTopic, "18:00", settings, ["panchang", "pratiyogita", "blog", "studio"], "27", now),
-            BuildStarterRule(userId, 5, "Pratiyogita & Ecosystem Growth Spotlight", "Promotes live quizzes/competitions, AI video tools & analytics portal to build cross-site traffic.",
-                AutomationSourceType.EcosystemSpotlight, worldChannel, spotlightTopic, "20:30", settings, ["pratiyogita", "social", "studio", "blog"], "28", now),
+            historyRule,
+            spotlightRule,
             await BuildFunnyComedyStarterRuleAsync(userId, 6, worldChannel, settings, now, ct).ConfigureAwait(false),
             rashifalRule
         };
@@ -1973,27 +2046,64 @@ public sealed partial class EcosystemAutomationService(
             }
         }
 
-        // 2. Daily auto-prepare sweep when enabled
+        // 2. Daily + 14-day Advance Buffer auto-prepare sweep when enabled
         if (settings.AutoPrepareDaily)
         {
             var enabledRules = await repository.ListAllEnabledRulesAsync(300, ct).ConfigureAwait(false);
+            var bufferDays = settings.AutoFillBufferInBackground
+                ? Math.Clamp(settings.AdvanceBufferDays <= 0 ? 14 : settings.AdvanceBufferDays, 7, 14)
+                : 1;
             foreach (var group in enabledRules.GroupBy(r => r.UserId, StringComparer.Ordinal))
             {
                 var dateKey = ResolveDateKey(null, settings.DefaultTimeZone);
                 var today = (int)DateOnly.Parse(dateKey).DayOfWeek;
-                if (group
+                if (!group
                     .Where(r => r.DaysOfWeek.Count == 0 || r.DaysOfWeek.Contains(today))
                     .All(r => string.Equals(r.LastPreparedDateKey, dateKey, StringComparison.Ordinal)))
-                    continue;
-
-                try
                 {
-                    await PrepareForDateAsync(group.Key, dateKey, ruleId: null, forceRegenerate: false, ct).ConfigureAwait(false);
-                    changed++;
+                    try
+                    {
+                        await PrepareForDateAsync(group.Key, dateKey, ruleId: null, forceRegenerate: false, ct).ConfigureAwait(false);
+                        changed++;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Auto-prepare daily sweep failed for user {UserId}", group.Key);
+                    }
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+
+                // Gently pre-fill up to 2 missing days ahead (Current Week + Next Week = 14 days total) per worker pass
+                // so creators always stay 1 week ahead without cold spikes or duplicate drafts.
+                if (bufferDays > 1)
                 {
-                    logger.LogWarning(ex, "Auto-prepare daily sweep failed for user {UserId}", group.Key);
+                    try
+                    {
+                        var horizonEnd = DateOnly.Parse(dateKey).AddDays(bufferDays - 1).ToString("yyyy-MM-dd");
+                        var existing = (await repository.ListPostsAsync(group.Key, dateKey, horizonEnd, null, 500, ct).ConfigureAwait(false))
+                            .Where(p => p.Status != AutomationPostStatus.Skipped)
+                            .Select(p => $"{p.DateKey}|{p.RuleId}")
+                            .ToHashSet(StringComparer.Ordinal);
+                        var filledDates = 0;
+                        var anchorDate = DateOnly.Parse(dateKey);
+                        for (var offset = 1; offset < bufferDays && filledDates < 2; offset++)
+                        {
+                            var futureDate = anchorDate.AddDays(offset);
+                            var fKey = futureDate.ToString("yyyy-MM-dd");
+                            var fDow = (int)futureDate.DayOfWeek;
+                            var anyMissing = group
+                                .Where(r => r.DaysOfWeek.Count == 0 || r.DaysOfWeek.Contains(fDow))
+                                .Any(r => !existing.Contains($"{fKey}|{r.Id}"));
+                            if (!anyMissing) continue;
+
+                            await PrepareForDateAsync(group.Key, fKey, ruleId: null, forceRegenerate: false, ct).ConfigureAwait(false);
+                            filledDates++;
+                            changed++;
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogDebug(ex, "Background advance buffer fill skipped for user {UserId}", group.Key);
+                    }
                 }
             }
         }

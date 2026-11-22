@@ -28,6 +28,13 @@ public sealed class MongoIndexInitializer(
     {
         try
         {
+            // Projects are always queried per owner newest first; index prevents full-collection scans & sorts.
+            var projectsCol = mongo.GetCollection<AnimStudio.Domain.Projects.Project>(MongoCollections.Projects);
+            await projectsCol.Indexes.CreateOneAsync(
+                new CreateIndexModel<AnimStudio.Domain.Projects.Project>(Builders<AnimStudio.Domain.Projects.Project>.IndexKeys
+                    .Ascending(p => p.UserId)
+                    .Descending(p => p.UpdatedAt)), cancellationToken: ct).ConfigureAwait(false);
+
             // The claim query filters on status + lease and sorts by age.
             var jobs = mongo.GetCollection<RenderJob>(MongoCollections.RenderJobs);
             await jobs.Indexes.CreateManyAsync(

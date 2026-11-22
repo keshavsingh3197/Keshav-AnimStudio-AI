@@ -18,6 +18,15 @@ public interface IAutomationRepository
         int limit,
         CancellationToken ct);
 
+    /// <summary>Lists lightweight post metadata (no heavy scripts/descriptions) for 14-day buffer &amp; target counting.</summary>
+    Task<IReadOnlyList<AutomationPost>> ListBufferSlotsAsync(
+        string userId,
+        string? fromDateKey,
+        string? toDateKey,
+        int limit,
+        CancellationToken ct) =>
+        ListPostsAsync(userId, fromDateKey, toDateKey, null, limit, ct);
+
     Task<IReadOnlyList<AutomationPost>> ListPostsByStatusesAsync(
         IReadOnlyList<AutomationPostStatus> statuses,
         int limit,

@@ -485,27 +485,37 @@ public static class AutomationContentComposer
                    {(string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? "" : $"Why it shaped today: {leadIncident.CulturalSignificance}")}
                    {(secondary.Count > 0 ? "\nAlso on this date:\n" + string.Join("\n", secondary.Select(s => $"• {s.Year}: {s.Title}")) : "")}
                    [MORAL] Lesson — Remembering pivotal turning points empowers wiser choices in the present.
-                   [WEBSITE CTA 42-55s] Explore the full interactive Aaj Ka Itihaas archive & exam GK notes on our portal: {primaryLink}
+                   [WEBSITE CTA 42-55s] Explore the full interactive world history archive & notes on our portal: {primaryLink}
                    """;
 
         var prompt = ApplyPromptOverride(rule,
-            $"Create a compelling documentary {ratioLabel} depicting '{leadIncident.Year}: {leadIncident.Title}' in historical cinematic realism: archival paper textures, dramatic chiaroscuro lighting, animated world map highlights showing India & global context, smooth parallax motion, crisp typography space for '{leadIncident.Year}'.");
+            $"Create a compelling documentary {ratioLabel} depicting '{leadIncident.Year}: {leadIncident.Title}' in historical cinematic realism: archival paper textures, dramatic chiaroscuro lighting, {(isHindi ? "animated world map highlights showing India & global context" : "animated global world map highlights with international perspective")}, smooth parallax motion, crisp typography space for '{leadIncident.Year}'.");
 
         var thumbPrompt = $"Dramatic historical documentary thumbnail showing '{leadIncident.Year}: {leadIncident.Title}', vintage gold-sepia meets high-contrast cinematic teal, clean space for large date '{leadIncident.Year}'.";
 
-        var tags = MergeTags(["On This Day", "Aaj Ka Itihaas", $"History {leadIncident.Year}", leadIncident.Category, "World History", "Indian History", "UPSC GK", "Shorts"], baseTags, baseHashtags);
+        var tags = isHindi
+            ? MergeTags(["Aaj Ka Itihaas", "On This Day", $"History {leadIncident.Year}", leadIncident.Category, "Indian History", "World History", "UPSC GK", "Shorts"], baseTags, baseHashtags)
+            : MergeTags(["On This Day", "World History", $"History {leadIncident.Year}", leadIncident.Category, "Global History", "Historical Milestones", "History Documentary", "Shorts"], baseTags, baseHashtags);
         var verificationNote = !string.IsNullOrWhiteSpace(leadIncident.SourceUrl)
-            ? $"\n\n✅ Verified Historical Source ({leadIncident.SourceName ?? "Historical Archive"}): {leadIncident.SourceUrl}"
+            ? $"\n\n✅ {(isHindi ? "Verified Historical Source" : "Verified Archive Source")} ({leadIncident.SourceName ?? "Historical Archive"}): {leadIncident.SourceUrl}"
             : string.Empty;
         var description = BuildDescription(rule,
-            $"🌍 आज का इतिहास / On This Day ({dateKey})\n" +
-            bulletSummary +
-            (!string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? $"\n\n✨ महत्व: {leadIncident.CulturalSignificance}" : string.Empty) +
+            (isHindi
+                ? $"🌍 आज का इतिहास / On This Day ({dateKey})\n" +
+                  bulletSummary +
+                  (!string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? $"\n\n✨ महत्व: {leadIncident.CulturalSignificance}" : string.Empty)
+                : $"🌍 On This Day in World History ({dateKey})\n" +
+                  bulletSummary +
+                  (!string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? $"\n\n✨ Global Impact: {leadIncident.CulturalSignificance}" : string.Empty)) +
             verificationNote,
             links, tags);
 
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"📚 {dateKey} की सभी ऐतिहासिक घटनाएं और डेली GK क्विज़ यहाँ पढ़ें 👇\n🔗 {primaryLink}\n\nआपके हिसाब से आज की सबसे महत्वपूर्ण घटना कौन सी थी?", links)
+            ? BuildPinnedComment(
+                isHindi
+                    ? $"📚 {dateKey} की सभी ऐतिहासिक घटनाएं और डेली GK क्विज़ यहाँ पढ़ें 👇\n🔗 {primaryLink}\n\nआपके हिसाब से आज की सबसे महत्वपूर्ण घटना कौन सी थी?"
+                    : $"🌍 Which milestone from {dateKey} fascinates you most? Explore full world timelines & notes 👇\n🔗 {primaryLink}",
+                links)
             : null;
 
         return
@@ -584,7 +594,11 @@ public static class AutomationContentComposer
             links, tags);
 
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"🎯 अभी भाग लें और अपनी रैंक चेक करें 👇\n🔗 {primaryLink}", links)
+            ? BuildPinnedComment(
+                isHindi
+                    ? $"🎯 अभी भाग लें और अपनी रैंक चेक करें 👇\n🔗 {primaryLink}"
+                    : $"🎯 Join the live quiz challenge and check global rankings 👇\n🔗 {primaryLink}",
+                links)
             : null;
 
         return new ComposedAutomationContent(
@@ -668,7 +682,11 @@ public static class AutomationContentComposer
             links, tags);
 
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"🚀 आज ही ट्राई करें — सारे क्रिएटर टूल्स और लाइव वेब ऐप्स 👇\n🔗 {primaryLink}", links)
+            ? BuildPinnedComment(
+                isHindi
+                    ? $"🚀 आज ही ट्राई करें — सारे क्रिएटर टूल्स और लाइव वेब ऐप्स 👇\n🔗 {primaryLink}"
+                    : $"🚀 Try our AI storytelling studio & YouTube analytics toolkit today 👇\n🔗 {primaryLink}",
+                links)
             : null;
 
         return new ComposedAutomationContent(
@@ -731,7 +749,9 @@ public static class AutomationContentComposer
         var tags = MergeTags([topicSeed, "Shorts", "DailyUpdate"], baseTags, baseHashtags);
         var description = BuildDescription(rule, $"{topicSeed}\n{rule.Description}", links, tags);
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"🔗 और देखें / Learn more 👇\n{primaryLink}", links)
+            ? BuildPinnedComment(
+                isHindi ? $"🔗 और देखें 👇\n{primaryLink}" : $"🔗 Explore more & try live tools 👇\n{primaryLink}",
+                links)
             : null;
 
         return new ComposedAutomationContent(
@@ -776,7 +796,11 @@ public static class AutomationContentComposer
             : $"🙏 Daily Devotional Prayer — {entry.DeityEnglish} ({dateKey})\n\n\"{entry.PrayerEnglish}\"\n\n🕉️ Sacred Chant: {entry.Mantra}";
         var description = BuildDescription(rule, bodyCore, links, tags);
         var comment = rule.IncludePinnedComment
-            ? BuildPinnedComment($"🙏 {entry.Mantra} • रोज़ की पावन भक्ति प्रार्थना व पंचांग देखें 👇\n🔗 {primaryLink}", links)
+            ? BuildPinnedComment(
+                isHindi
+                    ? $"🙏 {entry.Mantra} • रोज़ की पावन भक्ति प्रार्थना व पंचांग देखें 👇\n🔗 {primaryLink}"
+                    : $"🙏 {entry.Mantra} • Explore daily Vedic prayers & sacred stories 👇\n🔗 {primaryLink}",
+                links)
             : null;
 
         return new ComposedAutomationContent(

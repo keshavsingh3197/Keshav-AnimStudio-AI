@@ -104,8 +104,105 @@ public sealed class RebalanceAndPeakScheduleTests
         Assert.Equal(BhaktiChannelId, panchang!.TargetChannelId);
         Assert.Equal(WorldChannelId, history!.TargetChannelId);
         Assert.Equal("@keshavsinghworld", history.TargetChannelHandle);
+        Assert.Equal("en", history.Language);
+        Assert.Equal("Global (English)", history.Location);
         Assert.Equal(WorldChannelId, spotlight!.TargetChannelId);
+        Assert.Equal("en", spotlight.Language);
         Assert.Equal(WorldChannelId, updatedTopic!.ChannelId);
+
+        // Composed posts for @keshavsinghworld must be pure international English with zero Hindi text leaks
+        var composedWorld = AutomationContentComposer.ComposeForRule(
+            history,
+            new EcosystemSignalsSnapshot(
+                "2026-11-22",
+                "Global (English)",
+                null,
+                [],
+                null,
+                [
+                    new EcosystemHistoricalSignal(
+                        "h-en-1", "11-22", 1922, "Howard Carter enters Tutankhamun's tomb",
+                        "World History", "Archaeologist Howard Carter opened the royal burial chamber.",
+                        "Landmark moment in ancient world archaeology.",
+                        IsExactDateMatch: true, IsVerified: true,
+                        SourceName: "Wikipedia", SourceUrl: "https://en.wikipedia.org/wiki/Tutankhamun")
+                ],
+                [],
+                [],
+                [],
+                DateTimeOffset.UtcNow),
+            harness.Provider.GetRequiredService<IEcosystemConfigProvider>().Current).Single();
+
+        Assert.DoesNotContain("आज का इतिहास", composedWorld.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain("आज का इतिहास", composedWorld.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("महत्व", composedWorld.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("डेली GK", composedWorld.PinnedComment ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain("Aaj Ka Itihaas", composedWorld.Tags, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("World History", composedWorld.Tags, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PrepareBufferHorizonAsync_fills_14_day_current_and_next_week_buffer_and_emits_notifications()
+    {
+        const string userId = "user-buffer-1";
+        var ct = CancellationToken.None;
+        var baseDate = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+
+        using var harness = BuildHarness(signalsDateKey: baseDate);
+        await SeedChannelsAsync(harness.Provider.GetRequiredService<IYouTubeConnectionRepository>(), userId, ct);
+
+        var autoRepo = harness.Provider.GetRequiredService<IAutomationRepository>();
+        await autoRepo.UpsertRuleAsync(new AutomationRule
+        {
+            Id = "ar-buf-bhakti", UserId = userId, Name = "Daily Hindu Panchang", Enabled = true,
+            SourceType = AutomationSourceType.HinduPanchang,
+            TargetChannelId = BhaktiChannelId, TargetChannelTitle = "OMKAR SHIV Bhakti", TargetChannelHandle = "@omkarshivbhakti"
+        }, ct);
+        await autoRepo.UpsertRuleAsync(new AutomationRule
+        {
+            Id = "ar-buf-world", UserId = userId, Name = "World History EN", Enabled = true,
+            SourceType = AutomationSourceType.AajKaItihaas,
+            Language = "en",
+            TargetChannelId = WorldChannelId, TargetChannelTitle = "KeshavSinghWorld", TargetChannelHandle = "@keshavsinghworld"
+        }, ct);
+
+        var svc = harness.Provider.GetRequiredService<EcosystemAutomationService>();
+
+        // 1. Before preparation, overview weekly notifications warn that Current Week & Next Week advance buffer are incomplete
+        var beforeOverview = await svc.GetOverviewAsync(userId, baseDate, ct);
+        Assert.NotNull(beforeOverview.WeeklyBuffer);
+        Assert.False(beforeOverview.WeeklyBuffer!.IsCurrentWeekComplete);
+        Assert.False(beforeOverview.WeeklyBuffer.IsNextWeekComplete);
+        Assert.Contains(beforeOverview.WeeklyBuffer.Notifications, n => n.Id == "notif-current-week" && n.Severity == "urgent");
+        Assert.Contains(beforeOverview.WeeklyBuffer.Notifications, n => n.Id == "notif-next-week" && n.Severity == "warning");
+
+        // 2. Prepare full 14-day horizon (Current Week + Next Week)
+        var bufferResult = await svc.PrepareBufferHorizonAsync(userId, new PrepareBufferHorizonRequest(
+            StartDateKey: baseDate,
+            Days: 14,
+            ForceRegenerate: false,
+            RebalanceChannels: true), ct);
+
+        Assert.Equal(14, bufferResult.DaysScanned);
+        Assert.Equal(14, bufferResult.DaysNewlyPrepared);
+        Assert.True(bufferResult.Summary.IsCurrentWeekComplete);
+        Assert.True(bufferResult.Summary.IsNextWeekComplete);
+        Assert.All(bufferResult.Summary.Channels, c =>
+        {
+            Assert.Equal(7, c.CurrentWeekPreparedDays);
+            Assert.Equal(7, c.NextWeekPreparedDays);
+            Assert.Equal("Complete", c.CurrentWeekStatus);
+            Assert.Equal("Complete", c.NextWeekStatus);
+        });
+
+        // 3. Running PrepareBufferHorizonAsync a second time skips already-prepared dates (zero duplicates)
+        var secondRun = await svc.PrepareBufferHorizonAsync(userId, new PrepareBufferHorizonRequest(
+            StartDateKey: baseDate,
+            Days: 14,
+            ForceRegenerate: false,
+            RebalanceChannels: false), ct);
+        Assert.Equal(0, secondRun.DaysNewlyPrepared);
+        Assert.Equal(0, secondRun.PostsCreated);
     }
 
     [Fact]
@@ -509,7 +606,14 @@ public sealed class RebalanceAndPeakScheduleTests
         public Task<AutomationRule?> GetRuleAsync(string id, CancellationToken ct) => Task.FromResult(_rules.FirstOrDefault(r => r.Id == id));
         public Task UpsertRuleAsync(AutomationRule rule, CancellationToken ct) { _rules.RemoveAll(r => r.Id == rule.Id); _rules.Add(rule); return Task.CompletedTask; }
         public Task<bool> DeleteRuleAsync(string id, CancellationToken ct) => Task.FromResult(_rules.RemoveAll(r => r.Id == id) > 0);
-        public Task<IReadOnlyList<AutomationPost>> ListPostsAsync(string userId, string? dateFromKey, string? dateToKey, AutomationPostStatus? status, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<AutomationPost>>([.. _posts.Where(p => p.UserId == userId).Select(Clone)!]);
+        public Task<IReadOnlyList<AutomationPost>> ListPostsAsync(string userId, string? dateFromKey, string? dateToKey, AutomationPostStatus? status, int limit, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<AutomationPost>>([.. _posts
+                .Where(p => p.UserId == userId
+                    && (string.IsNullOrWhiteSpace(dateFromKey) || string.Compare(p.DateKey, dateFromKey, StringComparison.Ordinal) >= 0)
+                    && (string.IsNullOrWhiteSpace(dateToKey) || string.Compare(p.DateKey, dateToKey, StringComparison.Ordinal) <= 0)
+                    && (!status.HasValue || p.Status == status.Value))
+                .Take(limit)
+                .Select(Clone)!]);
         public Task<IReadOnlyList<AutomationPost>> ListPostsByStatusesAsync(IReadOnlyList<AutomationPostStatus> statuses, int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<AutomationPost>>([.. _posts.Where(p => statuses.Contains(p.Status)).Select(Clone)!]);
         public Task<AutomationPost?> GetPostAsync(string id, CancellationToken ct) => Task.FromResult(Clone(_posts.FirstOrDefault(p => p.Id == id)));
         public Task<AutomationPost?> FindPostByFingerprintAsync(string userId, string fingerprint, CancellationToken ct) => Task.FromResult(Clone(AutomationPost.SelectPreferred(_posts.Where(p => p.UserId == userId && p.Fingerprint == fingerprint))));

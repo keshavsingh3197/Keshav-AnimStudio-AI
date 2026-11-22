@@ -537,5 +537,11 @@ public sealed class AutomationWorkspaceConfig
     /// <summary>Fixed editable subtitle template for Panchang thumbnails.</summary>
     public string? PanchangThumbnailSubtitleTemplate { get; set; }
 
+    /// <summary>Number of days ahead (Current Week + Next Week = 14) tracked &amp; pre-prepared by the Weekly Buffer planner.</summary>
+    public int AdvanceBufferDays { get; set; } = 14;
+
+    /// <summary>When true, background worker gently pre-fills missing days across the advance buffer window.</summary>
+    public bool AutoFillBufferInBackground { get; set; } = true;
+
     public DateTime UpdatedAtUtc { get; set; }
 }

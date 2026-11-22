@@ -231,6 +231,7 @@ public sealed partial class EcosystemAutomationService
     {
         if (posts.Count == 0) return;
 
+        var changedPosts = new List<AutomationPost>();
         var signalDate = AutomationFactVerifier.ExtractIsoDateKey(overviewSignals.DateKey) ?? overviewSignals.DateKey;
         foreach (var post in posts)
         {
@@ -242,9 +243,14 @@ public sealed partial class EcosystemAutomationService
 
             // Only pass live signals when the post matches overviewSignals' DateKey so posts from
             // other days still get deterministic KnownMilestones checks without false cross-day errors.
-            var changed = ApplyPostVerification(post, matchingSignals);
-            if (!changed) continue;
+            if (ApplyPostVerification(post, matchingSignals))
+                changedPosts.Add(post);
+        }
 
+        if (changedPosts.Count == 0) return;
+
+        await Task.WhenAll(changedPosts.Select(async post =>
+        {
             try
             {
                 await repository.UpsertPostAsync(post, ct).ConfigureAwait(false);
@@ -253,7 +259,7 @@ public sealed partial class EcosystemAutomationService
             {
                 logger.LogWarning(ex, "Could not persist refreshed verification state for post {PostId}", post.Id);
             }
-        }
+        })).ConfigureAwait(false);
     }
 
     private bool ApplyPostVerification(AutomationPost post, EcosystemSignalsSnapshot? liveSignals)

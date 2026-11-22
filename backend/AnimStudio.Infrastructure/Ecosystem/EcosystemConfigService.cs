@@ -246,9 +246,9 @@ public sealed class EcosystemConfigService(
             return await JsonSerializer.DeserializeAsync<CentralConfigEnvelope>(stream, JsonOpts, timeoutCts.Token)
                 .ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            logger.LogDebug(ex, "Central Admin /api/config not reachable; using database & local configuration.");
+            logger.LogDebug(ex, "Central Admin /api/config not reachable or timed out; using database & local configuration.");
             return null;
         }
     }

@@ -15,4 +15,12 @@ public interface IPhoneHandoffRepository
 
     /// <summary>Insert or replace by <see cref="PhoneHandoff.Id"/>.</summary>
     Task UpsertAsync(PhoneHandoff handoff, CancellationToken ct);
+
+    /// <summary>Counts unused, active, non-archived Drive handoffs for overview badges without loading all documents.</summary>
+    async Task<int> CountUnusedDriveAsync(string userId, CancellationToken ct)
+    {
+        var list = await ListByUserAsync(userId, null, 500, ct).ConfigureAwait(false);
+        return list.Count(h =>
+            h.State != PhoneHandoffState.Cancelled && !h.DriveMissing && !h.Archived && h.UsedAt is null);
+    }
 }

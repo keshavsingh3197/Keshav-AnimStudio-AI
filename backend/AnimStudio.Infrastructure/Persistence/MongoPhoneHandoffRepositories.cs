@@ -58,4 +58,16 @@ public sealed class MongoPhoneHandoffRepository(MongoDbService mongo) : IPhoneHa
 
     public Task UpsertAsync(PhoneHandoff handoff, CancellationToken ct) =>
         Collection.ReplaceOneAsync(h => h.Id == handoff.Id, handoff, new ReplaceOptions { IsUpsert = true }, ct);
+
+    public async Task<int> CountUnusedDriveAsync(string userId, CancellationToken ct)
+    {
+        var b = Builders<PhoneHandoff>.Filter;
+        var filter = b.And(
+            b.Eq(h => h.UserId, userId),
+            b.Ne(h => h.State, PhoneHandoffState.Cancelled),
+            b.Ne(h => h.DriveMissing, true),
+            b.Ne(h => h.Archived, true),
+            b.Eq(h => h.UsedAt, null));
+        return (int)await Collection.CountDocumentsAsync(filter, cancellationToken: ct).ConfigureAwait(false);
+    }
 }

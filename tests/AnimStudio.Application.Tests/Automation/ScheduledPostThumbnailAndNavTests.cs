@@ -455,6 +455,72 @@ public sealed class ScheduledPostThumbnailAndNavTests
     }
 
     [Fact]
+    public async Task EcosystemSignalsClient_caches_warm_snapshots_and_handles_upstream_timeout_without_throwing()
+    {
+        var ct = CancellationToken.None;
+        var panchangCalls = 0;
+
+        HttpResponseMessage TimedOutResponder(HttpRequestMessage req)
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/api/panchang/daily", StringComparison.Ordinal))
+            {
+                panchangCalls++;
+                // Simulates HttpClient.Timeout firing internally when ct was NOT cancelled
+                throw new TaskCanceledException("Simulated Render cold-start timeout", new TimeoutException());
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        using var timeoutHarness = BuildHarness(
+            new FakeAutomationRepository(),
+            new FakeYouTubeConnectionRepository(),
+            new FakePublishQueueRepository(),
+            new FakeRenderJobRepository(),
+            new FakeProjectRepository(),
+            new InMemoryObjectStore(),
+            httpResponder: TimedOutResponder,
+            useRealSignalsClient: true);
+
+        var timeoutClient = timeoutHarness.Provider.GetRequiredService<IEcosystemSignalsClient>();
+        var degraded = await timeoutClient.FetchAsync("2026-11-18", "India (IST)", ct: ct);
+
+        Assert.Equal("2026-11-18", degraded.DateKey);
+        Assert.Equal(1, panchangCalls);
+        Assert.NotEmpty(degraded.Warnings);
+        Assert.NotEmpty(degraded.HistoricalIncidents);
+
+        // Warm live responder should serve the second FetchAsync directly from in-memory snapshot cache
+        var liveCalls = 0;
+        HttpResponseMessage WarmResponder(HttpRequestMessage req)
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/api/panchang/daily", StringComparison.Ordinal))
+            {
+                liveCalls++;
+                return JsonOk(new { dateKey = "2026-11-18", tithi = "Shukla Navami", nakshatra = "Shatabhisha", sunrise = "06:46 AM", sunset = "05:27 PM", abhijitMuhurat = "11:46 AM - 12:27 PM", rahuKaal = "12:07 PM - 01:27 PM" });
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        using var liveHarness = BuildHarness(
+            new FakeAutomationRepository(),
+            new FakeYouTubeConnectionRepository(),
+            new FakePublishQueueRepository(),
+            new FakeRenderJobRepository(),
+            new FakeProjectRepository(),
+            new InMemoryObjectStore(),
+            httpResponder: WarmResponder,
+            useRealSignalsClient: true);
+
+        var liveClient = liveHarness.Provider.GetRequiredService<IEcosystemSignalsClient>();
+        var first = await liveClient.FetchAsync("2026-11-18", "India (IST)", ct: ct);
+        var second = await liveClient.FetchAsync("2026-11-18", "India (IST)", ct: ct);
+
+        Assert.Equal("Shukla Navami", first.Panchang?.Tithi);
+        Assert.Equal("Shukla Navami", second.Panchang?.Tithi);
+        Assert.Equal(1, liveCalls);
+    }
+
+    [Fact]
     public async Task Overview_flags_wrong_date_card_as_Mismatch_Publish_blocks_and_ReverifyAndFix_repairs()
     {
         var ct = CancellationToken.None;

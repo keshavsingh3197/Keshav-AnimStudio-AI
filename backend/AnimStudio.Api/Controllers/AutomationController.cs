@@ -151,6 +151,16 @@ public sealed class AutomationController(
             await automation.PreparePublishPackAsync(currentUser.UserId, request ?? new PreparePublishPackRequest(), ct)));
     }
 
+    [HttpPost("prepare-buffer")]
+    public async Task<ActionResult<ApiResponse<PrepareBufferHorizonResult>>> PrepareBufferHorizon(
+        [FromBody] PrepareBufferHorizonRequest? request = null,
+        CancellationToken ct = default)
+    {
+        if (RequireAuthenticatedUser<PrepareBufferHorizonResult>() is { } denied) return denied;
+        return Ok(ApiResponse<PrepareBufferHorizonResult>.Ok(
+            await automation.PrepareBufferHorizonAsync(currentUser.UserId, request ?? new PrepareBufferHorizonRequest(), ct)));
+    }
+
     [HttpPost("rules")]
     public async Task<ActionResult<ApiResponse<AutomationRule>>> CreateRule(
         [FromBody] AutomationRule request,

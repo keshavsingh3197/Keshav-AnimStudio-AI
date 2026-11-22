@@ -31,6 +31,7 @@ import {
   DailyRashiForecast,
   DailyRashifalReport,
   SubtitleMotionPreset,
+  WeeklyBufferSummary,
 } from '../../core/services/automation.service';
 import { MyVoice } from '../../core/models/api.models';
 import { StatusService } from '../../core/services/status.service';
@@ -245,6 +246,10 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                   title="Rebalance Bhakti & Keshav channels, prepare posts, generate 3D/2D videos & thumbnails, sync Calendar, and upload Private scheduled at each channel's peak viewer time">
             @if (busyAction() === 'prepare-pack') { <span class="btn-spin" aria-hidden="true"></span> Scheduling Pack… } @else { 🚀 Auto-Prepare &amp; Private Schedule }
           </button>
+          <button type="button" class="btn secondary" [disabled]="busy()" (click)="prepareBufferHorizon()"
+                  title="Pre-prepare Current Week + Next Week (14 days ahead) without duplicates so every channel stays ready in advance">
+            @if (busyAction() === 'prepare-buffer') { <span class="btn-spin" aria-hidden="true"></span> Buffering 14d… } @else { 🗓️ Fill 14-Day Buffer }
+          </button>
           <button type="button" class="btn ghost" [disabled]="busy()" (click)="prepareToday(true)" title="Re-compose non-published items from fresh signals">
             Re-Compose Unposted
           </button>
@@ -257,11 +262,107 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
       @if (errorMessage()) {
         <div class="alert-banner err" role="alert">
           <span>{{ errorMessage() }}</span>
-          <button type="button" class="link-btn" (click)="errorMessage.set(null)">Dismiss</button>
+          <div class="toolbar-right">
+            <button type="button" class="btn tiny primary" (click)="loadOverview()">Retry Now</button>
+            <button type="button" class="link-btn" (click)="errorMessage.set(null)">Dismiss</button>
+          </div>
         </div>
       }
 
       @if (overview(); as ov) {
+        <!-- Separate Weekly Target & 14-Day Advance Buffer Notification Panel -->
+        @if (ov.weeklyBuffer; as wb) {
+          <section class="weekly-buffer-panel" [class.all-complete]="wb.isCurrentWeekComplete && wb.isNextWeekComplete" aria-label="Weekly target readiness and notifications">
+            <div class="wb-head">
+              <div class="wb-title-row">
+                <strong>📅 2-Week Advance Buffer &amp; Weekly Target Notifications</strong>
+                <span class="pill" [class.ok]="wb.isCurrentWeekComplete" [class.tone-err]="!wb.isCurrentWeekComplete">
+                  {{ wb.isCurrentWeekComplete ? '✅ Current Week Target Complete' : '🔔 Current Week Incomplete' }}
+                </span>
+                <span class="pill" [class.ok]="wb.isNextWeekComplete" [class.tone-warn]="!wb.isNextWeekComplete">
+                  {{ wb.isNextWeekComplete ? '✅ Next Week Advance Ready' : '⏳ Next Week Advance Pending' }}
+                </span>
+                <span class="pill subtle">
+                  {{ wb.totalPreparedSlots }}/{{ wb.totalExpectedSlots }} slots prepared • 🎬 {{ wb.videosReadySlots }} videos • ⏰ {{ wb.scheduledOrPublishedSlots }} scheduled
+                </span>
+              </div>
+              <div class="toolbar-right">
+                <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="prepareBufferHorizon()">
+                  @if (busyAction() === 'prepare-buffer') { <span class="btn-spin" aria-hidden="true"></span> Filling Buffer… } @else { 🗓️ Fill Current + Next Week (14 Days) }
+                </button>
+                <button type="button" class="btn tiny ghost" (click)="toggleWeeklyChannels(wb)">
+                  {{ isWeeklyChannelsExpanded(wb) ? 'Hide Channels ▲' : 'Channels & Dates (' + wb.channels.length + ') ▼' }}
+                </button>
+              </div>
+            </div>
+
+            @if (wb.notifications.length > 0) {
+              <div class="wb-notifs-grid">
+                @for (n of wb.notifications; track n.id) {
+                  <div class="wb-notif-item" [class.is-success]="n.severity === 'success'" [class.is-urgent]="n.severity === 'urgent'">
+                    <div class="wb-notif-top">
+                      <span class="mini-chip" [class.ok]="n.severity === 'success'" [class.warn]="n.severity === 'warning'" [class.err]="n.severity === 'urgent'">{{ n.badge }}</span>
+                      <strong>{{ n.title }}</strong>
+                    </div>
+                    <small>{{ n.message }}</small>
+                    @if (n.actionLabel) {
+                      <div>
+                        <button type="button" class="btn tiny ghost" [disabled]="busy()" (click)="handleWeeklyNotificationAction(n.actionLabel, n.channelId)">
+                          {{ n.actionLabel }} →
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            @if (isWeeklyChannelsExpanded(wb)) {
+              @if (wb.channels.length > 0) {
+                <div class="wb-channels-grid">
+                  @for (ch of wb.channels; track ch.channelKey) {
+                    <div class="wb-channel-card">
+                      <div class="wb-ch-top">
+                        <div>
+                          <strong>{{ ch.channelTitle }}</strong>
+                          @if (ch.channelHandle) {
+                            <span class="muted-note"> ({{ ch.channelHandle }})</span>
+                          }
+                        </div>
+                        <span class="mini-chip" [class.info]="ch.audienceProfile === 'GlobalEnglish'" [class.ok]="ch.audienceProfile !== 'GlobalEnglish'">
+                          {{ ch.audienceProfile === 'GlobalEnglish' ? '🌍 Global English (' + ch.language.toUpperCase() + ')' : '🇮🇳 Hindi Regional (' + ch.language.toUpperCase() + ')' }}
+                        </span>
+                      </div>
+                      <div class="wb-ch-sub">{{ ch.primarySourceLabel }} • {{ ch.activeRulesCount }} pipeline(s)</div>
+                      <div class="wb-ch-metrics">
+                        <span class="pill" [class.ok]="ch.isCurrentWeekComplete" [class.tone-warn]="!ch.isCurrentWeekComplete && ch.currentWeekPreparedDays > 0" [class.tone-err]="ch.currentWeekPreparedDays === 0">
+                          Current Week: {{ ch.currentWeekPreparedDays }}/{{ ch.targetDaysPerWeek }}d ({{ ch.currentWeekStatus }})
+                        </span>
+                        <span class="pill" [class.ok]="ch.isNextWeekComplete" [class.tone-info]="!ch.isNextWeekComplete && ch.nextWeekPreparedDays > 0" [class.subtle]="ch.nextWeekPreparedDays === 0">
+                          Next Week Ahead: {{ ch.nextWeekPreparedDays }}/{{ ch.targetDaysPerWeek }}d ({{ ch.nextWeekStatus }})
+                        </span>
+                      </div>
+                      <div class="wb-ch-sub">
+                        🎬 {{ ch.videosReadyCount }} videos • 🖼️ {{ ch.thumbnailsReadyCount }} thumbs • ⏰ {{ ch.scheduledOrPublishedCount }} scheduled
+                      </div>
+                      @if (!ch.isCurrentWeekComplete || !ch.isNextWeekComplete) {
+                        <div class="wb-ch-actions">
+                          <span class="muted-note">
+                            Missing: {{ (ch.missingCurrentWeekDates.concat(ch.missingNextWeekDates)).slice(0, 4).join(', ') }}
+                          </span>
+                          <button type="button" class="btn tiny primary" [disabled]="busy()" (click)="prepareBufferHorizon(ch.channelKey === 'unassigned' ? null : ch.channelKey)">
+                            Fill {{ ch.channelTitle }}
+                          </button>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            }
+          </section>
+        }
+
         <!-- Live Fact & Date Verification Banner (collapsed by default unless Mismatch) -->
         @if (ov.signals.verification; as ver) {
           <section class="verify-ribbon" [class.has-mismatch]="ver.overallStatus === 'Mismatch'" [class.has-warn]="ver.overallStatus === 'NeedsReview'" aria-label="Live date and fact verification">
@@ -461,8 +562,8 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                 </button>
               }
               <label class="toggle-inline">
-                <input type="checkbox" [ngModel]="showAllDates()" (ngModelChange)="showAllDates.set($event); queuePage.set(0)" />
-                <span>Show all dates ({{ ov.posts.length }})</span>
+                <input type="checkbox" [ngModel]="showAllDates()" (ngModelChange)="toggleShowAllDates($event)" />
+                <span>Show all dates ({{ ov.weeklyBuffer?.totalPreparedSlots ?? ov.posts.length }})</span>
               </label>
             </div>
           </div>
@@ -833,6 +934,11 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                       <span class="pill source">{{ sourceInfo(rule.sourceType).icon }} {{ sourceInfo(rule.sourceType).label }}</span>
                       <span class="pill info">{{ rule.mode }}</span>
                       <span class="pill subtle">{{ rule.preferredPublishTime }} IST • {{ rule.language.toUpperCase() }} • {{ rule.videoFormat }}</span>
+                      @if (rule.language.toLowerCase() === 'en' || isGlobalEnglishChannelHint(rule.targetChannelHandle, rule.targetChannelTitle)) {
+                        <span class="pill ok">🌍 Global English (International)</span>
+                      } @else {
+                        <span class="pill info">🇮🇳 Hindi Regional</span>
+                      }
                     </div>
                     <h3>{{ rule.name }}</h3>
                     @if (rule.description) {
@@ -917,9 +1023,21 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                   <small>Polishes hooks and delivery via Studio AI while keeping exact Panchang times and URLs intact.</small>
                 </div>
               </label>
+
+              <label class="check-tile">
+                <input type="checkbox" [(ngModel)]="settingsForm()!.autoFillBufferInBackground" name="autoFillBufferInBackground" />
+                <div>
+                  <strong>Auto-Fill 14-Day Advance Buffer in Background</strong>
+                  <small>Gently pre-prepares Current Week + Next Week scripts automatically so day-to-day publishing stays ahead.</small>
+                </div>
+              </label>
             </div>
 
             <div class="form-2col">
+              <label class="field">
+                <span>Advance Buffer Horizon (Days: 7–14)</span>
+                <input type="number" min="7" max="14" [(ngModel)]="settingsForm()!.advanceBufferDays" name="advanceBufferDays" />
+              </label>
               <label class="field">
                 <span>Default Panchang City / Location</span>
                 <input type="text" [(ngModel)]="settingsForm()!.defaultLocation" name="defaultLocation" placeholder="New Delhi, India" />
@@ -3045,6 +3163,31 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
     .verify-ribbon.has-mismatch { border-color: var(--err); background: rgba(239, 68, 68, 0.08); }
     .verify-ribbon.has-warn { border-color: var(--warn); background: rgba(245, 158, 11, 0.07); }
     .verify-ribbon-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+    .weekly-buffer-panel {
+      display: flex; flex-direction: column; gap: 10px; padding: 13px 15px;
+      border-radius: var(--radius); background: var(--surface); border: 1px solid var(--warn);
+    }
+    .weekly-buffer-panel.all-complete { border-color: var(--ok); }
+    .wb-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+    .wb-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; }
+    .wb-notifs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+    .wb-notif-item {
+      display: flex; flex-direction: column; gap: 5px; padding: 9px 11px;
+      border-radius: var(--radius-sm); background: var(--sunk-1); border: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .wb-notif-item.is-success { border-color: var(--ok); background: var(--ok-dim); }
+    .wb-notif-item.is-urgent { border-color: var(--err); background: var(--err-dim); }
+    .wb-notif-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
+    .wb-channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+    .wb-channel-card {
+      display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+      border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border);
+    }
+    .wb-ch-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; font-size: 13px; }
+    .wb-ch-sub { font-size: 11.5px; color: var(--text-dim); }
+    .wb-ch-metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+    .wb-ch-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 2px; }
     .verify-checks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
     .verify-check-pill {
       display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
@@ -3305,6 +3448,8 @@ export class AutomationHubComponent implements OnInit {
   // UI Scalability (collapse by default + search + pagination)
   readonly showVerificationDetails = signal(false);
   readonly showSignalsCards = signal(false);
+  readonly showWeeklyBufferDetails = signal<boolean | null>(null);
+  readonly allDatesPosts = signal<AutomationPost[] | null>(null);
   readonly expandedQueueCardIds = signal<Record<string, boolean>>({});
   readonly queueSearchQuery = signal('');
   readonly queuePageSize = signal(8);
@@ -3443,7 +3588,10 @@ export class AutomationHubComponent implements OnInit {
     const ov = this.overview();
     if (!ov) return [];
     const target = this.selectedDate();
-    return this.showAllDates() ? ov.posts : ov.posts.filter((p) => p.dateKey === target);
+    if (this.showAllDates()) {
+      return this.allDatesPosts() ?? ov.posts;
+    }
+    return ov.posts.filter((p) => p.dateKey === target);
   });
 
   readonly filteredPosts = computed(() => {
@@ -3548,7 +3696,14 @@ export class AutomationHubComponent implements OnInit {
       this.highlightedSource.set(qSource);
     }
 
-    void this.loadOverview();
+    const cached = this.api.getCachedOverview(this.selectedDate());
+    if (cached) {
+      this.overview.set(cached);
+      this.settingsForm.set({ ...cached.settings });
+      void this.loadOverview(true);
+    } else {
+      void this.loadOverview();
+    }
     this.pollTimer = setInterval(() => {
       const ov = this.overview();
       if (ov?.posts.some((p) => p.status === 'GeneratingVideo' || p.status === 'Publishing')) {
@@ -4582,7 +4737,7 @@ export class AutomationHubComponent implements OnInit {
   }
 
   async loadOverview(silent = false): Promise<void> {
-    if (!silent) this.loading.set(true);
+    if (!silent && !this.overview()) this.loading.set(true);
     try {
       const ov = await firstValueFrom(this.api.getOverview(this.selectedDate(), silent));
       this.overview.set(ov);
@@ -4596,6 +4751,60 @@ export class AutomationHubComponent implements OnInit {
     } finally {
       if (!silent) this.loading.set(false);
     }
+  }
+
+  async prepareBufferHorizon(channelId?: string | null): Promise<void> {
+    await this.runAction('prepare-buffer', async () => {
+      const res = await firstValueFrom(
+        this.api.prepareBufferHorizon({
+          startDateKey: this.selectedDate(),
+          days: 14,
+          channelId: channelId ?? null,
+          rebalanceChannels: true,
+        })
+      );
+      this.status.showNotice(
+        `Prepared ${res.postsCreated} new / ${res.postsUpdated} updated item(s) across ${res.daysNewlyPrepared} missing day(s) in your 14-day Current + Next Week buffer.`
+      );
+      await this.loadOverview(true);
+    });
+  }
+
+  async handleWeeklyNotificationAction(actionLabel: string, channelId?: string | null): Promise<void> {
+    if (actionLabel === 'Auto-Setup Pipelines') {
+      await this.bootstrapStarterRules();
+      return;
+    }
+    await this.prepareBufferHorizon(channelId);
+  }
+
+  async toggleShowAllDates(checked: boolean): Promise<void> {
+    this.showAllDates.set(checked);
+    this.queuePage.set(0);
+    if (!checked) return;
+    const ov = this.overview();
+    if (!ov) return;
+    try {
+      const from = ov.weeklyBuffer?.currentWeekStart ?? ov.dateKey;
+      const to = ov.weeklyBuffer?.nextWeekEnd ?? undefined;
+      const list = await firstValueFrom(this.api.listQueue({ from, to, limit: 400 }));
+      this.allDatesPosts.set(list);
+    } catch {
+      // Fallback gracefully to currently loaded posts if queue lookup fails transiently.
+    }
+  }
+
+  isWeeklyChannelsExpanded(wb: WeeklyBufferSummary): boolean {
+    return this.showWeeklyBufferDetails() ?? !wb.isCurrentWeekComplete;
+  }
+
+  toggleWeeklyChannels(wb: WeeklyBufferSummary): void {
+    this.showWeeklyBufferDetails.set(!this.isWeeklyChannelsExpanded(wb));
+  }
+
+  isGlobalEnglishChannelHint(handle?: string | null, title?: string | null): boolean {
+    const combined = `${handle ?? ''} ${title ?? ''}`.toLowerCase();
+    return combined.includes('keshavsinghworld') || combined.includes('keshav singh world') || combined.includes('global') || combined.includes('international');
   }
 
   async bootstrapStarterRules(): Promise<void> {

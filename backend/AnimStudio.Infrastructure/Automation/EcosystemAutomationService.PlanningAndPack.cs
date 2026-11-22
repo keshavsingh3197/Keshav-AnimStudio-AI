@@ -20,6 +20,74 @@ public sealed record AutomationRebalanceResult(
     int TopicsUpdated,
     IReadOnlyList<AutomationRule> Rules);
 
+public sealed record ChannelWeeklyBufferStatus(
+    string ChannelKey,
+    string ChannelTitle,
+    string? ChannelHandle,
+    string AudienceProfile,
+    string Language,
+    string PrimarySourceLabel,
+    int ActiveRulesCount,
+    int TargetDaysPerWeek,
+    int CurrentWeekPreparedDays,
+    int NextWeekPreparedDays,
+    int CurrentWeekExpectedPosts,
+    int CurrentWeekPreparedPosts,
+    int CurrentWeekReadyOrScheduledPosts,
+    int NextWeekExpectedPosts,
+    int NextWeekPreparedPosts,
+    int NextWeekReadyOrScheduledPosts,
+    int VideosReadyCount,
+    int ThumbnailsReadyCount,
+    int ScheduledOrPublishedCount,
+    bool IsCurrentWeekComplete,
+    bool IsNextWeekComplete,
+    string CurrentWeekStatus,
+    string NextWeekStatus,
+    IReadOnlyList<string> MissingCurrentWeekDates,
+    IReadOnlyList<string> MissingNextWeekDates);
+
+public sealed record WeeklyNotificationItem(
+    string Id,
+    string Severity,
+    string Badge,
+    string Title,
+    string Message,
+    string? ActionLabel,
+    string? ChannelId);
+
+public sealed record WeeklyBufferSummary(
+    string BaseDateKey,
+    string CurrentWeekStart,
+    string CurrentWeekEnd,
+    string NextWeekStart,
+    string NextWeekEnd,
+    int AdvanceBufferDays,
+    int TotalExpectedSlots,
+    int TotalPreparedSlots,
+    int VideosReadySlots,
+    int ScheduledOrPublishedSlots,
+    bool IsCurrentWeekComplete,
+    bool IsNextWeekComplete,
+    IReadOnlyList<ChannelWeeklyBufferStatus> Channels,
+    IReadOnlyList<WeeklyNotificationItem> Notifications);
+
+public sealed record PrepareBufferHorizonRequest(
+    string? StartDateKey = null,
+    int Days = 14,
+    string? ChannelId = null,
+    bool ForceRegenerate = false,
+    bool RebalanceChannels = true);
+
+public sealed record PrepareBufferHorizonResult(
+    string StartDateKey,
+    int DaysScanned,
+    int DaysNewlyPrepared,
+    int PostsCreated,
+    int PostsUpdated,
+    IReadOnlyList<string> Warnings,
+    WeeklyBufferSummary Summary);
+
 public sealed record PreparePublishPackRequest(
     string? DateKey = null,
     bool ForceRegenerate = false,
@@ -75,6 +143,21 @@ public sealed partial class EcosystemAutomationService
         AutomationSourceType.AajKaItihaas or
         AutomationSourceType.Pratiyogita or
         AutomationSourceType.EcosystemSpotlight;
+
+    /// <summary>True when a channel represents an international / global English outlet (e.g. @keshavsinghworld).</summary>
+    internal static bool IsGlobalEnglishChannelHint(string? handle, string? title)
+    {
+        if (ComedyChannelMatcher.IsDevotionalOrSeriousChannelHint(handle, title)
+            || ComedyChannelMatcher.IsComedyChannelHint(handle, title))
+            return false;
+
+        var combined = $"{handle} {title}".ToLowerInvariant();
+        return combined.Contains("keshavsinghworld", StringComparison.Ordinal)
+            || combined.Contains("keshav singh world", StringComparison.Ordinal)
+            || combined.Contains("global", StringComparison.Ordinal)
+            || combined.Contains("international", StringComparison.Ordinal)
+            || combined.Contains("english", StringComparison.Ordinal);
+    }
 
     private static StarterChannelMap ResolveStarterChannels(
         IReadOnlyList<YouTubeConnectionStatus> connected,
@@ -163,8 +246,14 @@ public sealed partial class EcosystemAutomationService
                 && (rule.VideoFormat != AutomationVideoFormat.Wide
                     || rule.NarrativeMode != AutomationNarrativeMode.FullStory
                     || rule.TargetSeconds < 210);
+            var targetIsGlobalEnglish = IsWorldHistorySource(rule.SourceType)
+                && IsGlobalEnglishChannelHint(target.Handle, target.Title);
+            var needsGlobalLanguageUpgrade = targetIsGlobalEnglish
+                && (!string.Equals(rule.Language, "en", StringComparison.OrdinalIgnoreCase)
+                    || string.IsNullOrWhiteSpace(rule.Location)
+                    || rule.Location.Contains("India", StringComparison.OrdinalIgnoreCase));
 
-            if (!needsFix && !needsVideoFormatUpgrade) continue;
+            if (!needsFix && !needsVideoFormatUpgrade && !needsGlobalLanguageUpgrade) continue;
 
             var ruleChanged = false;
             if (needsFix && !string.Equals(rule.TargetChannelId, target.ChannelId, StringComparison.OrdinalIgnoreCase))
@@ -179,6 +268,13 @@ public sealed partial class EcosystemAutomationService
                 rule.VideoFormat = AutomationVideoFormat.Wide;
                 rule.NarrativeMode = AutomationNarrativeMode.FullStory;
                 rule.TargetSeconds = Math.Max(rule.TargetSeconds, 220);
+                ruleChanged = true;
+            }
+            if (needsGlobalLanguageUpgrade)
+            {
+                rule.Language = "en";
+                if (string.IsNullOrWhiteSpace(rule.Location) || rule.Location.Contains("India", StringComparison.OrdinalIgnoreCase))
+                    rule.Location = "Global (English)";
                 ruleChanged = true;
             }
             if (ruleChanged)
@@ -811,6 +907,340 @@ public sealed partial class EcosystemAutomationService
         var freshHistory = ChannelContentDeduplicator.PrioritizeFreshHistorical(
             signals.HistoricalIncidents,
             existingTitles);
+        if (!string.Equals(rule.Language, "hi", StringComparison.OrdinalIgnoreCase))
+        {
+            freshHistory = freshHistory
+                .OrderBy(h => string.Equals(h.Category, "Indian History", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ToList();
+        }
         return signals with { HistoricalIncidents = freshHistory };
+    }
+
+    /// <summary>
+    /// Computes Current Week (Days 0..6) and Next Week Advance Buffer (Days 7..13) readiness per channel (DTC)
+    /// and overall pipeline (DPC), producing distinct notification items for incomplete or completed targets.
+    /// </summary>
+    internal static WeeklyBufferSummary ComputeWeeklyBufferSummary(
+        string baseDateKey,
+        IReadOnlyList<AutomationRule> rules,
+        IReadOnlyList<AutomationPost> posts,
+        IReadOnlyList<YouTubeConnectionStatus> connectedChannels,
+        StudioEcosystemConfig? ecosystem = null,
+        int advanceBufferDays = 14)
+    {
+        var anchor = DateOnly.TryParse(baseDateKey, out var parsed)
+            ? parsed
+            : DateOnly.FromDateTime(DateTime.UtcNow);
+        var currentWeekDates = Enumerable.Range(0, 7).Select(i => anchor.AddDays(i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToList();
+        var nextWeekDates = Enumerable.Range(7, 7).Select(i => anchor.AddDays(i).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToList();
+
+        var enabledRules = rules.Where(r => r.Enabled).ToList();
+        var activePosts = posts.Where(p => p.Status != AutomationPostStatus.Skipped).ToList();
+
+        static bool AppliesOnDate(AutomationRule rule, string dKey) =>
+            rule.DaysOfWeek.Count == 0 || (DateOnly.TryParse(dKey, out var d) && rule.DaysOfWeek.Contains((int)d.DayOfWeek));
+
+        var postsByDateAndRule = activePosts
+            .Where(p => !string.IsNullOrWhiteSpace(p.DateKey) && !string.IsNullOrWhiteSpace(p.RuleId))
+            .GroupBy(p => $"{p.DateKey}|{p.RuleId}", StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+        var channelGroups = enabledRules
+            .GroupBy(r => string.IsNullOrWhiteSpace(r.TargetChannelId) ? "unassigned" : r.TargetChannelId!, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var channelStatuses = new List<ChannelWeeklyBufferStatus>();
+        var totalExpected = 0;
+        var totalPrepared = 0;
+        var totalVideosReady = 0;
+        var totalScheduledOrPublished = 0;
+
+        foreach (var group in channelGroups)
+        {
+            var groupRules = group.ToList();
+            var chKey = group.Key;
+            var conn = string.Equals(chKey, "unassigned", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : connectedChannels.FirstOrDefault(c => string.Equals(c.ChannelId, chKey, StringComparison.OrdinalIgnoreCase));
+
+            var repRule = groupRules[0];
+            var chTitle = conn?.ChannelTitle ?? repRule.TargetChannelTitle ?? (chKey == "unassigned" ? "Unassigned Drafts" : chKey);
+            var chHandle = conn?.ChannelHandle ?? repRule.TargetChannelHandle;
+
+            var isGlobalEn = IsGlobalEnglishChannelHint(chHandle, chTitle)
+                || groupRules.All(r => string.Equals(r.Language, "en", StringComparison.OrdinalIgnoreCase));
+            var isComedy = ComedyChannelMatcher.IsComedyChannelHint(chHandle, chTitle)
+                || groupRules.Any(r => r.SourceType == AutomationSourceType.FunnyComedy);
+            var isDevotional = ComedyChannelMatcher.IsDevotionalOrSeriousChannelHint(chHandle, chTitle)
+                || groupRules.Any(r => IsDevotionalSource(r.SourceType));
+
+            var audienceProfile = isGlobalEn ? "GlobalEnglish"
+                : isComedy ? "HindiComedy"
+                : isDevotional ? "HindiDevotional"
+                : "CommunityMulti";
+            var lang = isGlobalEn ? "en" : (repRule.Language ?? "hi");
+            var sourceLabel = isDevotional ? "Panchang / Katha / Vrat (DPC)"
+                : isGlobalEn ? "Global History / Creator Tools (DTC EN)"
+                : isComedy ? "3D Comedy Shorts (DTC)"
+                : string.Join(", ", groupRules.Select(r => r.SourceType.ToString()).Distinct().Take(3));
+
+            var curDaysReady = 0;
+            var curExpected = 0;
+            var curPrepared = 0;
+            var curReadyOrSched = 0;
+            var missingCur = new List<string>();
+
+            var nextDaysReady = 0;
+            var nextExpected = 0;
+            var nextPrepared = 0;
+            var nextReadyOrSched = 0;
+            var missingNext = new List<string>();
+
+            var videosReady = 0;
+            var thumbsReady = 0;
+            var schedOrPub = 0;
+
+            void EvaluateWeek(List<string> dates, ref int daysReady, ref int expected, ref int prepared, ref int readyOrSched, List<string> missing)
+            {
+                foreach (var d in dates)
+                {
+                    var dueRules = groupRules.Where(r => AppliesOnDate(r, d)).ToList();
+                    if (dueRules.Count == 0) continue;
+                    expected += dueRules.Count;
+                    var dayComplete = true;
+                    foreach (var r in dueRules)
+                    {
+                        if (postsByDateAndRule.TryGetValue($"{d}|{r.Id}", out var matched) && matched.Count > 0)
+                        {
+                            prepared++;
+                            var p = AutomationPost.SelectPreferred(matched)!;
+                            var hasVid = !string.IsNullOrWhiteSpace(p.AttachedRenderJobId) || !string.IsNullOrWhiteSpace(p.AttachedHandoffId);
+                            var hasThumb = !string.IsNullOrWhiteSpace(p.ThumbnailStorageKey) || p.ThumbnailFrameAtSeconds.HasValue;
+                            var isSchedOrPub = p.Status is AutomationPostStatus.Published or AutomationPostStatus.Publishing or AutomationPostStatus.Approved
+                                || p.ScheduledAtUtc.HasValue;
+                            if (hasVid) videosReady++;
+                            if (hasThumb) thumbsReady++;
+                            if (isSchedOrPub) schedOrPub++;
+                            if (hasVid || isSchedOrPub) readyOrSched++;
+                        }
+                        else
+                        {
+                            dayComplete = false;
+                        }
+                    }
+                    if (dayComplete) daysReady++;
+                    else missing.Add(d);
+                }
+            }
+
+            EvaluateWeek(currentWeekDates, ref curDaysReady, ref curExpected, ref curPrepared, ref curReadyOrSched, missingCur);
+            EvaluateWeek(nextWeekDates, ref nextDaysReady, ref nextExpected, ref nextPrepared, ref nextReadyOrSched, missingNext);
+
+            totalExpected += curExpected + nextExpected;
+            totalPrepared += curPrepared + nextPrepared;
+            totalVideosReady += videosReady;
+            totalScheduledOrPublished += schedOrPub;
+
+            var curComplete = curExpected > 0 && missingCur.Count == 0;
+            var nextComplete = nextExpected > 0 && missingNext.Count == 0;
+            var curStatus = curExpected == 0 || curPrepared == 0 ? "Empty" : curComplete ? "Complete" : "Partial";
+            var nextStatus = nextExpected == 0 || nextPrepared == 0 ? "Empty" : nextComplete ? "Complete" : "Partial";
+
+            channelStatuses.Add(new ChannelWeeklyBufferStatus(
+                chKey,
+                chTitle,
+                chHandle,
+                audienceProfile,
+                lang,
+                sourceLabel,
+                groupRules.Count,
+                TargetDaysPerWeek: 7,
+                CurrentWeekPreparedDays: curDaysReady,
+                NextWeekPreparedDays: nextDaysReady,
+                CurrentWeekExpectedPosts: curExpected,
+                CurrentWeekPreparedPosts: curPrepared,
+                CurrentWeekReadyOrScheduledPosts: curReadyOrSched,
+                NextWeekExpectedPosts: nextExpected,
+                NextWeekPreparedPosts: nextPrepared,
+                NextWeekReadyOrScheduledPosts: nextReadyOrSched,
+                VideosReadyCount: videosReady,
+                ThumbnailsReadyCount: thumbsReady,
+                ScheduledOrPublishedCount: schedOrPub,
+                IsCurrentWeekComplete: curComplete,
+                IsNextWeekComplete: nextComplete,
+                CurrentWeekStatus: curStatus,
+                NextWeekStatus: nextStatus,
+                MissingCurrentWeekDates: missingCur,
+                MissingNextWeekDates: missingNext));
+        }
+
+        var isAllCurrentComplete = channelStatuses.Count > 0 && channelStatuses.All(c => c.IsCurrentWeekComplete);
+        var isAllNextComplete = channelStatuses.Count > 0 && channelStatuses.All(c => c.IsNextWeekComplete);
+        var notifications = new List<WeeklyNotificationItem>();
+
+        if (channelStatuses.Count == 0)
+        {
+            notifications.Add(new WeeklyNotificationItem(
+                "notif-no-pipelines",
+                "urgent",
+                "PIPELINES EMPTY",
+                "No Active DPC / DTC Channel Pipelines Configured",
+                "Click Auto-Setup Ecosystem Pipelines so 7-day Current Week + 7-day Next Week buffers can be generated automatically.",
+                "Auto-Setup Pipelines",
+                null));
+        }
+        else
+        {
+            var curMissingTotal = channelStatuses.Sum(c => c.MissingCurrentWeekDates.Count);
+            notifications.Add(new WeeklyNotificationItem(
+                "notif-current-week",
+                isAllCurrentComplete ? "success" : "urgent",
+                "CURRENT WEEK (7 DAYS)",
+                isAllCurrentComplete
+                    ? "Current Week Content Target Complete (7/7 Days Ready)"
+                    : $"Current Week Target Incomplete — {curMissingTotal} Channel-Day(s) Missing",
+                isAllCurrentComplete
+                    ? $"All {channelStatuses.Count} active DTC channel(s) have complete scripts, verified facts & SEO packaging across {currentWeekDates[0]} → {currentWeekDates[^1]}."
+                    : "Fill missing Current Week days in 1 click so today and this week run on zero daily stress.",
+                isAllCurrentComplete ? null : "Fill Current Week",
+                null));
+
+            var nextMissingTotal = channelStatuses.Sum(c => c.MissingNextWeekDates.Count);
+            notifications.Add(new WeeklyNotificationItem(
+                "notif-next-week",
+                isAllNextComplete ? "success" : "warning",
+                "NEXT WEEK ADVANCE (7 DAYS)",
+                isAllNextComplete
+                    ? "Next Week Advance Buffer Complete (1 Week Prepared Ahead)"
+                    : $"Next Week Advance Buffer Pending — {nextMissingTotal} Day(s) Need Pre-Prep",
+                isAllNextComplete
+                    ? $"Next week ({nextWeekDates[0]} → {nextWeekDates[^1]}) is already prepared 1 week in advance for stress-free peak SEO publishing."
+                    : "Prepare next week's content in advance (quality-first deduplicated pipeline) so you only review and refine without deadline pressure.",
+                isAllNextComplete ? null : "Prepare 14-Day Buffer",
+                null));
+
+            foreach (var ch in channelStatuses.Where(c => !c.IsCurrentWeekComplete || !c.IsNextWeekComplete))
+            {
+                notifications.Add(new WeeklyNotificationItem(
+                    $"notif-ch-{ch.ChannelKey}",
+                    !ch.IsCurrentWeekComplete ? "warning" : "warning",
+                    ch.AudienceProfile == "GlobalEnglish" ? "GLOBAL EN (DTC)" : "HINDI DTC CHANNEL",
+                    $"{ch.ChannelTitle}: This Week {ch.CurrentWeekPreparedDays}/7 • Next Week {ch.NextWeekPreparedDays}/7",
+                    $"Missing This Week: {(ch.MissingCurrentWeekDates.Count == 0 ? "None" : string.Join(", ", ch.MissingCurrentWeekDates.Take(3)))} | Missing Next Week: {(ch.MissingNextWeekDates.Count == 0 ? "None" : string.Join(", ", ch.MissingNextWeekDates.Take(3)))}",
+                    "Fill Channel Buffer",
+                    ch.ChannelKey == "unassigned" ? null : ch.ChannelKey));
+            }
+        }
+
+        return new WeeklyBufferSummary(
+            anchor.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            currentWeekDates[0],
+            currentWeekDates[^1],
+            nextWeekDates[0],
+            nextWeekDates[^1],
+            Math.Clamp(advanceBufferDays, 7, 14),
+            totalExpected,
+            totalPrepared,
+            totalVideosReady,
+            totalScheduledOrPublished,
+            isAllCurrentComplete,
+            isAllNextComplete,
+            channelStatuses,
+            notifications);
+    }
+
+    /// <summary>
+    /// Pre-prepares missing content slots across Current Week + Next Week (up to 14 days in advance)
+    /// without duplicating already-prepared quality drafts.
+    /// </summary>
+    public async Task<PrepareBufferHorizonResult> PrepareBufferHorizonAsync(
+        string userId,
+        PrepareBufferHorizonRequest request,
+        CancellationToken ct)
+    {
+        var settings = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
+        var startDateKey = ResolveDateKey(request.StartDateKey, settings.DefaultTimeZone);
+        var anchor = DateOnly.Parse(startDateKey, CultureInfo.InvariantCulture);
+        var days = Math.Clamp(request.Days, 1, 14);
+        var warnings = new List<string>();
+
+        var rules = await repository.ListRulesAsync(userId, ct).ConfigureAwait(false);
+        if (rules.Count == 0)
+        {
+            await BootstrapDefaultRulesAsync(userId, ct).ConfigureAwait(false);
+        }
+        if (request.RebalanceChannels)
+        {
+            await RebalanceStarterChannelsAsync(userId, ct).ConfigureAwait(false);
+            rules = await repository.ListRulesAsync(userId, ct).ConfigureAwait(false);
+        }
+
+        var enabledRules = rules
+            .Where(r => r.Enabled && (string.IsNullOrWhiteSpace(request.ChannelId) || string.Equals(r.TargetChannelId, request.ChannelId, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        var toDateKey = anchor.AddDays(days - 1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var existingPosts = (await repository.ListPostsAsync(userId, startDateKey, toDateKey, null, 600, ct).ConfigureAwait(false))
+            .Where(p => p.Status != AutomationPostStatus.Skipped)
+            .ToList();
+        var existingKeys = existingPosts
+            .Select(p => $"{p.DateKey}|{p.RuleId}")
+            .ToHashSet(StringComparer.Ordinal);
+
+        var daysNewlyPrepared = 0;
+        var postsCreated = 0;
+        var postsUpdated = 0;
+
+        for (var offset = 0; offset < days; offset++)
+        {
+            var date = anchor.AddDays(offset);
+            var dKey = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var dow = (int)date.DayOfWeek;
+            var dueRules = enabledRules.Where(r => r.DaysOfWeek.Count == 0 || r.DaysOfWeek.Contains(dow)).ToList();
+            if (dueRules.Count == 0) continue;
+
+            var missingRules = request.ForceRegenerate
+                ? dueRules
+                : dueRules.Where(r => !existingKeys.Contains($"{dKey}|{r.Id}")).ToList();
+
+            if (missingRules.Count == 0) continue;
+
+            if (string.IsNullOrWhiteSpace(request.ChannelId) && missingRules.Count == dueRules.Count)
+            {
+                var res = await PrepareForDateAsync(userId, dKey, ruleId: null, forceRegenerate: request.ForceRegenerate, ct).ConfigureAwait(false);
+                postsCreated += res.PostsCreated;
+                postsUpdated += res.PostsUpdated;
+                foreach (var w in res.Warnings.Take(2))
+                    if (!warnings.Contains(w, StringComparer.Ordinal)) warnings.Add(w);
+            }
+            else
+            {
+                foreach (var r in missingRules)
+                {
+                    var res = await PrepareForDateAsync(userId, dKey, ruleId: r.Id, forceRegenerate: request.ForceRegenerate, ct).ConfigureAwait(false);
+                    postsCreated += res.PostsCreated;
+                    postsUpdated += res.PostsUpdated;
+                    foreach (var w in res.Warnings.Take(2))
+                        if (!warnings.Contains(w, StringComparer.Ordinal)) warnings.Add(w);
+                }
+            }
+            daysNewlyPrepared++;
+        }
+
+        var refreshedRules = await repository.ListRulesAsync(userId, ct).ConfigureAwait(false);
+        var windowEnd = anchor.AddDays(13).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var refreshedPosts = await repository.ListPostsAsync(userId, startDateKey, windowEnd, null, 600, ct).ConfigureAwait(false);
+        var connected = await connections.ListAsync(userId, ct).ConfigureAwait(false);
+        var ecosystem = await ecosystemProvider.GetAsync(forceRefresh: false, ct).ConfigureAwait(false);
+        var summary = ComputeWeeklyBufferSummary(startDateKey, refreshedRules, refreshedPosts, connected, ecosystem, settings.AdvanceBufferDays);
+
+        return new PrepareBufferHorizonResult(
+            startDateKey,
+            days,
+            daysNewlyPrepared,
+            postsCreated,
+            postsUpdated,
+            warnings,
+            summary);
     }
 }
