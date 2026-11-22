@@ -3084,14 +3084,36 @@ public sealed partial class EcosystemAutomationService(
             post.EventColorHex ??= palette.PrimaryHex;
             post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
             var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
-            var extras = (hasVoice ? " • Voice" : string.Empty)
+            var hasVoiceWarning = !hasVoice && !string.IsNullOrWhiteSpace(rendered.SpeechWarning);
+            var extras = (hasVoice ? " • Voice" : hasVoiceWarning ? " • Silent (voice failed)" : string.Empty)
                 + (verifiedVoiceId is not null ? " • Custom Voice" : string.Empty)
                 + (usingTemplate ? " • Your background" : string.Empty)
                 + (usingScenePictures ? $" • {bgPaths.Count} scene pictures" : string.Empty)
                 + (stage.IncludeBackgroundMusic ? string.Empty : " • No music");
             var engineBadge = isDevotionalReel ? "Devotional Image Reel" : (preferFast2D ? "2D Fast Animated" : "3D Animated");
             post.AttachedVideoSourceLabel = $"{engineBadge} ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s{extras})";
-            post.StoryStageSummary = isDevotionalReel ? "Devotional Reel MP4 Ready" : (preferFast2D ? "Fast 2D Animated MP4 Ready" : "3D Animated MP4 Ready");
+            if (hasVoiceWarning)
+            {
+                var voiceAlert = $"Voice unavailable: {rendered.SpeechWarning} Re-enable Google gTTS fallback in AI Settings or wait for quota reset, then regenerate.";
+                if (string.IsNullOrWhiteSpace(post.Notes))
+                    post.Notes = voiceAlert;
+                else if (!post.Notes.Contains("Voice unavailable:", StringComparison.OrdinalIgnoreCase))
+                    post.Notes = $"{voiceAlert} | {post.Notes}";
+            }
+            else if (hasVoice && !string.IsNullOrWhiteSpace(post.Notes)
+                && post.Notes.Contains("Voice unavailable:", StringComparison.OrdinalIgnoreCase))
+            {
+                const string marker = "then regenerate.";
+                var markerIdx = post.Notes.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (markerIdx >= 0)
+                {
+                    var remaining = post.Notes[(markerIdx + marker.Length)..].TrimStart(' ', '|');
+                    post.Notes = string.IsNullOrWhiteSpace(remaining) ? null : remaining;
+                }
+            }
+            post.StoryStageSummary = hasVoiceWarning
+                ? "Animated MP4 Ready (No Voice)"
+                : isDevotionalReel ? "Devotional Reel MP4 Ready" : (preferFast2D ? "Fast 2D Animated MP4 Ready" : "3D Animated MP4 Ready");
             post.StoryProgressPercent = 100;
             post.Status = AutomationPostStatus.VideoReadyForReview;
 

@@ -196,7 +196,8 @@ public sealed record ProceduralVideoResult(
     long SizeBytes,
     string? StorageKey,
     byte[]? InlineMp4Bytes,
-    string Summary);
+    string Summary,
+    string? SpeechWarning = null);
 
 /// <summary>
 /// Pure planning utilities for the procedural 2D/3D animation generator: infers visual themes from

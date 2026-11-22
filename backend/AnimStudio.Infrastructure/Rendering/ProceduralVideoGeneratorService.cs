@@ -131,7 +131,8 @@ public sealed class ProceduralVideoGeneratorService(
         float[]? speechEnvelope = null;
         var hasSpeech = false;
         string? voiceSummary = null;
-        var speechResult = await ProceduralSpeechSynthesizer.TrySynthesizeAsync(
+        string? speechWarning = null;
+        var speechOutcome = await ProceduralSpeechSynthesizer.TrySynthesizeWithDiagnosticsAsync(
             request,
             dialoguePlan,
             workspace.Resolve("in"),
@@ -144,6 +145,7 @@ public sealed class ProceduralVideoGeneratorService(
             ct,
             customVoiceProfile,
             studioVoiceRenderer).ConfigureAwait(false);
+        var speechResult = speechOutcome.Result;
 
         if (speechResult is not null && File.Exists(speechResult.SpeechWavPath))
         {
@@ -161,10 +163,15 @@ public sealed class ProceduralVideoGeneratorService(
                 "Procedural 3D video speech synthesized via {Voices} ({Duration}s) for title '{Title}'.",
                 voiceSummary, durationSeconds, title);
         }
-        else if (request.FollowScriptExactly)
+        else
         {
-            // No voices: lay the captions out over the actual video length instead of the planning maximum.
-            dialoguePlan = PlanFor(durationSeconds);
+            if (request.IncludeSpeech && !string.IsNullOrWhiteSpace(speechOutcome.FailureReason))
+                speechWarning = speechOutcome.FailureReason;
+            if (request.FollowScriptExactly)
+            {
+                // No voices: lay the captions out over the actual video length instead of the planning maximum.
+                dialoguePlan = PlanFor(durationSeconds);
+            }
         }
 
         // 2. Clean stereo BGM bed (MJO dialogue breathing room on comedy, or cached studio pad)
@@ -596,7 +603,8 @@ public sealed class ProceduralVideoGeneratorService(
             outputBytesCount,
             storageKey,
             inlineMp4Bytes,
-            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}, engine={engineLabel}) in {swTotal.Elapsed.TotalSeconds:0.1}s.");
+            $"Rendered {durationSeconds}s {width}x{height} 3D animated MP4 ({preset.Name}{summaryVoice}, engine={engineLabel}) in {swTotal.Elapsed.TotalSeconds:0.1}s.",
+            SpeechWarning: speechWarning);
     }
 
     private string BuildAssSubtitles(

@@ -323,6 +323,192 @@ public sealed class DevotionalCustomVoiceReelTests
         }
     }
 
+    [Fact]
+    public async Task ProceduralSpeechSynthesizer_preserves_synthesized_turns_and_switches_to_gtts_on_gemini_429()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-fallback-speech-test-");
+        try
+        {
+            var wavPath = Path.Combine(tempDir.FullName, "clip.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(wavPath, ProceduralSceneTheme.VedicTempleSunrise3D, 2, CancellationToken.None);
+            var wavBytes = await File.ReadAllBytesAsync(wavPath);
+
+            const string markandeyaScript = """
+                [CAST]: बालक मार्कण्डेय | child | simple white cotton dhoti
+                [CAST]: भगवान शिव | divine/god | tiger skin wrap
+                [CAST]: ऋषि मृकण्डु | sage | saffron cotton dhoti
+                [CAST]: माता मरुद्मती | queen/mother | simple ochre saree
+                [SCENE]: forest ashram | dawn | serene | IMAGE: ancient thatched hermitage
+                [ऋषि मृकण्डु]: हे प्रिये मरुद्मती, विधि के इस कठिन लेख से हमारा हृदय काँप उठता है।
+                [माता मरुद्मती]: स्वामी, भगवान शिव की महामृत्युंजय साधना असंभव को भी संभव कर सकती है।
+                [बालक मार्कण्डेय]: पिताश्री, मुझे मृत्यु का भय नहीं है; मेरे रोम-रोम में शिव बसे हैं।
+                [भगवान शिव]: वत्स मार्कण्डेय, तुम्हारी अटल भक्ति से काल भी पराजित हो गया है।
+                """;
+            var plan = DialogueScriptParser.ParsePlan(
+                "मार्कण्डेय ऋषि और भगवान शिव की अमर कथा",
+                markandeyaScript,
+                prompt: null,
+                durationSeconds: 40,
+                enableDialogue: true,
+                eventType: "DailyKatha");
+            var request = new ProceduralVideoRequest
+            {
+                Title = "मार्कण्डेय ऋषि और भगवान शिव की अमर कथा",
+                Script = markandeyaScript,
+                EventType = "DailyKatha",
+                Language = "hi",
+                DurationSeconds = 40,
+                IncludeSpeech = true
+            };
+
+            var expectedTurns = plan.Turns.Count(t => !t.IsTitleHook);
+            var executor = new FailOnSecondTurnGeminiExecutor(wavBytes);
+            var registry = new StubRegistry(
+                [new StubSpeechProvider(KnownAiProviders.GeminiTts), new StubSpeechProvider(KnownAiProviders.GoogleTts)]);
+
+            var outcome = await ProceduralSpeechSynthesizer.TrySynthesizeWithDiagnosticsAsync(
+                request,
+                plan,
+                Path.Combine(tempDir.FullName, "in"),
+                "user-1",
+                baseDurationSeconds: 40,
+                executor,
+                registry,
+                new FfmpegOptions(),
+                NullLogger.Instance,
+                CancellationToken.None,
+                rateLimitCooldown: TimeSpan.Zero);
+
+            Assert.NotNull(outcome.Result);
+            Assert.Null(outcome.FailureReason);
+            Assert.True(File.Exists(outcome.Result!.SpeechWavPath));
+            Assert.Equal("gemini-tts+gtts", outcome.Result.ProviderId);
+
+            // Turn 0 succeeded on gemini-tts; Turn 1 failed 429 on gemini-tts then permanently switched to gtts for remaining turns
+            Assert.Equal(2, executor.GeminiCalls);
+            Assert.Equal(expectedTurns - 1, executor.GttsCalls);
+            Assert.Equal(expectedTurns, outcome.Result.UpdatedPlan.Turns.Count(t => !t.IsTitleHook));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProceduralSpeechSynthesizer_reports_clear_failure_diagnostics_when_providers_disabled_or_rate_limited()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-speech-diag-test-");
+        try
+        {
+            var wavPath = Path.Combine(tempDir.FullName, "clip.wav");
+            await ProceduralAudioSynthesizer.WriteAmbientWavAsync(wavPath, ProceduralSceneTheme.VedicTempleSunrise3D, 2, CancellationToken.None);
+            var wavBytes = await File.ReadAllBytesAsync(wavPath);
+
+            const string script = """
+                [ऋषि मृकण्डु]: पहला संवाद सत्य और भक्ति का मार्ग बताता है।
+                [माता मरुद्मती]: दूसरा संवाद प्रदोष व्रत का महत्व दर्शाता है।
+                [बालक मार्कण्डेय]: तीसरा संवाद महामृत्युंजय मंत्र की महिमा गाता है।
+                [भगवान शिव]: चौथा संवाद अमरत्व का आशीर्वाद प्रदान करता है।
+                """;
+            var plan = DialogueScriptParser.ParsePlan(
+                "मार्कण्डेय कथा", script, null, 20, enableDialogue: true, eventType: "DailyKatha");
+            var request = new ProceduralVideoRequest
+            {
+                Title = "मार्कण्डेय कथा",
+                Script = script,
+                EventType = "DailyKatha",
+                Language = "hi",
+                DurationSeconds = 20,
+                IncludeSpeech = true
+            };
+
+            // 1. All Speech providers disabled -> clear diagnostic message
+            var noProviderOutcome = await ProceduralSpeechSynthesizer.TrySynthesizeWithDiagnosticsAsync(
+                request, plan, Path.Combine(tempDir.FullName, "in-empty"), "user-1", 20,
+                new FailOnSecondTurnGeminiExecutor(wavBytes), new StubRegistry([]), new FfmpegOptions(), NullLogger.Instance, CancellationToken.None,
+                rateLimitCooldown: TimeSpan.Zero);
+            Assert.Null(noProviderOutcome.Result);
+            Assert.Contains("No Speech AI provider", noProviderOutcome.FailureReason, StringComparison.OrdinalIgnoreCase);
+
+            // 2. Only gemini-tts enabled and Turn 1+ hit 429 rate-limit -> aborts incomplete audio and explains why
+            var executor = new FailOnSecondTurnGeminiExecutor(wavBytes);
+            var onlyGeminiOutcome = await ProceduralSpeechSynthesizer.TrySynthesizeWithDiagnosticsAsync(
+                request, plan, Path.Combine(tempDir.FullName, "in-429"), "user-1", 20,
+                executor, new StubRegistry([new StubSpeechProvider(KnownAiProviders.GeminiTts)]), new FfmpegOptions(), NullLogger.Instance, CancellationToken.None,
+                rateLimitCooldown: TimeSpan.Zero);
+            Assert.Null(onlyGeminiOutcome.Result);
+            Assert.Contains("gemini-tts", onlyGeminiOutcome.FailureReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("rate-limited", onlyGeminiOutcome.FailureReason, StringComparison.OrdinalIgnoreCase);
+            // Stops early after 3 consecutive provider-wide failures rather than hanging through long scripts
+            Assert.Equal(4, executor.GeminiCalls);
+
+            // 3. When only gemini-tts is enabled and Turn 1 hits a transient RPM 429 that clears after cooldown, full narration succeeds
+            var transientExecutor = new TransientOnceGeminiExecutor(wavBytes);
+            var recoveredOutcome = await ProceduralSpeechSynthesizer.TrySynthesizeWithDiagnosticsAsync(
+                request, plan, Path.Combine(tempDir.FullName, "in-recover"), "user-1", 20,
+                transientExecutor, new StubRegistry([new StubSpeechProvider(KnownAiProviders.GeminiTts)]), new FfmpegOptions(), NullLogger.Instance, CancellationToken.None,
+                rateLimitCooldown: TimeSpan.FromMilliseconds(5));
+            Assert.NotNull(recoveredOutcome.Result);
+            Assert.Null(recoveredOutcome.FailureReason);
+            Assert.Equal(KnownAiProviders.GeminiTts, recoveredOutcome.Result!.ProviderId);
+            Assert.Equal(5, transientExecutor.Calls); // 4 turns + 1 retried Turn 1 after cooldown
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    private sealed class TransientOnceGeminiExecutor(byte[] wavBytes) : IAiExecutor
+    {
+        public int Calls { get; private set; }
+        public Task<AiOutcome<AiTextResult>> TextAsync(AiTextRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiTextResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiImageResult>> ImageAsync(AiImageRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiImageResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiTranscriptionResult>> TranscribeAsync(AiTranscriptionRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiTranscriptionResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiSpeechResult>> SpeechAsync(AiSpeechRequest request, AiCallContext context, CancellationToken ct)
+        {
+            Calls++;
+            if (Calls == 2)
+                return Task.FromResult(AiOutcome<AiSpeechResult>.Failed("rate-limited", "'gemini-tts' returned 429 (RESOURCE_EXHAUSTED)."));
+            return Task.FromResult(AiOutcome<AiSpeechResult>.Success(
+                new AiSpeechResult(wavBytes, "audio/wav", 2.0, new AiProvenance { ProviderId = KnownAiProviders.GeminiTts, Capability = AiCapability.Speech })));
+        }
+    }
+
+    private sealed class FailOnSecondTurnGeminiExecutor(byte[] wavBytes) : IAiExecutor
+    {
+        public int GeminiCalls { get; private set; }
+        public int GttsCalls { get; private set; }
+
+        public Task<AiOutcome<AiTextResult>> TextAsync(AiTextRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiTextResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiImageResult>> ImageAsync(AiImageRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiImageResult>.Unavailable(AiUnavailableReason.NotConfigured));
+        public Task<AiOutcome<AiTranscriptionResult>> TranscribeAsync(AiTranscriptionRequest request, AiCallContext context, CancellationToken ct) =>
+            Task.FromResult(AiOutcome<AiTranscriptionResult>.Unavailable(AiUnavailableReason.NotConfigured));
+
+        public Task<AiOutcome<AiSpeechResult>> SpeechAsync(AiSpeechRequest request, AiCallContext context, CancellationToken ct)
+        {
+            if (string.Equals(request.ProviderId, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase))
+            {
+                GeminiCalls++;
+                if (GeminiCalls > 1)
+                    return Task.FromResult(AiOutcome<AiSpeechResult>.Failed("rate-limited", "'gemini-tts' returned 429 (RESOURCE_EXHAUSTED)."));
+
+                return Task.FromResult(AiOutcome<AiSpeechResult>.Success(
+                    new AiSpeechResult(wavBytes, "audio/wav", 2.0, new AiProvenance { ProviderId = KnownAiProviders.GeminiTts, Capability = AiCapability.Speech })));
+            }
+
+            GttsCalls++;
+            return Task.FromResult(AiOutcome<AiSpeechResult>.Success(
+                new AiSpeechResult(wavBytes, "audio/wav", 2.0, new AiProvenance { ProviderId = KnownAiProviders.GoogleTts, Capability = AiCapability.Speech })));
+        }
+    }
+
     private sealed class StubSpeechProvider(string id) : ISpeechAiProvider
     {
         public AiProviderId Id { get; } = AiProviderId.Parse(id);
@@ -330,7 +516,10 @@ public sealed class DevotionalCustomVoiceReelTests
         public bool IsConfigured => true;
         public Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct) => Task.FromResult(AiProviderHealth.Healthy);
         public Task<IReadOnlyList<AiVoice>> ListVoicesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<AiVoice>>([new("Orus", "Orus", "hi", "Male")]);
+            Task.FromResult<IReadOnlyList<AiVoice>>(
+                string.Equals(Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase)
+                    ? [new("gtts-hi", "Google Hindi", "hi", "Female")]
+                    : [new("Orus", "Orus", "hi", "Male")]);
         public Task<AiSpeechResult> SynthesizeAsync(AiSpeechRequest request, CancellationToken ct) =>
             throw new NotSupportedException();
     }
@@ -343,7 +532,9 @@ public sealed class DevotionalCustomVoiceReelTests
         public IReadOnlyList<ISpeechAiProvider> SpeechChain() => providers;
         public IReadOnlyList<ITranscriptionProvider> TranscriptionChain() => [];
         public AiCapabilityStatus Describe(AiCapability capability) =>
-            new(capability, providers[0].Id.Value, null, true, AiUnavailableReason.None, [.. providers.Select(p => p.Id.Value)]);
+            new(capability, providers.Count > 0 ? providers[0].Id.Value : null, null, providers.Count > 0,
+                providers.Count > 0 ? AiUnavailableReason.None : AiUnavailableReason.NotConfigured,
+                [.. providers.Select(p => p.Id.Value)]);
         public IReadOnlyList<AiCapabilityStatus> DescribeAll() => [Describe(AiCapability.Speech)];
         public void ReportOutcome(AiProviderId providerId, bool success) { }
     }
