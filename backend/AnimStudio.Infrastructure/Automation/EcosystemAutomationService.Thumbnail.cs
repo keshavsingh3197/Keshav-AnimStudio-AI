@@ -1013,6 +1013,7 @@ public sealed partial class EcosystemAutomationService
             AutomationSourceType.HinduPanchang => new[] { "Aaj Ka Panchang", "Hindu Panchang", "Shubh Muhurat", "Panchang" },
             AutomationSourceType.HinduFestival => new[] { "Hindu Festival", "Vrat Katha", "Puja Vidhi", "Sanatan Dharma" },
             AutomationSourceType.DailyKatha => new[] { "Pauranik Katha", "Bhakti Story", "Hindu Story", "Spiritual" },
+            AutomationSourceType.DevotionalPrarthana => new[] { "Mahadev", "Shri Krishna", "Shri Ram", "Bhakti Shorts", "Daily Prayer" },
             AutomationSourceType.AajKaItihaas => new[] { "Aaj Ka Itihaas", "Today In History", "Indian History" },
             AutomationSourceType.Pratiyogita => new[] { "Quiz", "Competition", "General Knowledge" },
             _ => new[] { "AnimStudio", "Storytelling", "Hindi" }

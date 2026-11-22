@@ -5,7 +5,9 @@ using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.Voices;
 using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Voices;
 using AnimStudio.Infrastructure.Ffmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -18,11 +20,16 @@ public sealed record ProceduralSpeechSynthesisResult(
     string ProviderId,
     IReadOnlyList<string> VoicesUsed);
 
+internal sealed record ProceduralSpeechSynthesisOutcome(
+    ProceduralSpeechSynthesisResult? Result,
+    string? FailureReason = null);
+
 /// <summary>
 /// Converts a procedural video's dialogue or narration plan into real spoken multi-speaker /
-/// narrator audio using the configured AI speech chain (with automatic Windows local SAPI
-/// fallback so videos never render silent with only mouth movement), measures exact clip
-/// lengths, stitches a clean time-aligned WAV track, and syncs visual turn/subtitle timings.
+/// narrator audio using the configured AI speech chain (e.g. Google Gemini TTS -> gTTS -> Kokoro -> Piper),
+/// preserving partial progress across per-turn fallbacks, measuring exact clip lengths,
+/// stitching a clean time-aligned WAV track, and keeping visuals &amp; captions synchronized.
+/// Never falls back to offline OS Microsoft SAPI voices.
 /// </summary>
 internal static class ProceduralSpeechSynthesizer
 {
@@ -33,6 +40,7 @@ internal static class ProceduralSpeechSynthesizer
     private const double ComedyDeadpanBeatSeconds = 0.32;
     private const double MinTitleHoldSeconds = 1.25;
     private const double TailSeconds = 0.75;
+    private static readonly TimeSpan DefaultRateLimitCooldown = TimeSpan.FromSeconds(18);
 
     /// <summary>The fastest the narration may be sped up to fit a cap; past this Hindi speech starts to blur.</summary>
     private const double MaxSpeechTempo = 1.25;
@@ -47,10 +55,35 @@ internal static class ProceduralSpeechSynthesizer
         IAiProviderRegistry? aiRegistry,
         FfmpegOptions ffmpegOptions,
         ILogger? logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        VoiceProfile? customVoiceProfile = null,
+        IStudioVoiceRenderer? studioVoiceRenderer = null,
+        TimeSpan? rateLimitCooldown = null)
+    {
+        var outcome = await TrySynthesizeWithDiagnosticsAsync(
+            request, initialPlan, workspaceInputDir, userId, baseDurationSeconds,
+            ai, aiRegistry, ffmpegOptions, logger, ct,
+            customVoiceProfile, studioVoiceRenderer, rateLimitCooldown).ConfigureAwait(false);
+        return outcome.Result;
+    }
+
+    public static async Task<ProceduralSpeechSynthesisOutcome> TrySynthesizeWithDiagnosticsAsync(
+        ProceduralVideoRequest request,
+        ProceduralDialoguePlan initialPlan,
+        string workspaceInputDir,
+        string userId,
+        int baseDurationSeconds,
+        IAiExecutor? ai,
+        IAiProviderRegistry? aiRegistry,
+        FfmpegOptions ffmpegOptions,
+        ILogger? logger,
+        CancellationToken ct,
+        VoiceProfile? customVoiceProfile = null,
+        IStudioVoiceRenderer? studioVoiceRenderer = null,
+        TimeSpan? rateLimitCooldown = null)
     {
         if (!request.IncludeSpeech)
-            return null;
+            return new(null);
 
         var speechTurns = initialPlan.Turns.Where(t => !t.IsTitleHook).ToList();
         var spokenTitleOnly = false;
@@ -60,8 +93,8 @@ internal static class ProceduralSpeechSynthesizer
             spokenTitleOnly = true;
         }
 
-        if (speechTurns.Count == 0)
-            return null;
+        if (speechTurns.Count == 0 || ai is null || aiRegistry is null)
+            return new(null);
 
         Directory.CreateDirectory(workspaceInputDir);
         var langCode = string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase) ? "en" : "hi";
@@ -71,51 +104,97 @@ internal static class ProceduralSpeechSynthesizer
         var fitCap = request.FollowScriptExactly ? null : request.MaxDurationSeconds;
         var minVideoSeconds = request.FollowScriptExactly ? ProceduralVideoRequest.MinSeconds : baseDurationSeconds;
 
-        if (ai is not null && aiRegistry is not null)
+        var providers = ResolveProviders(aiRegistry, request.SpeechProviderId, customVoiceProfile, studioVoiceRenderer);
+        if (providers.Count == 0)
         {
-            var providers = ResolveProviders(aiRegistry, request.SpeechProviderId);
-            foreach (var provider in providers)
-            {
-                var synthesized = await TrySynthesizeWithAiProviderAsync(
-                    provider, request, initialPlan, speechTurns, langCode,
-                    workspaceInputDir, userId, ai, ffmpegOptions, logger, ct).ConfigureAwait(false);
-                if (synthesized is not null)
-                {
-                    return await AssembleFinalSpeechTrackAsync(
-                        synthesized.Value.ClipBytes, synthesized.Value.Durations,
-                        initialPlan, speechTurns, spokenTitleOnly,
-                        workspaceInputDir, minVideoSeconds, fitCap, ffmpegOptions,
-                        provider.Id.Value, synthesized.Value.VoicesUsed, logger, ct).ConfigureAwait(false);
-                }
-            }
+            const string noProviderReason = "No Speech AI provider is enabled/configured (enable gemini-tts with API key or Google gTTS).";
+            logger?.LogWarning("Procedural video speech skipped: {Reason}", noProviderReason);
+            return new(null, noProviderReason);
         }
 
-        // Never fall back to offline OS Microsoft SAPI phonetic robotics on real videos; rely strictly on configured
-        // AI/Google speech providers (gemini-tts -> gtts / kokoro / piper-local).
-        logger?.LogWarning("Procedural video speech could not be synthesized from any configured AI/Google TTS provider.");
-        return null;
+        var synth = await SynthesizeAcrossProvidersAsync(
+            providers, request, initialPlan, speechTurns, langCode,
+            workspaceInputDir, userId, ai, ffmpegOptions, logger, ct,
+            customVoiceProfile, studioVoiceRenderer,
+            rateLimitCooldown ?? DefaultRateLimitCooldown).ConfigureAwait(false);
+
+        if (synth.Result is null)
+        {
+            // Never fall back to offline OS Microsoft SAPI phonetic robotics on real videos; rely strictly on configured
+            // AI/Google speech providers (gemini-tts -> gtts / kokoro / piper-local).
+            logger?.LogWarning("Procedural video speech could not be synthesized: {Reason}",
+                synth.FailureReason ?? "all configured Speech providers failed.");
+            return new(null, synth.FailureReason);
+        }
+
+        var (clipBytes, clipDurations, providerLabel, voicesUsed) = synth.Result.Value;
+        var assembled = await AssembleFinalSpeechTrackAsync(
+            clipBytes, clipDurations,
+            initialPlan, speechTurns, spokenTitleOnly,
+            workspaceInputDir, minVideoSeconds, fitCap, ffmpegOptions,
+            providerLabel, voicesUsed, logger, ct).ConfigureAwait(false);
+
+        return assembled is not null
+            ? new(assembled)
+            : new(null, "Failed to assemble synthesized audio clips into speech track.");
     }
 
-    private static async Task<(List<byte[]> ClipBytes, List<double> Durations, List<string> VoicesUsed)?> TrySynthesizeWithAiProviderAsync(
-        ISpeechAiProvider provider,
-        ProceduralVideoRequest request,
-        ProceduralDialoguePlan initialPlan,
-        List<ProceduralDialogueTurn> speechTurns,
-        string langCode,
-        string workspaceInputDir,
-        string userId,
-        IAiExecutor ai,
-        FfmpegOptions ffmpegOptions,
-        ILogger? logger,
-        CancellationToken ct)
+    private sealed record TurnSynthesisAttempt(
+        bool Succeeded,
+        byte[]? NormalizedWav,
+        double DurationSeconds,
+        string? VoiceLabel,
+        string? ErrorCode,
+        string? FailureSummary)
     {
-        var (voiceA, voiceB) = await ResolveVoicesAsync(provider, initialPlan, request, ct).ConfigureAwait(false);
-        var isGemini = string.Equals(provider.Id.Value, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase)
-            || provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase);
+        public static TurnSynthesisAttempt Ok(byte[] wav, double dur, string voiceLabel) =>
+            new(true, wav, dur, voiceLabel, null, null);
+        public static TurnSynthesisAttempt Fail(string code, string summary) =>
+            new(false, null, 0, null, code, summary);
+    }
+
+    private sealed record ProviderContext(
+        ISpeechAiProvider Provider,
+        string VoiceA,
+        string VoiceB,
+        bool IsGemini,
+        string? ReplicatedVoiceId,
+        string? TunedVoiceId,
+        bool CanLocalReVoice);
+
+    private static async Task<((List<byte[]> ClipBytes, List<double> Durations, string ProviderLabel, List<string> VoicesUsed)? Result, string? FailureReason)>
+        SynthesizeAcrossProvidersAsync(
+            IReadOnlyList<ISpeechAiProvider> providers,
+            ProceduralVideoRequest request,
+            ProceduralDialoguePlan initialPlan,
+            List<ProceduralDialogueTurn> speechTurns,
+            string langCode,
+            string workspaceInputDir,
+            string userId,
+            IAiExecutor ai,
+            FfmpegOptions ffmpegOptions,
+            ILogger? logger,
+            CancellationToken ct,
+            VoiceProfile? customVoiceProfile,
+            IStudioVoiceRenderer? studioVoiceRenderer,
+            TimeSpan rateLimitCooldown)
+    {
+        var contexts = new ProviderContext?[providers.Count];
+        var overrideModels = new string?[providers.Count];
+        var blocked = new bool[providers.Count];
         var clipBytesList = new List<byte[]>(speechTurns.Count);
         var clipDurations = new List<double>(speechTurns.Count);
         var voicesUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string? overrideModel = null;
+        var usedProvidersInOrder = new List<string>(providers.Count);
+
+        var activeIdx = 0;
+        var successfulClips = 0;
+        var nonEmptySpokenTurns = 0;
+        var rpmRecoveryWaits = 0;
+        var consecutiveProviderWideFails = 0;
+        string? lastFailureSummary = null;
+        string? lastFailureCode = null;
+        var isComedy = IsComedyRequest(request, initialPlan);
 
         for (var i = 0; i < speechTurns.Count; i++)
         {
@@ -128,71 +207,301 @@ internal static class ProceduralSpeechSynthesizer
                 continue;
             }
 
-            request.Progress?.Report(new ProceduralRenderProgress(
-                ProceduralRenderStages.VoicePercent(i, speechTurns.Count),
-                $"Voice line {i + 1} of {speechTurns.Count} ({provider.Id.Value})"));
+            nonEmptySpokenTurns++;
+            var candidateIndices = BuildCandidateOrder(activeIdx, blocked);
+            if (candidateIndices.Count == 0)
+            {
+                clipBytesList.Add([]);
+                clipDurations.Add(FallbackSeconds(turn));
+                consecutiveProviderWideFails++;
+                break;
+            }
 
-            var isComedy = IsComedyRequest(request, initialPlan);
-            var speakerProfile = ResolveSpeakerProfile(initialPlan, turn);
-            var voiceId = isGemini
-                ? ResolveGeminiTurnVoice(initialPlan, request, turn, voiceA, voiceB, isComedy)
-                : (turn.Slot == DialogueSpeakerSlot.Right ? voiceB : voiceA);
-            var style = BuildSpeechStyle(turn, speakerProfile, isComedy, initialPlan.HasCharacters, langCode);
-            var rate = ComputeSpeechRate(turn, speakerProfile, isComedy);
+            var resolvedForTurn = false;
+            var primaryErrorCodeForTurn = (string?)null;
 
-            AiOutcome<AiSpeechResult> outcome;
+            foreach (var pIdx in candidateIndices)
+            {
+                var ctx = contexts[pIdx] ??= await CreateProviderContextAsync(
+                    providers[pIdx], initialPlan, request, pIdx == 0,
+                    customVoiceProfile, studioVoiceRenderer, ct).ConfigureAwait(false);
+
+                request.Progress?.Report(new ProceduralRenderProgress(
+                    ProceduralRenderStages.VoicePercent(i, speechTurns.Count),
+                    $"Voice line {i + 1} of {speechTurns.Count} ({ctx.Provider.Id.Value})"));
+
+                var canTryRpmWait = pIdx == candidateIndices[^1]
+                    && candidateIndices.Count == 1
+                    && successfulClips > 0
+                    && rpmRecoveryWaits < 1
+                    && rateLimitCooldown > TimeSpan.Zero;
+
+                var (attempt, updatedOverride) = await SynthesizeSingleTurnAsync(
+                    ctx, request, initialPlan, speechTurns, turn, i, spokenText, langCode,
+                    isComedy, workspaceInputDir, userId, ai, ffmpegOptions, logger,
+                    overrideModels[pIdx], customVoiceProfile, studioVoiceRenderer,
+                    canTryRpmWait ? rateLimitCooldown : TimeSpan.Zero, ct).ConfigureAwait(false);
+
+                overrideModels[pIdx] = updatedOverride;
+                if (attempt.ErrorCode == "rate-limited-retried-after-cooldown")
+                    rpmRecoveryWaits++;
+
+                if (attempt.Succeeded && attempt.NormalizedWav is not null)
+                {
+                    clipBytesList.Add(attempt.NormalizedWav);
+                    clipDurations.Add(attempt.DurationSeconds);
+                    if (!string.IsNullOrWhiteSpace(attempt.VoiceLabel))
+                        voicesUsed.Add(attempt.VoiceLabel);
+                    if (!usedProvidersInOrder.Contains(ctx.Provider.Id.Value, StringComparer.OrdinalIgnoreCase))
+                        usedProvidersInOrder.Add(ctx.Provider.Id.Value);
+
+                    if (pIdx != activeIdx && IsProviderWideFailure(primaryErrorCodeForTurn))
+                    {
+                        blocked[activeIdx] = true;
+                        activeIdx = pIdx;
+                        logger?.LogInformation(
+                            "Switched procedural speech synthesis to fallback provider {FallbackProvider} at turn {TurnIndex} after {PrimaryCode}.",
+                            ctx.Provider.Id.Value, i, primaryErrorCodeForTurn);
+                    }
+
+                    successfulClips++;
+                    consecutiveProviderWideFails = 0;
+                    resolvedForTurn = true;
+                    break;
+                }
+
+                lastFailureCode = attempt.ErrorCode;
+                lastFailureSummary = attempt.FailureSummary;
+                if (pIdx == activeIdx)
+                    primaryErrorCodeForTurn = attempt.ErrorCode;
+
+                // Permanently broken/unconfigured providers need not be retried turn after turn.
+                if (IsTerminalProviderFailure(attempt.ErrorCode))
+                    blocked[pIdx] = true;
+            }
+
+            if (!resolvedForTurn)
+            {
+                clipBytesList.Add([]);
+                clipDurations.Add(FallbackSeconds(turn));
+
+                if (IsProviderWideFailure(lastFailureCode))
+                {
+                    consecutiveProviderWideFails++;
+                    if (consecutiveProviderWideFails >= 3 || blocked.All(b => b))
+                    {
+                        logger?.LogWarning(
+                            "Stopping procedural speech synthesis early after {Consecutive} consecutive provider-wide failures ({Summary}).",
+                            consecutiveProviderWideFails, lastFailureSummary);
+                        break;
+                    }
+                }
+                else
+                {
+                    consecutiveProviderWideFails = 0;
+                }
+            }
+        }
+
+        if (successfulClips == 0)
+            return (null, lastFailureSummary ?? "All configured Speech providers failed.");
+
+        if (nonEmptySpokenTurns >= 4 && successfulClips * 2 < nonEmptySpokenTurns)
+        {
+            var reason = $"Only {successfulClips} of {nonEmptySpokenTurns} spoken lines succeeded ({lastFailureSummary ?? "rate-limited"}).";
+            logger?.LogWarning("Discarding incomplete procedural speech track: {Reason}", reason);
+            return (null, reason);
+        }
+
+        var providerLabel = usedProvidersInOrder.Count > 0
+            ? string.Join('+', usedProvidersInOrder)
+            : providers[0].Id.Value;
+
+        return ((clipBytesList, clipDurations, providerLabel, [.. voicesUsed]), null);
+    }
+
+    private static List<int> BuildCandidateOrder(int activeIdx, bool[] blocked)
+    {
+        var list = new List<int>(blocked.Length);
+        if (activeIdx >= 0 && activeIdx < blocked.Length && !blocked[activeIdx])
+            list.Add(activeIdx);
+        for (var p = 0; p < blocked.Length; p++)
+        {
+            if (p != activeIdx && !blocked[p])
+                list.Add(p);
+        }
+        return list;
+    }
+
+    private static bool IsProviderWideFailure(string? code) =>
+        code is "rate-limited" or "rate-limited-retried-after-cooldown"
+            or "quota-exhausted" or "circuit-open" or "credential-rejected"
+            or "endpoint-or-model-not-found" or "transport-failed" or "timeout" or "provider-error";
+
+    private static bool IsTerminalProviderFailure(string? code) =>
+        code is "quota-exhausted" or "circuit-open" or "credential-rejected" or "endpoint-or-model-not-found";
+
+    private static async Task<ProviderContext> CreateProviderContextAsync(
+        ISpeechAiProvider provider,
+        ProceduralDialoguePlan initialPlan,
+        ProceduralVideoRequest request,
+        bool isPrimary,
+        VoiceProfile? customVoiceProfile,
+        IStudioVoiceRenderer? studioVoiceRenderer,
+        CancellationToken ct)
+    {
+        var (voiceA, voiceB) = await ResolveVoicesAsync(provider, initialPlan, request, ct, isPrimary).ConfigureAwait(false);
+        var isGemini = string.Equals(provider.Id.Value, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase)
+            || provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase);
+        var replicatedVoiceId = customVoiceProfile is not null
+            ? MyVoiceReplication.VoiceFor(customVoiceProfile, provider.Id.Value)
+            : null;
+        var tunedVoiceId = customVoiceProfile is not null
+            && replicatedVoiceId is null
+            && !string.IsNullOrWhiteSpace(customVoiceProfile.TunedVoiceId)
+            && provider.Id.Value.Contains("kokoro", StringComparison.OrdinalIgnoreCase)
+                ? customVoiceProfile.TunedVoiceId
+                : null;
+        var canLocalReVoice = customVoiceProfile is not null
+            && replicatedVoiceId is null
+            && tunedVoiceId is null
+            && !string.IsNullOrWhiteSpace(customVoiceProfile.StorageKey)
+            && studioVoiceRenderer?.CanReVoice == true;
+
+        return new ProviderContext(provider, voiceA, voiceB, isGemini, replicatedVoiceId, tunedVoiceId, canLocalReVoice);
+    }
+
+    private static async Task<(TurnSynthesisAttempt Attempt, string? OverrideModel)> SynthesizeSingleTurnAsync(
+        ProviderContext ctx,
+        ProceduralVideoRequest request,
+        ProceduralDialoguePlan initialPlan,
+        List<ProceduralDialogueTurn> speechTurns,
+        ProceduralDialogueTurn turn,
+        int turnIndex,
+        string spokenText,
+        string langCode,
+        bool isComedy,
+        string workspaceInputDir,
+        string userId,
+        IAiExecutor ai,
+        FfmpegOptions ffmpegOptions,
+        ILogger? logger,
+        string? overrideModel,
+        VoiceProfile? customVoiceProfile,
+        IStudioVoiceRenderer? studioVoiceRenderer,
+        TimeSpan rpmCooldownIfRateLimited,
+        CancellationToken ct)
+    {
+        var provider = ctx.Provider;
+        var speakerProfile = ResolveSpeakerProfile(initialPlan, turn);
+        var useCustomForTurn = customVoiceProfile is not null
+            && (!initialPlan.HasCharacters
+                || turn.Slot == DialogueSpeakerSlot.Narrator
+                || turn.SpeakerRole == CharacterVisualRole.Narrator
+                || (initialPlan.HasCharacters && turn.Slot == DialogueSpeakerSlot.Left && !speechTurns.Any(t => t.Slot == DialogueSpeakerSlot.Narrator)));
+
+        var turnReplicatedVoiceId = useCustomForTurn ? ctx.ReplicatedVoiceId : null;
+        var turnTunedVoiceId = useCustomForTurn ? ctx.TunedVoiceId : null;
+        var baseProfileVoice = !string.IsNullOrWhiteSpace(customVoiceProfile?.BaseVoiceId)
+            ? customVoiceProfile.BaseVoiceId
+            : (ctx.IsGemini ? ctx.VoiceA : (turn.Slot == DialogueSpeakerSlot.Right ? ctx.VoiceB : ctx.VoiceA));
+
+        var voiceId = turnReplicatedVoiceId is not null
+            ? baseProfileVoice
+            : turnTunedVoiceId is not null
+                ? turnTunedVoiceId
+                : ctx.IsGemini
+                    ? ResolveGeminiTurnVoice(initialPlan, request, turn, ctx.VoiceA, ctx.VoiceB, isComedy)
+                    : (useCustomForTurn && ctx.CanLocalReVoice ? baseProfileVoice : (turn.Slot == DialogueSpeakerSlot.Right ? ctx.VoiceB : ctx.VoiceA));
+        var style = BuildSpeechStyle(turn, speakerProfile, isComedy, initialPlan.HasCharacters, langCode);
+        var rate = ComputeSpeechRate(turn, speakerProfile, isComedy);
+
+        Task<AiOutcome<AiSpeechResult>> CallSpeechAsync(string? model) =>
+            ai.SpeechAsync(new AiSpeechRequest
+            {
+                Text = spokenText,
+                VoiceId = voiceId,
+                Rate = rate,
+                LanguageCode = langCode,
+                Style = style,
+                Model = model,
+                ProviderId = provider.Id.Value,
+                ReplicatedVoiceId = turnReplicatedVoiceId
+            }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct);
+
+        AiOutcome<AiSpeechResult> outcome;
+        var usedCooldownRetry = false;
+        try
+        {
+            outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+
+            if (!outcome.IsSuccess
+                && string.Equals(outcome.ErrorCode, "endpoint-or-model-not-found", StringComparison.OrdinalIgnoreCase)
+                && overrideModel is null
+                && provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase))
+            {
+                overrideModel = "gemini-2.5-flash-preview-tts";
+                outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+            }
+
+            if (!outcome.IsSuccess
+                && string.Equals(outcome.ErrorCode, "rate-limited", StringComparison.OrdinalIgnoreCase)
+                && rpmCooldownIfRateLimited > TimeSpan.Zero)
+            {
+                usedCooldownRetry = true;
+                logger?.LogInformation(
+                    "Speech provider {Provider} hit rate limit at turn {Index}; waiting {Seconds:0}s for window recovery before retry.",
+                    provider.Id.Value, turnIndex, rpmCooldownIfRateLimited.TotalSeconds);
+                await Task.Delay(rpmCooldownIfRateLimited, ct).ConfigureAwait(false);
+                outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "Procedural speech turn {Index} threw for provider {Provider}.", turnIndex, provider.Id.Value);
+            return (TurnSynthesisAttempt.Fail("provider-threw", $"{provider.Id.Value}: {ex.Message}"), overrideModel);
+        }
+
+        if (!outcome.IsSuccess || outcome.Value is not { Content.Length: > 0 } speech)
+        {
+            var code = outcome.ErrorCode ?? (outcome.Reason == AiUnavailableReason.QuotaExhausted ? "quota-exhausted"
+                : outcome.Reason == AiUnavailableReason.CircuitOpen ? "circuit-open" : "speech-failed");
+            logger?.LogWarning("Procedural speech turn {Index} failed on {Provider}: {Code} - {Msg}",
+                turnIndex, provider.Id.Value, code, outcome.Message);
+            var reportCode = usedCooldownRetry && code == "rate-limited" ? "rate-limited-retried-after-cooldown" : code;
+            return (TurnSynthesisAttempt.Fail(reportCode, $"{provider.Id.Value}: {code}"), overrideModel);
+        }
+
+        var rawAudio = speech.Content;
+        var reVoicedLocally = false;
+        if (useCustomForTurn && ctx.CanLocalReVoice && customVoiceProfile!.StorageKey is { } sampleKey)
+        {
             try
             {
-                outcome = await ai.SpeechAsync(new AiSpeechRequest
+                var converted = await studioVoiceRenderer!.ReVoiceAsync(rawAudio, sampleKey, ct).ConfigureAwait(false);
+                if (converted.Length > 44)
                 {
-                    Text = spokenText,
-                    VoiceId = voiceId,
-                    Rate = rate,
-                    LanguageCode = langCode,
-                    Style = style,
-                    Model = overrideModel,
-                    ProviderId = provider.Id.Value
-                }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct).ConfigureAwait(false);
-
-                if (!outcome.IsSuccess
-                    && string.Equals(outcome.ErrorCode, "endpoint-or-model-not-found", StringComparison.OrdinalIgnoreCase)
-                    && overrideModel is null
-                    && provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase))
-                {
-                    overrideModel = "gemini-2.5-flash-preview-tts";
-                    outcome = await ai.SpeechAsync(new AiSpeechRequest
-                    {
-                        Text = spokenText,
-                        VoiceId = voiceId,
-                        Rate = rate,
-                        LanguageCode = langCode,
-                        Style = style,
-                        Model = overrideModel,
-                        ProviderId = provider.Id.Value
-                    }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct).ConfigureAwait(false);
+                    rawAudio = converted;
+                    reVoicedLocally = true;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger?.LogWarning(ex, "Procedural speech turn {Index} threw for provider {Provider}.", i, provider.Id.Value);
-                return null;
+                logger?.LogWarning(ex, "Local studio voice conversion failed on turn {Index}; keeping base voice.", turnIndex);
             }
+        }
 
-            if (!outcome.IsSuccess || outcome.Value is not { Content.Length: > 0 } speech)
-            {
-                logger?.LogWarning("Procedural speech turn {Index} failed on {Provider}: {Code} - {Msg}",
-                    i, provider.Id.Value, outcome.ErrorCode, outcome.Message);
-                return null;
-            }
+        var normalizedWav = await EnsureStereo48kWavAsync(rawAudio, workspaceInputDir, turnIndex, ffmpegOptions, ct)
+            .ConfigureAwait(false);
+        if (normalizedWav is null)
+        {
+            logger?.LogWarning("Procedural speech turn {Index} returned unusable audio format on {Provider}.", turnIndex, provider.Id.Value);
+            return (TurnSynthesisAttempt.Fail("unusable-audio", $"{provider.Id.Value}: unusable-audio"), overrideModel);
+        }
 
-            var normalizedWav = await EnsureStereo48kWavAsync(speech.Content, workspaceInputDir, i, ffmpegOptions, ct)
-                .ConfigureAwait(false);
-            if (normalizedWav is null)
-            {
-                logger?.LogWarning("Procedural speech turn {Index} returned unusable audio format.", i);
-                return null;
-            }
-
+        var isCustomActiveOnTurn = turnReplicatedVoiceId is not null || turnTunedVoiceId is not null || reVoicedLocally;
+        if (!isCustomActiveOnTurn)
+        {
             var isSingleVoiceGoogle = string.Equals(provider.Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase);
             normalizedWav = await ApplyTurnVoiceCharacterAsync(
                 normalizedWav,
@@ -201,20 +510,24 @@ internal static class ProceduralSpeechSynthesizer
                 isComedy,
                 isSingleVoiceGoogle,
                 workspaceInputDir,
-                200 + i,
+                200 + turnIndex,
                 ffmpegOptions,
                 ct).ConfigureAwait(false);
-
-            var dur = AiAudioValidator.TryGetWavDuration(normalizedWav) ?? speech.DurationSeconds ?? 0;
-            if (dur <= 0.05)
-                dur = Math.Max(1.2, spokenText.Length / 14.0);
-
-            clipBytesList.Add(normalizedWav);
-            clipDurations.Add(dur);
-            voicesUsed.Add(voiceId);
         }
 
-        return (clipBytesList, clipDurations, [.. voicesUsed]);
+        var dur = AiAudioValidator.TryGetWavDuration(normalizedWav) ?? speech.DurationSeconds ?? 0;
+        if (dur <= 0.05)
+            dur = Math.Max(1.2, spokenText.Length / 14.0);
+
+        var voiceLabel = turnReplicatedVoiceId is not null
+            ? $"{customVoiceProfile!.Name} (Google)"
+            : turnTunedVoiceId is not null
+                ? $"{customVoiceProfile!.Name} (Tuned)"
+                : reVoicedLocally
+                    ? $"{customVoiceProfile!.Name} (Converted)"
+                    : voiceId;
+
+        return (TurnSynthesisAttempt.Ok(normalizedWav, dur, voiceLabel), overrideModel);
     }
 
     /// <summary>
@@ -470,17 +783,47 @@ internal static class ProceduralSpeechSynthesizer
         }
     }
 
-    private static IReadOnlyList<ISpeechAiProvider> ResolveProviders(IAiProviderRegistry registry, string? preferredProviderId)
+    internal static IReadOnlyList<ISpeechAiProvider> ResolveProviders(
+        IAiProviderRegistry registry,
+        string? preferredProviderId,
+        VoiceProfile? customVoiceProfile = null,
+        IStudioVoiceRenderer? studioVoiceRenderer = null)
     {
         var configured = registry.SpeechChain().Where(p => p.IsConfigured).ToList();
-        if (string.IsNullOrWhiteSpace(preferredProviderId))
+        var priorityId = !string.IsNullOrWhiteSpace(preferredProviderId)
+            ? preferredProviderId.Trim()
+            : null;
+
+        if (priorityId is null && customVoiceProfile is not null)
+        {
+            if (customVoiceProfile.GoogleVoiceProviderId is { Length: > 0 } gProvider
+                && MyVoiceReplication.VoiceFor(customVoiceProfile, gProvider) is not null
+                && configured.Any(p => string.Equals(p.Id.Value, gProvider, StringComparison.OrdinalIgnoreCase)))
+            {
+                priorityId = gProvider;
+            }
+            else if (!string.IsNullOrWhiteSpace(customVoiceProfile.TunedVoiceId)
+                && configured.Any(p => p.Id.Value.Contains("kokoro", StringComparison.OrdinalIgnoreCase)))
+            {
+                priorityId = configured.First(p => p.Id.Value.Contains("kokoro", StringComparison.OrdinalIgnoreCase)).Id.Value;
+            }
+            else if (studioVoiceRenderer?.CanReVoice == true
+                && !string.IsNullOrWhiteSpace(customVoiceProfile.StorageKey)
+                && configured.Any(p => string.Equals(p.Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase)))
+            {
+                // Local ReVoice needs fast keyless base speech to convert into the creator's own timbre.
+                priorityId = KnownAiProviders.GoogleTts;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(priorityId))
             return configured;
 
         var preferred = configured
-            .Where(p => string.Equals(p.Id.Value, preferredProviderId.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Where(p => string.Equals(p.Id.Value, priorityId, StringComparison.OrdinalIgnoreCase))
             .ToList();
         var rest = configured
-            .Where(p => !string.Equals(p.Id.Value, preferredProviderId.Trim(), StringComparison.OrdinalIgnoreCase));
+            .Where(p => !string.Equals(p.Id.Value, priorityId, StringComparison.OrdinalIgnoreCase));
         return [.. preferred, .. rest];
     }
 
@@ -488,13 +831,15 @@ internal static class ProceduralSpeechSynthesizer
         ISpeechAiProvider provider,
         ProceduralDialoguePlan plan,
         ProceduralVideoRequest request,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool isPrimaryProvider = true)
     {
         var isHindi = !string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase);
         var pid = provider.Id.Value;
 
         string voiceA;
         string voiceB;
+        IReadOnlyList<AiVoice>? listedVoices = null;
 
         if (string.Equals(pid, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase)
             || pid.Contains("gemini", StringComparison.OrdinalIgnoreCase))
@@ -518,12 +863,12 @@ internal static class ProceduralSpeechSynthesizer
             voiceB = "default";
             try
             {
-                var voices = await provider.ListVoicesAsync(ct).ConfigureAwait(false);
-                var matching = voices
+                listedVoices = await provider.ListVoicesAsync(ct).ConfigureAwait(false);
+                var matching = listedVoices
                     .Where(v => string.IsNullOrWhiteSpace(v.LanguageCode)
                         || v.LanguageCode.StartsWith(isHindi ? "hi" : "en", StringComparison.OrdinalIgnoreCase))
                     .ToList();
-                if (matching.Count == 0) matching = [.. voices];
+                if (matching.Count == 0) matching = [.. listedVoices];
                 if (matching.Count > 0)
                 {
                     voiceA = matching[0].VoiceId;
@@ -536,9 +881,14 @@ internal static class ProceduralSpeechSynthesizer
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(request.SpeakerAVoiceId))
+        bool AllowsRequestedVoice(string requestedVoiceId) =>
+            isPrimaryProvider
+            || (listedVoices is not null && listedVoices.Any(v =>
+                string.Equals(v.VoiceId, requestedVoiceId, StringComparison.OrdinalIgnoreCase)));
+
+        if (!string.IsNullOrWhiteSpace(request.SpeakerAVoiceId) && AllowsRequestedVoice(request.SpeakerAVoiceId.Trim()))
             voiceA = request.SpeakerAVoiceId.Trim();
-        if (!string.IsNullOrWhiteSpace(request.SpeakerBVoiceId))
+        if (!string.IsNullOrWhiteSpace(request.SpeakerBVoiceId) && AllowsRequestedVoice(request.SpeakerBVoiceId.Trim()))
             voiceB = request.SpeakerBVoiceId.Trim();
 
         return (voiceA, voiceB);

@@ -139,7 +139,8 @@ public sealed partial class EcosystemAutomationService(
     YouTubeThumbnailService? thumbnailService = null,
     ProceduralFixedThumbnailGenerator? fixedThumbnailGenerator = null,
     ProceduralComedyThumbnailService? comedyThumbnailService = null,
-    IYouTubeChannelAnalysisRepository? channelAnalyses = null)
+    IYouTubeChannelAnalysisRepository? channelAnalyses = null,
+    IVoiceProfileRepository? voiceProfiles = null)
 {
     private const string WorkspaceConfigKey = "Automation:Workspace:Config";
     private const string StagingFolderName = "automation-staging";
@@ -339,6 +340,14 @@ public sealed partial class EcosystemAutomationService(
         rule.AutoInsertMemes = draft.AutoInsertMemes;
         rule.ShowWatermark = draft.ShowWatermark;
         rule.PreferFast2DAnimation = draft.PreferFast2DAnimation;
+        rule.DeityFocus = draft.SourceType == AutomationSourceType.DevotionalPrarthana || !string.IsNullOrWhiteSpace(draft.DeityFocus)
+            ? DevotionalPrarthanaCatalog.NormalizeDeityFocus(draft.DeityFocus)
+            : null;
+        if (draft.SourceType == AutomationSourceType.DevotionalPrarthana && rule.VisualEngine == AutomationVisualEngine.Auto)
+            rule.VisualEngine = AutomationVisualEngine.DevotionalImageReel;
+        var (ownedVoiceId, ownedVoiceName) = await ResolveOwnedVoiceProfileAsync(userId, draft.VoiceProfileId, ct).ConfigureAwait(false);
+        rule.VoiceProfileId = ownedVoiceId;
+        rule.VoiceProfileName = ownedVoiceName;
         if (rule.SourceType == AutomationSourceType.FunnyComedy && string.Equals(rule.CategoryId, "22", StringComparison.Ordinal))
             rule.CategoryId = "23";
         if (rule.TargetSeconds > ShortMaxSeconds)
@@ -624,6 +633,18 @@ public sealed partial class EcosystemAutomationService(
                 post.NarrativeMode = rule.NarrativeMode;
                 post.ComedyStyle = rule.ComedyStyle;
                 post.AutoInsertMemes = rule.AutoInsertMemes;
+                post.VoiceProfileId = rule.VoiceProfileId;
+                post.VoiceProfileName = rule.VoiceProfileName;
+                if (rule.SourceType == AutomationSourceType.DevotionalPrarthana || rule.VisualEngine == AutomationVisualEngine.DevotionalImageReel)
+                {
+                    post.Stage ??= new AutomationStageSettings();
+                    if (post.Stage.PresentationMode == AutomationStagePresentation.Default)
+                        post.Stage.PresentationMode = AutomationStagePresentation.DevotionalImageReel;
+                    if (post.Stage.BackgroundMotion == AutomationBackdropMotion.Still)
+                        post.Stage.BackgroundMotion = AutomationBackdropMotion.AutoSmooth;
+                    post.Stage.BgmVolumePercent ??= 18;
+                    post.Stage.VoiceProfileId ??= rule.VoiceProfileId;
+                }
                 post.ShowWatermark = rule.ShowWatermark
                     ?? (rule.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
                         ? settings.PanchangShowWatermark
@@ -938,6 +959,12 @@ public sealed partial class EcosystemAutomationService(
             post.VisualEngine = update.VisualEngine;
         if (Enum.IsDefined(update.NarrativeMode))
             post.NarrativeMode = update.NarrativeMode;
+        if (update.VoiceProfileId is not null)
+        {
+            var (ownedId, ownedName) = await ResolveOwnedVoiceProfileAsync(userId, update.VoiceProfileId, ct).ConfigureAwait(false);
+            post.VoiceProfileId = ownedId;
+            post.VoiceProfileName = ownedName;
+        }
         if (update.TargetSeconds.HasValue)
             post.TargetSeconds = ClampStoredSeconds(update.TargetSeconds.Value);
         if (update.AttachedAssetIds is { Count: > 0 })
@@ -1149,7 +1176,8 @@ public sealed partial class EcosystemAutomationService(
         AutomationNarrativeMode? narrativeMode = null,
         int? targetSeconds = null,
         IReadOnlyList<string>? attachedAssetIds = null,
-        bool useTemplateScript = false)
+        bool useTemplateScript = false,
+        string? voiceProfileId = null)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
@@ -1161,6 +1189,14 @@ public sealed partial class EcosystemAutomationService(
             post.NarrativeMode = narrativeMode.Value;
         if (targetSeconds.HasValue && targetSeconds.Value > 0)
             post.TargetSeconds = ClampStoredSeconds(targetSeconds.Value);
+        if (voiceProfileId is not null)
+        {
+            var (ownedId, ownedName) = await ResolveOwnedVoiceProfileAsync(userId, voiceProfileId, ct).ConfigureAwait(false);
+            post.VoiceProfileId = ownedId;
+            post.VoiceProfileName = ownedName;
+            if (post.Stage is not null)
+                post.Stage.VoiceProfileId = ownedId;
+        }
         if (attachedAssetIds is not null)
         {
             post.AttachedAssetIds = [.. attachedAssetIds
@@ -1175,8 +1211,16 @@ public sealed partial class EcosystemAutomationService(
             ? post.VisualEngine
             : rule?.VisualEngine ?? AutomationVisualEngine.Auto;
 
-        if (effectiveEngine == AutomationVisualEngine.Procedural3D)
+        if (IsProceduralVisualEngine(effectiveEngine))
         {
+            if (effectiveEngine == AutomationVisualEngine.DevotionalImageReel)
+            {
+                post.Stage ??= new AutomationStageSettings();
+                post.Stage.PresentationMode = AutomationStagePresentation.DevotionalImageReel;
+                if (post.Stage.BackgroundMotion == AutomationBackdropMotion.Still)
+                    post.Stage.BackgroundMotion = AutomationBackdropMotion.AutoSmooth;
+                post.Stage.BgmVolumePercent ??= 18;
+            }
             var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
                 ? post.NarrativeMode
                 : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
@@ -1215,7 +1259,7 @@ public sealed partial class EcosystemAutomationService(
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
             throw EditingException.Conflict("post-locked", "Cannot regenerate video once uploading or published.");
-        if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId) || post.VisualEngine == AutomationVisualEngine.Procedural3D)
+        if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId) || IsProceduralVisualEngine(post.VisualEngine))
             throw EditingException.Invalid("no-story-run", "This post has no story run to retry. Use Generate Video instead.");
 
         // Ownership of the run is checked again inside the story service.
@@ -1247,7 +1291,9 @@ public sealed partial class EcosystemAutomationService(
         string? speakerAName = null,
         string? speakerBName = null,
         AutomationNarrativeMode? narrativeMode = null,
-        IReadOnlyList<string>? attachedAssetIds = null)
+        IReadOnlyList<string>? attachedAssetIds = null,
+        AutomationVisualEngine? visualEngine = null,
+        string? voiceProfileId = null)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
         if (post.Status is AutomationPostStatus.Publishing or AutomationPostStatus.Published)
@@ -1272,6 +1318,14 @@ public sealed partial class EcosystemAutomationService(
             post.SpeakerBName = string.IsNullOrWhiteSpace(speakerBName) ? null : speakerBName.Trim();
         if (narrativeMode.HasValue)
             post.NarrativeMode = narrativeMode.Value;
+        if (voiceProfileId is not null)
+        {
+            var (ownedId, ownedName) = await ResolveOwnedVoiceProfileAsync(userId, voiceProfileId, ct).ConfigureAwait(false);
+            post.VoiceProfileId = ownedId;
+            post.VoiceProfileName = ownedName;
+            if (post.Stage is not null)
+                post.Stage.VoiceProfileId = ownedId;
+        }
         if (attachedAssetIds is not null)
         {
             post.AttachedAssetIds = [.. attachedAssetIds
@@ -1280,7 +1334,17 @@ public sealed partial class EcosystemAutomationService(
                 .Distinct(StringComparer.Ordinal)
                 .Take(40)];
         }
-        post.VisualEngine = AutomationVisualEngine.Procedural3D;
+        var targetEngine = visualEngine is { } ve && IsProceduralVisualEngine(ve)
+            ? ve
+            : (post.VisualEngine == AutomationVisualEngine.DevotionalImageReel || post.Stage?.PresentationMode == AutomationStagePresentation.DevotionalImageReel
+                ? AutomationVisualEngine.DevotionalImageReel
+                : AutomationVisualEngine.Procedural3D);
+        post.VisualEngine = targetEngine;
+        if (targetEngine == AutomationVisualEngine.DevotionalImageReel)
+        {
+            post.Stage ??= new AutomationStageSettings();
+            post.Stage.PresentationMode = AutomationStagePresentation.DevotionalImageReel;
+        }
 
         var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
         await AttachProceduralAnimatedVideoAsync(userId, post, rule, theme, durationSeconds, resolution, ct,
@@ -1326,6 +1390,27 @@ public sealed partial class EcosystemAutomationService(
             if (stage.SceneBackgroundAssetIds.Any(id => !owned.Contains(id)))
                 throw EditingException.Invalid("scene-picture-not-found", "A scene picture was not found in your Studio Storage. Upload it again.");
         }
+
+        if (stage.VoiceProfileId is not null)
+        {
+            var (ownedVoiceId, ownedVoiceName) = await ResolveOwnedVoiceProfileAsync(userId, stage.VoiceProfileId, ct).ConfigureAwait(false);
+            if (ownedVoiceId is null)
+                throw EditingException.Invalid("voice-profile-not-found", "That custom voice was not found in your Voices library.");
+            stage.VoiceProfileId = ownedVoiceId;
+            post.VoiceProfileId = ownedVoiceId;
+            post.VoiceProfileName = ownedVoiceName;
+        }
+        else if (input?.VoiceProfileId is not null)
+        {
+            // Explicit clear from client
+            post.VoiceProfileId = null;
+            post.VoiceProfileName = null;
+        }
+
+        if (stage.PresentationMode == AutomationStagePresentation.DevotionalImageReel)
+            post.VisualEngine = AutomationVisualEngine.DevotionalImageReel;
+        else if (post.VisualEngine == AutomationVisualEngine.DevotionalImageReel && stage.PresentationMode == AutomationStagePresentation.Default)
+            post.VisualEngine = AutomationVisualEngine.Procedural3D;
 
         post.Stage = stage;
         post.UpdatedAtUtc = UtcNow;
@@ -1395,7 +1480,7 @@ public sealed partial class EcosystemAutomationService(
         CancellationToken ct)
     {
         var post = await LoadOwnedPostAsync(userId, postId, ct).ConfigureAwait(false);
-        if (engine == AutomationVisualEngine.Procedural3D)
+        if (IsProceduralVisualEngine(engine))
         {
             var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
             var userMemes = effects is not null && IsComedyAutomationPost(post, rule)
@@ -1449,7 +1534,7 @@ public sealed partial class EcosystemAutomationService(
         if (reply.Length > MaxTemplateReplyChars)
             throw EditingException.Invalid("reply-too-long", "That reply is far longer than any script. Paste only the answer.");
 
-        if (engine == AutomationVisualEngine.Procedural3D)
+        if (IsProceduralVisualEngine(engine))
         {
             var script = CleanPastedDialogue(reply)
                 ?? throw EditingException.Invalid("reply-no-dialogue",
@@ -1457,8 +1542,8 @@ public sealed partial class EcosystemAutomationService(
 
             var rule = await repository.GetRuleAsync(post.RuleId, ct).ConfigureAwait(false);
             post.Script = script;
-            post.EnableCharacterDialogue = true;
-            post.VisualEngine = AutomationVisualEngine.Procedural3D;
+            post.EnableCharacterDialogue = engine != AutomationVisualEngine.DevotionalImageReel;
+            post.VisualEngine = engine;
             // The length picked in the wizard is the one the template was written for; keep it so re-renders match.
             if (targetSeconds is > 0)
                 post.TargetSeconds = ClampStoredSeconds(targetSeconds.Value);
@@ -2294,9 +2379,9 @@ public sealed partial class EcosystemAutomationService(
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(post.AttachedStoryRunId)) return 0;
-        // An Enhanced 3D post renders in its own request and saves its own progress; a story run left linked from an
+        // An Enhanced 3D / Devotional Reel post renders in its own request and saves its own progress; a story run left linked from an
         // earlier attempt must not overwrite that (it would mark the post Failed mid-render).
-        if (post.VisualEngine == AutomationVisualEngine.Procedural3D) return 0;
+        if (IsProceduralVisualEngine(post.VisualEngine)) return 0;
         StoryRun run;
         try
         {
@@ -2603,7 +2688,12 @@ public sealed partial class EcosystemAutomationService(
             }
         }
 
-        if (rule.VideoStrategy == AutomationVideoStrategy.AutoGenerateAnimated3DVideo
+        var effectiveStrategyEngine = post.VisualEngine != AutomationVisualEngine.Auto
+            ? post.VisualEngine
+            : rule.VisualEngine;
+        if ((rule.VideoStrategy == AutomationVideoStrategy.AutoGenerateAnimated3DVideo
+                || (IsProceduralVisualEngine(effectiveStrategyEngine)
+                    && rule.VideoStrategy is AutomationVideoStrategy.PreferUnusedDriveClipThenAiRender or AutomationVideoStrategy.AutoGenerateStoryVideo))
             && rule.Mode != AutomationPostMode.PreviewOnly)
         {
             try
@@ -2613,7 +2703,7 @@ public sealed partial class EcosystemAutomationService(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                post.Notes = $"Auto 3D video deferred: {ex.Message}";
+                post.Notes = $"Auto procedural video deferred: {ex.Message}";
             }
         }
 
@@ -2657,6 +2747,9 @@ public sealed partial class EcosystemAutomationService(
             ? (string.IsNullOrWhiteSpace(rule?.Language) ? "hi" : rule!.Language.Trim().ToLowerInvariant())
             : post.Language.Trim().ToLowerInvariant();
         post.Language = effectiveLang;
+
+        if (post.SourceType == AutomationSourceType.DevotionalPrarthana || IsDevotionalReelPost(post, rule))
+            return;
 
         var dialogueEnabled = post.EnableCharacterDialogue || (rule?.EnableCharacterDialogue ?? true);
         if (!dialogueEnabled) return;
@@ -2811,14 +2904,17 @@ public sealed partial class EcosystemAutomationService(
         if (!keepScriptAsWritten)
             await EnsureRichPostDialogueBeforeRenderAsync(userId, post, rule, durationSeconds, ct).ConfigureAwait(false);
 
+        var isDevotionalReel = IsDevotionalReelPost(post, rule);
         var effectiveMode = post.NarrativeMode != AutomationNarrativeMode.Auto
             ? post.NarrativeMode
             : rule?.NarrativeMode ?? AutomationNarrativeMode.Auto;
         var targetSeconds = ResolvePostTargetSeconds(post, rule, effectiveMode, durationSeconds);
         var duration = Math.Clamp(targetSeconds, 10, ProceduralVideoRequest.MaxSeconds);
-        var footer = !string.IsNullOrWhiteSpace(post.TargetChannelTitle)
-            ? post.TargetChannelTitle
-            : post.TrackedFunnelUrls.FirstOrDefault()?.Label;
+        var footer = isDevotionalReel && !string.IsNullOrWhiteSpace(post.TargetChannelHandle)
+            ? post.TargetChannelHandle.Trim()
+            : !string.IsNullOrWhiteSpace(post.TargetChannelTitle)
+                ? post.TargetChannelTitle
+                : post.TrackedFunnelUrls.FirstOrDefault()?.Label;
         var palette = ProceduralEventPalette.Resolve(post.SourceType.ToString(), theme);
         var formatArg = post.Format switch
         {
@@ -2831,11 +2927,12 @@ public sealed partial class EcosystemAutomationService(
         var workspaceCfg = await GetWorkspaceConfigAsync(ct).ConfigureAwait(false);
         var effectiveShowWatermark = post.ShowWatermark
             ?? rule?.ShowWatermark
-            ?? (post.SourceType == AutomationSourceType.FunnyComedy);
+            ?? (post.SourceType == AutomationSourceType.FunnyComedy || isDevotionalReel);
         var hasMultiSceneDirectives = !string.IsNullOrWhiteSpace(post.Script)
             && post.Script.Contains("[SCENE]:", StringComparison.OrdinalIgnoreCase);
         var preferFast2D = !hasMultiSceneDirectives
-            && (post.PreferFast2DAnimation
+            && (isDevotionalReel
+                || post.PreferFast2DAnimation
                 || (rule?.PreferFast2DAnimation ?? false)
                 || (post.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
                     && workspaceCfg.PanchangUseFast2DAnimation));
@@ -2855,7 +2952,10 @@ public sealed partial class EcosystemAutomationService(
                 FollowScriptExactly = stage.FollowScriptExactly,
                 ReviewSteps = stage.ReviewSteps,
                 AttachedSongId = stage.AttachedSongId,
-                BackgroundMotion = stage.BackgroundMotion
+                BackgroundMotion = stage.BackgroundMotion,
+                VoiceProfileId = stage.VoiceProfileId,
+                PresentationMode = stage.PresentationMode,
+                BgmVolumePercent = stage.BgmVolumePercent
             };
         }
         using var songLease = await MaterializeStageSongLeaseAsync(userId, stage.AttachedSongId, ct).ConfigureAwait(false);
@@ -2927,6 +3027,9 @@ public sealed partial class EcosystemAutomationService(
         }
         try
         {
+            var requestedVoiceId = stage.VoiceProfileId ?? post.VoiceProfileId ?? rule?.VoiceProfileId;
+            var (verifiedVoiceId, _) = await ResolveOwnedVoiceProfileAsync(userId, requestedVoiceId, ct).ConfigureAwait(false);
+            var stageEngine = isDevotionalReel ? AutomationVisualEngine.DevotionalImageReel : post.VisualEngine;
             var rendered = await proceduralVideoGenerator.GenerateAsync(userId, new ProceduralVideoRequest
             {
                 Progress = tracker,
@@ -2937,7 +3040,7 @@ public sealed partial class EcosystemAutomationService(
                 VfxStyle = post.SourceType switch
                 {
                     AutomationSourceType.FunnyComedy => ProceduralVfxStyle.ComedyBurst,
-                    AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival => ProceduralVfxStyle.DivineAura,
+                    AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.DevotionalPrarthana => ProceduralVfxStyle.DivineAura,
                     AutomationSourceType.Pratiyogita => ProceduralVfxStyle.CyberNeon,
                     AutomationSourceType.AajKaItihaas => ProceduralVfxStyle.CinematicDrama,
                     _ => ProceduralVfxStyle.Auto
@@ -2947,12 +3050,14 @@ public sealed partial class EcosystemAutomationService(
                 DurationSeconds = duration,
                 MaxDurationSeconds = stage.FollowScriptExactly ? null : MaxSecondsFor(post.Format),
                 FollowScriptExactly = stage.FollowScriptExactly,
-                StageLayout = AutomationStageScript.ToLayout(stage, usingTemplate),
+                StageLayout = AutomationStageScript.ToLayout(stage, usingTemplate || (isDevotionalReel && bgPaths.Count > 0), stageEngine),
                 IncludeCaptions = true,
                 IncludeAmbientAudio = stage.IncludeBackgroundMusic || songLease.Path is not null,
-            CustomBgmPath = songLease.Path,
-            IsSeamlessLoop = post.SourceType == AutomationSourceType.FunnyComedy || duration <= 30,
+                CustomBgmPath = songLease.Path,
+                BgmVolumePercent = stage.BgmVolumePercent ?? (isDevotionalReel ? 18 : null),
+                IsSeamlessLoop = post.SourceType == AutomationSourceType.FunnyComedy || duration <= 30,
                 IncludeSpeech = true,
+                VoiceProfileId = verifiedVoiceId,
                 Language = post.Language,
                 FooterLabel = effectiveShowWatermark ? footer : null,
                 ShowWatermark = effectiveShowWatermark,
@@ -2960,7 +3065,7 @@ public sealed partial class EcosystemAutomationService(
                 EventType = post.SourceType.ToString(),
                 TopCategoryLabel = post.HeaderBannerText ?? $"{palette.HeaderBadgeText} • {post.DateKey}",
                 SubtitlePreset = NormalizeSubtitlePreset(post.SubtitlePreset),
-                EnableCharacterDialogue = post.EnableCharacterDialogue,
+                EnableCharacterDialogue = isDevotionalReel ? false : post.EnableCharacterDialogue,
                 SpeakerAName = post.SpeakerAName ?? rule?.SpeakerAName,
                 SpeakerBName = post.SpeakerBName ?? rule?.SpeakerBName,
                 TopicId = post.TopicId ?? rule?.TopicId,
@@ -2979,12 +3084,36 @@ public sealed partial class EcosystemAutomationService(
             post.EventColorHex ??= palette.PrimaryHex;
             post.HeaderBannerText ??= $"{palette.HeaderBadgeText} • {post.DateKey}";
             var hasVoice = rendered.Summary?.Contains(", voice=", StringComparison.OrdinalIgnoreCase) == true;
-            var extras = (hasVoice ? " • Voice" : string.Empty)
+            var hasVoiceWarning = !hasVoice && !string.IsNullOrWhiteSpace(rendered.SpeechWarning);
+            var extras = (hasVoice ? " • Voice" : hasVoiceWarning ? " • Silent (voice failed)" : string.Empty)
+                + (verifiedVoiceId is not null ? " • Custom Voice" : string.Empty)
                 + (usingTemplate ? " • Your background" : string.Empty)
                 + (usingScenePictures ? $" • {bgPaths.Count} scene pictures" : string.Empty)
                 + (stage.IncludeBackgroundMusic ? string.Empty : " • No music");
-            post.AttachedVideoSourceLabel = $"{(preferFast2D ? "2D Fast Animated" : "3D Animated")} ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s{extras})";
-            post.StoryStageSummary = preferFast2D ? "Fast 2D Animated MP4 Ready" : "3D Animated MP4 Ready";
+            var engineBadge = isDevotionalReel ? "Devotional Image Reel" : (preferFast2D ? "2D Fast Animated" : "3D Animated");
+            post.AttachedVideoSourceLabel = $"{engineBadge} ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s{extras})";
+            if (hasVoiceWarning)
+            {
+                var voiceAlert = $"Voice unavailable: {rendered.SpeechWarning} Re-enable Google gTTS fallback in AI Settings or wait for quota reset, then regenerate.";
+                if (string.IsNullOrWhiteSpace(post.Notes))
+                    post.Notes = voiceAlert;
+                else if (!post.Notes.Contains("Voice unavailable:", StringComparison.OrdinalIgnoreCase))
+                    post.Notes = $"{voiceAlert} | {post.Notes}";
+            }
+            else if (hasVoice && !string.IsNullOrWhiteSpace(post.Notes)
+                && post.Notes.Contains("Voice unavailable:", StringComparison.OrdinalIgnoreCase))
+            {
+                const string marker = "then regenerate.";
+                var markerIdx = post.Notes.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (markerIdx >= 0)
+                {
+                    var remaining = post.Notes[(markerIdx + marker.Length)..].TrimStart(' ', '|');
+                    post.Notes = string.IsNullOrWhiteSpace(remaining) ? null : remaining;
+                }
+            }
+            post.StoryStageSummary = hasVoiceWarning
+                ? "Animated MP4 Ready (No Voice)"
+                : isDevotionalReel ? "Devotional Reel MP4 Ready" : (preferFast2D ? "Fast 2D Animated MP4 Ready" : "3D Animated MP4 Ready");
             post.StoryProgressPercent = 100;
             post.Status = AutomationPostStatus.VideoReadyForReview;
 
@@ -3203,6 +3332,34 @@ public sealed partial class EcosystemAutomationService(
         return trimmed.Length <= 200 ? trimmed : trimmed[..200];
     }
 
+    private static bool IsProceduralVisualEngine(AutomationVisualEngine engine) =>
+        engine is AutomationVisualEngine.Procedural3D or AutomationVisualEngine.DevotionalImageReel;
+
+    private static bool IsDevotionalReelPost(AutomationPost post, AutomationRule? rule)
+    {
+        var effectiveEngine = post.VisualEngine != AutomationVisualEngine.Auto
+            ? post.VisualEngine
+            : rule?.VisualEngine ?? AutomationVisualEngine.Auto;
+        return effectiveEngine == AutomationVisualEngine.DevotionalImageReel
+            || (post.Stage?.PresentationMode ?? AutomationStagePresentation.Default) == AutomationStagePresentation.DevotionalImageReel;
+    }
+
+    private async Task<(string? Id, string? Name)> ResolveOwnedVoiceProfileAsync(
+        string userId,
+        string? candidateId,
+        CancellationToken ct)
+    {
+        var trimmed = candidateId?.Trim();
+        if (string.IsNullOrEmpty(trimmed) || voiceProfiles is null || string.IsNullOrWhiteSpace(userId))
+            return (null, null);
+
+        var profile = await voiceProfiles.GetAsync(trimmed, ct).ConfigureAwait(false);
+        if (profile is null || !string.Equals(profile.UserId, userId, StringComparison.Ordinal))
+            return (null, null);
+
+        return (profile.Id, profile.Name);
+    }
+
     private static string NormalizeSubtitlePreset(string? raw) => (raw ?? string.Empty).Trim().ToLowerInvariant() switch
     {
         "karaoke-pulse" or "karaoke" => "karaoke-pulse",
@@ -3286,9 +3443,14 @@ public sealed partial class EcosystemAutomationService(
             AutoInsertMemes = includeMemes
         };
 
+        var requestedVoiceId = post.Stage?.VoiceProfileId ?? post.VoiceProfileId ?? rule?.VoiceProfileId;
+        var (ownedVoiceId, _) = await ResolveOwnedVoiceProfileAsync(userId, requestedVoiceId, ct).ConfigureAwait(false);
+        var musicVol = post.Stage?.BgmVolumePercent is { } bvp ? Math.Clamp(bvp, 0, 100) / 100.0 : 0.2;
+
         var build = new StoryBuildOptions
         {
-            Narration = StoryNarrationMode.Stock,
+            Narration = ownedVoiceId is not null ? StoryNarrationMode.MyVoice : StoryNarrationMode.Stock,
+            VoiceProfileId = ownedVoiceId,
             Visuals = effectiveVisualEngine == AutomationVisualEngine.StorageImagesStory
                 ? StoryVisualMode.UploadsOnly
                 : StoryVisualMode.Auto,
@@ -3296,6 +3458,7 @@ public sealed partial class EcosystemAutomationService(
             // The Generate Video wizard's music step saves this on the post; "Voice only" leaves the track free for a
             // song or score added later in YouTube or an editor. A post never opened in the wizard keeps music.
             Music = post.Stage?.IncludeBackgroundMusic ?? true,
+            MusicVolume = musicVol,
             RenderWhenReady = true,
             AutoApprove = true,
             // The script still flows straight on (it was written by AI or pasted by the person); only the voices, music
@@ -3329,14 +3492,36 @@ public sealed partial class EcosystemAutomationService(
         // A full story fills the rule's length: up to 3 minutes for a Short, up to 10 for a full 16:9 video.
         var storySeconds = Math.Clamp(rule.TargetSeconds >= 95 ? rule.TargetSeconds : (isComedy ? Math.Max(15, rule.TargetSeconds) : 165), isComedy ? 15 : 95, MaxSecondsFor(rule.VideoFormat));
         var storyBudget = DialogueBudget(storySeconds);
-        var dialogueEnabled = rule.EnableCharacterDialogue || isComedy
-            || rule.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang or AutomationSourceType.AajKaItihaas;
+        var isDevotionalReelRule = rule.SourceType == AutomationSourceType.DevotionalPrarthana
+            || rule.VisualEngine == AutomationVisualEngine.DevotionalImageReel;
+        var dialogueEnabled = !isDevotionalReelRule && (rule.EnableCharacterDialogue || isComedy
+            || rule.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang or AutomationSourceType.AajKaItihaas);
         IReadOnlyList<AnimStudio.Domain.Effects.EffectClip> userMemes = isComedy && effects is not null && rule.AutoInsertMemes
             ? await effects.ListByUserAsync(userId, 200, ct).ConfigureAwait(false)
             : [];
 
         string prompt;
-        if (isComedy)
+        if (isDevotionalReelRule)
+        {
+            prompt = $"""
+                You refine short, deeply soulful YouTube Shorts devotional prayer (Prarthana / Bhakti) narrations for a single creator voice.
+                Target Language: {(isEnglish ? "Heartfelt reverent English" : "Pure soulful Hindi in Devanagari (NO English words, NO speaker bracket labels like [Narrator]:)")}
+                Rules:
+                - Write 4 to 6 short emotional spoken lines (~55 to 90 words total for a ~30-38s Short) meant to be read in one steady heartfelt voice with crisp top captions.
+                - Preserve the chosen Deity and devotion tone from the draft (Shiv / Mahadev, Shri Krishna, Shri Ram, Hanuman, or Maa Durga).
+                - Do NOT add `[Name]:` character tags, `[HOOK]` headers, or website URLs in the spoken script (URLs stay in description/comment only).
+                Return ONLY raw JSON (no markdown code fences) with exact keys: "title", "script", "aiVideoPrompt", "pinnedComment".
+                Draft Title: {draft.Title}
+                Draft Script:
+                {draft.Script}
+                Draft AI Prompt:
+                {draft.AiVideoPrompt}
+                Draft Pinned Comment:
+                {draft.PinnedComment}
+                Keep title max 95 chars cleanly.
+                """;
+        }
+        else if (isComedy)
         {
             var comedyGuidance = ComedyCraftGuide.BuildPromptGuidance(
                 rule.ComedyStyle, rule.Language, storySeconds, userMemes, rule.AutoInsertMemes, isProceduralFormat: true);

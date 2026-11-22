@@ -36,7 +36,7 @@ public static partial class ImageAnimation
     public const int MaxDescriptionChars = 500;
 
     public static readonly IReadOnlyList<string> Motions =
-        ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down", "drift", "handheld", "breathe"];
+        ["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down", "drift", "breathe", "orbit-round", "gentle-rotate", "handheld"];
 
     public static readonly IReadOnlyList<string> Looks =
         ["none", "cinematic", "warm", "cool", "vintage", "noir", "vivid", "matte"];
@@ -63,6 +63,8 @@ public static partial class ImageAnimation
         ImageMotion.Drift => "drift",
         ImageMotion.Handheld => "handheld",
         ImageMotion.Breathe => "breathe",
+        ImageMotion.OrbitRound => "orbit-round",
+        ImageMotion.GentleRotate => "gentle-rotate",
         _ => "zoom-in"
     };
 
@@ -112,6 +114,8 @@ public static partial class ImageAnimation
             : Has(text, "pan up", "tilt up", "move up", "rise", "rising", "upward") ? ImageMotion.PanUp
             : Has(text, "pan down", "tilt down", "move down", "descend", "downward") ? ImageMotion.PanDown
             : Has(text, "handheld", "shaky", "shake", "documentary", "vlog") ? ImageMotion.Handheld
+            : Has(text, "orbit", "round", "rounding", "circle", "circular") ? ImageMotion.OrbitRound
+            : Has(text, "rotate", "rotation", "tilt", "sway gently", "roll") ? ImageMotion.GentleRotate
             : Has(text, "breathe", "breathing", "pulse", "alive", "heartbeat") ? ImageMotion.Breathe
             : Has(text, "drift", "float", "glide", "dreamy", "travel") ? ImageMotion.Drift
             : ImageMotion.ZoomIn;
@@ -217,6 +221,8 @@ public static partial class ImageAnimation
             "drift" => "drifting push in",
             "handheld" => "handheld sway",
             "breathe" => "breathing zoom",
+            "orbit-round" => "smooth orbital rounding",
+            "gentle-rotate" => "smooth gentle rotation",
             _ => "push in"
         };
 

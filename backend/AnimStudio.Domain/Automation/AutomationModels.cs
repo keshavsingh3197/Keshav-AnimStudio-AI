@@ -11,7 +11,10 @@ public enum AutomationSourceType
     EcosystemSpotlight = 5,
     CustomPrompt = 6,
     FunnyComedy = 7,
-    DailyRashifal = 8
+    DailyRashifal = 8,
+
+    /// <summary>Daily devotional prayer / bhakti image-reel Short (Shiv, Krishna, Ram, Hanuman, Devi) designed for custom voiceover, smooth non-shaking camera motion, and top captions.</summary>
+    DevotionalPrarthana = 9
 }
 
 /// <summary>Whether the rule stops in the Preview List or proceeds autonomously to YouTube.</summary>
@@ -61,7 +64,13 @@ public enum AutomationVisualEngine
     StorageImagesStory = 2,
 
     /// <summary>Fast local multi-act 3D animated character stage (with optional storage backdrops).</summary>
-    Procedural3D = 3
+    Procedural3D = 3,
+
+    /// <summary>
+    /// Devotional Image Reel: rounded-vignette deity images centered on a clean dark canvas with smooth non-shaking
+    /// camera motion (zoom, pan, rounding/orbit, gentle tilt), synced top captions, custom voiceover, and quiet BGM.
+    /// </summary>
+    DevotionalImageReel = 4
 }
 
 /// <summary>Story pacing/depth target for automation posts.</summary>
@@ -167,6 +176,21 @@ public sealed class AutomationRule
 
     /// <summary>When true, prefers the ultra-fast 2D CPU procedural animation engine for near-instant Daily Panchang &amp; Rashifal generation.</summary>
     public bool PreferFast2DAnimation { get; set; }
+
+    /// <summary>
+    /// Optional user custom voice (<c>vp_...</c>, supporting Google replicated Gemini TTS or local voice conversion)
+    /// used to narrate posts prepared by this rule.
+    /// </summary>
+    public string? VoiceProfileId { get; set; }
+
+    /// <summary>Human-readable label of the selected custom voice profile for dashboard display.</summary>
+    public string? VoiceProfileName { get; set; }
+
+    /// <summary>
+    /// Optional deity/theme rotation focus for <see cref="AutomationSourceType.DevotionalPrarthana"/> rules
+    /// (<c>auto</c>, <c>shiv</c>, <c>krishna</c>, <c>ram</c>, <c>ram-krishna</c>, <c>hanuman</c>, <c>devi</c>).
+    /// </summary>
+    public string? DeityFocus { get; set; }
 
     public int SortOrder { get; set; }
     public string? LastPreparedDateKey { get; set; }
@@ -296,6 +320,12 @@ public sealed class AutomationPost
     /// <summary>When true, prefers ultra-fast 2D procedural animation (<c>CpuFast</c>) instead of launching WebGL 3D.</summary>
     public bool PreferFast2DAnimation { get; set; }
 
+    /// <summary>Optional custom voice profile id (<c>vp_...</c>) for narrating this post with the creator's own Google-replicated or local voice.</summary>
+    public string? VoiceProfileId { get; set; }
+
+    /// <summary>Display name of the attached custom voice profile.</summary>
+    public string? VoiceProfileName { get; set; }
+
     /// <summary>Enhanced 3D stage choices for this post: background template, character spots, music and voice pacing.</summary>
     public AutomationStageSettings? Stage { get; set; }
 
@@ -397,12 +427,33 @@ public sealed class AutomationStageSettings
 
     /// <summary>
     /// How the background picture moves behind the characters. <see cref="AutomationBackdropMotion.Still"/> keeps it
-    /// exactly as placed; the others add a slow camera move. Only used with <see cref="BackgroundTemplateAssetId"/>.
+    /// exactly as placed; the others add a smooth, non-shaking camera move.
     /// </summary>
     public AutomationBackdropMotion BackgroundMotion { get; set; } = AutomationBackdropMotion.Still;
+
+    /// <summary>Optional custom voice profile id (<c>vp_...</c>) overriding the post/rule voice selection inside the stage wizard.</summary>
+    public string? VoiceProfileId { get; set; }
+
+    /// <summary>Stage frame layout mode (Default 3D stage or centered Devotional Image Reel with top spoken captions).</summary>
+    public AutomationStagePresentation PresentationMode { get; set; } = AutomationStagePresentation.Default;
+
+    /// <summary>
+    /// Optional background music volume percent (<c>0..100</c>). Defaults to ~45% on standard videos and ~18% (soft bed)
+    /// on <see cref="AutomationStagePresentation.DevotionalImageReel"/> so spoken custom voice stays crisp and dominant.
+    /// </summary>
+    public int? BgmVolumePercent { get; set; }
 }
 
-/// <summary>Camera move over a user's background picture in an Enhanced 3D video.</summary>
+/// <summary>Stage visual framing mode for procedural automation videos.</summary>
+public enum AutomationStagePresentation
+{
+    Default = 0,
+
+    /// <summary>Dark canvas with centered rounded-vignette photo frame, smooth non-shaking motion, subtle @handle below, and synced top captions.</summary>
+    DevotionalImageReel = 1
+}
+
+/// <summary>Smooth, non-shaking camera moves over a user's background picture or devotional image reel.</summary>
 public enum AutomationBackdropMotion
 {
     /// <summary>The picture stays still and whole, so characters keep their exact spots on it.</summary>
@@ -411,8 +462,20 @@ public enum AutomationBackdropMotion
     /// <summary>A slow, small push-in and back (a few percent), like a breathing camera.</summary>
     GentleZoom = 1,
 
-    /// <summary>The picture glides slowly sideways behind the characters, back and forth.</summary>
-    SlowPan = 2
+    /// <summary>The picture glides slowly sideways, back and forth.</summary>
+    SlowPan = 2,
+
+    /// <summary>Smooth circular/elliptical orbital camera sweep around the focal subject with zero shake.</summary>
+    OrbitRound = 3,
+
+    /// <summary>Silky slow camera tilt/rotation combined with gentle breathing zoom, with zero camera shake.</summary>
+    GentleRotate = 4,
+
+    /// <summary>Starts slightly pushed in on the subject and smoothly pulls back across the shot.</summary>
+    ZoomOut = 5,
+
+    /// <summary>Automatically cycles smoothly across Zoom In, Orbit Round, Slow Pan, Zoom Out, and Gentle Rotate per image/scene.</summary>
+    AutoSmooth = 6
 }
 
 /// <summary>Fractions of the frame: X = figure centre across, Y = ground line (feet) down, Scale = size multiplier.</summary>

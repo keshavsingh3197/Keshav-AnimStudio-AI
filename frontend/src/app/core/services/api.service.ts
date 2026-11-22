@@ -278,6 +278,11 @@ export class ApiService {
       this.http.post<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/voiceover`, body));
   }
 
+  /** Lists the signed-in user's own consented voices (local and Google-replicated). */
+  listMyVoices(): Observable<MyVoice[]> {
+    return this.unwrap(this.http.get<ApiResponse<MyVoice[]>>(`${this.base}/api/voiceover/my-voices`));
+  }
+
   /** Adds one of the user's own voices from a consented sample (a file or a recording). */
   addMyVoice(sample: Blob, fileName: string, name: string, baseVoiceId: string): Observable<MyVoice> {
     const form = new FormData();

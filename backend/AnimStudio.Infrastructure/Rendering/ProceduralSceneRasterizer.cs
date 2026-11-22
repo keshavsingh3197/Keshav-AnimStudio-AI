@@ -31,6 +31,9 @@ public sealed partial class ProceduralSceneRasterizer
     /// <summary>True when a user template picture is the backdrop (shown still, no theme geometry over it).</summary>
     internal bool IsTemplateBackdrop => _backdropFrames is not null && _stageLayout is { TemplateBackdrop: true };
 
+    /// <summary>True when rendering a clean centered rounded-vignette devotional image reel with top spoken captions.</summary>
+    internal bool IsDevotionalReel => _stageLayout is { DevotionalReelFrame: true };
+
     private readonly record struct Particle(float BaseX, float BaseY, float BaseZ, float Speed, float Size, float Phase, byte AccentKind);
     private readonly record struct Vec3(float X, float Y, float Z);
     private readonly record struct ScreenPt(float X, float Y, float Z, bool Visible);
@@ -100,6 +103,13 @@ public sealed partial class ProceduralSceneRasterizer
         var u = Math.Clamp(timeSeconds / dur, 0.0, 1.0);
         var pulse = (float)(0.5 + 0.5 * Math.Sin(timeSeconds * 1.8));
         var scene = ResolveScene(timeSeconds, dur);
+        if (IsDevotionalReel)
+        {
+            PaintDevotionalReelFrame(timeSeconds, dur, u, scene);
+            ActiveSpeechLevel = SampleSpeechLevel(timeSeconds);
+            return _frame;
+        }
+
         var activeTheme = scene.Setting != SceneSetting.Auto
             ? SceneDirectives.ThemeFor(scene.Setting, Theme)
             : ResolveActTheme(u);

@@ -805,6 +805,65 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         }
     }
 
+    [FfmpegFact]
+    public async Task DevotionalImageReel_renders_rounded_vignette_top_captions_smooth_orbit_and_quiet_bgm()
+    {
+        var store = new InMemoryObjectStore();
+        var service = new ProceduralVideoGeneratorService(
+            Options.Create(new FfmpegOptions
+            {
+                FfmpegPath = FfmpegLocator.FfmpegPath,
+                FfprobePath = FfmpegLocator.FfprobePath
+            }),
+            new FfmpegCapabilities
+            {
+                IsAvailable = true,
+                HasLibass = true,
+                HasLibx264 = true,
+                HasAac = true,
+                Major = FfmpegLocator.MajorVersion
+            },
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            new InMemoryRenderJobRepo(),
+            new InMemoryProjectRepo(),
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        var imgPath = Path.Combine(_root, "shiva-art.png");
+        await File.WriteAllBytesAsync(imgPath, Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="));
+
+        var result = await service.GenerateAsync(string.Empty, new ProceduralVideoRequest
+        {
+            Title = "हे नाथ यदि आप हमारे अवगुण देखोगे | शिव प्रार्थना",
+            EventType = "DevotionalPrarthana",
+            Script = "हे नाथ यदि आप हमारे अवगुण देखोगे तो हम कहाँ जाएँगे।\nहर हर महादेव!",
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 4,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeAmbientAudio = true,
+            BgmVolumePercent = 18,
+            IncludeSpeech = false,
+            ShowWatermark = true,
+            FooterLabel = "@Deenabhakti_Spiritual",
+            StageLayout = new ProceduralStageLayout(null, null, TemplateBackdrop: true, TemplateBackdropMotion.OrbitRound, DevotionalReelFrame: true),
+            BackgroundImagePaths = [imgPath],
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.True(result.SizeBytes > 10_000, $"Expected devotional reel MP4 >10KB, got {result.SizeBytes}");
+        var outPath = Path.Combine(_root, "devotional-reel-test.mp4");
+        await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
+        Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outPath}\""));
+    }
+
     private sealed class Workspaces(string root, IObjectStore store) : IRenderWorkspaceFactory
     {
         public Task<IRenderWorkspace> CreateAsync(string jobId, CancellationToken ct) =>

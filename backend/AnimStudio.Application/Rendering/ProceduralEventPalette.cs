@@ -162,6 +162,7 @@ public sealed record ProceduralEventPalette(
             ["Festival"] = Festival,
             ["DailyKatha"] = Katha,
             ["Katha"] = Katha,
+            ["DevotionalPrarthana"] = Festival,
             ["AajKaItihaas"] = History,
             ["History"] = History,
             ["Pratiyogita"] = Pratiyogita,

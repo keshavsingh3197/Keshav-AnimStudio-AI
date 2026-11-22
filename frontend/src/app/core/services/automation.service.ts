@@ -19,7 +19,8 @@ export type AutomationSourceType =
   | 'EcosystemSpotlight'
   | 'CustomPrompt'
   | 'FunnyComedy'
-  | 'DailyRashifal';
+  | 'DailyRashifal'
+  | 'DevotionalPrarthana';
 
 export type AutomationPostMode = 'PreviewOnly' | 'AutoVideoAndPreview' | 'FullAutopilot';
 
@@ -45,7 +46,8 @@ export type AutomationVisualEngine =
   | 'Auto'
   | 'AiRealisticStory'
   | 'StorageImagesStory'
-  | 'Procedural3D';
+  | 'Procedural3D'
+  | 'DevotionalImageReel';
 
 export type AutomationNarrativeMode = 'Auto' | 'ShortReel' | 'FullStory';
 
@@ -275,6 +277,9 @@ export interface AutomationRule {
   autoInsertMemes?: boolean;
   showWatermark?: boolean | null;
   preferFast2DAnimation?: boolean;
+  voiceProfileId?: string | null;
+  voiceProfileName?: string | null;
+  deityFocus?: string | null;
   sortOrder: number;
   lastPreparedDateKey?: string | null;
   createdAtUtc?: string;
@@ -330,6 +335,12 @@ export interface AutomationStageSettings {
   attachedSongId?: string | null;
   /** Camera move over the background picture; 'Still' keeps characters exactly on their spots. */
   backgroundMotion?: AutomationBackdropMotion;
+  /** Optional custom voice profile id (`vp_...`) supporting Google replicated TTS or local voice conversion. */
+  voiceProfileId?: string | null;
+  /** Stage presentation layout ('Default' 3D stage or 'DevotionalImageReel' centered rounded-vignette + top captions). */
+  presentationMode?: AutomationStagePresentation;
+  /** Optional BGM volume percent (0..100). Defaults to 18% quiet bed on DevotionalImageReel, 45% otherwise. */
+  bgmVolumePercent?: number | null;
   /**
    * The user's own picture for each directed scene, in order (picture 1 = first [SCENE] line). Used when there is no
    * single background picture.
@@ -356,7 +367,16 @@ export interface AutomationScenePicturePlan {
   negativePrompt: string;
 }
 
-export type AutomationBackdropMotion = 'Still' | 'GentleZoom' | 'SlowPan';
+export type AutomationStagePresentation = 'Default' | 'DevotionalImageReel';
+
+export type AutomationBackdropMotion =
+  | 'Still'
+  | 'GentleZoom'
+  | 'SlowPan'
+  | 'OrbitRound'
+  | 'GentleRotate'
+  | 'ZoomOut'
+  | 'AutoSmooth';
 
 /** Image prompt for a post's background picture: paste into any image tool, or let the app's image engine make it. */
 export interface AutomationBackgroundPrompt {
@@ -452,6 +472,8 @@ export interface AutomationPost {
   verifiedAtUtc?: string | null;
   showWatermark?: boolean | null;
   preferFast2DAnimation?: boolean;
+  voiceProfileId?: string | null;
+  voiceProfileName?: string | null;
   createdAtUtc: string;
   updatedAtUtc: string;
   publishedAtUtc?: string | null;
@@ -774,6 +796,7 @@ export class AutomationService {
       attachedAssetIds?: string[];
       /** Start the Story Agent run in manual-writer mode: it waits for a script pasted from an outside AI. */
       useTemplateScript?: boolean;
+      voiceProfileId?: string | null;
     }
   ): Observable<AutomationPost> {
     return this.unwrap(
@@ -820,8 +843,8 @@ export class AutomationService {
           targetSeconds: options.targetSeconds && options.targetSeconds > 0 ? options.targetSeconds : null,
           subtitlePreset: options.subtitlePreset || null,
         },
-        // A 3D reply renders inside this request for minutes; the wizard shows that progress itself.
-        { context: engine === 'Procedural3D' ? silentHttpContext() : undefined }
+        // A 3D or Devotional Reel reply renders inside this request for minutes; the wizard shows that progress itself.
+        { context: engine === 'Procedural3D' || engine === 'DevotionalImageReel' ? silentHttpContext() : undefined }
       )
     );
   }
@@ -839,6 +862,8 @@ export class AutomationService {
       speakerBName?: string | null;
       narrativeMode?: AutomationNarrativeMode;
       attachedAssetIds?: string[];
+      visualEngine?: AutomationVisualEngine;
+      voiceProfileId?: string | null;
     }
   ): Observable<AutomationPost> {
     return this.unwrap(

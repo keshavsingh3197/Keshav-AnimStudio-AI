@@ -23,7 +23,13 @@ public enum ImageMotion
     Handheld = 8,
 
     /// <summary>A gentle in-and-out zoom, one breath over the shot.</summary>
-    Breathe = 9
+    Breathe = 9,
+
+    /// <summary>Smooth circular/elliptical orbital pan around the focus with zero camera shake.</summary>
+    OrbitRound = 10,
+
+    /// <summary>Silky slow sinusoidal camera rotation paired with a gentle zoom breath, zero shake.</summary>
+    GentleRotate = 11
 }
 
 /// <summary>A colour grade laid over a still after it moves.</summary>
@@ -102,6 +108,8 @@ public sealed record CinematicImageSettings(
         "drift" => ImageMotion.Drift,
         "handheld" => ImageMotion.Handheld,
         "breathe" => ImageMotion.Breathe,
+        "orbit-round" or "orbit" or "round" or "rounding" => ImageMotion.OrbitRound,
+        "gentle-rotate" or "rotate" or "tilt" => ImageMotion.GentleRotate,
         _ => ImageMotion.None
     };
 

@@ -66,8 +66,10 @@ const MOTIONS: readonly { id: string; label: string }[] = [
   { id: 'pan-up', label: 'Tilt up' },
   { id: 'pan-down', label: 'Tilt down' },
   { id: 'drift', label: 'Drift' },
-  { id: 'handheld', label: 'Handheld' },
+  { id: 'orbit-round', label: 'Orbit / Rounding' },
+  { id: 'gentle-rotate', label: 'Gentle Rotate' },
   { id: 'breathe', label: 'Breathe' },
+  { id: 'handheld', label: 'Handheld' },
 ];
 
 const LOOKS: readonly { id: string; label: string }[] = [
@@ -84,10 +86,10 @@ const LOOKS: readonly { id: string; label: string }[] = [
 /** One click fills the description: a quick way to see what the page can do. */
 const IDEAS: readonly string[] = [
   'Slow push in on the face, warm golden light',
+  'Smooth orbital rounding motion with warm sacred glow',
+  'Gentle rotating drift with deep dark vignette',
   'Pan right across the landscape, cinematic',
-  'Dreamy drift, vintage film look',
   'Epic reveal: pull back with cinema bars',
-  'Handheld documentary feel',
   'Gentle breathing zoom, cool night mood',
 ];
 

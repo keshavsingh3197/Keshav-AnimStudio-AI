@@ -182,7 +182,7 @@ public static partial class AutomationBackgroundPromptBuilder
 
     private static SceneSetting DefaultSetting(AutomationSourceType source) => source switch
     {
-        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival => SceneSetting.Temple,
+        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DevotionalPrarthana => SceneSetting.Temple,
         AutomationSourceType.DailyKatha => SceneSetting.ForestAshram,
         AutomationSourceType.AajKaItihaas or AutomationSourceType.Pratiyogita => SceneSetting.Archive,
         AutomationSourceType.EcosystemSpotlight => SceneSetting.ModernCity,
@@ -193,7 +193,7 @@ public static partial class AutomationBackgroundPromptBuilder
     private static SceneTimeOfDay DefaultTime(AutomationSourceType source) => source switch
     {
         AutomationSourceType.HinduPanchang => SceneTimeOfDay.Dawn,
-        AutomationSourceType.HinduFestival => SceneTimeOfDay.Sunset,
+        AutomationSourceType.HinduFestival or AutomationSourceType.DevotionalPrarthana => SceneTimeOfDay.Sunset,
         AutomationSourceType.EcosystemSpotlight => SceneTimeOfDay.Night,
         _ => SceneTimeOfDay.Day
     };
@@ -212,6 +212,7 @@ public static partial class AutomationBackgroundPromptBuilder
         AutomationSourceType.HinduPanchang => "devotional saffron and gold",
         AutomationSourceType.HinduFestival => "festive marigold orange, magenta and gold",
         AutomationSourceType.DailyKatha => "warm saffron with deep forest green",
+        AutomationSourceType.DevotionalPrarthana => "sacred golden diya glow with deep obsidian sanctum shadows",
         AutomationSourceType.AajKaItihaas => "sepia and antique gold",
         AutomationSourceType.Pratiyogita => "deep royal blue and gold",
         AutomationSourceType.EcosystemSpotlight => "teal and violet neon",

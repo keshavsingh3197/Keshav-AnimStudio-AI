@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using AnimStudio.Application.Rendering;
 
 namespace AnimStudio.Infrastructure.Rendering;
@@ -130,14 +131,16 @@ public sealed partial class ProceduralSceneRasterizer
         }
 
         var photo = photos[index];
+        var nextPhoto = photos.Count > 1 ? photos[(index + 1) % photos.Count] : null;
         var eased = (float)(local * local * (3 - 2 * local));
         // A template picture is still and whole by default: characters were placed on exact spots of it. Its optional
         // moves are small and follow the video clock rather than the scene, so a scene cut never makes it jump.
         var isTemplate = IsTemplateBackdrop;
         float zoom, panX, panY;
+        var rotRad = 0f;
         if (isTemplate)
         {
-            (zoom, panX, panY) = TemplateCameraMove(t);
+            (zoom, panX, panY, rotRad) = TemplateCameraState(t, Math.Max(0, index));
         }
         else
         {
@@ -152,54 +155,327 @@ public sealed partial class ProceduralSceneRasterizer
         var photoWeight = isTemplate ? 0.92f : 0.80f;
         var tintWeight = 1f - photoWeight;
 
-        var colX = _kenBurnsColX ??= new int[Width];
-        var colF = _kenBurnsColF ??= new float[Width];
+        var crossfadeAlpha = 0f;
+        if (nextPhoto is not null && local > 0.86)
+            crossfadeAlpha = (float)((local - 0.86) / 0.14);
+
+        SampleTransformedPhotoIntoBackdrop(
+            photo, nextPhoto, crossfadeAlpha,
+            zoom, panX, panY, rotRad, photoWeight, tintWeight,
+            topR, topG, topB, midR, midG, midB, botR, botG, botB);
+    }
+
+    private void SampleTransformedPhotoIntoBackdrop(
+        byte[] photo,
+        byte[]? nextPhoto,
+        float crossfadeAlpha,
+        float zoom,
+        float panX,
+        float panY,
+        float rotRad,
+        float photoWeight,
+        float tintWeight,
+        float topR, float topG, float topB,
+        float midR, float midG, float midB,
+        float botR, float botG, float botB)
+    {
+        var stride = Width * 4;
         var cx = Width * 0.5f;
         var cy = Height * 0.5f;
-        for (var x = 0; x < Width; x++)
+
+        if (MathF.Abs(rotRad) < 0.0005f)
         {
-            var sx = Math.Clamp((x - cx) / zoom + cx + panX, 0f, Width - 1.001f);
-            colX[x] = (int)sx;
-            colF[x] = sx - (int)sx;
+            var colX = _kenBurnsColX ??= new int[Width];
+            var colF = _kenBurnsColF ??= new float[Width];
+            for (var x = 0; x < Width; x++)
+            {
+                var sx = Math.Clamp((x - cx) / zoom + cx + panX, 0f, Width - 1.001f);
+                colX[x] = (int)sx;
+                colF[x] = sx - (int)sx;
+            }
+
+            ForRowBands(0, Height, (long)Width * Height, (band0, band1) =>
+            {
+                for (var y = band0; y < band1; y++)
+                {
+                    var sy = Math.Clamp((y - cy) / zoom + cy + panY, 0f, Height - 1.001f);
+                    var y0 = (int)sy;
+                    var fy = sy - y0;
+                    var row0 = y0 * stride;
+                    var row1 = Math.Min(y0 + 1, Height - 1) * stride;
+
+                    var ny = (float)y / (Height - 1);
+                    var tr = ny < 0.52f ? topR + (midR - topR) * (ny / 0.52f) : midR + (botR - midR) * ((ny - 0.52f) / 0.48f);
+                    var tg = ny < 0.52f ? topG + (midG - topG) * (ny / 0.52f) : midG + (botG - midG) * ((ny - 0.52f) / 0.48f);
+                    var tb = ny < 0.52f ? topB + (midB - topB) * (ny / 0.52f) : midB + (botB - midB) * ((ny - 0.52f) / 0.48f);
+
+                    var outRow = y * stride;
+                    for (var x = 0; x < Width; x++)
+                    {
+                        var x0 = colX[x];
+                        var fx = colF[x];
+                        BlendSamplePixel(
+                            photo, nextPhoto, crossfadeAlpha,
+                            row0 + x0 * 4, row1 + x0 * 4, fx, fy,
+                            photoWeight, tintWeight, tr, tg, tb, outRow + x * 4);
+                    }
+                }
+            });
+            return;
         }
 
-        var stride = Width * 4;
+        // Smooth bilinear rotated sampling with zoom overscan so zero corners show.
+        var invZoom = 1f / Math.Max(zoom, 1.08f);
+        var cosA = MathF.Cos(rotRad) * invZoom;
+        var sinA = MathF.Sin(rotRad) * invZoom;
         ForRowBands(0, Height, (long)Width * Height, (band0, band1) =>
         {
             for (var y = band0; y < band1; y++)
             {
-                var sy = Math.Clamp((y - cy) / zoom + cy + panY, 0f, Height - 1.001f);
-                var y0 = (int)sy;
-                var fy = sy - y0;
-                var row0 = y0 * stride;
-                var row1 = Math.Min(y0 + 1, Height - 1) * stride;
-
+                var dy = y - cy;
                 var ny = (float)y / (Height - 1);
                 var tr = ny < 0.52f ? topR + (midR - topR) * (ny / 0.52f) : midR + (botR - midR) * ((ny - 0.52f) / 0.48f);
                 var tg = ny < 0.52f ? topG + (midG - topG) * (ny / 0.52f) : midG + (botG - midG) * ((ny - 0.52f) / 0.48f);
                 var tb = ny < 0.52f ? topB + (midB - topB) * (ny / 0.52f) : midB + (botB - midB) * ((ny - 0.52f) / 0.48f);
-
                 var outRow = y * stride;
+
                 for (var x = 0; x < Width; x++)
                 {
-                    var a = row0 + colX[x] * 4;
+                    var dx = x - cx;
+                    var sx = Math.Clamp(dx * cosA - dy * sinA + cx + panX, 0f, Width - 1.001f);
+                    var sy = Math.Clamp(dx * sinA + dy * cosA + cy + panY, 0f, Height - 1.001f);
+                    var x0 = (int)sx;
+                    var y0 = (int)sy;
+                    var fx = sx - x0;
+                    var fy = sy - y0;
+                    var row0 = y0 * stride + x0 * 4;
+                    var row1 = Math.Min(y0 + 1, Height - 1) * stride + x0 * 4;
+                    BlendSamplePixel(
+                        photo, nextPhoto, crossfadeAlpha,
+                        row0, row1, fx, fy,
+                        photoWeight, tintWeight, tr, tg, tb, outRow + x * 4);
+                }
+            }
+        });
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void BlendSamplePixel(
+        byte[] photo,
+        byte[]? nextPhoto,
+        float crossfadeAlpha,
+        int a,
+        int c,
+        float fx,
+        float fy,
+        float photoWeight,
+        float tintWeight,
+        float tr, float tg, float tb,
+        int o)
+    {
+        var b = a + 4;
+        var d = c + 4;
+        var w00 = (1 - fx) * (1 - fy);
+        var w10 = fx * (1 - fy);
+        var w01 = (1 - fx) * fy;
+        var w11 = fx * fy;
+
+        var pr = photo[a] * w00 + photo[b] * w10 + photo[c] * w01 + photo[d] * w11;
+        var pg = photo[a + 1] * w00 + photo[b + 1] * w10 + photo[c + 1] * w01 + photo[d + 1] * w11;
+        var pb = photo[a + 2] * w00 + photo[b + 2] * w10 + photo[c + 2] * w01 + photo[d + 2] * w11;
+
+        if (nextPhoto is not null && crossfadeAlpha > 0.005f)
+        {
+            var nr = nextPhoto[a] * w00 + nextPhoto[b] * w10 + nextPhoto[c] * w01 + nextPhoto[d] * w11;
+            var ng = nextPhoto[a + 1] * w00 + nextPhoto[b + 1] * w10 + nextPhoto[c + 1] * w01 + nextPhoto[d + 1] * w11;
+            var nb = nextPhoto[a + 2] * w00 + nextPhoto[b + 2] * w10 + nextPhoto[c + 2] * w01 + nextPhoto[d + 2] * w11;
+            pr = pr * (1f - crossfadeAlpha) + nr * crossfadeAlpha;
+            pg = pg * (1f - crossfadeAlpha) + ng * crossfadeAlpha;
+            pb = pb * (1f - crossfadeAlpha) + nb * crossfadeAlpha;
+        }
+
+        _frame[o] = ClampByte(pr * photoWeight + tr * tintWeight);
+        _frame[o + 1] = ClampByte(pg * photoWeight + tg * tintWeight);
+        _frame[o + 2] = ClampByte(pb * photoWeight + tb * tintWeight);
+        _frame[o + 3] = 255;
+    }
+
+    /// <summary>
+    /// Renders the clean dark devotional image-reel layout: pure deep canvas with top/bottom headroom for synced
+    /// top captions and subtle @handle watermark, framing the moving devotional artwork inside a rounded rectangle with
+    /// soft dark feathered vignette edges and zero shaky camera motion.
+    /// </summary>
+    internal void PaintDevotionalReelFrame(double t, double durationSeconds, double u, SceneMoment scene)
+    {
+        var isPortrait = Height >= Width;
+        var boxLeft = Width * (isPortrait ? 0.055f : 0.10f);
+        var boxRight = Width * (isPortrait ? 0.945f : 0.90f);
+        var boxTop = Height * (isPortrait ? 0.235f : 0.19f);
+        var boxBottom = Height * (isPortrait ? 0.745f : 0.85f);
+        var boxW = Math.Max(1f, boxRight - boxLeft);
+        var boxH = Math.Max(1f, boxBottom - boxTop);
+        var boxCx = (boxLeft + boxRight) * 0.5f;
+        var boxCy = (boxTop + boxBottom) * 0.5f;
+        var cornerR = MathF.Min(boxW, boxH) * 0.055f;
+        var featherPx = MathF.Min(boxW, boxH) * 0.048f;
+        var glowBandPx = featherPx * 0.55f;
+
+        byte[]? photo = null;
+        byte[]? nextPhoto = null;
+        var crossfadeAlpha = 0f;
+        var segIdx = 0;
+
+        if (_backdropFrames is { Count: > 0 } photos)
+        {
+            if (scene.SceneIndex >= 0)
+            {
+                segIdx = scene.SceneIndex % photos.Count;
+                if (photos.Count > 1 && scene.LocalProgress > 0.86)
+                    crossfadeAlpha = (float)((scene.LocalProgress - 0.86) / 0.14);
+            }
+            else if (photos.Count > 1)
+            {
+                var scaled = u * photos.Count;
+                segIdx = Math.Clamp((int)Math.Floor(scaled), 0, photos.Count - 1);
+                var local = scaled - segIdx;
+                if (local > 0.86)
+                    crossfadeAlpha = (float)((local - 0.86) / 0.14);
+            }
+            else
+            {
+                segIdx = (int)(t / 5.5);
+            }
+
+            photo = photos[segIdx % photos.Count];
+            if (photos.Count > 1)
+                nextPhoto = photos[(segIdx + 1) % photos.Count];
+        }
+
+        var motion = ResolveMotionForSegment(t, segIdx);
+        var (zoom, panX, panY, rotRad) = MotionStateFor(motion, t);
+        var mapScale = (float)Width / boxW;
+        var invZoom = (mapScale / Math.Max(1f, zoom));
+        var cosA = MathF.Cos(rotRad) * invZoom;
+        var sinA = MathF.Sin(rotRad) * invZoom;
+        var srcCx = Width * 0.5f + panX;
+        var srcCy = Height * 0.5f + panY;
+        var stride = Width * 4;
+        var halfBoxW = boxW * 0.5f - cornerR;
+        var halfBoxH = boxH * 0.5f - cornerR;
+        var accentR = Palette.PrimaryRgb.R;
+        var accentG = Palette.PrimaryRgb.G;
+        var accentB = Palette.PrimaryRgb.B;
+        var breatheGlow = 0.72f + 0.28f * (float)Math.Sin(t * 1.4);
+
+        ForRowBands(0, Height, (long)Width * Height, (band0, band1) =>
+        {
+            for (var y = band0; y < band1; y++)
+            {
+                var dyBox = y - boxCy;
+                var qy = MathF.Abs(dyBox) - halfBoxH;
+                var outRow = y * stride;
+
+                for (var x = 0; x < Width; x++)
+                {
+                    var o = outRow + x * 4;
+                    var dxBox = x - boxCx;
+                    var qx = MathF.Abs(dxBox) - halfBoxW;
+                    var ex = MathF.Max(qx, 0f);
+                    var ey = MathF.Max(qy, 0f);
+                    // Signed distance from rounded box perimeter (negative inside, positive outside).
+                    var sdf = MathF.Sqrt(ex * ex + ey * ey) + MathF.Min(MathF.Max(qx, qy), 0f) - cornerR;
+
+                    // Subtle dark background canvas (#050509) with delicate warm aura near the outer rounded perimeter.
+                    var halo = sdf >= -2f && sdf < glowBandPx
+                        ? MathF.Max(0f, 1f - MathF.Abs(sdf) / glowBandPx) * 0.14f * breatheGlow
+                        : 0f;
+                    var bgR = 5f + accentR * halo;
+                    var bgG = 5f + accentG * halo;
+                    var bgB = 9f + accentB * halo;
+
+                    if (sdf >= 0f || photo is null)
+                    {
+                        if (photo is null && sdf < 0f)
+                        {
+                            // Fallback subtle sacred radial sanctum glow inside the frame when no photo is attached yet.
+                            var normDist = MathF.Sqrt((dxBox / boxW) * (dxBox / boxW) + (dyBox / boxH) * (dyBox / boxH));
+                            var innerEdge = Math.Clamp(-sdf / featherPx, 0f, 1f);
+                            var core = MathF.Max(0f, 1f - normDist * 1.6f);
+                            _frame[o] = ClampByte(bgR + (accentR * 0.42f + 24f) * core * innerEdge);
+                            _frame[o + 1] = ClampByte(bgG + (accentG * 0.34f + 16f) * core * innerEdge);
+                            _frame[o + 2] = ClampByte(bgB + (accentB * 0.25f + 22f) * core * innerEdge);
+                            _frame[o + 3] = 255;
+                        }
+                        else
+                        {
+                            _frame[o] = ClampByte(bgR);
+                            _frame[o + 1] = ClampByte(bgG);
+                            _frame[o + 2] = ClampByte(bgB);
+                            _frame[o + 3] = 255;
+                        }
+                        continue;
+                    }
+
+                    // Soft dark rounded-edge feathering + very subtle gentle corner vignette inside the card.
+                    var edgeMask = Math.Clamp(-sdf / featherPx, 0f, 1f);
+                    edgeMask = edgeMask * edgeMask * (3f - 2f * edgeMask);
+                    var sx = Math.Clamp(dxBox * cosA - dyBox * sinA + srcCx, 0f, Width - 1.001f);
+                    var sy = Math.Clamp(dxBox * sinA + dyBox * cosA + srcCy, 0f, Height - 1.001f);
+                    var x0 = (int)sx;
+                    var y0 = (int)sy;
+                    var fx = sx - x0;
+                    var fy = sy - y0;
+                    var a = y0 * stride + x0 * 4;
                     var b = a + 4;
-                    var c = row1 + colX[x] * 4;
+                    var c = Math.Min(y0 + 1, Height - 1) * stride + x0 * 4;
                     var d = c + 4;
-                    var fx = colF[x];
+
                     var w00 = (1 - fx) * (1 - fy);
                     var w10 = fx * (1 - fy);
                     var w01 = (1 - fx) * fy;
                     var w11 = fx * fy;
-                    var o = outRow + x * 4;
-                    // Mostly photo, lightly tinted toward the event colours so captions and characters stay readable.
-                    _frame[o] = ClampByte((photo[a] * w00 + photo[b] * w10 + photo[c] * w01 + photo[d] * w11) * photoWeight + tr * tintWeight);
-                    _frame[o + 1] = ClampByte((photo[a + 1] * w00 + photo[b + 1] * w10 + photo[c + 1] * w01 + photo[d + 1] * w11) * photoWeight + tg * tintWeight);
-                    _frame[o + 2] = ClampByte((photo[a + 2] * w00 + photo[b + 2] * w10 + photo[c + 2] * w01 + photo[d + 2] * w11) * photoWeight + tb * tintWeight);
+
+                    var pr = photo[a] * w00 + photo[b] * w10 + photo[c] * w01 + photo[d] * w11;
+                    var pg = photo[a + 1] * w00 + photo[b + 1] * w10 + photo[c + 1] * w01 + photo[d + 1] * w11;
+                    var pb = photo[a + 2] * w00 + photo[b + 2] * w10 + photo[c + 2] * w01 + photo[d + 2] * w11;
+
+                    if (nextPhoto is not null && crossfadeAlpha > 0.005f)
+                    {
+                        var nr = nextPhoto[a] * w00 + nextPhoto[b] * w10 + nextPhoto[c] * w01 + nextPhoto[d] * w11;
+                        var ng = nextPhoto[a + 1] * w00 + nextPhoto[b + 1] * w10 + nextPhoto[c + 1] * w01 + nextPhoto[d + 1] * w11;
+                        var nb = nextPhoto[a + 2] * w00 + nextPhoto[b + 2] * w10 + nextPhoto[c + 2] * w01 + nextPhoto[d + 2] * w11;
+                        pr = pr * (1f - crossfadeAlpha) + nr * crossfadeAlpha;
+                        pg = pg * (1f - crossfadeAlpha) + ng * crossfadeAlpha;
+                        pb = pb * (1f - crossfadeAlpha) + nb * crossfadeAlpha;
+                    }
+
+                    _frame[o] = ClampByte(bgR * (1f - edgeMask) + pr * edgeMask);
+                    _frame[o + 1] = ClampByte(bgG * (1f - edgeMask) + pg * edgeMask);
+                    _frame[o + 2] = ClampByte(bgB * (1f - edgeMask) + pb * edgeMask);
                     _frame[o + 3] = 255;
                 }
             }
         });
+
+        // Delicate ambient temple ember/dust sparks around edges (zero clutter over text or center image).
+        DrawDriftingDust(t, 255, 224, 175);
+    }
+
+    private TemplateBackdropMotion ResolveMotionForSegment(double t, int segmentIndex)
+    {
+        var configured = _stageLayout?.TemplateMotion ?? TemplateBackdropMotion.Still;
+        if (configured != TemplateBackdropMotion.AutoSmooth)
+            return configured;
+
+        // Silky non-shaking rotation across smooth camera moves (zero jitter / zero shake).
+        return (Math.Abs(segmentIndex) % 5) switch
+        {
+            0 => TemplateBackdropMotion.GentleZoom,
+            1 => TemplateBackdropMotion.OrbitRound,
+            2 => TemplateBackdropMotion.ZoomOut,
+            3 => TemplateBackdropMotion.SlowPan,
+            _ => TemplateBackdropMotion.GentleRotate
+        };
     }
 
     private int[]? _kenBurnsColX;
@@ -208,21 +484,40 @@ public sealed partial class ProceduralSceneRasterizer
     /// <summary>Seconds for one full breath of the gentle zoom, and one full sweep (there and back) of the slow pan.</summary>
     private const double TemplateZoomCycleSeconds = 20.0;
     private const double TemplatePanCycleSeconds = 32.0;
+    private const double TemplateOrbitCycleSeconds = 22.0;
+    private const double TemplateRotateCycleSeconds = 18.0;
 
     /// <summary>
-    /// Zoom and pan (in output pixels) of a template backdrop at <paramref name="t"/> seconds. Both moves start at rest
-    /// (zoom 1, centred) and are periodic sines, so any video length loops smoothly and the first frame matches the
-    /// placement editor.
+    /// Zoom and pan (in output pixels) of a template backdrop at <paramref name="t"/> seconds. Moves start at rest
+    /// (zoom 1 or zoomed crop, centred) and are smooth periodic sines with zero camera shake.
     /// </summary>
     internal (float Zoom, float PanX, float PanY) TemplateCameraMove(double t)
     {
-        switch (_stageLayout?.TemplateMotion ?? TemplateBackdropMotion.Still)
+        var (zoom, panX, panY, _) = TemplateCameraState(t, (int)(t / 5.5));
+        return (zoom, panX, panY);
+    }
+
+    internal (float Zoom, float PanX, float PanY, float RotRad) TemplateCameraState(double t, int segmentIndex = 0)
+    {
+        var motion = ResolveMotionForSegment(t, segmentIndex);
+        return MotionStateFor(motion, t);
+    }
+
+    private (float Zoom, float PanX, float PanY, float RotRad) MotionStateFor(TemplateBackdropMotion motion, double t)
+    {
+        switch (motion)
         {
             case TemplateBackdropMotion.GentleZoom:
             {
-                // 1.00 -> 1.07 -> 1.00: characters near the middle move by about 1% of the frame.
+                // 1.00 -> 1.07 -> 1.00: characters near the middle move smoothly without shake.
                 var breath = 0.5f - 0.5f * MathF.Cos((float)(t * 2 * Math.PI / TemplateZoomCycleSeconds));
-                return (1f + 0.07f * breath, 0f, 0f);
+                return (1f + 0.07f * breath, 0f, 0f, 0f);
+            }
+            case TemplateBackdropMotion.ZoomOut:
+            {
+                // Starts slightly pushed in (1.10) and smoothly pulls back toward 1.01.
+                var breath = 0.5f - 0.5f * MathF.Cos((float)(t * 2 * Math.PI / TemplateZoomCycleSeconds));
+                return (1.10f - 0.09f * breath, 0f, 0f, 0f);
             }
             case TemplateBackdropMotion.SlowPan:
             {
@@ -230,10 +525,28 @@ public sealed partial class ProceduralSceneRasterizer
                 const float zoom = 1.10f;
                 var maxPanX = (1f - 1f / zoom) * Width * 0.5f;
                 var sweep = MathF.Sin((float)(t * 2 * Math.PI / TemplatePanCycleSeconds));
-                return (zoom, maxPanX * 0.9f * sweep, 0f);
+                return (zoom, maxPanX * 0.9f * sweep, 0f, 0f);
+            }
+            case TemplateBackdropMotion.OrbitRound:
+            {
+                // Smooth elliptical rounding motion inside the overscan crop margin — zero shake.
+                const float zoom = 1.10f;
+                var maxPanX = (1f - 1f / zoom) * Width * 0.5f;
+                var maxPanY = (1f - 1f / zoom) * Height * 0.5f;
+                var phase = (float)(t * 2 * Math.PI / TemplateOrbitCycleSeconds);
+                var panX = maxPanX * 0.72f * MathF.Sin(phase);
+                var panY = maxPanY * 0.72f * ((MathF.Sin(phase + 1.25f) - MathF.Sin(1.25f)) * 0.5f);
+                return (zoom, panX, panY, 0f);
+            }
+            case TemplateBackdropMotion.GentleRotate:
+            {
+                // Smooth small-angle tilt/rotation (+-2.0 deg) paired with safe zoom margin so corners never reveal black.
+                var breath = 0.5f - 0.5f * MathF.Cos((float)(t * 2 * Math.PI / TemplateZoomCycleSeconds));
+                var rotRad = 0.035f * MathF.Sin((float)(t * 2 * Math.PI / TemplateRotateCycleSeconds));
+                return (1.08f + 0.03f * breath, 0f, 0f, rotRad);
             }
             default:
-                return (1f, 0f, 0f);
+                return (1f, 0f, 0f, 0f);
         }
     }
 

@@ -68,7 +68,8 @@ public sealed partial class EcosystemAutomationService
         AutomationSourceType.HinduPanchang or
         AutomationSourceType.HinduFestival or
         AutomationSourceType.DailyKatha or
-        AutomationSourceType.DailyRashifal;
+        AutomationSourceType.DailyRashifal or
+        AutomationSourceType.DevotionalPrarthana;
 
     private static bool IsWorldHistorySource(AutomationSourceType sourceType) => sourceType is
         AutomationSourceType.AajKaItihaas or
@@ -698,6 +699,7 @@ public sealed partial class EcosystemAutomationService
         AutomationSourceType.HinduPanchang => "Hindu Panchang & Muhurat",
         AutomationSourceType.HinduFestival => "Hindu Festivals & Vrat",
         AutomationSourceType.DailyKatha => "Daily Vedic Katha",
+        AutomationSourceType.DevotionalPrarthana => "Daily Devotional Prarthana Reels",
         AutomationSourceType.DailyRashifal => "Daily Rashifal (12 Rashis)",
         AutomationSourceType.AajKaItihaas => "Aaj Ka Itihaas",
         AutomationSourceType.Pratiyogita => "Pratiyogita & Exam GK",
@@ -708,7 +710,7 @@ public sealed partial class EcosystemAutomationService
 
     private static string CalendarTopicColorHex(AutomationSourceType sourceType) => sourceType switch
     {
-        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DailyRashifal => "#f59e0b",
+        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DailyRashifal or AutomationSourceType.DevotionalPrarthana => "#f59e0b",
         AutomationSourceType.AajKaItihaas => "#3b82f6",
         AutomationSourceType.FunnyComedy => "#f97316",
         _ => "#10b981"
