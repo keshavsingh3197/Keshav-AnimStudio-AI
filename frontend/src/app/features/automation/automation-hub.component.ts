@@ -15,6 +15,7 @@ import {
   AutomationRule,
   AutomationService,
   AutomationSourceType,
+  AutomationStagePresentation,
   AutomationBackdropMotion,
   AutomationBackgroundPrompt,
   AutomationScenePicturePlan,
@@ -31,6 +32,7 @@ import {
   DailyRashifalReport,
   SubtitleMotionPreset,
 } from '../../core/services/automation.service';
+import { MyVoice } from '../../core/models/api.models';
 import { StatusService } from '../../core/services/status.service';
 import { ApiService } from '../../core/services/api.service';
 import { Song, SongsService } from '../../core/services/songs.service';
@@ -57,7 +59,18 @@ const SOURCE_LABELS: Record<AutomationSourceType, { label: string; icon: string;
   EcosystemSpotlight: { label: 'Ecosystem Promo', icon: '🚀', badge: 'Website Traffic', color: '#10B981', banner: 'CONTENT OF THE DAY • SPOTLIGHT' },
   CustomPrompt: { label: 'Custom AI Prompt', icon: '✨', badge: 'Custom Pipeline', color: '#10B981', banner: 'CONTENT OF THE DAY • SPOTLIGHT' },
   FunnyComedy: { label: 'Comedy Shorts', icon: '😂', badge: 'Comedy / Memes', color: '#F97316', banner: 'KESHAV-ANIM-FF • COMEDY SHORT' },
+  DevotionalPrarthana: { label: 'Daily Devotional Reels (Shiv/Krishna/Ram)', icon: '🪷', badge: 'Bhakti + Custom Voice', color: '#F59E0B', banner: 'DAILY DEVOTIONAL PRARTHANA' },
 };
+
+const DEITY_FOCUS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'auto', label: 'Daily Rotating Deities (Shiv, Krishna, Ram, Hanuman, Devi)' },
+  { value: 'shiv', label: '🔱 Lord Shiv / Mahadev Daily Prarthana' },
+  { value: 'krishna', label: '🦚 Shri Krishna Daily Bhakti' },
+  { value: 'ram', label: '🏹 Prabhu Shri Ram Daily Prarthana' },
+  { value: 'ram-krishna', label: '✨ Shri Ram & Shri Krishna Hari-Har' },
+  { value: 'hanuman', label: '🔥 Sankat Mochan Hanuman Ji' },
+  { value: 'devi', label: '🌺 Maa Durga Shakti Aradhana' },
+];
 
 const FORMAT_OPTIONS: { value: AutomationVideoFormat; label: string; shortLabel: string }[] = [
   { value: 'Vertical', label: '9:16 Vertical (Shorts / Reels)', shortLabel: 'Short 9:16' },
@@ -136,6 +149,9 @@ const DEFAULT_STAGE: AutomationStageSettings = {
   followScriptExactly: true,
   reviewSteps: false,
   attachedSongId: null,
+  voiceProfileId: null,
+  presentationMode: 'Default',
+  bgmVolumePercent: null,
 };
 const MAX_TEMPLATE_BYTES = 25 * 1024 * 1024;
 const TEMPLATE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -173,6 +189,11 @@ const WIZARD_ENGINE_OPTIONS: { value: WizardEngine; icon: string; label: string;
     hint: 'A stylised multi-act stage rendered locally with FFmpeg. No AI image credits needed.',
     quality: 'Fast & free',
   },
+  {
+    value: 'DevotionalImageReel', icon: '🪷', label: 'Devotional Image Reel (Custom Voice)',
+    hint: 'Rounded-vignette deity images on dark stage with smooth non-shaking zoom/orbit/rotate motion, top synced captions, Google custom voice & quiet BGM.',
+    quality: 'Custom Voice · Top Captions',
+  },
 ];
 
 const VISUAL_ENGINE_OPTIONS: { value: AutomationVisualEngine; label: string; hint: string }[] = [
@@ -180,6 +201,7 @@ const VISUAL_ENGINE_OPTIONS: { value: AutomationVisualEngine; label: string; hin
   { value: 'AiRealisticStory', label: 'AI Realistic Story', hint: 'Multi-scene AI visuals + characters + TTS + BGM' },
   { value: 'StorageImagesStory', label: 'Storage Images + Story', hint: 'Animate your Studio Storage pictures with AI voice & cast' },
   { value: 'Procedural3D', label: 'Enhanced 3D Animated', hint: 'Fast local multi-act 3D stage + optional storage backdrops' },
+  { value: 'DevotionalImageReel', label: 'Devotional Image Reel', hint: 'Dark rounded-vignette photo motion + top captions + custom voice' },
 ];
 
 const NARRATIVE_MODE_OPTIONS: { value: AutomationNarrativeMode; label: string; shortLabel: string }[] = [
@@ -509,6 +531,12 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                     @if (post.syncedToEcosystemAtUtc && post.publishedVideoId) {
                       <span class="pill ok" title="Listed on panchang.keshavsingh.in/videos">🕉️ On Panchang</span>
                     }
+                    @if (post.voiceProfileId) {
+                      <span class="pill info" title="Narrated with custom Google/Studio voice">🎙️ {{ post.voiceProfileName || 'Custom Voice' }}</span>
+                    }
+                    @if (post.visualEngine === 'DevotionalImageReel') {
+                      <span class="pill subtle">🪷 Image Reel</span>
+                    }
                   </div>
 
                   <div class="card-thumb-row">
@@ -774,6 +802,28 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
             </div>
           </div>
 
+          <div class="verify-detail-box" style="margin-bottom: 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+              <div>
+                <strong>🪷 Quick Daily Devotional Reels (Custom Voice + Rounded Motion + Top Captions)</strong>
+                <div class="muted-note">
+                  Create daily prayer/prarthana Shorts for Lord Shiv, Shri Krishna, Shri Ram, or daily rotating deities.
+                  @if (preferredCustomVoice(); as pv) {
+                    <span>Auto-proposes your voice: <strong>{{ myVoiceLabel(pv) }}</strong></span>
+                  } @else {
+                    <span>Tip: Add &amp; replicate your Google custom voice in <a routerLink="/story-agent">Story Studio</a> or Project Voiceover to use your own voice.</span>
+                  }
+                </div>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                <button type="button" class="btn tiny primary" (click)="openNewDevotionalReelRule('shiv')">🔱 + Shiv Daily Reel</button>
+                <button type="button" class="btn tiny primary" (click)="openNewDevotionalReelRule('krishna')">🦚 + Krishna Daily Reel</button>
+                <button type="button" class="btn tiny primary" (click)="openNewDevotionalReelRule('ram')">🏹 + Ram Daily Reel</button>
+                <button type="button" class="btn tiny secondary" (click)="openNewDevotionalReelRule('auto')">🪷 + Daily All Deities</button>
+              </div>
+            </div>
+          </div>
+
           <div class="rules-list">
             @for (rule of ov.rules; track rule.id) {
               <div class="rule-card" [class.disabled]="!rule.enabled">
@@ -802,6 +852,12 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                   <div><span class="lbl">Drive Topic:</span> {{ rule.topicName || 'Any Topic' }}</div>
                   <div><span class="lbl">Video Strategy:</span> {{ strategyLabel(rule.videoStrategy) }}</div>
                   <div><span class="lbl">Visual Engine &amp; Length:</span> {{ visualEngineLabel(rule.visualEngine) }} • {{ narrativeModeLabel(rule.narrativeMode) }} ({{ rule.targetSeconds }}s)</div>
+                  @if (rule.voiceProfileId || rule.sourceType === 'DevotionalPrarthana') {
+                    <div>
+                      <span class="lbl">Custom Voice:</span> {{ rule.voiceProfileName || (rule.voiceProfileId ? 'Selected' : 'Studio AI Voice (click Edit to attach Google voice)') }}
+                      @if (rule.deityFocus) { · Focus: {{ deityFocusLabel(rule.deityFocus) }} }
+                    </div>
+                  }
                   @if (rule.sourceType === 'FunnyComedy') {
                     <div><span class="lbl">Comedy Auto-Config:</span> {{ comedyToneLabel(rule.comedyStyle) }} • {{ rule.autoInsertMemes !== false ? 'Mid Memes Auto On' : 'Memes Off' }}</div>
                   }
@@ -1524,7 +1580,7 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                       <strong>Template → my AI tool</strong>
                       <small>
                         Copy a ready template into ChatGPT, Gemini or Claude, then paste the answer back.
-                        @if (wz.engine === 'Procedural3D') { It returns a cast list (main + supporting characters), scene lines with realistic background image prompts, and the dialogue. }
+                        @if (isProceduralWizard(wz.engine)) { It returns spoken lines with scene image prompts (for Devotional Image Reel, clean single-voice prayer lines drive top captions and smooth photo motion). }
                         @else { It returns every scene: seconds, background, characters and their looks, camera and dialogue. }
                       </small>
                     </button>
@@ -1543,7 +1599,7 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                         @else { Shorts are limited to 3 minutes by YouTube. Switch this post to Full 16:9 for a longer video. }
                       </small>
                     </label>
-                    @if (wz.engine === 'Procedural3D') {
+                    @if (isProceduralWizard(wz.engine)) {
                       <label class="field">
                         <span>Subtitle style</span>
                         <select [ngModel]="wp.subtitlePreset || 'event-glow'" (ngModelChange)="wp.subtitlePreset = $event">
@@ -1554,7 +1610,9 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                       </label>
                     }
                   </div>
-                  @if (wz.engine === 'Procedural3D') {
+                  @if (wz.engine === 'DevotionalImageReel') {
+                    <p class="muted-note">🪷 Devotional Image Reel renders centered rounded-vignette deity images on a clean black stage, syncing crisp top Hindi/English captions to your Google custom voice and smooth non-shaking camera motion.</p>
+                  } @else if (wz.engine === 'Procedural3D') {
                     <p class="muted-note">Enhanced 3D renders a stylised stage on this server. It is fast and free, but for the most realistic result use AI Realistic Story. Next: choose the background, then music.</p>
                   }
                 }
@@ -1569,10 +1627,21 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                     </button>
                     <button type="button" class="choice-card" [class.selected]="wz.backdrop === 'picture'" (click)="setWizardBackdrop('picture')">
                       <span class="choice-icon" aria-hidden="true">🖼</span>
-                      <strong>My background picture</strong>
-                      <small>Generate one with AI from a ready prompt, or upload or pick your own. Characters, voices, captions and light effects play on top; the picture can stay still or move slowly.</small>
+                      <strong>{{ wz.engine === 'DevotionalImageReel' ? 'My Deity Photo(s) / AI Artwork' : 'My background picture' }}</strong>
+                      <small>{{ wz.engine === 'DevotionalImageReel'
+                        ? 'Upload, generate, or pick one or more deity images (Shiv, Krishna, Ram…) to animate inside a rounded dark vignette with smooth non-shaking camera motion.'
+                        : 'Generate one with AI from a ready prompt, or upload or pick your own. Characters, voices, captions and light effects play on top; the picture can stay still or move slowly.' }}</small>
                     </button>
                   </div>
+
+                  @if (wz.engine === 'DevotionalImageReel') {
+                    <div class="bg-pick-row" style="margin-top: 8px;">
+                      <button type="button" class="btn ghost" (click)="openStoragePicker({ kind: 'post', post: wp })">
+                        🖼 Pick Multiple Reel Pictures ({{ wp.attachedAssetIds?.length ?? 0 }})
+                      </button>
+                      <small class="muted-note">Select 1–10 images to crossfade across the prayer, or pick a single featured portrait below.</small>
+                    </div>
+                  }
 
                   @if (wz.backdrop === 'picture') {
                     <div class="bg-make">
@@ -1640,46 +1709,50 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                     }
 
                     @if (wz.stage.backgroundTemplateAssetId; as bgId) {
-                      <div class="snip-label"><span>Drag each character to where it should stand. The dot is the feet.</span>
-                        <button type="button" class="link-btn" (click)="resetPlacements()">Reset spots</button></div>
-                      <div class="stage-editor" [class.wide]="wp.format === 'Wide'"
-                           (pointermove)="onStageDrag($event)" (pointerup)="endStageDrag()" (pointercancel)="endStageDrag()">
-                        <img class="stage-bg" [src]="templateImageUrl(bgId)" alt="Background template" draggable="false" />
-                        <div class="safe-zone" aria-hidden="true" title="Captions and YouTube buttons cover this area"></div>
-                        @for (side of stageSides; track side) {
-                          @let p = placementFor(side, wp.format);
-                          <div class="stage-char" [class.right]="side === 'right'" tabindex="0" role="slider"
-                               [attr.aria-label]="(side === 'left' ? characterName(wp, 'left') : characterName(wp, 'right')) + ' position'"
-                               [attr.aria-valuetext]="'across ' + pct(p.x) + ', down ' + pct(p.y)"
-                               [style.left.%]="p.x * 100" [style.top.%]="p.y * 100"
-                               [style.width.%]="stageBox(wp.format).boxW * p.scale * 100"
-                               [style.height.%]="stageBox(wp.format).boxH * p.scale * 100"
-                               (pointerdown)="startStageDrag(side, $event)" (keydown)="nudgePlacement(side, wp.format, $event)">
-                            <span class="stage-char-name">{{ side === 'left' ? characterName(wp, 'left') : characterName(wp, 'right') }}</span>
-                            <span class="stage-char-feet" aria-hidden="true"></span>
-                          </div>
-                        }
-                      </div>
-                      <div class="form-2col">
-                        @for (side of stageSides; track side) {
-                          <label class="field">
-                            <span>{{ side === 'left' ? characterName(wp, 'left') : characterName(wp, 'right') }} size: {{ pct(placementFor(side, wp.format).scale) }}</span>
-                            <input type="range" min="0.5" max="1.8" step="0.05" [ngModel]="placementFor(side, wp.format).scale"
-                                   (ngModelChange)="setPlacementScale(side, wp.format, $event)" />
-                          </label>
-                        }
-                      </div>
-                      <small class="muted-note">Tip: keep faces out of the shaded bottom area; captions and the YouTube buttons sit there. Arrow keys move a selected character.</small>
+                      @if (wz.engine !== 'DevotionalImageReel') {
+                        <div class="snip-label"><span>Drag each character to where it should stand. The dot is the feet.</span>
+                          <button type="button" class="link-btn" (click)="resetPlacements()">Reset spots</button></div>
+                        <div class="stage-editor" [class.wide]="wp.format === 'Wide'"
+                             (pointermove)="onStageDrag($event)" (pointerup)="endStageDrag()" (pointercancel)="endStageDrag()">
+                          <img class="stage-bg" [src]="templateImageUrl(bgId)" alt="Background template" draggable="false" />
+                          <div class="safe-zone" aria-hidden="true" title="Captions and YouTube buttons cover this area"></div>
+                          @for (side of stageSides; track side) {
+                            @let p = placementFor(side, wp.format);
+                            <div class="stage-char" [class.right]="side === 'right'" tabindex="0" role="slider"
+                                 [attr.aria-label]="(side === 'left' ? characterName(wp, 'left') : characterName(wp, 'right')) + ' position'"
+                                 [attr.aria-valuetext]="'across ' + pct(p.x) + ', down ' + pct(p.y)"
+                                 [style.left.%]="p.x * 100" [style.top.%]="p.y * 100"
+                                 [style.width.%]="stageBox(wp.format).boxW * p.scale * 100"
+                                 [style.height.%]="stageBox(wp.format).boxH * p.scale * 100"
+                                 (pointerdown)="startStageDrag(side, $event)" (keydown)="nudgePlacement(side, wp.format, $event)">
+                              <span class="stage-char-name">{{ side === 'left' ? characterName(wp, 'left') : characterName(wp, 'right') }}</span>
+                              <span class="stage-char-feet" aria-hidden="true"></span>
+                            </div>
+                          }
+                        </div>
+                        <div class="form-2col">
+                          @for (side of stageSides; track side) {
+                            <label class="field">
+                              <span>{{ side === 'left' ? characterName(wp, 'left') : characterName(wp, 'right') }} size: {{ pct(placementFor(side, wp.format).scale) }}</span>
+                              <input type="range" min="0.5" max="1.8" step="0.05" [ngModel]="placementFor(side, wp.format).scale"
+                                     (ngModelChange)="setPlacementScale(side, wp.format, $event)" />
+                            </label>
+                          }
+                        </div>
+                        <small class="muted-note">Tip: keep faces out of the shaded bottom area; captions and the YouTube buttons sit there. Arrow keys move a selected character.</small>
+                      }
+                    }
 
-                      <div class="field">
-                        <span>Picture motion</span>
-                        <div class="filter-pills" role="radiogroup" aria-label="Picture motion">
+                    @if (wz.stage.backgroundTemplateAssetId || wz.engine === 'DevotionalImageReel') {
+                      <div class="field" style="margin-top: 10px;">
+                        <span>Smooth Camera Motion (Non-Shaking)</span>
+                        <div class="filter-pills" role="radiogroup" aria-label="Smooth camera motion">
                           @for (m of backdropMotions; track m.value) {
                             <button type="button" role="radio" [attr.aria-checked]="(wz.stage.backgroundMotion ?? 'Still') === m.value"
                                     [class.active]="(wz.stage.backgroundMotion ?? 'Still') === m.value" (click)="setStageMotion(m.value)">{{ m.label }}</button>
                           }
                         </div>
-                        <small class="muted-note">{{ backdropMotionHint(wz.stage.backgroundMotion) }} Light rays, glowing particles and scene-change dips play on top either way.</small>
+                        <small class="muted-note">{{ backdropMotionHint(wz.stage.backgroundMotion) }}</small>
                       </div>
                     }
                   }
@@ -1696,21 +1769,54 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                 }
 
                 @if (wz.step === 'audio') {
+                  <label class="field" style="margin-bottom: 12px;">
+                    <span>🎙️ Custom Voice / Google Replicated Voice (Recommended for Devotional Reels)</span>
+                    <select [ngModel]="wz.stage.voiceProfileId ?? ''" (ngModelChange)="setStageVoice($event)">
+                      <option value="">-- Automatic Studio AI Voice --</option>
+                      @for (mv of myVoices(); track mv.id) {
+                        <option [value]="mv.id">{{ myVoiceLabel(mv) }}</option>
+                      }
+                    </select>
+                    <small class="muted-note">
+                      @if (myVoices().length === 0) {
+                        No custom voice added yet — record a short sample &amp; replicate on Google Gemini TTS inside <a routerLink="/story-agent">Story Studio</a> or Project Voiceover to narrate your reels in your own voice.
+                      } @else if (selectedWizardVoice(); as sv) {
+                        @if (sv.googleEngine) { ✓ Uses your Google Gemini TTS replicated voice directly in its authentic timbre. }
+                        @else { Using local custom voice profile (tip: enable Google voice replication in Project Voiceover for native Hindi Gemini narration). }
+                      } @else {
+                        Propose picking your custom voice above so devotional Shorts carry a personal, warm voice.
+                      }
+                    </small>
+                  </label>
+
                   <div class="choice-grid two">
                     <button type="button" class="choice-card" [class.selected]="wz.stage.includeBackgroundMusic" (click)="setStageMusic(true)">
                       <span class="choice-icon" aria-hidden="true">🎵</span>
                       <strong>With background music</strong>
-                      <small>A soft music bed under the voices that dips while characters speak.</small>
+                      <small>A quiet devotional/ambient music bed under your spoken voice (auto-ducked so every word stays crisp).</small>
                     </button>
                     <button type="button" class="choice-card" [class.selected]="!wz.stage.includeBackgroundMusic" (click)="setStageMusic(false)">
                       <span class="choice-icon" aria-hidden="true">🔇</span>
-                      <strong>Voice only</strong>
-                      <small>No music in the file, so you can add any track or sound in YouTube or another editor later.</small>
+                      <strong>Voice only (Drive / Mobile Song Mix)</strong>
+                      <small>No music in the MP4 — download to phone or Drive and attach trending devotional songs right in YouTube mobile!</small>
                     </button>
                   </div>
-                  @if (wz.engine === 'Procedural3D') {
+                  @if (isProceduralWizard(wz.engine)) {
+                    @if (wz.stage.includeBackgroundMusic) {
+                      <div class="field" style="margin-top: 10px;">
+                        <span>Music Volume Level ({{ wz.stage.bgmVolumePercent ?? (wz.engine === 'DevotionalImageReel' ? 18 : 45) }}% under voice)</span>
+                        <div class="filter-pills" style="margin-bottom: 6px;">
+                          <button type="button" [class.active]="(wz.stage.bgmVolumePercent ?? (wz.engine === 'DevotionalImageReel' ? 18 : 45)) <= 16" (click)="setStageBgmVolume(15)">15% Whisper Bed</button>
+                          <button type="button" [class.active]="(wz.stage.bgmVolumePercent ?? 45) === 20 || (wz.stage.bgmVolumePercent == null && wz.engine === 'DevotionalImageReel')" (click)="setStageBgmVolume(20)">20% Soft Devotional</button>
+                          <button type="button" [class.active]="(wz.stage.bgmVolumePercent ?? (wz.engine === 'DevotionalImageReel' ? 18 : 45)) >= 40" (click)="setStageBgmVolume(45)">45% Standard</button>
+                        </div>
+                        <input type="range" min="0" max="100" step="1"
+                               [ngModel]="wz.stage.bgmVolumePercent ?? (wz.engine === 'DevotionalImageReel' ? 18 : 45)"
+                               (ngModelChange)="setStageBgmVolume($event)" />
+                      </div>
+                    }
                     <label class="field" style="margin-top:12px;">
-                      <span>Song-to-3D Audio Bridge (optional track from Songs Library)</span>
+                      <span>Song-to-Reel Audio Bridge (optional track from Songs Library)</span>
                       <select [ngModel]="wz.stage.attachedSongId ?? ''" (ngModelChange)="setStageSong($event)">
                         <option value="">-- Use automatic theme instrumental music --</option>
                         @for (s of librarySongs(); track s.id) {
@@ -1719,11 +1825,11 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                       </select>
                       <small class="muted-note">
                         @if (librarySongs().length === 0) { No saved songs in Studio Songs yet — compose one on the Songs tab or use automatic theme BGM above. }
-                        @else { Selected song is normalized to -22 LUFS and automatically ducked behind dialogue! }
+                        @else { Selected song is normalized and automatically ducked quietly behind your custom voice! }
                       </small>
                     </label>
                   }
-                  @if (wz.engine !== 'Procedural3D') {
+                  @if (!isProceduralWizard(wz.engine)) {
                     <p class="muted-note">With music, a score is composed for the story (Google Lyria when set up). Voice only skips that step and saves a Lyria request.</p>
                     <label class="check-row">
                       <input type="checkbox" [ngModel]="!!wz.stage.reviewSteps" (ngModelChange)="setStageReview($event)" />
@@ -1774,11 +1880,11 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                           <span>{{ templateReply().length | number }} chars</span>
                         </div>
                         <textarea class="tpl-text" rows="10" [ngModel]="templateReply()" (ngModelChange)="onTemplateReplyChange($event)"
-                                  [placeholder]="wz.engine === 'Procedural3D' ? dialoguePlaceholder : storyPlaceholder"
+                                  [placeholder]="isProceduralWizard(wz.engine) ? dialoguePlaceholder : storyPlaceholder"
                                   aria-label="Pasted AI reply"></textarea>
                         <small class="muted-note">
                           The answer is checked before use.
-                          @if (wz.engine === 'Procedural3D') { Only [CAST], [SCENE] and [Name]: line lines are kept; scene lines pick the 3D setting and background and are never spoken. }
+                          @if (isProceduralWizard(wz.engine)) { Only [CAST], [SCENE] and [Name]: line lines are kept; scene lines pick the 3D setting and background and are never spoken. }
                           @else { After it is accepted, voices, pictures, music and the render start on their own. }
                         </small>
                       </div>
@@ -1906,14 +2012,14 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                 @if (wz.step === 'audio') {
                   <button type="button" class="btn primary" [disabled]="busy()" (click)="startWizard()">
                     @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> }
-                    {{ wz.source === 'template' ? 'Get Template' : (wz.engine === 'Procedural3D' ? 'Render 3D Video' : 'Start AI Story') }}
+                    {{ wz.source === 'template' ? 'Get Template' : (wz.engine === 'DevotionalImageReel' ? 'Render Devotional Reel' : (wz.engine === 'Procedural3D' ? 'Render 3D Video' : 'Start AI Story')) }}
                   </button>
                 }
                 @if (wz.step === 'template') {
                   <button type="button" class="btn primary" [disabled]="busy() || !templateState()?.ready || templateReply().trim().length < 20"
                           (click)="submitTemplateReply()">
                     @if (busy()) { <span class="btn-spin" aria-hidden="true"></span> }
-                    {{ wz.engine === 'Procedural3D' ? 'Use Script & Render' : 'Use Script & Make Video' }}
+                    {{ isProceduralWizard(wz.engine) ? 'Use Script & Render' : 'Use Script & Make Video' }}
                   </button>
                 }
                 }
@@ -2013,6 +2119,15 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                   <select [(ngModel)]="draft.subtitlePreset">
                     @for (sp of subtitlePresets; track sp.value) {
                       <option [value]="sp.value">{{ sp.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Custom Voice Profile (Google Replicated / Local)</span>
+                  <select [ngModel]="draft.voiceProfileId ?? ''" (ngModelChange)="onPostVoiceChange(draft, $event)">
+                    <option value="">-- Automatic Studio AI Voice --</option>
+                    @for (mv of myVoices(); track mv.id) {
+                      <option [value]="mv.id">{{ myVoiceLabel(mv) }}</option>
                     }
                   </select>
                 </label>
@@ -2528,6 +2643,27 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                     🖼 Pick Storage Images ({{ rDraft.attachedAssetIds?.length ?? 0 }})
                   </button>
                 </div>
+
+                <label class="field">
+                  <span>Custom Voice Profile (Google / Local)</span>
+                  <select [ngModel]="rDraft.voiceProfileId ?? ''" (ngModelChange)="onRuleVoiceChange(rDraft, $event)">
+                    <option value="">-- Automatic Studio AI Voice --</option>
+                    @for (mv of myVoices(); track mv.id) {
+                      <option [value]="mv.id">{{ myVoiceLabel(mv) }}</option>
+                    }
+                  </select>
+                </label>
+
+                @if (rDraft.sourceType === 'DevotionalPrarthana') {
+                  <label class="field">
+                    <span>Daily Deity / Prayer Focus</span>
+                    <select [(ngModel)]="rDraft.deityFocus">
+                      @for (df of deityFocusOptions; track df.value) {
+                        <option [value]="df.value">{{ df.label }}</option>
+                      }
+                    </select>
+                  </label>
+                }
 
                 <label class="field">
                   <span>Format</span>
@@ -3236,6 +3372,15 @@ export class AutomationHubComponent implements OnInit {
   });
 
   readonly wizardEngineOptions = WIZARD_ENGINE_OPTIONS;
+  readonly deityFocusOptions = DEITY_FOCUS_OPTIONS;
+  readonly myVoices = signal<MyVoice[]>([]);
+  readonly preferredCustomVoice = computed(() =>
+    this.myVoices().find((v) => !!v.googleEngine) ?? this.myVoices()[0] ?? null
+  );
+  readonly selectedWizardVoice = computed(() => {
+    const id = this.wizard()?.stage.voiceProfileId;
+    return id ? (this.myVoices().find((v) => v.id === id) ?? null) : null;
+  });
   readonly dialoguePlaceholder =
     '[CAST]: Character Name | role | look\n[SCENE]: forest ashram | dawn | serene | IMAGE: ...\n[सूत्रधार]: ...\n[Character Name]: ...\n[Character Name]: ...';
   readonly storyPlaceholder = 'Paste the whole JSON answer here: { "title": ..., "cast": [...], "scenes": [...] }';
@@ -3282,6 +3427,7 @@ export class AutomationHubComponent implements OnInit {
     'EcosystemSpotlight',
     'CustomPrompt',
     'FunnyComedy',
+    'DevotionalPrarthana',
   ];
   readonly modes: AutomationPostMode[] = ['PreviewOnly', 'AutoVideoAndPreview', 'FullAutopilot'];
   readonly strategies: AutomationVideoStrategy[] = [
@@ -3489,7 +3635,51 @@ export class AutomationHubComponent implements OnInit {
   canRetryVideo(post: AutomationPost): boolean {
     return post.status === 'Failed'
       && !!post.attachedStoryRunId
-      && post.visualEngine !== 'Procedural3D';
+      && !this.isProceduralWizard(post.visualEngine);
+  }
+
+  isProceduralWizard(engine?: AutomationVisualEngine | null): boolean {
+    return engine === 'Procedural3D' || engine === 'DevotionalImageReel';
+  }
+
+  myVoiceLabel(v: MyVoice): string {
+    return v.googleEngine ? `🎙️ ${v.name} ✓ Google Voice` : `🎙️ ${v.name} (Local Voice)`;
+  }
+
+  deityFocusLabel(focus?: string | null): string {
+    return DEITY_FOCUS_OPTIONS.find((x) => x.value === (focus || 'auto'))?.label ?? 'Daily Rotating Deities';
+  }
+
+  setStageVoice(voiceId: string | null): void {
+    const clean = voiceId && voiceId.trim() ? voiceId.trim() : null;
+    this.updateStage({ voiceProfileId: clean });
+  }
+
+  setStageBgmVolume(pct: number): void {
+    const clamped = Math.min(100, Math.max(0, Math.round(Number(pct) || 0)));
+    this.updateStage({ bgmVolumePercent: clamped });
+  }
+
+  onPostVoiceChange(post: AutomationPost, voiceId: string | null): void {
+    const clean = voiceId && voiceId.trim() ? voiceId.trim() : null;
+    // Empty string clears explicitly on UpdatePostAsync while leaving untouched edits safe.
+    post.voiceProfileId = clean ?? '';
+    post.voiceProfileName = clean ? (this.myVoices().find((v) => v.id === clean)?.name ?? null) : null;
+  }
+
+  onRuleVoiceChange(rule: AutomationRule, voiceId: string | null): void {
+    const clean = voiceId && voiceId.trim() ? voiceId.trim() : null;
+    rule.voiceProfileId = clean;
+    rule.voiceProfileName = clean ? (this.myVoices().find((v) => v.id === clean)?.name ?? null) : null;
+  }
+
+  private async loadMyVoicesSilent(): Promise<void> {
+    try {
+      const voices = await firstValueFrom(this.studioApi.listMyVoices());
+      this.myVoices.set(voices ?? []);
+    } catch {
+      // Optional enrichment: keep UI functional offline or without voices
+    }
   }
 
   async retryVideo(post: AutomationPost): Promise<void> {
@@ -3509,17 +3699,33 @@ export class AutomationHubComponent implements OnInit {
   // ---------------------------------------------------------------- generate wizard
 
   openGenerateWizard(post: AutomationPost): void {
-    const current = post.visualEngine && post.visualEngine !== 'Auto' ? post.visualEngine : 'AiRealisticStory';
+    const current = post.visualEngine && post.visualEngine !== 'Auto'
+      ? post.visualEngine
+      : (post.sourceType === 'DevotionalPrarthana' ? 'DevotionalImageReel' : 'AiRealisticStory');
     this.resetTemplate();
     this.resetBackgroundPrompt();
     this.showTemplateLibrary.set(false);
     if (this.librarySongs().length === 0) {
       void firstValueFrom(this.songsApi.list()).then((res) => this.librarySongs.set(res.songs ?? [])).catch(() => {});
     }
-    const stage: AutomationStageSettings = { ...DEFAULT_STAGE, ...(post.stage ?? {}) };
+    if (this.myVoices().length === 0) {
+      void this.loadMyVoicesSilent();
+    }
+    const isReel = current === 'DevotionalImageReel' || post.stage?.presentationMode === 'DevotionalImageReel';
+    const isDevotionalSource = post.sourceType === 'DevotionalPrarthana' || post.sourceType === 'DailyKatha' || post.sourceType === 'HinduFestival';
+    const proposedVoice = post.stage?.voiceProfileId ?? post.voiceProfileId ?? (isDevotionalSource ? (this.preferredCustomVoice()?.id ?? null) : null);
+    const stage: AutomationStageSettings = {
+      ...DEFAULT_STAGE,
+      ...(post.stage ?? {}),
+      presentationMode: isReel ? 'DevotionalImageReel' : (post.stage?.presentationMode ?? 'Default'),
+      backgroundMotion: post.stage?.backgroundMotion ?? (isReel ? 'AutoSmooth' : 'Still'),
+      bgmVolumePercent: post.stage?.bgmVolumePercent ?? (isReel ? 18 : null),
+      includeBackgroundMusic: post.stage ? post.stage.includeBackgroundMusic : isReel,
+      voiceProfileId: proposedVoice,
+    };
     this.wizard.set({
       postId: post.id, engine: current, source: 'ai', step: 'engine', stage,
-      backdrop: stage.backgroundTemplateAssetId ? 'picture' : 'default',
+      backdrop: stage.backgroundTemplateAssetId || (isReel && (post.attachedAssetIds?.length ?? 0) > 0) ? 'picture' : 'default',
     });
   }
 
@@ -3537,24 +3743,46 @@ export class AutomationHubComponent implements OnInit {
   }
 
   setWizardEngine(engine: WizardEngine): void {
-    this.wizard.update((w) => (w ? { ...w, engine } : w));
+    this.wizard.update((w) => {
+      if (!w) return w;
+      if (engine === 'DevotionalImageReel') {
+        const proposedVoice = w.stage.voiceProfileId ?? this.preferredCustomVoice()?.id ?? null;
+        return {
+          ...w,
+          engine,
+          stage: {
+            ...w.stage,
+            presentationMode: 'DevotionalImageReel',
+            backgroundMotion: !w.stage.backgroundMotion || w.stage.backgroundMotion === 'Still' ? 'AutoSmooth' : w.stage.backgroundMotion,
+            bgmVolumePercent: w.stage.bgmVolumePercent ?? 18,
+            includeBackgroundMusic: true,
+            voiceProfileId: proposedVoice,
+          },
+        };
+      }
+      return {
+        ...w,
+        engine,
+        stage: { ...w.stage, presentationMode: 'Default' },
+      };
+    });
   }
 
   setWizardSource(source: 'ai' | 'template'): void {
     this.wizard.update((w) => (w ? { ...w, source } : w));
   }
 
-  /** Steps shown for the chosen engine: Enhanced 3D adds Background and Music & voice, one decision per step. */
+  /** Steps shown for the chosen engine: Enhanced 3D / Devotional Image Reel adds Background and Music & voice, one decision per step. */
   wizardSteps(): { key: WizardStep; label: string }[] {
     const wz = this.wizard();
     const steps: { key: WizardStep; label: string }[] = [
       { key: 'engine', label: 'Engine' },
       { key: 'source', label: 'Script' },
     ];
-    if (wz?.engine === 'Procedural3D') {
-      steps.push({ key: 'background', label: 'Background' }, { key: 'audio', label: 'Music & voice' });
+    if (this.isProceduralWizard(wz?.engine)) {
+      steps.push({ key: 'background', label: wz?.engine === 'DevotionalImageReel' ? 'Images & Motion' : 'Background' }, { key: 'audio', label: 'Music & voice' });
     } else {
-      steps.push({ key: 'audio', label: 'Music' });
+      steps.push({ key: 'audio', label: 'Music & voice' });
     }
     if (wz?.source === 'template' || wz?.step === 'template') steps.push({ key: 'template', label: 'Template & Paste' });
     return steps;
@@ -3618,16 +3846,24 @@ export class AutomationHubComponent implements OnInit {
   private bgPromptTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly backdropMotions: ReadonlyArray<{ value: AutomationBackdropMotion; label: string }> = [
+    { value: 'AutoSmooth', label: 'Auto Smooth Cycle' },
+    { value: 'OrbitRound', label: 'Orbit / Rounding' },
+    { value: 'GentleRotate', label: 'Gentle Rotate' },
+    { value: 'GentleZoom', label: 'Zoom In' },
+    { value: 'ZoomOut', label: 'Zoom Out' },
+    { value: 'SlowPan', label: 'Slow Pan' },
     { value: 'Still', label: 'Still' },
-    { value: 'GentleZoom', label: 'Gentle zoom' },
-    { value: 'SlowPan', label: 'Slow pan' },
   ];
 
   backdropMotionHint(motion: AutomationBackdropMotion | undefined): string {
     switch (motion) {
-      case 'GentleZoom': return 'The camera breathes in and out a little (about 7%), so characters stay close to their spots.';
-      case 'SlowPan': return 'The picture glides slowly sideways behind the characters, back and forth.';
-      default: return 'The picture stays still, so characters stand exactly where you placed them.';
+      case 'AutoSmooth': return 'Silky non-shaking cycle alternating smoothly across Zoom In, Orbit Round, Zoom Out, Slow Pan, and Gentle Rotate.';
+      case 'OrbitRound': return 'Smooth circular orbital camera sweep around the deity/subject with zero shake.';
+      case 'GentleRotate': return 'Silky continuous small-angle camera tilt combined with a subtle zoom breath — completely shake-free.';
+      case 'ZoomOut': return 'Starts pushed slightly closer on the subject and smoothly pulls back across the frame.';
+      case 'GentleZoom': return 'A calm breathing push-in and pull-back (~7%) with zero camera jitter.';
+      case 'SlowPan': return 'Glides smoothly side-to-side across the artwork without any shake.';
+      default: return 'The picture stays still, so elements stand exactly where placed.';
     }
   }
 
@@ -3882,20 +4118,32 @@ export class AutomationHubComponent implements OnInit {
   private async saveWizardStage(): Promise<boolean> {
     const wz = this.wizard();
     if (!wz) return true;
-    // Story engines save the stage too: the server reads its music choice when it starts the run.
+    // Story engines save the stage too: the server reads its music & voice choices when it starts the run.
+    const post = this.wizardPost();
+    const hasAttachedImages = (post?.attachedAssetIds?.length ?? 0) > 0;
     if (wz.engine === 'Procedural3D' && wz.backdrop === 'picture' && !wz.stage.backgroundTemplateAssetId) {
       this.status.showError('Upload or pick a background picture, or go Back and choose the animated 3D stage.');
       return false;
     }
+    if (wz.engine === 'DevotionalImageReel' && wz.backdrop === 'picture' && !wz.stage.backgroundTemplateAssetId && !hasAttachedImages) {
+      // Fall cleanly to AI generation on backend if user picked picture without selecting one yet, or ask gently? Actually AI auto-generates deity poster on backend if bgPaths is empty! Keeping seamless!
+    }
+    const baseStage: AutomationStageSettings = wz.engine === 'DevotionalImageReel'
+      ? { ...wz.stage, presentationMode: 'DevotionalImageReel' }
+      : wz.stage;
     // An AI-written script has new scenes, so pictures chosen for an earlier pasted script would land on the wrong ones.
     const stage: AutomationStageSettings = wz.source === 'ai' && wz.step !== 'template'
-      ? { ...wz.stage, sceneBackgroundAssetIds: [] }
-      : wz.stage;
+      ? { ...baseStage, sceneBackgroundAssetIds: [] }
+      : baseStage;
     let ok = false;
     await this.runAction('stage-save', async () => {
       const saved = await firstValueFrom(this.api.saveStage(wz.postId, stage));
-      const post = this.wizardPost();
-      if (post) post.stage = saved.stage ?? stage;
+      const curPost = this.wizardPost();
+      if (curPost) {
+        curPost.stage = saved.stage ?? stage;
+        curPost.voiceProfileId = saved.voiceProfileId ?? stage.voiceProfileId ?? null;
+        curPost.voiceProfileName = saved.voiceProfileName ?? curPost.voiceProfileName ?? null;
+      }
       ok = true;
     });
     return ok;
@@ -3916,8 +4164,8 @@ export class AutomationHubComponent implements OnInit {
 
     if (wz.source === 'ai') {
       // The ai path closes the wizard only when the request went through; a failure stays visible in the banner.
-      if (wz.engine === 'Procedural3D') {
-        await this.triggerAnimated3DVideo(post);
+      if (this.isProceduralWizard(wz.engine)) {
+        await this.triggerAnimated3DVideo(post, wz.engine);
       } else {
         post.visualEngine = wz.engine;
         await this.triggerAiVideo(post);
@@ -3928,7 +4176,7 @@ export class AutomationHubComponent implements OnInit {
 
     // A template fetched for an earlier length/engine choice must not show while the new one loads.
     this.templateState.set(null);
-    if (wz.engine === 'Procedural3D') {
+    if (this.isProceduralWizard(wz.engine)) {
       this.wizard.set({ ...wz, step: 'template' });
       this.pollTemplate();
       return;
@@ -3986,7 +4234,7 @@ export class AutomationHubComponent implements OnInit {
   /** Scene pictures apply to Enhanced 3D without a single background picture (that one covers the whole video). */
   showScenePictures(): boolean {
     const wz = this.wizard();
-    return !!wz && wz.engine === 'Procedural3D' && wz.backdrop !== 'picture';
+    return !!wz && this.isProceduralWizard(wz.engine) && wz.backdrop !== 'picture';
   }
 
   onTemplateReplyChange(value: string): void {
@@ -4233,7 +4481,7 @@ export class AutomationHubComponent implements OnInit {
     const post = this.wizardPost();
     const reply = this.templateReply().trim();
     if (!wz || !post || !reply) return;
-    const is3d = wz.engine === 'Procedural3D';
+    const is3d = this.isProceduralWizard(wz.engine);
 
     // Scene pictures are all-or-nothing: a gap would move every later scene onto the wrong picture.
     if (is3d && this.showScenePictures()) {
@@ -4340,6 +4588,7 @@ export class AutomationHubComponent implements OnInit {
       this.overview.set(ov);
       this.settingsForm.set({ ...ov.settings });
       this.errorMessage.set(null);
+      if (this.myVoices().length === 0) void this.loadMyVoicesSilent();
     } catch (err: unknown) {
       if (!silent) {
         this.errorMessage.set(this.readErr(err, 'Failed to load Auto-Post workspace overview.'));
@@ -4768,12 +5017,13 @@ export class AutomationHubComponent implements OnInit {
           targetSeconds: chosenDuration > 0 ? chosenDuration : (post.targetSeconds ?? null),
           attachedAssetIds: post.attachedAssetIds ?? [],
           useTemplateScript,
+          voiceProfileId: post.stage?.voiceProfileId ?? post.voiceProfileId ?? null,
         })
       );
       if (useTemplateScript) {
         this.status.showNotice('Template story started. Researching the topic, then your template will be ready to copy.');
-      } else if (engine === 'Procedural3D') {
-        this.status.showNotice(`Rendered Enhanced 3D video: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
+      } else if (this.isProceduralWizard(engine)) {
+        this.status.showNotice(`Rendered video: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
       } else {
         this.status.showNotice('Started multi-scene Story Agent render (cast + voice + visuals + BGM). Live progress will update automatically.');
       }
@@ -4781,22 +5031,25 @@ export class AutomationHubComponent implements OnInit {
     });
   }
 
-  async triggerAnimated3DVideo(post: AutomationPost): Promise<void> {
+  async triggerAnimated3DVideo(post: AutomationPost, engineOverride?: WizardEngine): Promise<void> {
     const chosenDuration = this.postDurationSeconds(post.id);
+    const engine = engineOverride ?? (post.visualEngine === 'DevotionalImageReel' ? 'DevotionalImageReel' : 'Procedural3D');
     await this.runAction(`anim3d:${post.id}`, () => this.withRenderProgress(async () => {
       const updated = await firstValueFrom(
         this.api.generateAnimatedVideo(post.id, {
           format: post.format === 'CommunityPost' ? 'Vertical' : post.format,
           durationSeconds: chosenDuration > 0 ? chosenDuration : undefined,
-          enableCharacterDialogue: post.enableCharacterDialogue ?? true,
+          enableCharacterDialogue: engine === 'DevotionalImageReel' ? false : (post.enableCharacterDialogue ?? true),
           subtitlePreset: (post.subtitlePreset as SubtitleMotionPreset | undefined) || 'event-glow',
           speakerAName: post.speakerAName ?? null,
           speakerBName: post.speakerBName ?? null,
           narrativeMode: post.narrativeMode ?? 'Auto',
           attachedAssetIds: post.attachedAssetIds ?? [],
+          visualEngine: engine,
+          voiceProfileId: post.stage?.voiceProfileId ?? post.voiceProfileId ?? null,
         })
       );
-      this.status.showNotice(`Generated enhanced 3D animated MP4: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
+      this.status.showNotice(`Generated MP4: ${updated.attachedVideoSourceLabel ?? 'Ready to review'}.`);
       await this.loadOverview(true);
     }));
   }
@@ -5176,7 +5429,76 @@ export class AutomationHubComponent implements OnInit {
     rule.sourceType = nextType;
     if (nextType === 'FunnyComedy' && this.editingRuleIsNew()) {
       this.applyFunnyRuleAutoConfig(rule);
+    } else if (nextType === 'DevotionalPrarthana' && this.editingRuleIsNew()) {
+      rule.visualEngine = 'DevotionalImageReel';
+      rule.enableCharacterDialogue = false;
+      rule.deityFocus = rule.deityFocus || 'auto';
+      rule.targetSeconds = 38;
+      rule.narrativeMode = 'ShortReel';
+      const pv = this.preferredCustomVoice();
+      if (pv && !rule.voiceProfileId) {
+        rule.voiceProfileId = pv.id;
+        rule.voiceProfileName = pv.name;
+      }
     }
+  }
+
+  openNewDevotionalReelRule(focus: 'shiv' | 'krishna' | 'ram' | 'auto'): void {
+    const ov = this.overview();
+    const channels = ov?.connectedChannels ?? [];
+    const devHints = ['bhakti', 'shiv', 'hindu', 'panchang', 'devotional', 'sanatan', 'katha', 'krishna', 'ram'];
+    const devChannel = channels.find((c) => {
+      const label = `${c.channelHandle ?? ''} ${c.channelTitle ?? ''}`.toLowerCase();
+      return devHints.some((h) => label.includes(h));
+    }) ?? channels[0];
+    const pv = this.preferredCustomVoice();
+    const titles: Record<string, string> = {
+      shiv: 'Daily Shiv Prarthana Reel (Custom Voice)',
+      krishna: 'Daily Krishna Bhakti Reel (Custom Voice)',
+      ram: 'Daily Ram Prarthana Reel (Custom Voice)',
+      auto: 'Daily Rotating Devotional Reels (Shiv, Krishna, Ram)',
+    };
+    this.editingRuleIsNew.set(true);
+    this.editingRule.set({
+      id: '',
+      name: titles[focus],
+      description: 'Daily rounded-vignette devotional image reel with smooth non-shaking motion, top captions, custom voice, and quiet BGM.',
+      enabled: true,
+      sourceType: 'DevotionalPrarthana',
+      deityFocus: focus,
+      mode: 'AutoVideoAndPreview',
+      videoStrategy: 'AutoGenerateAnimated3DVideo',
+      videoFormat: 'Vertical',
+      targetChannelId: devChannel?.channelId ?? null,
+      targetChannelHandle: devChannel?.channelHandle ?? null,
+      targetChannelTitle: devChannel?.channelTitle ?? null,
+      topicId: null,
+      language: 'hi',
+      targetSeconds: 38,
+      location: ov?.settings.defaultLocation ?? 'India (IST)',
+      preferredPublishTime: '06:30',
+      timeZoneId: ov?.settings.defaultTimeZone ?? 'Asia/Kolkata',
+      daysOfWeek: [],
+      festivalLeadDays: 1,
+      funnelWebsiteKeys: ov?.websites.filter((w) => w.key === 'panchang' || w.key === 'studio').map((w) => w.key) ?? [],
+      socialFunnelSlug: null,
+      privacy: 'public',
+      categoryId: '22',
+      madeForKids: false,
+      includePinnedComment: true,
+      subtitlePreset: 'event-glow',
+      enableCharacterDialogue: false,
+      speakerAName: null,
+      speakerBName: null,
+      visualEngine: 'DevotionalImageReel',
+      narrativeMode: 'ShortReel',
+      attachedAssetIds: [],
+      comedyStyle: 'Auto',
+      autoInsertMemes: false,
+      voiceProfileId: pv?.id ?? null,
+      voiceProfileName: pv?.name ?? null,
+      sortOrder: (ov?.rules.length ?? 0) + 1,
+    });
   }
 
   applyFunnyRuleAutoConfig(rule: AutomationRule): void {

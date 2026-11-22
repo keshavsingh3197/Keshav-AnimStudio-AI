@@ -208,7 +208,7 @@ public static class AutomationPublishAdvisor
                 (7, 0, "Morning Puja & Horoscope peak traffic", "Peak A"),
                 (18, 30, "Evening Sandhya & next-day Muhurat lookup", "Peak B+")
             ],
-            AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha =>
+            AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DevotionalPrarthana =>
             [
                 (6, 45, "Morning Bhakti & Puja Vidhi peak", "Peak A"),
                 (19, 15, "Evening family Katha & Aarti prime time", "Peak A+")

@@ -5,7 +5,9 @@ using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.Voices;
 using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Voices;
 using AnimStudio.Infrastructure.Ffmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -47,7 +49,9 @@ internal static class ProceduralSpeechSynthesizer
         IAiProviderRegistry? aiRegistry,
         FfmpegOptions ffmpegOptions,
         ILogger? logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        VoiceProfile? customVoiceProfile = null,
+        IStudioVoiceRenderer? studioVoiceRenderer = null)
     {
         if (!request.IncludeSpeech)
             return null;
@@ -73,12 +77,13 @@ internal static class ProceduralSpeechSynthesizer
 
         if (ai is not null && aiRegistry is not null)
         {
-            var providers = ResolveProviders(aiRegistry, request.SpeechProviderId);
+            var providers = ResolveProviders(aiRegistry, request.SpeechProviderId, customVoiceProfile, studioVoiceRenderer);
             foreach (var provider in providers)
             {
                 var synthesized = await TrySynthesizeWithAiProviderAsync(
                     provider, request, initialPlan, speechTurns, langCode,
-                    workspaceInputDir, userId, ai, ffmpegOptions, logger, ct).ConfigureAwait(false);
+                    workspaceInputDir, userId, ai, ffmpegOptions, logger, ct,
+                    customVoiceProfile, studioVoiceRenderer).ConfigureAwait(false);
                 if (synthesized is not null)
                 {
                     return await AssembleFinalSpeechTrackAsync(
@@ -107,11 +112,28 @@ internal static class ProceduralSpeechSynthesizer
         IAiExecutor ai,
         FfmpegOptions ffmpegOptions,
         ILogger? logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        VoiceProfile? customVoiceProfile = null,
+        IStudioVoiceRenderer? studioVoiceRenderer = null)
     {
         var (voiceA, voiceB) = await ResolveVoicesAsync(provider, initialPlan, request, ct).ConfigureAwait(false);
         var isGemini = string.Equals(provider.Id.Value, KnownAiProviders.GeminiTts, StringComparison.OrdinalIgnoreCase)
             || provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase);
+        var replicatedVoiceId = customVoiceProfile is not null
+            ? MyVoiceReplication.VoiceFor(customVoiceProfile, provider.Id.Value)
+            : null;
+        var tunedVoiceId = customVoiceProfile is not null
+            && replicatedVoiceId is null
+            && !string.IsNullOrWhiteSpace(customVoiceProfile.TunedVoiceId)
+            && provider.Id.Value.Contains("kokoro", StringComparison.OrdinalIgnoreCase)
+                ? customVoiceProfile.TunedVoiceId
+                : null;
+        var canLocalReVoice = customVoiceProfile is not null
+            && replicatedVoiceId is null
+            && tunedVoiceId is null
+            && !string.IsNullOrWhiteSpace(customVoiceProfile.StorageKey)
+            && studioVoiceRenderer?.CanReVoice == true;
+
         var clipBytesList = new List<byte[]>(speechTurns.Count);
         var clipDurations = new List<double>(speechTurns.Count);
         var voicesUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -134,25 +156,45 @@ internal static class ProceduralSpeechSynthesizer
 
             var isComedy = IsComedyRequest(request, initialPlan);
             var speakerProfile = ResolveSpeakerProfile(initialPlan, turn);
-            var voiceId = isGemini
-                ? ResolveGeminiTurnVoice(initialPlan, request, turn, voiceA, voiceB, isComedy)
-                : (turn.Slot == DialogueSpeakerSlot.Right ? voiceB : voiceA);
+            var useCustomForTurn = customVoiceProfile is not null
+                && (!initialPlan.HasCharacters
+                    || turn.Slot == DialogueSpeakerSlot.Narrator
+                    || turn.SpeakerRole == CharacterVisualRole.Narrator
+                    || (initialPlan.HasCharacters && turn.Slot == DialogueSpeakerSlot.Left && !speechTurns.Any(t => t.Slot == DialogueSpeakerSlot.Narrator)));
+
+            var turnReplicatedVoiceId = useCustomForTurn ? replicatedVoiceId : null;
+            var turnTunedVoiceId = useCustomForTurn ? tunedVoiceId : null;
+            var baseProfileVoice = !string.IsNullOrWhiteSpace(customVoiceProfile?.BaseVoiceId)
+                ? customVoiceProfile.BaseVoiceId
+                : (isGemini ? voiceA : (turn.Slot == DialogueSpeakerSlot.Right ? voiceB : voiceA));
+
+            var voiceId = turnReplicatedVoiceId is not null
+                ? baseProfileVoice
+                : turnTunedVoiceId is not null
+                    ? turnTunedVoiceId
+                    : isGemini
+                        ? ResolveGeminiTurnVoice(initialPlan, request, turn, voiceA, voiceB, isComedy)
+                        : (useCustomForTurn && canLocalReVoice ? baseProfileVoice : (turn.Slot == DialogueSpeakerSlot.Right ? voiceB : voiceA));
             var style = BuildSpeechStyle(turn, speakerProfile, isComedy, initialPlan.HasCharacters, langCode);
             var rate = ComputeSpeechRate(turn, speakerProfile, isComedy);
 
-            AiOutcome<AiSpeechResult> outcome;
-            try
-            {
-                outcome = await ai.SpeechAsync(new AiSpeechRequest
+            Task<AiOutcome<AiSpeechResult>> CallSpeechAsync(string? model) =>
+                ai.SpeechAsync(new AiSpeechRequest
                 {
                     Text = spokenText,
                     VoiceId = voiceId,
                     Rate = rate,
                     LanguageCode = langCode,
                     Style = style,
-                    Model = overrideModel,
-                    ProviderId = provider.Id.Value
-                }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct).ConfigureAwait(false);
+                    Model = model,
+                    ProviderId = provider.Id.Value,
+                    ReplicatedVoiceId = turnReplicatedVoiceId
+                }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct);
+
+            AiOutcome<AiSpeechResult> outcome;
+            try
+            {
+                outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
 
                 if (!outcome.IsSuccess
                     && string.Equals(outcome.ErrorCode, "endpoint-or-model-not-found", StringComparison.OrdinalIgnoreCase)
@@ -160,16 +202,7 @@ internal static class ProceduralSpeechSynthesizer
                     && provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase))
                 {
                     overrideModel = "gemini-2.5-flash-preview-tts";
-                    outcome = await ai.SpeechAsync(new AiSpeechRequest
-                    {
-                        Text = spokenText,
-                        VoiceId = voiceId,
-                        Rate = rate,
-                        LanguageCode = langCode,
-                        Style = style,
-                        Model = overrideModel,
-                        ProviderId = provider.Id.Value
-                    }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct).ConfigureAwait(false);
+                    outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -185,7 +218,26 @@ internal static class ProceduralSpeechSynthesizer
                 return null;
             }
 
-            var normalizedWav = await EnsureStereo48kWavAsync(speech.Content, workspaceInputDir, i, ffmpegOptions, ct)
+            var rawAudio = speech.Content;
+            var reVoicedLocally = false;
+            if (useCustomForTurn && canLocalReVoice && customVoiceProfile!.StorageKey is { } sampleKey)
+            {
+                try
+                {
+                    var converted = await studioVoiceRenderer!.ReVoiceAsync(rawAudio, sampleKey, ct).ConfigureAwait(false);
+                    if (converted.Length > 44)
+                    {
+                        rawAudio = converted;
+                        reVoicedLocally = true;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger?.LogWarning(ex, "Local studio voice conversion failed on turn {Index}; keeping base voice.", i);
+                }
+            }
+
+            var normalizedWav = await EnsureStereo48kWavAsync(rawAudio, workspaceInputDir, i, ffmpegOptions, ct)
                 .ConfigureAwait(false);
             if (normalizedWav is null)
             {
@@ -193,17 +245,21 @@ internal static class ProceduralSpeechSynthesizer
                 return null;
             }
 
-            var isSingleVoiceGoogle = string.Equals(provider.Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase);
-            normalizedWav = await ApplyTurnVoiceCharacterAsync(
-                normalizedWav,
-                turn,
-                speakerProfile,
-                isComedy,
-                isSingleVoiceGoogle,
-                workspaceInputDir,
-                200 + i,
-                ffmpegOptions,
-                ct).ConfigureAwait(false);
+            var isCustomActiveOnTurn = turnReplicatedVoiceId is not null || turnTunedVoiceId is not null || reVoicedLocally;
+            if (!isCustomActiveOnTurn)
+            {
+                var isSingleVoiceGoogle = string.Equals(provider.Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase);
+                normalizedWav = await ApplyTurnVoiceCharacterAsync(
+                    normalizedWav,
+                    turn,
+                    speakerProfile,
+                    isComedy,
+                    isSingleVoiceGoogle,
+                    workspaceInputDir,
+                    200 + i,
+                    ffmpegOptions,
+                    ct).ConfigureAwait(false);
+            }
 
             var dur = AiAudioValidator.TryGetWavDuration(normalizedWav) ?? speech.DurationSeconds ?? 0;
             if (dur <= 0.05)
@@ -211,7 +267,14 @@ internal static class ProceduralSpeechSynthesizer
 
             clipBytesList.Add(normalizedWav);
             clipDurations.Add(dur);
-            voicesUsed.Add(voiceId);
+            if (turnReplicatedVoiceId is not null)
+                voicesUsed.Add($"{customVoiceProfile!.Name} (Google)");
+            else if (turnTunedVoiceId is not null)
+                voicesUsed.Add($"{customVoiceProfile!.Name} (Tuned)");
+            else if (reVoicedLocally)
+                voicesUsed.Add($"{customVoiceProfile!.Name} (Converted)");
+            else
+                voicesUsed.Add(voiceId);
         }
 
         return (clipBytesList, clipDurations, [.. voicesUsed]);
@@ -470,17 +533,47 @@ internal static class ProceduralSpeechSynthesizer
         }
     }
 
-    private static IReadOnlyList<ISpeechAiProvider> ResolveProviders(IAiProviderRegistry registry, string? preferredProviderId)
+    internal static IReadOnlyList<ISpeechAiProvider> ResolveProviders(
+        IAiProviderRegistry registry,
+        string? preferredProviderId,
+        VoiceProfile? customVoiceProfile = null,
+        IStudioVoiceRenderer? studioVoiceRenderer = null)
     {
         var configured = registry.SpeechChain().Where(p => p.IsConfigured).ToList();
-        if (string.IsNullOrWhiteSpace(preferredProviderId))
+        var priorityId = !string.IsNullOrWhiteSpace(preferredProviderId)
+            ? preferredProviderId.Trim()
+            : null;
+
+        if (priorityId is null && customVoiceProfile is not null)
+        {
+            if (customVoiceProfile.GoogleVoiceProviderId is { Length: > 0 } gProvider
+                && MyVoiceReplication.VoiceFor(customVoiceProfile, gProvider) is not null
+                && configured.Any(p => string.Equals(p.Id.Value, gProvider, StringComparison.OrdinalIgnoreCase)))
+            {
+                priorityId = gProvider;
+            }
+            else if (!string.IsNullOrWhiteSpace(customVoiceProfile.TunedVoiceId)
+                && configured.Any(p => p.Id.Value.Contains("kokoro", StringComparison.OrdinalIgnoreCase)))
+            {
+                priorityId = configured.First(p => p.Id.Value.Contains("kokoro", StringComparison.OrdinalIgnoreCase)).Id.Value;
+            }
+            else if (studioVoiceRenderer?.CanReVoice == true
+                && !string.IsNullOrWhiteSpace(customVoiceProfile.StorageKey)
+                && configured.Any(p => string.Equals(p.Id.Value, KnownAiProviders.GoogleTts, StringComparison.OrdinalIgnoreCase)))
+            {
+                // Local ReVoice needs fast keyless base speech to convert into the creator's own timbre.
+                priorityId = KnownAiProviders.GoogleTts;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(priorityId))
             return configured;
 
         var preferred = configured
-            .Where(p => string.Equals(p.Id.Value, preferredProviderId.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Where(p => string.Equals(p.Id.Value, priorityId, StringComparison.OrdinalIgnoreCase))
             .ToList();
         var rest = configured
-            .Where(p => !string.Equals(p.Id.Value, preferredProviderId.Trim(), StringComparison.OrdinalIgnoreCase));
+            .Where(p => !string.Equals(p.Id.Value, priorityId, StringComparison.OrdinalIgnoreCase));
         return [.. preferred, .. rest];
     }
 

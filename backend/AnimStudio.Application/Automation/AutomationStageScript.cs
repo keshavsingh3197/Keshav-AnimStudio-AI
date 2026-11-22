@@ -28,20 +28,29 @@ public static partial class AutomationStageScript
     }
 
     /// <summary>The renderer layout, or null when nothing differs from the default stage.</summary>
-    public static ProceduralStageLayout? ToLayout(AutomationStageSettings? stage, bool usingTemplate)
+    public static ProceduralStageLayout? ToLayout(
+        AutomationStageSettings? stage,
+        bool usingTemplate,
+        AutomationVisualEngine visualEngine = AutomationVisualEngine.Auto)
     {
         var left = ToPlacement(stage?.LeftCharacter);
         var right = ToPlacement(stage?.RightCharacter);
-        if (left is null && right is null && !usingTemplate) return null;
-        var motion = usingTemplate
-            ? (stage?.BackgroundMotion ?? AutomationBackdropMotion.Still) switch
+        var isDevotionalReel = visualEngine == AutomationVisualEngine.DevotionalImageReel
+            || (stage?.PresentationMode ?? AutomationStagePresentation.Default) == AutomationStagePresentation.DevotionalImageReel;
+        if (left is null && right is null && !usingTemplate && !isDevotionalReel) return null;
+        var motion = (usingTemplate || isDevotionalReel)
+            ? (stage?.BackgroundMotion ?? (isDevotionalReel ? AutomationBackdropMotion.AutoSmooth : AutomationBackdropMotion.Still)) switch
             {
                 AutomationBackdropMotion.GentleZoom => TemplateBackdropMotion.GentleZoom,
                 AutomationBackdropMotion.SlowPan => TemplateBackdropMotion.SlowPan,
+                AutomationBackdropMotion.OrbitRound => TemplateBackdropMotion.OrbitRound,
+                AutomationBackdropMotion.GentleRotate => TemplateBackdropMotion.GentleRotate,
+                AutomationBackdropMotion.ZoomOut => TemplateBackdropMotion.ZoomOut,
+                AutomationBackdropMotion.AutoSmooth => TemplateBackdropMotion.AutoSmooth,
                 _ => TemplateBackdropMotion.Still
             }
             : TemplateBackdropMotion.Still;
-        return new ProceduralStageLayout(left, right, usingTemplate, motion);
+        return new ProceduralStageLayout(left, right, usingTemplate, motion, isDevotionalReel);
     }
 
     /// <summary>
@@ -61,6 +70,11 @@ public static partial class AutomationStageScript
         if (string.IsNullOrEmpty(songId)) songId = null;
         else if (songId.Length > MaxAssetIdChars || !AssetIdRegex().IsMatch(songId))
             throw new ArgumentException("That attached song id is not valid.", nameof(input));
+
+        var voiceId = input.VoiceProfileId?.Trim();
+        if (string.IsNullOrEmpty(voiceId)) voiceId = null;
+        else if (voiceId.Length > MaxAssetIdChars || !AssetIdRegex().IsMatch(voiceId))
+            throw new ArgumentException("That custom voice id is not valid.", nameof(input));
 
         // Order matters (picture n is scene n); the same picture may serve two scenes.
         var scenePictures = new List<string>();
@@ -86,6 +100,9 @@ public static partial class AutomationStageScript
             FollowScriptExactly = input.FollowScriptExactly,
             ReviewSteps = input.ReviewSteps,
             AttachedSongId = songId,
+            VoiceProfileId = voiceId,
+            PresentationMode = Enum.IsDefined(input.PresentationMode) ? input.PresentationMode : AutomationStagePresentation.Default,
+            BgmVolumePercent = input.BgmVolumePercent is { } v ? Math.Clamp(v, 0, 100) : null,
             // An unknown number from the client falls back to the still picture.
             BackgroundMotion = Enum.IsDefined(input.BackgroundMotion) ? input.BackgroundMotion : AutomationBackdropMotion.Still
         };

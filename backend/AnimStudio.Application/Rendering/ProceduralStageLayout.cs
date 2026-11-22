@@ -38,12 +38,17 @@ public sealed record ProceduralStageLayout(
     ProceduralStagePlacement? Left,
     ProceduralStagePlacement? Right,
     bool TemplateBackdrop,
-    TemplateBackdropMotion TemplateMotion = TemplateBackdropMotion.Still);
+    TemplateBackdropMotion TemplateMotion = TemplateBackdropMotion.Still,
+    bool DevotionalReelFrame = false);
 
-/// <summary>Camera move over a template backdrop. Moves are small and continuous across the whole video (no jump at scene cuts).</summary>
+/// <summary>Smooth, non-shaking camera moves over a template backdrop or devotional reel picture.</summary>
 public enum TemplateBackdropMotion
 {
     Still = 0,
     GentleZoom = 1,
-    SlowPan = 2
+    SlowPan = 2,
+    OrbitRound = 3,
+    GentleRotate = 4,
+    ZoomOut = 5,
+    AutoSmooth = 6
 }

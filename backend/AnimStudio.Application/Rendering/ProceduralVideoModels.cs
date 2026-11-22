@@ -82,6 +82,10 @@ public sealed class ProceduralVideoRequest
     public string? SpeechProviderId { get; init; }
     public string? SpeakerAVoiceId { get; init; }
     public string? SpeakerBVoiceId { get; init; }
+
+    /// <summary>Optional user custom voice profile id (<c>vp_...</c>, supporting Google replicated Gemini TTS or local voice conversion).</summary>
+    public string? VoiceProfileId { get; init; }
+
     public string Language { get; init; } = "hi";
     public string? FooterLabel { get; init; }
 
@@ -119,6 +123,9 @@ public sealed class ProceduralVideoRequest
 
     /// <summary>Optional path to a custom audio file (e.g. from SongLibrary) to mux as background music.</summary>
     public string? CustomBgmPath { get; init; }
+
+    /// <summary>Optional background music volume percent (<c>0..100</c>); null keeps the preset default (45% standard, 18% devotional reel).</summary>
+    public int? BgmVolumePercent { get; init; }
 
     /// <summary>When true, shapes punchline pacing and loop visual cue for short-form repeat loops (10s-30s).</summary>
     public bool IsSeamlessLoop { get; init; }
@@ -265,7 +272,7 @@ public static partial class ProceduralVideoPlanner
         {
             var byEvent = eventType.Trim() switch
             {
-                "DailyKatha" or "HinduFestival" => ProceduralSceneTheme.VedicTempleSunrise3D,
+                "DailyKatha" or "HinduFestival" or "DevotionalPrarthana" => ProceduralSceneTheme.VedicTempleSunrise3D,
                 "HinduPanchang" => ProceduralSceneTheme.CosmosSacred3D,
                 "AajKaItihaas" => ProceduralSceneTheme.HistoryChronicle3D,
                 "Pratiyogita" => ProceduralSceneTheme.NeonCyberGrid3D,

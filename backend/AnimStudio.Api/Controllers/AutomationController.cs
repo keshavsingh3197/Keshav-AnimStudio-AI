@@ -24,7 +24,8 @@ public sealed record GenerateAutomationAiVideoRequest(
     AutomationNarrativeMode? NarrativeMode = null,
     int? TargetSeconds = null,
     List<string>? AttachedAssetIds = null,
-    bool UseTemplateScript = false);
+    bool UseTemplateScript = false,
+    string? VoiceProfileId = null);
 
 public sealed record SubmitAutomationScriptTemplateRequest(
     AutomationVisualEngine Engine = AutomationVisualEngine.AiRealisticStory,
@@ -42,7 +43,9 @@ public sealed record GenerateAnimatedAutomationVideoRequest(
     string? SpeakerAName = null,
     string? SpeakerBName = null,
     AutomationNarrativeMode? NarrativeMode = null,
-    List<string>? AttachedAssetIds = null);
+    List<string>? AttachedAssetIds = null,
+    AutomationVisualEngine? VisualEngine = null,
+    string? VoiceProfileId = null);
 
 /// <summary>Body for removing a card's video from YouTube; <c>TargetChannelId</c> retargets the card (optional).</summary>
 public sealed record RemoveAutomationPostFromYouTubeRequest(
@@ -261,7 +264,8 @@ public sealed class AutomationController(
             request?.NarrativeMode,
             request?.TargetSeconds,
             request?.AttachedAssetIds,
-            request?.UseTemplateScript ?? false)));
+            request?.UseTemplateScript ?? false,
+            request?.VoiceProfileId)));
     }
 
     /// <summary>Starts the post's failed story run again from the step it stopped at, keeping what was already made.</summary>
@@ -319,7 +323,9 @@ public sealed class AutomationController(
             request?.SpeakerAName,
             request?.SpeakerBName,
             request?.NarrativeMode,
-            request?.AttachedAssetIds)));
+            request?.AttachedAssetIds,
+            request?.VisualEngine,
+            request?.VoiceProfileId)));
     }
 
     /// <summary>Saves the Enhanced 3D stage choices (background template, character spots, location, music, pacing).</summary>

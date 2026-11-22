@@ -8,6 +8,7 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.StoryAgent;
+using AnimStudio.Application.Voices;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Errors;
@@ -15,6 +16,7 @@ using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Scenes;
+using AnimStudio.Domain.Voices;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Subtitles;
 using Microsoft.Extensions.Configuration;
@@ -44,7 +46,9 @@ public sealed class ProceduralVideoGeneratorService(
     IAiProviderRegistry? aiRegistry = null,
     ProceduralBgmCacheService? bgmCache = null,
     IConfiguration? configuration = null,
-    IEffectClipRepository? effects = null) : IProceduralVideoGenerator
+    IEffectClipRepository? effects = null,
+    IVoiceProfileRepository? voiceProfiles = null,
+    IStudioVoiceRenderer? studioVoiceRenderer = null) : IProceduralVideoGenerator
 {
     private const string DefaultProjectName = "Procedural 3D Studio Renders";
     private const string TopCategoryStyleCharId = "top-category";
@@ -112,7 +116,18 @@ public sealed class ProceduralVideoGeneratorService(
         await using var workspace = await workspaces.CreateAsync($"proc3d-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
         var outPath = workspace.Resolve("out/video.mp4");
 
-        // 1. Optional spoken voiceover / 2-character dialogue via configured TTS provider
+        // 1. Optional spoken voiceover / 2-character dialogue via configured TTS provider (plus creator custom voice)
+        VoiceProfile? customVoiceProfile = null;
+        if (!string.IsNullOrWhiteSpace(request.VoiceProfileId) && voiceProfiles is not null && !string.IsNullOrWhiteSpace(userId))
+        {
+            var candidate = await voiceProfiles.GetAsync(request.VoiceProfileId.Trim(), ct).ConfigureAwait(false);
+            if (candidate is not null && string.Equals(candidate.UserId, userId, StringComparison.Ordinal))
+                customVoiceProfile = candidate;
+            else
+                logger.LogWarning("Requested custom voice {VoiceProfileId} was not found for user {UserId}; falling back to stock voice.",
+                    request.VoiceProfileId, userId);
+        }
+
         float[]? speechEnvelope = null;
         var hasSpeech = false;
         string? voiceSummary = null;
@@ -126,7 +141,9 @@ public sealed class ProceduralVideoGeneratorService(
             aiRegistry,
             ffmpegOptions.Value,
             logger,
-            ct).ConfigureAwait(false);
+            ct,
+            customVoiceProfile,
+            studioVoiceRenderer).ConfigureAwait(false);
 
         if (speechResult is not null && File.Exists(speechResult.SpeechWavPath))
         {
@@ -156,9 +173,14 @@ public sealed class ProceduralVideoGeneratorService(
             || request.EnableComedySfx;
         var sparseComedyBgm = request.SparseComedyAudio || (isComedy && string.IsNullOrWhiteSpace(request.CustomBgmPath));
 
+        var effectiveBgmPercent = request.BgmVolumePercent is { } bgmPct
+            ? Math.Clamp(bgmPct, 0, 100)
+            : (request.StageLayout?.DevotionalReelFrame == true ? 18 : 45);
+        var bgmGain = effectiveBgmPercent / 100.0;
+
         var hasBgm = false;
         string? bgmSource = null;
-        if (request.IncludeAmbientAudio)
+        if (request.IncludeAmbientAudio && bgmGain > 0.005)
         {
             progress?.Report(new ProceduralRenderProgress(ProceduralRenderStages.Music, "Preparing background music"));
             var bgmDst = workspace.Resolve("in/ambient.wav");
@@ -260,7 +282,8 @@ public sealed class ProceduralVideoGeneratorService(
         var epochEndFrame = Math.Min(totalFrames, WebGlEpochFrames);
         WebGlFrameSession? webGlSession = null;
         var hasFirstWebGlFrame = false;
-        if (request.RenderEngine != ProceduralRenderEngine.CpuFast)
+        var isDevotionalReel = request.StageLayout?.DevotionalReelFrame == true;
+        if (request.RenderEngine != ProceduralRenderEngine.CpuFast && !isDevotionalReel)
         {
             webGlSession = await WebGlVideoFrameRenderer.TryStartSessionAsync(
                 workspace.Resolve($"webgl3d-e{epochIndex}"),
@@ -312,7 +335,7 @@ public sealed class ProceduralVideoGeneratorService(
             CreateNoWindow = true
         };
 
-        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles, memeOverlays, hasSfx))
+        foreach (var arg in BuildFfmpegArguments(width, height, fps, durationSeconds, hasSpeech, hasBgm, hasSubtitles, memeOverlays, hasSfx, bgmGain))
             startInfo.ArgumentList.Add(arg);
 
         using var process = new Process { StartInfo = startInfo };
@@ -615,9 +638,10 @@ public sealed class ProceduralVideoGeneratorService(
         var isHindi = !string.Equals(request.Language?.Trim(), "en", StringComparison.OrdinalIgnoreCase);
 
         var isComedyEvent = string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase);
+        var isDevotionalReel = request.StageLayout?.DevotionalReelFrame == true;
 
-        // 1. Safe-zoned cover header & opening poster title (on non-comedy portrait Shorts, stays well below YouTube's
-        // top status/Scheduled pill AND renders a big, crisp opening headline so Shorts shelf thumbnails clearly tell what it's for)
+        // 1. Safe-zoned cover header & opening poster title (skipped in DevotionalImageReel so the top dark area
+        // belongs cleanly to spoken prarthana/katha captions above the rounded deity frame).
         var posterCopy = ThumbnailPosterCopy.Build(request.EventType, title, request.Prompt, request.TopCategoryLabel, isPortrait);
         var categoryText = !isComedyEvent && isPortrait && !string.IsNullOrWhiteSpace(posterCopy.CategoryPill)
             ? posterCopy.CategoryPill
@@ -626,7 +650,7 @@ public sealed class ProceduralVideoGeneratorService(
                 : request.TopCategoryLabel.Trim();
         var coverEndFrame = Math.Clamp((int)Math.Round(2.5 * fps), 2, Math.Max(2, endFrame));
 
-        if (!isComedyEvent && isPortrait)
+        if (!isDevotionalReel && !isComedyEvent && isPortrait)
         {
             lines.Add(new DialogueLine
             {
@@ -659,7 +683,7 @@ public sealed class ProceduralVideoGeneratorService(
                 });
             }
         }
-        else
+        else if (!isDevotionalReel)
         {
             lines.Add(new DialogueLine
             {
@@ -716,14 +740,16 @@ public sealed class ProceduralVideoGeneratorService(
                 _ => BodyStyleCharId
             };
 
-            var prefix = dialoguePlan.HasCharacters
+            var prefix = !isDevotionalReel
+                && dialoguePlan.HasCharacters
                 && !string.IsNullOrWhiteSpace(turn.SpeakerName)
                 && !turn.Text.StartsWith(turn.SpeakerName + ":", StringComparison.OrdinalIgnoreCase)
                 ? $"{turn.SpeakerName}: "
                 : string.Empty;
 
             // A long line is shown as consecutive on-screen chunks while it is spoken, never cut off with "…".
-            var chunkChars = Math.Max(24, bodyWrapWidth * 3 - prefix.Length - 4);
+            var effectiveWrapWidth = isDevotionalReel ? (isPortrait ? 26 : 48) : bodyWrapWidth;
+            var chunkChars = Math.Max(22, effectiveWrapWidth * (isDevotionalReel ? 2 : 3) - prefix.Length - 2);
             foreach (var chunk in CaptionChunker.Split(turn.Text, turn.StartSeconds, turn.EndSeconds, chunkChars))
             {
                 lines.Add(new DialogueLine
@@ -731,7 +757,7 @@ public sealed class ProceduralVideoGeneratorService(
                     Index = index++,
                     SpeakerLabel = turn.SpeakerName,
                     SpeakerCharacterId = styleCharId,
-                    Text = WrapLinesForAss(prefix + chunk.Text, bodyWrapWidth, maxLines: 3),
+                    Text = WrapLinesForAss(prefix + chunk.Text, effectiveWrapWidth, maxLines: isDevotionalReel ? 2 : 3),
                     RelativeStartFrame = Math.Max(0, (int)Math.Round(chunk.StartSeconds * fps)),
                     RelativeEndFrame = Math.Max(1, (int)Math.Round(chunk.EndSeconds * fps))
                 });
@@ -786,14 +812,20 @@ public sealed class ProceduralVideoGeneratorService(
             : Math.Max(94, (int)Math.Round(height * 0.132));
 
         // On 9:16 mobile Shorts, reserve bottom ~27% for YouTube @handle/title/Share overlay and right ~18% for Like/Save/Comment/Share buttons.
-        var dialogueMargin = isPortrait
-            ? Math.Max(310, (int)Math.Round(height * 0.275))
-            : Math.Max(58, height / 11);
-        var captionMarginL = isPortrait ? Math.Max(46, width / 16) : Math.Max(68, width / 14);
-        var captionMarginR = isPortrait ? Math.Max(126, (int)Math.Round(width * 0.18)) : Math.Max(68, width / 14);
-        var footerMargin = isPortrait
-            ? Math.Max(265, (int)Math.Round(height * 0.228))
-            : Math.Max(18, height / 50);
+        // In DevotionalImageReel mode, spoken captions sit cleanly in the upper black header band (Alignment=8) above the rounded image frame.
+        var dialogueAlignment = isDevotionalReel ? 8 : 2;
+        var dialogueMargin = isDevotionalReel
+            ? (isPortrait ? Math.Max(82, (int)Math.Round(height * 0.072)) : Math.Max(36, (int)Math.Round(height * 0.05)))
+            : (isPortrait ? Math.Max(310, (int)Math.Round(height * 0.275)) : Math.Max(58, height / 11));
+        var captionMarginL = isDevotionalReel
+            ? (isPortrait ? Math.Max(52, width / 14) : Math.Max(68, width / 14))
+            : (isPortrait ? Math.Max(46, width / 16) : Math.Max(68, width / 14));
+        var captionMarginR = isDevotionalReel
+            ? (isPortrait ? Math.Max(52, width / 14) : Math.Max(68, width / 14))
+            : (isPortrait ? Math.Max(126, (int)Math.Round(width * 0.18)) : Math.Max(68, width / 14));
+        var footerMargin = isDevotionalReel
+            ? (isPortrait ? Math.Max(225, (int)Math.Round(height * 0.195)) : Math.Max(22, height / 36))
+            : (isPortrait ? Math.Max(265, (int)Math.Round(height * 0.228)) : Math.Max(18, height / 50));
 
         var karaokeSecondary = motionPreset == SubtitleMotionPreset.KaraokePulse;
         var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
@@ -802,10 +834,10 @@ public sealed class ProceduralVideoGeneratorService(
             [TopTitleStyleCharId] = new("HeaderTitle", isPortrait ? "#FACC15" : palette.TitleHex, Bold: true, Alignment: 8, MarginV: topTitleMargin, FontScalePercent: isPortrait ? (isComedyEvent ? 72 : 112) : 66, OutlineColorHex: isPortrait ? (isComedyEvent ? "#B91C1C" : "#1C1917") : "#020617", BackColorHex: isPortrait ? (isComedyEvent ? "#B91C1C" : "#7C2D12") : null, MotionPreset: SubtitleMotionPreset.TopBannerReveal, MarginL: 42, MarginR: 42, OpaqueBox: isPortrait && isComedyEvent),
             [TitleStyleCharId] = new("TitleHook", isPortrait && !isComedyEvent ? "#FFFFFF" : palette.PrimaryHex, Bold: true, Alignment: 8, MarginV: titleHookMargin, FontScalePercent: isPortrait ? (isComedyEvent ? 68 : 78) : 80, OutlineColorHex: isPortrait && !isComedyEvent ? "#B91C1C" : "#111827", BackColorHex: isPortrait && !isComedyEvent ? "#B91C1C" : null, SecondaryColorHex: palette.SecondaryHex, MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: captionMarginL, MarginR: isPortrait && isComedyEvent ? captionMarginR : captionMarginL, OpaqueBox: isPortrait && !isComedyEvent),
             [MemePopStyleCharId] = new("MemePop", "#FEF08A", Bold: true, Alignment: 8, MarginV: isPortrait ? Math.Max(255, (int)Math.Round(height * 0.20)) : Math.Max(130, (int)Math.Round(height * 0.17)), FontScalePercent: isPortrait ? 86 : 92, OutlineColorHex: "#7C2D12", BackColorHex: isPortrait ? "#7C2D12" : null, SecondaryColorHex: "#F97316", MotionPreset: SubtitleMotionPreset.EventGlow, MarginL: 48, MarginR: 48, OpaqueBox: isPortrait),
-            [SpeakerAStyleCharId] = new("SpeakerA", palette.SpeakerAHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [SpeakerBStyleCharId] = new("SpeakerB", palette.SpeakerBHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 90 : 96, OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [BodyStyleCharId] = new("BeatBody", palette.TitleHex, Bold: true, Alignment: 2, MarginV: dialogueMargin, FontScalePercent: isPortrait ? 92 : 98, OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.PrimaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
-            [FooterStyleCharId] = new("FooterTag", "#E2E8F0", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: isPortrait ? 52 : 54, OutlineColorHex: "#0F172A", MotionPreset: SubtitleMotionPreset.None, MarginL: captionMarginL, MarginR: captionMarginR)
+            [SpeakerAStyleCharId] = new("SpeakerA", isDevotionalReel ? "#FFFFFF" : palette.SpeakerAHex, Bold: true, Alignment: dialogueAlignment, MarginV: dialogueMargin, FontScalePercent: isDevotionalReel ? (isPortrait ? 94 : 96) : (isPortrait ? 90 : 96), OutlineColorHex: "#020617", SecondaryColorHex: isDevotionalReel ? "#FDE68A" : (karaokeSecondary ? "#FFFFFF" : palette.PrimaryHex), MotionPreset: isDevotionalReel && motionPreset == SubtitleMotionPreset.None ? SubtitleMotionPreset.EventGlow : motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [SpeakerBStyleCharId] = new("SpeakerB", isDevotionalReel ? "#FDE68A" : palette.SpeakerBHex, Bold: true, Alignment: dialogueAlignment, MarginV: dialogueMargin, FontScalePercent: isDevotionalReel ? (isPortrait ? 94 : 96) : (isPortrait ? 90 : 96), OutlineColorHex: "#020617", SecondaryColorHex: karaokeSecondary ? "#FFFFFF" : palette.SecondaryHex, MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [BodyStyleCharId] = new("BeatBody", isDevotionalReel ? "#FFFFFF" : palette.TitleHex, Bold: true, Alignment: dialogueAlignment, MarginV: dialogueMargin, FontScalePercent: isDevotionalReel ? (isPortrait ? 96 : 98) : (isPortrait ? 92 : 98), OutlineColorHex: "#020617", SecondaryColorHex: isDevotionalReel ? "#FDE68A" : (karaokeSecondary ? "#FFFFFF" : palette.PrimaryHex), MotionPreset: motionPreset, MarginL: captionMarginL, MarginR: captionMarginR),
+            [FooterStyleCharId] = new("FooterTag", isDevotionalReel ? "#CBD5E1" : "#E2E8F0", Bold: false, Alignment: 2, MarginV: footerMargin, FontScalePercent: isDevotionalReel ? (isPortrait ? 48 : 54) : (isPortrait ? 52 : 54), OutlineColorHex: "#0F172A", MotionPreset: SubtitleMotionPreset.None, MarginL: captionMarginL, MarginR: captionMarginR)
         };
 
         var fontSize = width >= height ? Math.Max(34, height / 17) : Math.Max(32, width / 19);
@@ -927,8 +959,10 @@ public sealed class ProceduralVideoGeneratorService(
         bool hasBgm,
         bool hasSubtitles,
         IReadOnlyList<ResolvedMemeOverlay>? memeOverlays = null,
-        bool hasSfx = false)
+        bool hasSfx = false,
+        double bgmGain = 0.45)
     {
+        var bgmGainStr = Math.Clamp(bgmGain, 0.0, 1.0).ToString("0.00", CultureInfo.InvariantCulture);
         var args = new List<string>
         {
             "-hide_banner", "-nostdin", "-y",
@@ -982,7 +1016,7 @@ public sealed class ProceduralVideoGeneratorService(
                 // Loudness-normalize speech to -16 LUFS, resample back from loudnorm's 192kHz to 48kHz stereo, then duck loopable BGM cleanly.
                 var videoFilter = hasSubtitles ? "[0:v]ass=in/subs.ass[vout];" : string.Empty;
                 var audioFilter = string.Create(CultureInfo.InvariantCulture,
-                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume={bgmGainStr}[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[aout]");
 
                 args.AddRange([
                     "-filter_complex", videoFilter + audioFilter,
@@ -1005,7 +1039,7 @@ public sealed class ProceduralVideoGeneratorService(
                 args.AddRange([
                     "-map", "0:v",
                     "-map", $"{bgmIdx}:a",
-                    "-af", string.Create(CultureInfo.InvariantCulture, $"aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
+                    "-af", string.Create(CultureInfo.InvariantCulture, $"volume={bgmGainStr},aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6")
                 ]);
                 if (hasSubtitles)
                     args.AddRange(["-vf", "ass=in/subs.ass"]);
@@ -1043,7 +1077,7 @@ public sealed class ProceduralVideoGeneratorService(
             if (hasSpeech && hasBgm)
             {
                 fc.Append(CultureInfo.InvariantCulture,
-                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.45[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[{baseAudioLabel}];");
+                    $"[{speechIdx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={durStr},loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asplit=2[sp1][sp2];[{bgmIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume={bgmGainStr}[bg];[bg][sp1]sidechaincompress=threshold=0.025:ratio=3.5:attack=25:release=380[bgd];[sp2][bgd]amix=inputs=2:duration=first:normalize=0,aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.15,afade=t=out:st={fadeOutStart}:d=0.6[{baseAudioLabel}];");
                 audioMap = $"[{baseAudioLabel}]";
             }
             else if (hasSpeech)
@@ -1055,7 +1089,7 @@ public sealed class ProceduralVideoGeneratorService(
             else if (hasBgm)
             {
                 fc.Append(CultureInfo.InvariantCulture,
-                    $"[{bgmIdx}:a]aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6[{baseAudioLabel}];");
+                    $"[{bgmIdx}:a]volume={bgmGainStr},aresample=async=1:min_hard_comp=0.005:first_pts=0,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,afade=t=in:st=0:d=0.4,afade=t=out:st={fadeOutStart}:d=0.6[{baseAudioLabel}];");
                 audioMap = $"[{baseAudioLabel}]";
             }
 

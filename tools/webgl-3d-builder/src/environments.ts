@@ -2037,13 +2037,32 @@ export function updateEnvironment(
       mat.needsUpdate = true;
     }
     if (layout?.templateBackdrop) {
-      if (layout.templateMotion === 'GentleZoom') {
+      const m = layout.templateMotion === 'AutoSmooth'
+        ? (['GentleZoom', 'OrbitRound', 'ZoomOut', 'SlowPan', 'GentleRotate'] as const)[Math.max(0, sceneIndex >= 0 ? sceneIndex : Math.floor(t / 5.5)) % 5]
+        : layout.templateMotion;
+      env.backdropMesh.rotation.z = 0;
+      env.backdropMesh.position.y = 1.32;
+      if (m === 'GentleZoom') {
         const s = 1 + 0.06 * (0.5 - 0.5 * Math.cos((t * Math.PI * 2) / 20));
         env.backdropMesh.scale.setScalar(s);
         env.backdropMesh.position.x = 0;
-      } else if (layout.templateMotion === 'SlowPan') {
+      } else if (m === 'ZoomOut') {
+        const s = 1.10 - 0.09 * (0.5 - 0.5 * Math.cos((t * Math.PI * 2) / 20));
+        env.backdropMesh.scale.setScalar(s);
+        env.backdropMesh.position.x = 0;
+      } else if (m === 'SlowPan') {
         env.backdropMesh.scale.setScalar(1.08);
         env.backdropMesh.position.x = Math.sin((t * Math.PI * 2) / 32) * 0.16;
+      } else if (m === 'OrbitRound') {
+        const phase = (t * Math.PI * 2) / 22;
+        env.backdropMesh.scale.setScalar(1.10);
+        env.backdropMesh.position.x = Math.sin(phase) * 0.13;
+        env.backdropMesh.position.y = 1.32 + (Math.sin(phase + 1.25) - Math.sin(1.25)) * 0.055;
+      } else if (m === 'GentleRotate') {
+        const s = 1.08 + 0.03 * (0.5 - 0.5 * Math.cos((t * Math.PI * 2) / 20));
+        env.backdropMesh.scale.setScalar(s);
+        env.backdropMesh.position.x = 0;
+        env.backdropMesh.rotation.z = 0.032 * Math.sin((t * Math.PI * 2) / 18);
       } else {
         env.backdropMesh.scale.setScalar(1);
         env.backdropMesh.position.x = 0;

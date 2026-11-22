@@ -220,7 +220,7 @@ public static class ChannelAudiencePeakAnalyzer
     private static (int MinHour, int MaxHour) AllowedHourWindow(AutomationSourceType sourceType) => sourceType switch
     {
         AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal => (5, 11),
-        AutomationSourceType.DailyKatha => (16, 22),
+        AutomationSourceType.DailyKatha or AutomationSourceType.DevotionalPrarthana => (6, 22),
         AutomationSourceType.HinduFestival => (6, 21),
         AutomationSourceType.AajKaItihaas or AutomationSourceType.Pratiyogita or AutomationSourceType.EcosystemSpotlight => (8, 22),
         _ => (6, 22)
@@ -242,11 +242,11 @@ public static class ChannelAudiencePeakAnalyzer
                 (17, 15, "Pre-Pradosh / Sandhya Aarti evening peak", "Peak A+"),
                 (11, 30, "Mid-morning temple & Vrat Katha viewers", "Peak A"),
             ],
-            AutomationSourceType.DailyKatha =>
+            AutomationSourceType.DailyKatha or AutomationSourceType.DevotionalPrarthana =>
             [
                 (19, 15, "Evening Aarti & Katha devotional listening peak", "Peak A+"),
                 (20, 30, "Post-dinner family spiritual storytelling window", "Peak A"),
-                (17, 45, "Evening Pradosh / temple Sandhya slot", "Peak A"),
+                (7, 15, "Morning Prarthana & Bhakti Darshan window", "Peak A"),
             ],
             AutomationSourceType.AajKaItihaas =>
             [

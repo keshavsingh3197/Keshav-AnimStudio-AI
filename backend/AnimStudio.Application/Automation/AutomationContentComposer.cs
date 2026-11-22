@@ -89,6 +89,9 @@ public static class AutomationContentComposer
             AutomationSourceType.DailyRashifal =>
                 ComposeDailyRashifal(rule, signals, links, primaryLink, isHindi),
 
+            AutomationSourceType.DevotionalPrarthana =>
+                [ComposeDevotionalPrarthana(rule, dateKey, links, primaryLink, baseTags, baseHashtags, ratioLabel, isHindi)],
+
             _ => []
         };
 
@@ -738,6 +741,51 @@ public static class AutomationContentComposer
             title, script, prompt, thumbPrompt, description, comment, tags, primaryLink, links);
     }
 
+    private static ComposedAutomationContent ComposeDevotionalPrarthana(
+        AutomationRule rule,
+        string dateKey,
+        IReadOnlyList<AutomationWebsiteLink> links,
+        string? primaryLink,
+        IReadOnlyList<string> baseTags,
+        IReadOnlyList<string> baseHashtags,
+        string ratioLabel,
+        bool isHindi)
+    {
+        var entry = DevotionalPrarthanaCatalog.SelectForDate(rule.DeityFocus, dateKey, rule.CustomTopicPrompt);
+        var title = isHindi
+            ? Truncate($"{entry.TitleHindi} 🙏", MaxTitleLength)
+            : Truncate($"{entry.TitleEnglish} 🙏", MaxTitleLength);
+
+        var script = isHindi
+            ? $"{entry.HookHindi}\n{entry.PrayerHindi}"
+            : entry.PrayerEnglish;
+
+        var customVisual = !string.IsNullOrWhiteSpace(rule.CustomTopicPrompt)
+            ? $" Theme focus: {rule.CustomTopicPrompt.Trim()}."
+            : string.Empty;
+
+        var prompt = ApplyPromptOverride(rule,
+            $"Devotional {ratioLabel} depicting {entry.DeityEnglish}: {entry.VisualSubject}.{customVisual} Soft golden rim light on deep dark sanctum backdrop, centered composition ideal for smooth non-shaking zoom and orbital motion, zero embedded text or watermarks.");
+
+        var thumbPrompt = $"Serene glowing portrait artwork of {entry.DeityEnglish} framed in deep temple darkness with warm diya halo, zero text.";
+        var deityLabel = isHindi ? entry.DeityHindi : entry.DeityEnglish;
+        var tags = MergeTags([.. entry.Tags, deityLabel, "Sanatan", "Shorts"], baseTags, baseHashtags);
+
+        var bodyCore = isHindi
+            ? $"🙏 आज की पावन प्रार्थना — {entry.DeityHindi} ({dateKey})\n\n\"{entry.HookHindi}\n{entry.PrayerHindi}\"\n\n🕉️ मंत्र स्मरण: {entry.Mantra}"
+            : $"🙏 Daily Devotional Prayer — {entry.DeityEnglish} ({dateKey})\n\n\"{entry.PrayerEnglish}\"\n\n🕉️ Sacred Chant: {entry.Mantra}";
+        var description = BuildDescription(rule, bodyCore, links, tags);
+        var comment = rule.IncludePinnedComment
+            ? BuildPinnedComment($"🙏 {entry.Mantra} • रोज़ की पावन भक्ति प्रार्थना व पंचांग देखें 👇\n🔗 {primaryLink}", links)
+            : null;
+
+        return new ComposedAutomationContent(
+            $"prarthana:{dateKey}:{entry.DeityKey}",
+            entry.DeityEnglish,
+            entry.Mantra,
+            title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
+    }
+
     private static ComposedAutomationContent ComposeFunnyComedy(
         AutomationRule rule,
         string dateKey,
@@ -1158,7 +1206,7 @@ public static class AutomationContentComposer
 
     private static IReadOnlyList<string> DefaultKeysForSource(AutomationSourceType sourceType) => sourceType switch
     {
-        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DailyRashifal
+        AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DailyRashifal or AutomationSourceType.DevotionalPrarthana
             => ["panchang", "studio"],
         AutomationSourceType.AajKaItihaas
             => ["panchang", "blog", "pratiyogita", "studio"],
@@ -1608,9 +1656,9 @@ public static class AutomationContentComposer
             AutomationSourceType.HinduFestival => isHindi
                 ? new[] { "आज पूजा और व्रत कर रहे हैं 🪔", "कल के मुहूर्त की तैयारी ✨", "आरती व पूजा विधि लिंक देखें 🔗" }
                 : new[] { "Celebrating today with Puja 🪔", "Preparing for tomorrow's Vrat ✨", "Read full Puja Vidhi 🔗" },
-            AutomationSourceType.DailyKatha => isHindi
-                ? new[] { "बहुत प्रेरणादायक कथा 🙏", "सत्यमेव जयते ✨", "और वैदिक कथाएं लाएं 📖" }
-                : new[] { "Inspiring timeless wisdom 🙏", "Truth & Dharma always win ✨", "Share more Katha dialogues 📖" },
+            AutomationSourceType.DailyKatha or AutomationSourceType.DevotionalPrarthana => isHindi
+                ? new[] { "हर हर महादेव / जय श्री राम 🙏", "मन को बहुत शांति मिली ✨", "कल किस भगवान की प्रार्थना लाएँ? 🌸" }
+                : new[] { "Feeling peaceful & blessed 🙏", "Daily devotion keeps us grounded ✨", "Share your favorite deity prayer 🌸" },
             AutomationSourceType.AajKaItihaas => isHindi
                 ? new[] { "इतिहास से अनजानी जानकारी 📚", "एग्जाम GK के लिए उपयोगी ✅", "पूरी टाइमलाइन वेबसाइट पर पढ़ें 🔗" }
                 : new[] { "Did not know this event! 📚", "Great for GK & Exam prep ✅", "Read full timeline 🔗" },

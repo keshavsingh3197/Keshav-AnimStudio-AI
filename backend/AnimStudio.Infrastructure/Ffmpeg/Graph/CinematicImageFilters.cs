@@ -61,11 +61,28 @@ internal static class CinematicImageFilters
             // In and back out once over the shot, around the focus.
             ImageMotion.Breathe => ($"1+{i}*0.5*(1-cos(2*PI*({p})))", focusX, focusY),
 
+            // Smooth orbital rounding motion around the focus without jitter.
+            ImageMotion.OrbitRound => (
+                $"1+{i}",
+                $"(iw-iw/zoom)*(0.5+0.45*cos(2*PI*({p})))",
+                $"(ih-ih/zoom)*(0.5+0.45*sin(2*PI*({p})))"),
+
+            // Gentle zoom combined with silky slow sinusoidal rotation (overscan applied below).
+            ImageMotion.GentleRotate => ($"1+{i}*0.5*(1-cos(2*PI*({p})))", focusX, focusY),
+
             _ => ("1", midX, midY)
         };
 
-        return $"zoompan=z={FilterExpr.Quote(zoom)}:x={FilterExpr.Quote(x)}:y={FilterExpr.Quote(y)}"
-             + $":d=1:s={canvas.Size}:fps={fps}";
+        var filter = $"zoompan=z={FilterExpr.Quote(zoom)}:x={FilterExpr.Quote(x)}:y={FilterExpr.Quote(y)}"
+                   + $":d=1:s={canvas.Size}:fps={fps}";
+
+        if (settings.Motion == ImageMotion.GentleRotate)
+        {
+            filter += $",scale=trunc(iw*1.12/2)*2:trunc(ih*1.12/2)*2:flags=bilinear,"
+                    + $"rotate=0.036*sin(2*PI*({p})):ow={canvas.Width}:oh={canvas.Height}:fillcolor=black";
+        }
+
+        return filter;
     }
 
     /// <summary>
