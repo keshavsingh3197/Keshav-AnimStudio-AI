@@ -192,14 +192,19 @@ export class EcosystemConfigService {
         this.inFlight = false;
       });
 
-    // Direct lightweight central fetch ensures top switcher bar renders immediately even during API cold start
-    this.http
-      .get<CentralConfigEnvelope>(`${environment.idpUrl.replace(/\/$/, '')}/config`)
-      .pipe(catchError(() => of(null)))
-      .subscribe((central) => {
-        if (!central) return;
-        this.mergeCentralEnvelope(central);
-      });
+    // Direct lightweight central fetch in deployed browser builds; skip in localhost dev to avoid expected CORS blocks
+    // since local /api/system/ecosystem already provides central config from the Studio API.
+    const isLocalHost = typeof window !== 'undefined'
+      && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (!isLocalHost) {
+      this.http
+        .get<CentralConfigEnvelope>(`${environment.idpUrl.replace(/\/$/, '')}/config`)
+        .pipe(catchError(() => of(null)))
+        .subscribe((central) => {
+          if (!central) return;
+          this.mergeCentralEnvelope(central);
+        });
+    }
   }
 
   refresh(): Observable<StudioEcosystemConfig | null> {

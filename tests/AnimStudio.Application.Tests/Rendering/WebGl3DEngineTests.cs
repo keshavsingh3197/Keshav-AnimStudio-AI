@@ -324,4 +324,171 @@ public sealed class WebGl3DEngineTests
         Assert.Equal("phone", spoken[3].SpeakerProp);
         Assert.Equal("callingPhone", spoken[3].Action);
     }
+
+    [Fact]
+    public void DialogueScriptParser_resolves_narasimha_avatar_janga_climax_and_palace_threshold()
+    {
+        const string script = """
+            [SCENE]: palace court | dawn | tense
+            [प्रह्लाद]: पिताश्री, मेरे प्रभु श्रीहरि तो कण-कण में विद्यमान हैं।
+            [हिरण्यकशिपु]: (angry) अपनी गदा से मैं अभी देखता हूँ तेरा ईश्वर इस खंभे में है या नहीं!
+            [होलिका]: (proud) अग्नि भी मुझे नहीं जला सकती।
+            [SCENE]: palace court | sunset | fierce
+            [सूत्रधार]: गोधूलि बेला में चौखट के बीच खंभे से भगवान नरसिंह गर्जना के साथ प्रकट हुए।
+            [हिरण्यकशिपु]: (surprised) त्राहिमाम्! न नर, न पशु, न अस्त्र... यह कैसा अलौकिक रूप है?
+            [भगवान नरसिंह]: (angry) अब गोधूलि वेला और चौखट पर मेरी जंघाओं के ऊपर तेरा अहंकार समाप्त होगा!
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "भक्त प्रह्लाद और नरसिंह अवतार",
+            script,
+            null,
+            36,
+            enableDialogue: true,
+            "प्रह्लाद",
+            "हिरण्यकशिपु",
+            "DailyKatha");
+
+        var spoken = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+        Assert.Equal(CharacterVisualRole.ChildDevotee, plan.LeftCharacter?.Role);
+        Assert.Equal(CharacterVisualRole.KingCrown, plan.RightCharacter?.Role);
+
+        Assert.Contains(plan.Supporting, c => c.Name.Contains("नरसिंह") && c.Role == CharacterVisualRole.Divine);
+        Assert.Contains(plan.Supporting, c => c.Name.Contains("होलिका") && c.Role == CharacterVisualRole.NobleWoman);
+
+        Assert.Equal("gada", spoken[1].SpeakerProp);
+
+        Assert.NotNull(plan.Scenes);
+        Assert.True(plan.Scenes!.Count >= 2);
+        Assert.Equal(SceneTimeOfDay.Sunset, plan.Scenes[1].TimeOfDay);
+        Assert.Equal(SceneSetting.PalaceCourt, plan.Scenes[1].Setting);
+        Assert.Equal("pillarBurst", spoken[3].Action);
+
+        Assert.Equal("lapSubdued", spoken[4].Action);
+        Assert.Equal("lapSubdue", spoken[4].ListenerAction);
+
+        Assert.Equal("lapSubdue", spoken[5].Action);
+        Assert.Equal("lapSubdued", spoken[5].ListenerAction);
+        Assert.Equal("lowDramatic", spoken[5].CameraShot);
+
+        var palette = ProceduralEventPalette.Resolve("DailyKatha", ProceduralSceneTheme.VedicTempleSunrise3D);
+        var req = new ProceduralVideoRequest
+        {
+            Title = "भक्त प्रह्लाद और नरसिंह अवतार",
+            Theme = ProceduralSceneTheme.VedicTempleSunrise3D,
+            EventType = "DailyKatha"
+        };
+        var json = WebGlVideoFrameRenderer.SerializeJobJson(
+            720, 1280, 24, 36, 864, 7,
+            ProceduralSceneTheme.VedicTempleSunrise3D, req, palette, plan, new float[864], backdropCount: 0);
+
+        Assert.Contains("pillarBurst", json, StringComparison.Ordinal);
+        Assert.Contains("lapSubdue", json, StringComparison.Ordinal);
+        Assert.Contains("lapSubdued", json, StringComparison.Ordinal);
+        Assert.Contains("Sunset", json, StringComparison.Ordinal);
+        Assert.Contains("gada", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DialogueScriptParser_visualizes_all_prahlad_trials_without_false_eating_or_villain_praying()
+    {
+        const string script = """
+            [SCENE]: palace court | day | tense
+            [सूत्रधार]: बालक प्रह्लाद ने कठोर यातनाओं के बीच भी भक्ति को जीवित रखा।
+            [हिरण्यकशिपु]: मेरे साम्राज्य में केवल मेरी ही पूजा होगी!
+            [SCENE]: himalaya | day | perilous
+            [हिरण्यकशिपु]: इसे पर्वत शिखर से नीचे गहरी खाई में फेंक दो!
+            [SCENE]: palace court | night | dark
+            [हिरण्यकशिपु]: इसे विषैले सर्पों के बीच बंद करके डसवा दो!
+            [हिरण्यकशिपु]: अब इस पापी को मतवाले हाथी के पैरों तले कुचलवा दो!
+            [SCENE]: temple | night | fiery
+            [होलिका]: मैं प्रह्लाद को लेकर धधकती ज्वाला अग्निकुंड में बैठूँगी।
+            [SCENE]: palace court | sunset | fierce
+            [हिरण्यकशिपु]: अपनी गदा के प्रहार से आज मैं इस खंभे को तोड़ता हूँ!
+            [सूत्रधार]: प्रचंड गर्जना के साथ भगवान नरसिंह खंभे से प्रकट हुए।
+            [भगवान नरसिंह]: न दिन न रात, चौखट पर मेरी जंघा पर तेरा अंत होगा!
+            [SCENE]: palace court | sunset | serene
+            [भगवान नरसिंह]: वत्स प्रह्लाद, मैं अत्यंत प्रसन्न हूँ।
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "भक्त प्रह्लाद संपूर्ण लीला", script, null, 60, enableDialogue: true,
+            "हिरण्यकशिपु", "भक्त प्रह्लाद", "DailyKatha");
+        var spoken = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+
+        Assert.NotEqual("eating", spoken[0].Action);
+        Assert.NotEqual("praying", spoken[1].Action);
+        Assert.Equal("cliffRescue", spoken[2].Action);
+        Assert.Equal("serpentAttack", spoken[3].Action);
+        Assert.Equal("elephantCharge", spoken[4].Action);
+        Assert.Equal("fireTrial", spoken[5].Action);
+        Assert.Equal("clubStrike", spoken[6].Action);
+        Assert.Equal("gada", spoken[6].SpeakerProp);
+        Assert.Equal("pillarBurst", spoken[7].Action);
+        Assert.Equal("lapSubdue", spoken[8].Action);
+        Assert.Equal("blessing", spoken[9].Action);
+    }
+
+    [Fact]
+    public void DialogueScriptParser_parses_comedy_shroud_snap_and_hazard_cutaways()
+    {
+        const string script = """
+            [CAST]: बबलू यार | scholar | white kurta, mourning shawl | voice=Orus
+            [CAST]: पप्पू भैया | scholar | yellow sweater, spiky hair | voice=Puck
+            [CAST]: सुखिया चाचा | elder | white kurta, marigold mala | voice=Algenib
+            [CAST]: भाभी जी | noblewoman | pastel saree | voice=Aoede
+            [SCENE]: living room | day | comedy
+            [सुखिया चाचा]: (lyingShroud, happy) ...
+            [पप्पू भैया]: (surprised, shockedFall) हाय करंट लग गया वो?!
+            [बबलू यार]: (hazardWire, sad) सामने एक तार छिला पड़ा था।
+            [बबलू यार]: (hazardTruck) रोड क्रॉस कर रहा था, ट्रक के पीछे रिक्शा था।
+            [बबलू यार]: (hazardTank, slapForehead) टंकी पे चढ़ा, फिर नीचे आ गया।
+            [बबलू यार]: (hazardPit) इतना बड़ा गड्ढा जंप करके आगे गया।
+            [बबलू यार]: (hazardSnake) इतना बड़ा साँप... देखो कितना अच्छा जा रहा है!
+            [बबलू यार]: (hazardFood) एक बाइट ली, पानी पिया नीचे हो गई।
+            [बबलू यार]: (hazardPhone) रात को दो तीस बजे मोबाइल लेने गया—
+            [सुखिया चाचा]: (corpseSnapUp, angry) ओ मार भी दे हुं!!
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "सब्र का इम्तिहान 😂", script, null, 45, enableDialogue: true,
+            "बबलू यार", "पप्पू भैया", "FunnyComedy");
+        var spoken = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+
+        Assert.Equal("Orus", plan.LeftCharacter?.VoiceId);
+        Assert.Equal("Puck", plan.RightCharacter?.VoiceId);
+        Assert.Contains(plan.Supporting, c => c.Name == "सुखिया चाचा" && c.VoiceId == "Algenib");
+        Assert.Contains(plan.Supporting, c => c.Name == "भाभी जी" && c.VoiceId == "Aoede");
+
+        Assert.Equal("lyingShroud", spoken[0].Action);
+        Assert.Equal("shockedFall", spoken[1].Action);
+        Assert.DoesNotContain("shockedFall", spoken[1].Text, StringComparison.Ordinal);
+        Assert.Equal("hazardWire", spoken[2].Action);
+        Assert.Equal("hazardTruck", spoken[3].Action);
+        Assert.Equal("hazardTank", spoken[4].Action);
+        Assert.DoesNotContain("slapForehead", spoken[4].Text, StringComparison.Ordinal);
+        Assert.Equal("hazardPit", spoken[5].Action);
+        Assert.Equal("hazardSnake", spoken[6].Action);
+        Assert.Equal("hazardFood", spoken[7].Action);
+        Assert.Equal("hazardPhone", spoken[8].Action);
+        Assert.Equal("corpseSnapUp", spoken[9].Action);
+        Assert.Equal("shockedFall", spoken[9].ListenerAction);
+
+        var palette = ProceduralEventPalette.Resolve("FunnyComedy", ProceduralSceneTheme.ComedyStage3D);
+        var req = new ProceduralVideoRequest
+        {
+            Title = "सब्र का इम्तिहान 😂",
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            EventType = "FunnyComedy"
+        };
+        var json = WebGlVideoFrameRenderer.SerializeJobJson(
+            720, 1280, 24, 45, 1080, 11,
+            ProceduralSceneTheme.ComedyStage3D, req, palette, plan, new float[1080], backdropCount: 0);
+
+        Assert.Contains("lyingShroud", json, StringComparison.Ordinal);
+        Assert.Contains("hazardWire", json, StringComparison.Ordinal);
+        Assert.Contains("hazardSnake", json, StringComparison.Ordinal);
+        Assert.Contains("corpseSnapUp", json, StringComparison.Ordinal);
+        Assert.Contains("LivingRoom", json, StringComparison.Ordinal);
+    }
 }

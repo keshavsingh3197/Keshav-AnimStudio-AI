@@ -59,6 +59,11 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     keywords: ['split', 'segment', 'duration', 'seconds', 'shorts', 'chunk'],
   },
   {
+    id: 'api-keys', group: 'AI', label: 'API keys', icon: '🔑', route: 'api-keys',
+    description: 'Manage multiple Google (Gemini) and vendor API keys with automatic quota failover, priority ordering, editing, testing and deletion.',
+    keywords: ['api keys', 'google', 'gemini', 'ai studio', 'videogenerator', 'famsphere', 'backup key', 'failover', 'rotation', 'quota', 'groq', 'openrouter'],
+  },
+  {
     id: 'providers', group: 'AI', label: 'AI providers', icon: '🤖', route: 'providers',
     description: 'Which AI services write, draw, speak and transcribe, and in what order.',
     keywords: ['groq', 'openrouter', 'ollama', 'lm studio', 'key', 'api key', 'model', 'order', 'chain', 'image', 'speech', 'tts', 'whisper'],

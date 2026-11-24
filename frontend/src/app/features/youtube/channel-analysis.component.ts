@@ -386,6 +386,115 @@ export class ChannelAnalysisComponent {
     return typical > 0 ? Math.round((l.viewsPerDay / typical - 1) * 100) : null;
   });
 
+  /** 4,000 Watch-Hours YPP Target & 1-Month December Sprint metrics for the selected channel. */
+  readonly watchTimeCommand = computed(() => {
+    const c = this.current();
+    if (!c) return null;
+    return this.buildChannelWatchTimeStats(c);
+  });
+
+  /** All connected channels side-by-side for the Multi-Channel 4,000h Watch-Time Command Center. */
+  readonly multiChannelSprint = computed(() => {
+    const all = this.channels() ?? [];
+    return all.map((c) => this.buildChannelWatchTimeStats(c));
+  });
+
+  private buildChannelWatchTimeStats(c: ChannelAnalysis) {
+    const wt = c.watchTime365d;
+    const dailyTotalMins = (c.daily ?? []).reduce((t, d) => t + (d.watchMinutes || 0), 0);
+    const longVideos = (c.videos ?? []).filter((v) => !v.isShort);
+    const shortVideos = (c.videos ?? []).filter((v) => v.isShort);
+    const sampledLongMins = longVideos.reduce((t, v) => t + (v.analytics?.watchMinutes ?? 0), 0);
+    const sampledShortMins = shortVideos.reduce((t, v) => t + (v.analytics?.watchMinutes ?? 0), 0);
+
+    const longFormMins = wt ? wt.longFormWatchMinutes : sampledLongMins;
+    const shortsMins = wt ? wt.shortsWatchMinutes : Math.max(sampledShortMins, dailyTotalMins - sampledLongMins);
+    const totalMins = wt ? wt.totalWatchMinutes : Math.max(dailyTotalMins, sampledLongMins + sampledShortMins);
+
+    const longFormHours = Math.round((longFormMins / 60) * 10) / 10;
+    const shortsHours = Math.round((shortsMins / 60) * 10) / 10;
+    const totalHours = Math.round((totalMins / 60) * 10) / 10;
+
+    const goalHours = 4000;
+    const subs = c.subscribers ?? 0;
+    const subsGoal = 1000;
+    const subsPct = Math.min(100, Math.round((subs / subsGoal) * 1000) / 10);
+    const eligiblePct = Math.min(100, Math.round((longFormHours / goalHours) * 1000) / 10);
+    const totalPct = Math.min(100, Math.round((totalHours / goalHours) * 1000) / 10);
+
+    const remainingEligibleHours = Math.max(0, Math.round((goalHours - longFormHours) * 10) / 10);
+    const remainingTotalHours = Math.max(0, Math.round((goalHours - totalHours) * 10) / 10);
+
+    // Target: complete >4,000 watch hours within ~1 month (before December end)
+    const nowMs = this.now();
+    const nowDate = new Date(nowMs);
+    const decEnd = new Date(nowDate.getFullYear(), 11, 31, 23, 59, 59).getTime();
+    const daysLeft = Math.max(7, Math.min(45, Math.ceil((decEnd - nowMs) / DAY_MS)));
+
+    const dailyTargetEligibleHours = Math.round((remainingEligibleHours / daysLeft) * 10) / 10;
+    const dailyTargetTotalHours = Math.round((remainingTotalHours / daysLeft) * 10) / 10;
+
+    const avgHoursPerLongVideo = longVideos.length > 0 && longFormHours > 0
+      ? Math.round((longFormHours / longVideos.length) * 10) / 10
+      : 12.0;
+
+    const titleLower = `${c.channelTitle} ${c.channelHandle ?? ''}`.toLowerCase();
+    const archetype: 'devotional' | 'comedy' | 'world' =
+      titleLower.includes('omkar') || titleLower.includes('omkr') || titleLower.includes('shiv') || titleLower.includes('bhakti')
+        ? 'devotional'
+        : titleLower.includes('anim') || titleLower.includes('ff') || titleLower.includes('comedy') || titleLower.includes('joke')
+          ? 'comedy'
+          : 'world';
+
+    const dailyPlaybook = archetype === 'devotional'
+      ? [
+          '🌙 Evening-Before Publishing (N-1 at 19:30–20:30 IST): Upload tomorrow’s Panchang Short, Festival Short & Full 16:9 Vrat/Pauranik Katha the evening before so YouTube indexes Hindi/Hinglish search queries ("kab hai", "puja vidhi", "katha") overnight.',
+          '🎬 Daily Full 16:9 Katha (3.5 to 8 min) + Weekly 15–20 min Ekadashi/Purnima/Shiv-Vishnu Marathon Compilation — only 16:9 VOD & Live streams count toward the 4,000h YPP threshold.',
+          '🔗 Shorts → 16:9 Funnel: Point every 55s Panchang/Festival Short’s Related Video & pinned comment directly to the Full 16:9 Katha to convert 56%+ search views into long-form watch hours.'
+        ]
+      : archetype === 'comedy'
+        ? [
+            '😂 Daily Desi 3D Comedy Short (55–65s) with expressive Foley SFX (vehicle brake screech, rimshot, crowd laugh) & zero dead air in the first 2 seconds.',
+            '📦 Every 3 Days: Publish an 8–12 min 16:9 "Best of Pappu & Bablu Desi Comedy Compilation" stitching 6–8 Shorts episodes into one continuous 16:9 story so comedy views generate YPP-eligible long-form watch hours.',
+            '📌 Pin the latest 16:9 Comedy Compilation link on every new viral Short.'
+          ]
+        : [
+            '🌍 Evening-Before (N-1 at 18:30 IST) Aaj Ka Itihaas + 3D Explainer: Your existing 16:9 long-form videos average ~29.3 watch hours per upload — the highest long-form watch-time yield across all 3 channels.',
+            '🎥 Publish 3×/week 6–10 min 16:9 3D Animated History, Mythology & Creator Tech Deep-Dives paired with keshavsingh.in blog articles.',
+            '🔄 Cross-funnel high-performing Shorts into 16:9 documentary compilations.'
+          ];
+
+    return {
+      channelId: c.channelId,
+      channelTitle: c.channelTitle,
+      channelHandle: c.channelHandle,
+      archetype,
+      subscribers: subs,
+      subsGoal,
+      subsPct,
+      subsRemaining: Math.max(0, subsGoal - subs),
+      totalViews: c.totalViews ?? 0,
+      totalVideos: c.totalVideos ?? 0,
+      longVideosCount: longVideos.length,
+      shortVideosCount: shortVideos.length,
+      longFormHours,
+      shortsHours,
+      totalHours,
+      goalHours,
+      eligiblePct,
+      totalPct,
+      remainingEligibleHours,
+      remainingTotalHours,
+      daysLeft,
+      dailyTargetEligibleHours,
+      dailyTargetTotalHours,
+      avgHoursPerLongVideo,
+      source: wt?.source ?? 'video-duration-estimate',
+      windowDays: wt?.windowDays ?? (c.daily?.length || 90),
+      dailyPlaybook,
+    };
+  }
+
   constructor() {
     void this.load();
     this.stories.options().subscribe({

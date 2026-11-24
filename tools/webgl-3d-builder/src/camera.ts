@@ -122,23 +122,58 @@ export function updateCameraRig(
     rollZ = Math.sin(t * 7.5) * 0.024;
   }
 
+  const isMythicClimax = action === 'lapSubdue' || action === 'lapSubdued' || action === 'pillarBurst';
+  const isTrialWide = action === 'serpentAttack' || action === 'elephantCharge' || action === 'fireTrial' || action === 'cliffRescue';
   // Final framing guard for Royal Palace Dance so tall Pagdis, Kalgi plumes, and full troupe never clip.
-  if (isPalaceDance) {
+  if ((isPalaceDance || isTrialWide) && !isMythicClimax) {
     targetZ = Math.max(targetZ, isPortrait ? 5.65 : 5.05);
     targetY = Math.max(targetY, defaultY);
     lookY = Math.min(lookY, 1.04);
+    if (isTrialWide) {
+      targetX = 0;
+      lookX = 0;
+    }
   }
 
   // Situational MJO-style cinematography overrides driven by script/action cues
   const hasTemplateLock = !!job.stageLayout?.templateBackdrop;
-  if (!hasTemplateLock && !isTitleHook && !isPalaceDance) {
+  if (!hasTemplateLock && !isTitleHook && (!isPalaceDance && !isTrialWide || isMythicClimax)) {
     const activeX = activeSlot === 'Left' ? leftX : activeSlot === 'Right' ? rightX : (leftX + rightX) * 0.5;
-    if (cameraShot === 'closeUpSpeaker' && activeSlot !== 'Narrator') {
-      targetX = activeX;
-      targetY = Math.max(isPortrait ? 1.08 : 0.92, speakerHeadY * 0.98);
-      targetZ = isPortrait ? 2.68 : 2.55;
-      lookX = activeX;
-      lookY = Math.max(0.76, speakerHeadY * 0.88);
+    if (action === 'corpseSnapUp') {
+      const punch = Math.max(0, 1 - Math.min(1, turnLocal / 0.28));
+      targetX = 0;
+      targetY = Math.max(isPortrait ? 1.18 : 1.06, speakerHeadY * 0.96);
+      targetZ = (isPortrait ? 2.48 : 2.32) - punch * 0.24;
+      lookX = 0;
+      lookY = Math.max(0.88, speakerHeadY * 0.88);
+      rollZ += Math.sin(t * 28) * 0.024 * punch;
+      shakeX += Math.cos(t * 42) * 0.026 * punch;
+      shakeY += Math.sin(t * 36) * 0.020 * punch;
+    } else if (comedy && setting === 'LivingRoom' && action.startsWith('hazard')) {
+      targetX = midX * 0.12;
+      targetY = isPortrait ? 1.80 : 1.62;
+      targetZ = isPortrait ? 5.35 : 4.25;
+      lookX = midX * 0.12;
+      lookY = isPortrait ? 1.18 : 1.04;
+    } else if (comedy && setting === 'LivingRoom' && isPortrait && (cameraShot === 'twoShot' || cameraShot === 'wideEstablishing')) {
+      targetX = midX * 0.12;
+      targetY = 1.66;
+      targetZ = 5.10;
+      lookX = midX * 0.12;
+      lookY = 1.06;
+    } else if (isMythicClimax) {
+      targetX = 0;
+      targetY = isPortrait ? 1.16 : 1.04;
+      targetZ = isPortrait ? 5.20 : 4.45;
+      lookX = 0;
+      lookY = isPortrait ? 1.06 : 1.06;
+    } else if (cameraShot === 'closeUpSpeaker' && activeSlot !== 'Narrator') {
+      const isSacredStage = setting === 'Temple' || setting === 'RiverGhat' || setting === 'PalaceCourt';
+      targetX = isSacredStage ? activeX * 0.65 : activeX;
+      targetY = isSacredStage ? 1.16 : Math.max(isPortrait ? 1.08 : 0.92, speakerHeadY * 0.98);
+      targetZ = isSacredStage ? (isPortrait ? 3.25 : 3.15) : (isPortrait ? 2.68 : 2.55);
+      lookX = isSacredStage ? activeX * 0.55 : activeX;
+      lookY = isSacredStage ? 0.92 : Math.max(0.76, speakerHeadY * 0.88);
     } else if (cameraShot === 'crashPunch' && activeSlot !== 'Narrator') {
       const punch = Math.max(0, 1 - Math.min(1, turnLocal / 0.28));
       targetX = activeX;
@@ -187,6 +222,14 @@ export function updateCameraRig(
       targetX = activeX * 0.65;
       lookX = activeX * 0.85;
     }
+  }
+
+  if (isTitleHook && comedy && setting === 'LivingRoom' && isPortrait) {
+    targetX = 0;
+    targetY = 1.62;
+    targetZ = 5.15;
+    lookX = 0;
+    lookY = 1.04;
   }
 
   let targetPos = new THREE.Vector3(targetX + shakeX, targetY + shakeY, targetZ);

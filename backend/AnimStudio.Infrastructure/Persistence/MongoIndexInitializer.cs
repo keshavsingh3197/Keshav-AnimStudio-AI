@@ -28,6 +28,13 @@ public sealed class MongoIndexInitializer(
     {
         try
         {
+            // Projects are always queried per owner newest first; index prevents full-collection scans & sorts.
+            var projectsCol = mongo.GetCollection<AnimStudio.Domain.Projects.Project>(MongoCollections.Projects);
+            await projectsCol.Indexes.CreateOneAsync(
+                new CreateIndexModel<AnimStudio.Domain.Projects.Project>(Builders<AnimStudio.Domain.Projects.Project>.IndexKeys
+                    .Ascending(p => p.UserId)
+                    .Descending(p => p.UpdatedAt)), cancellationToken: ct).ConfigureAwait(false);
+
             // The claim query filters on status + lease and sorts by age.
             var jobs = mongo.GetCollection<RenderJob>(MongoCollections.RenderJobs);
             await jobs.Indexes.CreateManyAsync(
@@ -59,6 +66,19 @@ public sealed class MongoIndexInitializer(
                     .Ascending(r => r.Outcome)),
                 new CreateIndexModel<AiUsageRecord>(Builders<AiUsageRecord>.IndexKeys
                     .Ascending(r => r.DayBucket))
+            ], ct).ConfigureAwait(false);
+
+            // Key pool entries are listed by vendor priority and checked by SHA-256 fingerprint.
+            var aiApiKeys = mongo.GetCollection<AiApiKeyEntry>(MongoCollections.AiApiKeys);
+            await aiApiKeys.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<AiApiKeyEntry>(Builders<AiApiKeyEntry>.IndexKeys
+                    .Ascending(k => k.Vendor)
+                    .Ascending(k => k.Priority)
+                    .Ascending(k => k.CreatedAtUtc)),
+                new CreateIndexModel<AiApiKeyEntry>(Builders<AiApiKeyEntry>.IndexKeys
+                    .Ascending(k => k.Vendor)
+                    .Ascending(k => k.Fingerprint))
             ], ct).ConfigureAwait(false);
 
             // Templates are append-only, so every read is "the highest version of this key".

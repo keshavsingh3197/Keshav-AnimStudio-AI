@@ -128,6 +128,54 @@ public sealed class MongoAiCredentialRepository(MongoDbService mongo) : IAiCrede
     }
 }
 
+public sealed class MongoAiApiKeyRepository(MongoDbService mongo) : IAiApiKeyRepository
+{
+    private IMongoCollection<AiApiKeyEntry> Collection =>
+        mongo.GetCollection<AiApiKeyEntry>(MongoCollections.AiApiKeys);
+
+    public async Task<AiApiKeyEntry?> GetByIdAsync(string id, CancellationToken ct) =>
+        await Collection.Find(k => k.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<AiApiKeyEntry>> ListAsync(CancellationToken ct) =>
+        await Collection.Find(FilterDefinition<AiApiKeyEntry>.Empty)
+            .SortBy(k => k.Vendor)
+            .ThenBy(k => k.Priority)
+            .ThenBy(k => k.CreatedAtUtc)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<AiApiKeyEntry>> ListByVendorAsync(string vendor, CancellationToken ct) =>
+        await Collection.Find(k => k.Vendor == vendor)
+            .SortBy(k => k.Priority)
+            .ThenBy(k => k.CreatedAtUtc)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+    public Task InsertAsync(AiApiKeyEntry entry, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(entry.Id))
+            entry.Id = ObjectId.GenerateNewId().ToString();
+
+        return Collection.InsertOneAsync(entry, cancellationToken: ct);
+    }
+
+    public Task ReplaceAsync(AiApiKeyEntry entry, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(entry.Id))
+            entry.Id = ObjectId.GenerateNewId().ToString();
+
+        return Collection.ReplaceOneAsync(
+            k => k.Id == entry.Id,
+            entry,
+            new ReplaceOptions { IsUpsert = true },
+            ct);
+    }
+
+    public async Task<bool> DeleteAsync(string id, CancellationToken ct)
+    {
+        var result = await Collection.DeleteOneAsync(k => k.Id == id, ct).ConfigureAwait(false);
+        return result.DeletedCount > 0;
+    }
+}
+
 public sealed class MongoPromptTemplateRepository(MongoDbService mongo) : IPromptTemplateRepository
 {
     private IMongoCollection<PromptTemplate> Collection =>

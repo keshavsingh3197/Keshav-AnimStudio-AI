@@ -66,8 +66,8 @@ public sealed class YouTubeChannelAnalysisService(
     /// <summary>A video looked up again within this time is answered from what was kept, without calling YouTube.</summary>
     public static readonly TimeSpan LookupFresh = TimeSpan.FromHours(3);
 
-    /// <summary>How many days of the channel's day-by-day numbers are read on refresh.</summary>
-    public const int DailyDays = 90;
+    /// <summary>How many days of the channel's day-by-day numbers are read on refresh (365 days covers the full YPP watch-hour eligibility window).</summary>
+    public const int DailyDays = 365;
 
     /// <summary>A looked-up video's day-by-day numbers go back at most this far.</summary>
     public const int MaxVideoDailyDays = 365;
@@ -227,6 +227,15 @@ public sealed class YouTubeChannelAnalysisService(
             }
 
             analysis.Daily = [.. await analytics.GetDailyAsync(null, today.AddDays(-(DailyDays - 1)), today, token, ct).ConfigureAwait(false)];
+            try
+            {
+                var byType = await analytics.GetWatchTimeByContentTypeAsync(today.AddDays(-364), today, token, ct).ConfigureAwait(false);
+                analysis.WatchTime365d = byType.TotalWatchMinutes > 0 ? byType : EstimateWatchTimeBreakdown(analysis);
+            }
+            catch (YouTubePublishException)
+            {
+                analysis.WatchTime365d = EstimateWatchTimeBreakdown(analysis);
+            }
             analysis.AnalyticsFetchedAtUtc = now;
             analysis.AnalyticsError = null;
         }
@@ -457,4 +466,51 @@ public sealed class YouTubeChannelAnalysisService(
     }
 
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    /// Derives a 365-day YPP watch-time breakdown from the channel's analyzed videos (<c>DurationSeconds &gt; 180</c> = long-form vs Shorts)
+    /// and daily series whenever the <c>creatorContentType</c> report has not been read yet.
+    /// </summary>
+    public static YouTubeWatchTimeBreakdown EstimateWatchTimeBreakdown(YouTubeChannelAnalysis analysis)
+    {
+        double sampledLongMins = 0, sampledShortsMins = 0;
+        long sampledLongViews = 0, sampledShortsViews = 0;
+
+        foreach (var v in analysis.Videos)
+        {
+            var isShort = v.DurationSeconds is > 0 and <= YouTubeChannelAnalyzer.ShortMaxSeconds;
+            var mins = v.Analytics?.WatchMinutes ?? 0;
+            var views = v.Views ?? 0;
+            if (isShort)
+            {
+                sampledShortsMins += mins;
+                sampledShortsViews += views;
+            }
+            else if (v.DurationSeconds is > YouTubeChannelAnalyzer.ShortMaxSeconds)
+            {
+                sampledLongMins += mins;
+                sampledLongViews += views;
+            }
+        }
+
+        var dailyTotalMins = analysis.Daily.Sum(d => d.WatchMinutes);
+        var sampledTotalMins = sampledLongMins + sampledShortsMins;
+        var totalMins = Math.Max(dailyTotalMins, sampledTotalMins);
+
+        // Preserve the measured LongFormwatchMinutes from analyzed long videos, attributing any un-sampled daily tail proportionally or to Shorts.
+        var longMins = sampledLongMins;
+        var shortsMins = Math.Max(sampledShortsMins, totalMins - longMins);
+
+        return new YouTubeWatchTimeBreakdown
+        {
+            LongFormWatchMinutes = Math.Round(longMins, 1),
+            ShortsWatchMinutes = Math.Round(shortsMins, 1),
+            LiveStreamWatchMinutes = 0,
+            TotalWatchMinutes = Math.Round(totalMins, 1),
+            LongFormViews = sampledLongViews,
+            ShortsViews = sampledShortsViews,
+            Source = "video-duration-estimate",
+            WindowDays = analysis.Daily.Count > 0 ? analysis.Daily.Count : 365
+        };
+    }
 }

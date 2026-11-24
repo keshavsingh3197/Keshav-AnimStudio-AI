@@ -67,6 +67,7 @@ public static class MongoMappingRegistrar
             MapWithStringId<RenderJob>();
             MapWithStringId<AiUsageRecord>();
             MapWithStringId<AiCredential>();
+            MapWithStringId<AiApiKeyEntry>();
             MapWithStringId<PromptTemplate>();
             MapWithStringId<AdminAuditEntry>();
 

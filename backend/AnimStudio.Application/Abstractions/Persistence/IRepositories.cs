@@ -13,6 +13,10 @@ public interface IProjectRepository
     Task<Project?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct);
 
+    /// <summary>Lists project IDs ordered newest-first without downloading large draft blobs.</summary>
+    async Task<IReadOnlyList<string>> ListIdsByUserAsync(string userId, int limit, CancellationToken ct) =>
+        (await ListAsync(userId, ct).ConfigureAwait(false)).Take(limit).Select(p => p.Id).ToList();
+
     /// <summary>Every user's projects. Administration only - e.g. counting what uses a brand channel.</summary>
     Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct);
     Task<IReadOnlyList<Project>> ListSubProjectsAsync(string parentProjectId, CancellationToken ct);
@@ -143,4 +147,19 @@ public interface IRenderJobRepository
     /// (false) because the worker's final write replaces the whole record and would undo it.
     /// </summary>
     Task<bool> RenameAsync(string jobId, string name, CancellationToken ct);
+
+    /// <summary>Counts completed render jobs that produced a non-empty output asset across the given projects.</summary>
+    async Task<int> CountCompletedWithOutputAsync(IReadOnlyList<string> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0) return 0;
+        var count = 0;
+        foreach (var projectId in projectIds.Take(40))
+        {
+            var list = await ListByProjectAsync(projectId, ct).ConfigureAwait(false);
+            count += list.Count(j =>
+                j.Status is Domain.Jobs.RenderJobStatus.Completed or Domain.Jobs.RenderJobStatus.CompletedWithWarnings
+                && !string.IsNullOrWhiteSpace(j.OutputStorageKey));
+        }
+        return count;
+    }
 }

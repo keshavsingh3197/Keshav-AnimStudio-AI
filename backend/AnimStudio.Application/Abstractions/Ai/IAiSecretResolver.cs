@@ -2,8 +2,30 @@ using AnimStudio.Domain.Ai;
 
 namespace AnimStudio.Application.Abstractions.Ai;
 
+public sealed record AiSecretCandidate(
+    string? KeyId,
+    string Fingerprint,
+    string Secret,
+    string? Label = null);
+
+public enum AiSecretOutcomeKind
+{
+    Succeeded = 0,
+    RateLimited = 1,
+    QuotaExhausted = 2,
+    CredentialRejected = 3
+}
+
+public sealed record AiSecretPoolCooldown(
+    bool AllInCooldown,
+    DateTime? EarliestResetUtc,
+    string? Reason)
+{
+    public static readonly AiSecretPoolCooldown None = new(false, null, null);
+}
+
 /// <summary>
-/// What a provider is allowed to ask about its own API key.
+/// What a provider is allowed to ask about its own API key(s).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,6 +52,37 @@ public interface IAiSecretResolver
     /// controller. Null when no key is installed.
     /// </summary>
     Task<string?> GetSecretAsync(AiProviderId provider, CancellationToken ct);
+
+    /// <summary>
+    /// Ordered candidate keys for failover on <paramref name="provider"/>, excluding keys in
+    /// active cooldown. Default falls back cleanly to <see cref="GetSecretAsync"/>.
+    /// </summary>
+    async Task<IReadOnlyList<AiSecretCandidate>> GetSecretCandidatesAsync(
+        AiProviderId provider, CancellationToken ct)
+    {
+        var secret = await GetSecretAsync(provider, ct).ConfigureAwait(false);
+        return string.IsNullOrEmpty(secret)
+            ? []
+            : [new AiSecretCandidate(null, "single", secret)];
+    }
+
+    /// <summary>
+    /// Reports whether every key for <paramref name="provider"/> is temporarily in cooldown.
+    /// </summary>
+    AiSecretPoolCooldown GetPoolCooldown(AiProviderId provider) => AiSecretPoolCooldown.None;
+
+    /// <summary>
+    /// Records success or a key-level failure (quota exhaustion, rate limit, rejection) so
+    /// subsequent calls immediately prioritize healthy backup keys.
+    /// </summary>
+    Task RecordSecretOutcomeAsync(
+        AiProviderId provider,
+        string? keyId,
+        string? fingerprint,
+        AiSecretOutcomeKind outcome,
+        string? errorCode,
+        DateTime? retryAfterUtc,
+        CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>
     /// Whether a key is installed, cheaply enough to be called on every chain composition.

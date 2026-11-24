@@ -33,4 +33,15 @@ internal sealed class AiRequestPacer(TimeSpan spacing, TimeProvider? clock = nul
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// Ensures at least <paramref name="minGap"/> elapses after a slow call completes before the next call starts,
+    /// preventing back-to-back bursts when an audio generation call takes longer than <c>spacing</c>.
+    /// </summary>
+    public void EnsurePostCompletionGap(TimeSpan minGap)
+    {
+        var floor = _clock.GetUtcNow() + minGap;
+        if (floor > _nextStart)
+            _nextStart = floor;
+    }
 }

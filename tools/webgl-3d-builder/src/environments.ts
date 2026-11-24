@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
-import { RenderJobJson, SceneSetting, SceneTimeOfDay, StageLayoutJson } from './types';
+import { ComedyHazardMode, RenderJobJson, SceneSetting, SceneTimeOfDay, StageLayoutJson } from './types';
+import { createMythicTrialStageProps, MythicTrialMode, MythicTrialPropsRig, updateMythicTrialProps } from './mythic-trials';
+import { ComedyGagRig, createComedyGagProps, updateComedyGagProps } from './comedy-gags';
 
 export interface StageSpot {
   x: number;
@@ -33,6 +35,12 @@ export interface EnvironmentRig {
   backdropMesh?: THREE.Mesh;
   poleStarGroup?: THREE.Group;
   poleStarMat?: THREE.MeshBasicMaterial;
+  stambhaWholeGroup?: THREE.Group;
+  stambhaBrokenGroup?: THREE.Group;
+  stambhaFireLights?: THREE.PointLight[];
+  trialProps?: MythicTrialPropsRig;
+  comedyGags?: ComedyGagRig;
+  livingRoomTableGroup?: THREE.Group;
   backdropTextures: THREE.DataTexture[];
   spots: StageSpotMap;
 }
@@ -46,16 +54,16 @@ function getTimeColors(
   const botCol = new THREE.Color(palette.botBackdropHex);
 
   if (time === 'Night') {
-    topCol.lerp(new THREE.Color(0x060919), 0.72);
-    midCol.lerp(new THREE.Color(0x131d42), 0.72);
-    botCol.lerp(new THREE.Color(0x0a0d1c), 0.72);
-    return { top: topCol.getHex(), mid: midCol.getHex(), bot: botCol.getHex(), sunColor: 0xa5b4fc, sunIntensity: 1.05, fogDensity: 0.055 };
+    topCol.lerp(new THREE.Color(0x16193b), 0.58);
+    midCol.lerp(new THREE.Color(0x35255e), 0.58);
+    botCol.lerp(new THREE.Color(0x261529), 0.58);
+    return { top: topCol.getHex(), mid: midCol.getHex(), bot: botCol.getHex(), sunColor: 0xe6d4ff, sunIntensity: 1.48, fogDensity: 0.024 };
   }
   if (time === 'Sunset') {
-    topCol.lerp(new THREE.Color(0x31143d), 0.65);
-    midCol.lerp(new THREE.Color(0xc2492d), 0.65);
-    botCol.lerp(new THREE.Color(0x281018), 0.65);
-    return { top: topCol.getHex(), mid: midCol.getHex(), bot: botCol.getHex(), sunColor: 0xffa65c, sunIntensity: 1.75, fogDensity: 0.042 };
+    topCol.lerp(new THREE.Color(0x2a1040), 0.68);
+    midCol.lerp(new THREE.Color(0xd95326), 0.68);
+    botCol.lerp(new THREE.Color(0x3a131a), 0.62);
+    return { top: topCol.getHex(), mid: midCol.getHex(), bot: botCol.getHex(), sunColor: 0xff9e44, sunIntensity: 1.92, fogDensity: 0.036 };
   }
   if (time === 'Day') {
     topCol.lerp(new THREE.Color(0x38bdf8), 0.55);
@@ -137,53 +145,74 @@ function addTree(parent: THREE.Group, x: number, z: number, scale: number, leafC
 }
 
 function addTempleMandap(group: THREE.Group, env: EnvironmentRig): void {
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x6b3a2c, roughness: 0.78 });
-  const goldMat = new THREE.MeshStandardMaterial({ color: 0xf5b82e, metalness: 0.82, roughness: 0.25 });
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9e6344, roughness: 0.68 });
+  const marbleMat = new THREE.MeshStandardMaterial({ color: 0xe8dfd1, roughness: 0.42, metalness: 0.08 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xf6c444, metalness: 0.85, roughness: 0.22 });
+  const belMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.45 });
 
-  // Stone stage floor with circular golden lotus inlay
-  const floor = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.8, 0.25, 36), stoneMat);
-  floor.position.y = -0.125;
+  // Carved marble & sandstone floor with golden sacred mandala inlay
+  const floor = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 5.9, 0.26, 36), stoneMat);
+  floor.position.y = -0.13;
   floor.receiveShadow = true;
   group.add(floor);
 
   const stageRing = new THREE.Mesh(
-    new THREE.RingGeometry(1.4, 1.55, 48),
-    new THREE.MeshBasicMaterial({ color: 0xf5b82e, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(1.38, 1.56, 48),
+    new THREE.MeshBasicMaterial({ color: 0xf6c444, transparent: true, opacity: 0.58, side: THREE.DoubleSide }),
   );
   stageRing.rotation.x = -Math.PI / 2;
-  stageRing.position.y = 0.01;
+  stageRing.position.y = 0.012;
   group.add(stageRing);
 
-  // Sculpted sandstone Mandap pillars
-  for (const px of [-2.4, -1.65, 1.65, 2.4]) {
-    const pz = Math.abs(px) > 2 ? -1.4 : -2.6;
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 3.6, 12), stoneMat);
-    pillar.position.set(px, 1.8, pz);
+  // Carved Mandap pillars + glowing golden Torana archway
+  for (const px of [-2.45, -1.68, 1.68, 2.45]) {
+    const pz = Math.abs(px) > 2 ? -1.45 : -2.45;
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 0.42), goldMat);
+    plinth.position.set(px, 0.13, pz);
+    group.add(plinth);
+
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.19, 3.55, 14), stoneMat);
+    pillar.position.set(px, 1.88, pz);
     pillar.castShadow = true;
     pillar.receiveShadow = true;
     group.add(pillar);
 
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.16, 0.18, 12), goldMat);
-    cap.position.set(px, 3.5, pz);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.18, 0.22, 14), goldMat);
+    cap.position.set(px, 3.56, pz);
     group.add(cap);
   }
 
-  // Distant multi-tier carved temple Shikhara dome & Kalash spire
-  const shikharaBase = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.9, 1.5), stoneMat);
-  shikharaBase.position.set(0, 0.45, -4.8);
+  const toranaArch = new THREE.Mesh(
+    new THREE.TorusGeometry(1.75, 0.085, 10, 32, Math.PI),
+    goldMat,
+  );
+  toranaArch.position.set(0, 2.55, -2.35);
+  group.add(toranaArch);
+
+  // Illuminated Kashi Vishwanath carved temple Shikhara dome & Kalash spire
+  const shikharaBase = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.95, 1.55), stoneMat);
+  shikharaBase.position.set(0, 0.48, -4.45);
   group.add(shikharaBase);
   for (let tier = 0; tier < 3; tier++) {
-    const w = 1.25 - tier * 0.28;
-    const tMesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.48, w), stoneMat);
-    tMesh.position.set(0, 1.1 + tier * 0.46, -4.8);
+    const w = 1.42 - tier * 0.28;
+    const tMesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.48, w), tier === 2 ? goldMat : stoneMat);
+    tMesh.position.set(0, 1.15 + tier * 0.46, -4.45);
     group.add(tMesh);
   }
-  const kalash = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), goldMat);
-  kalash.position.set(0, 2.38, -4.8);
+  const kalash = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10), goldMat);
+  kalash.position.set(0, 2.48, -4.45);
   group.add(kalash);
-  const kalashTip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.24, 12), goldMat);
-  kalashTip.position.set(0, 2.60, -4.8);
+  const kalashTip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.28, 12), goldMat);
+  kalashTip.position.set(0, 2.74, -4.45);
   group.add(kalashTip);
+
+  // Tall Brass Deepastambha oil-lamp stands framing left and right foreground
+  for (const sx of [-1.42, 1.42]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.075, 1.05, 10), goldMat);
+    pole.position.set(sx, 0.52, -0.88);
+    group.add(pole);
+    addDiya(group, sx, 1.04, -0.88, sx > 0 ? 1.4 : 0.3, env, true);
+  }
 
   // Two swinging hanging brass temple bells in upper framing corners
   for (const [bx, ph] of [[-1.35, 0], [1.35, 1.3]] as [number, number][]) {
@@ -202,52 +231,95 @@ function addTempleMandap(group: THREE.Group, env: EnvironmentRig): void {
 
   // Rotating 3D Sri Yantra aura rings behind stage
   const yantra = new THREE.Group();
-  yantra.position.set(0, 1.85, -3.1);
-  const r1 = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.025, 10, 48), goldMat);
-  const r2 = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.022, 10, 36), goldMat);
+  yantra.position.set(0, 1.92, -3.05);
+  const r1 = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.028, 10, 48), goldMat);
+  const r2 = new THREE.Mesh(new THREE.TorusGeometry(0.84, 0.024, 10, 36), goldMat);
   yantra.add(r1, r2);
   group.add(yantra);
   env.animatedProps.push({ object: r1, kind: 'ring', phase: 0, speed: 0.35 });
   env.animatedProps.push({ object: r2, kind: 'ring', phase: 1.4, speed: -0.52 });
 
   // Warm flickering stone-step Diyas
-  addDiya(group, -1.25, 0, -0.5, 0.2, env, true);
-  addDiya(group, 1.25, 0, -0.5, 1.9, env, true);
-  addDiya(group, -0.45, 0, -1.4, 3.1, env, false);
-  addDiya(group, 0.45, 0, -1.4, 4.4, env, false);
+  addDiya(group, -1.12, 0, -0.45, 0.2, env, true);
+  addDiya(group, 1.12, 0, -0.45, 1.9, env, true);
+  addDiya(group, -0.52, 0, -1.05, 3.1, env, false);
+  addDiya(group, 0.52, 0, -1.05, 4.4, env, false);
 
-  // Sacred carved 3D Shivling & Yoni Peetham altar centerpiece at center sanctum
+  // Elevated Sacred Kashi Vishwanath Shivling, Gold Nag-Chhatra Hood & 1,000 Golden Lotus Altar
   const sanctum = new THREE.Group();
-  sanctum.position.set(0, 0, -1.58);
-  const basaltMat = new THREE.MeshStandardMaterial({ color: 0x1e202c, metalness: 0.35, roughness: 0.22 });
-  const peeth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.50, 0.26, 24), stoneMat);
+  sanctum.position.set(0, 0.14, -1.32);
+  const basaltMat = new THREE.MeshStandardMaterial({ color: 0x26293a, metalness: 0.42, roughness: 0.18 });
+  const plinthStep = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.64, 0.14, 24), marbleMat);
+  plinthStep.position.y = -0.07;
+  sanctum.add(plinthStep);
+
+  const peeth = new THREE.Mesh(new THREE.CylinderGeometry(0.40, 0.48, 0.26, 24), marbleMat);
   peeth.position.y = 0.13;
   peeth.castShadow = true;
   peeth.receiveShadow = true;
   sanctum.add(peeth);
-  const yoniRim = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.06, 10, 24), goldMat);
+  const yoniRim = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.055, 10, 24), goldMat);
   yoniRim.rotation.x = Math.PI / 2;
   yoniRim.position.y = 0.27;
   sanctum.add(yoniRim);
-  const lingaCol = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.36, 12, 20), basaltMat);
-  lingaCol.position.y = 0.50;
+  const lingaCol = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.40, 12, 20), basaltMat);
+  lingaCol.position.y = 0.54;
   lingaCol.castShadow = true;
   sanctum.add(lingaCol);
-  // Gold Tripundra lines & marigold garland dots on the Shivling
-  for (const ty of [0.54, 0.58, 0.62]) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.015, 0.02), new THREE.MeshBasicMaterial({ color: 0xfef3c7 }));
-    bar.position.set(0, ty, 0.155);
+  // Gold Nag-Chhatra cobra hood arching over Shivling
+  const nagStem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.032, 0.88, 10), goldMat);
+  nagStem.position.set(0, 0.54, -0.22);
+  sanctum.add(nagStem);
+  const nagHood = new THREE.Mesh(new THREE.SphereGeometry(0.20, 14, 10), goldMat);
+  nagHood.scale.set(1.25, 0.72, 0.42);
+  nagHood.position.set(0, 0.98, -0.10);
+  nagHood.rotation.x = 0.35;
+  sanctum.add(nagHood);
+
+  // Gold Tripundra lines & Bilva leaf garland on Shivling
+  for (const ty of [0.58, 0.62, 0.66]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.016, 0.022), new THREE.MeshBasicMaterial({ color: 0xfef3c7 }));
+    bar.position.set(0, ty, 0.165);
     sanctum.add(bar);
   }
-  const marigoldMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.55 });
-  for (let m = 0; m < 10; m++) {
-    const a = (m / 10) * Math.PI * 2;
-    const petal = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), marigoldMat);
-    petal.position.set(Math.cos(a) * 0.28, 0.30, Math.sin(a) * 0.28);
+  const lotusGoldMat = new THREE.MeshStandardMaterial({ color: 0xfde047, emissive: 0xf59e0b, emissiveIntensity: 0.42, roughness: 0.26 });
+  const lotusPinkMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, emissive: 0xdb2777, emissiveIntensity: 0.30, roughness: 0.32 });
+  for (let m = 0; m < 14; m++) {
+    const a = (m / 14) * Math.PI * 2;
+    const petal = new THREE.Mesh(
+      new THREE.SphereGeometry(m % 2 === 0 ? 0.068 : 0.06, 8, 6),
+      m % 2 === 0 ? lotusGoldMat : lotusPinkMat,
+    );
+    petal.position.set(Math.cos(a) * 0.30, 0.31, Math.sin(a) * 0.30);
     sanctum.add(petal);
   }
-  const sanctumLight = new THREE.PointLight(0xffb74d, 1.9, 4.5, 1.5);
-  sanctumLight.position.set(0, 1.05, 0.25);
+  const topLotus = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 1), lotusGoldMat);
+  topLotus.scale.set(1.25, 0.55, 1.25);
+  topLotus.position.set(0, 0.77, 0);
+  sanctum.add(topLotus);
+  const belLeaf = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), belMat);
+  belLeaf.scale.set(1.2, 0.35, 1.2);
+  belLeaf.position.set(0.08, 0.76, 0.06);
+  sanctum.add(belLeaf);
+
+  // Flanking Golden Puja Thaals heaped with 1,000 golden lotuses (clearly visible beside both deities!)
+  for (const tx of [-0.58, 0.58]) {
+    const thaal = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.045, 20), goldMat);
+    thaal.position.set(tx, -0.10, 0.24);
+    sanctum.add(thaal);
+    for (let l = 0; l < 7; l++) {
+      const la = (l / 7) * Math.PI * 2;
+      const lr = l === 0 ? 0 : 0.12;
+      const ly = l === 0 ? 0.04 : 0.0;
+      const bloom = new THREE.Mesh(new THREE.OctahedronGeometry(0.068, 1), l % 2 === 0 ? lotusGoldMat : lotusPinkMat);
+      bloom.scale.set(1.2, 0.62, 1.2);
+      bloom.position.set(tx + Math.cos(la) * lr, -0.04 + ly, 0.24 + Math.sin(la) * lr);
+      sanctum.add(bloom);
+    }
+  }
+
+  const sanctumLight = new THREE.PointLight(0xffcb66, 2.35, 6.2, 1.4);
+  sanctumLight.position.set(0, 1.25, 0.45);
   sanctum.add(sanctumLight);
   group.add(sanctum);
 }
@@ -287,32 +359,53 @@ function addForestAshram(group: THREE.Group, env: EnvironmentRig): void {
 }
 
 function addRiverGhat(group: THREE.Group, env: EnvironmentRig): void {
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x5c4738, roughness: 0.8 });
-  const stage = new THREE.Mesh(new THREE.BoxGeometry(8, 0.3, 2.6), stoneMat);
-  stage.position.set(0, -0.15, 0);
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9b704e, roughness: 0.72 });
+  const ghatGoldMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.78, roughness: 0.28 });
+  const stage = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.3, 2.2), stoneMat);
+  stage.position.set(0, -0.15, 0.1);
   stage.receiveShadow = true;
   group.add(stage);
 
-  const ghatStep = new THREE.Mesh(new THREE.BoxGeometry(8, 0.2, 0.8), stoneMat);
-  ghatStep.position.set(0, -0.25, -1.6);
-  group.add(ghatStep);
+  // Descending Varanasi stone ghat steps leading directly into the Ganga water
+  const step1 = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.16, 0.6), stoneMat);
+  step1.position.set(0, -0.16, -1.25);
+  group.add(step1);
+  const step2 = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.12, 0.55), stoneMat);
+  step2.position.set(0, -0.22, -1.75);
+  group.add(step2);
 
+  // Flanking Kashi Ghat Chhatri pillars & domes
+  for (const gx of [-2.4, 2.4]) {
+    const chhatriPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 2.45, 12), stoneMat);
+    chhatriPillar.position.set(gx, 1.15, -2.1);
+    group.add(chhatriPillar);
+    const dome = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.55, 12), ghatGoldMat);
+    dome.position.set(gx, 2.55, -2.1);
+    group.add(dome);
+  }
+
+  // Luminous Ganga water surface clearly visible above/behind ghat steps
   const waterMat = new THREE.MeshStandardMaterial({
-    color: 0x134e6f,
-    metalness: 0.68,
-    roughness: 0.22,
+    color: 0x1e6f9f,
+    emissive: 0x0c3452,
+    emissiveIntensity: 0.45,
+    metalness: 0.72,
+    roughness: 0.18,
   });
-  const river = new THREE.Mesh(new THREE.PlaneGeometry(18, 10, 24, 16), waterMat);
+  const river = new THREE.Mesh(new THREE.PlaneGeometry(20, 11, 24, 16), waterMat);
   river.rotation.x = -Math.PI / 2;
-  river.position.set(0, -0.32, -6.5);
+  river.position.set(0, -0.09, -7.2);
   river.receiveShadow = true;
   group.add(river);
   env.animatedProps.push({ object: river, kind: 'water', phase: 0, speed: 1.8 });
 
-  addDiya(group, -1.1, 0, -0.9, 0.4, env, true);
-  addDiya(group, 1.1, 0, -0.9, 2.1, env, true);
-  addDiya(group, -0.6, -0.3, -2.5, 3.4, env, false);
-  addDiya(group, 0.7, -0.3, -3.3, 4.9, env, false);
+  // Floating brass/earthen Ganga Aarti diyas glowing across the water
+  addDiya(group, -1.2, 0, -0.65, 0.4, env, true);
+  addDiya(group, 1.2, 0, -0.65, 2.1, env, true);
+  addDiya(group, -0.75, -0.07, -2.4, 3.4, env, false);
+  addDiya(group, 0.85, -0.07, -3.1, 4.9, env, false);
+  addDiya(group, -0.15, -0.07, -3.8, 1.5, env, false);
+  addDiya(group, 1.45, -0.07, -4.4, 5.2, env, false);
 }
 
 function addCosmosStage(group: THREE.Group, env: EnvironmentRig, accentHex: string): void {
@@ -510,7 +603,7 @@ function addHimalayaStage(group: THREE.Group, env: EnvironmentRig): void {
   addDiya(group, 0, 0, -1.1, 0.8, env, true);
 }
 
-function addPalaceCourt(group: THREE.Group, env: EnvironmentRig): void {
+function addPalaceCourt(group: THREE.Group, env: EnvironmentRig, isNarasimhaSabha = false): void {
   const sandstoneMat = new THREE.MeshStandardMaterial({ color: 0xe6d2b5, roughness: 0.72 });
   const warmMarbleMat = new THREE.MeshStandardMaterial({ color: 0xcab596, roughness: 0.58 });
   const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xf4c44e, metalness: 0.85, roughness: 0.22 });
@@ -645,6 +738,95 @@ function addPalaceCourt(group: THREE.Group, env: EnvironmentRig): void {
 
   addDiya(group, -1.65, 0.24, -2.2, 0.3, env, false);
   addDiya(group, 1.65, 0.24, -2.2, 1.9, env, true);
+
+  if (isNarasimhaSabha) {
+    // Raised carved palace doorway threshold (Chaukhat) where Narasimha subdues Hiranyakashipu at dusk
+    const thresholdStep = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.042, 0.62), sandstoneMat);
+    thresholdStep.position.set(0, 0.021, 0.08);
+    thresholdStep.receiveShadow = true;
+    group.add(thresholdStep);
+
+    const goldSill = new THREE.Mesh(new THREE.BoxGeometry(3.08, 0.014, 0.06), goldTrimMat);
+    goldSill.position.set(0, 0.045, 0.34);
+    group.add(goldSill);
+
+    // Frame palace entrance wide outside actor blocking zone so doorway columns NEVER occlude characters
+    for (const sx of [-2.95, 2.95]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.30, 3.2, 0.34), sandstoneMat);
+      jamb.position.set(sx, 1.60, -1.45);
+      jamb.castShadow = true;
+      group.add(jamb);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, 0.42), goldTrimMat);
+      cap.position.set(sx, 3.22, -1.45);
+      group.add(cap);
+    }
+
+    // Intact Sabha Stambha pillar standing behind court center before Narasimha bursts forth
+    const stambhaWhole = new THREE.Group();
+    stambhaWhole.position.set(0, 0, -0.78);
+    const basePlinth = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.38, 0.68), sandstoneMat);
+    basePlinth.position.y = 0.19;
+    basePlinth.castShadow = true;
+    stambhaWhole.add(basePlinth);
+    const columnShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 2.75, 10), sandstoneMat);
+    columnShaft.position.y = 1.72;
+    columnShaft.castShadow = true;
+    stambhaWhole.add(columnShaft);
+    for (const bandY of [0.85, 1.72, 2.58]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.032, 8, 16), goldTrimMat);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = bandY;
+      stambhaWhole.add(ring);
+    }
+    const colCapital = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.28, 0.64), goldTrimMat);
+    colCapital.position.y = 3.16;
+    stambhaWhole.add(colCapital);
+    group.add(stambhaWhole);
+    env.stambhaWholeGroup = stambhaWhole;
+
+    // Shattered Stambha + molten golden fire core after Narasimha emerges!
+    const stambhaBroken = new THREE.Group();
+    stambhaBroken.position.set(0, 0, -0.78);
+    stambhaBroken.visible = false;
+    const stumpPlinth = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.38, 0.72), sandstoneMat);
+    stumpPlinth.position.y = 0.19;
+    stambhaBroken.add(stumpPlinth);
+    const stumpShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.28, 0.72, 9), sandstoneMat);
+    stumpShaft.position.y = 0.72;
+    stambhaBroken.add(stumpShaft);
+
+    const emberMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xf97316,
+      emissiveIntensity: 1.55,
+      roughness: 0.2,
+    });
+    const fireCore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.32, 1), emberMat);
+    fireCore.position.y = 1.06;
+    fireCore.scale.set(1.2, 1.5, 0.85);
+    stambhaBroken.add(fireCore);
+
+    // Grounded split stone fragments & rubble on court floor (never protruding at character shoulder height)
+    for (const sx of [-1, 1]) {
+      const fallenBlock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.24, 0), sandstoneMat);
+      fallenBlock.position.set(sx * 0.78, 0.14, 0.18);
+      fallenBlock.scale.set(1.25, 0.65, 0.95);
+      fallenBlock.rotation.set(0.18, 0.55 * sx, sx * 0.35);
+      stambhaBroken.add(fallenBlock);
+      const smallChunk = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.22), sandstoneMat);
+      smallChunk.position.set(sx * 1.12, 0.09, -0.10);
+      smallChunk.rotation.y = sx * 0.48;
+      stambhaBroken.add(smallChunk);
+    }
+
+    const burstLight = new THREE.PointLight(0xffb732, 0, 7.5, 1.4);
+    burstLight.position.set(0, 1.35, 0.35);
+    stambhaBroken.add(burstLight);
+    env.stambhaFireLights = [burstLight];
+
+    group.add(stambhaBroken);
+    env.stambhaBrokenGroup = stambhaBroken;
+  }
 }
 
 function addGenericRichSet(group: THREE.Group, setting: SceneSetting, env: EnvironmentRig, accentHex: string): void {
@@ -1013,7 +1195,7 @@ function addLivingRoom(group: THREE.Group, env: EnvironmentRig): void {
   const sofaMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.7 });
   const cushionMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.68 });
   const sofa = new THREE.Group();
-  sofa.position.set(-0.78, 0, -0.95);
+  sofa.position.set(-0.78, 0, -1.28);
   const seat = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.36, 0.85), sofaMat);
   seat.position.y = 0.22;
   seat.castShadow = true;
@@ -1034,18 +1216,21 @@ function addLivingRoom(group: THREE.Group, env: EnvironmentRig): void {
   sofa.add(throwPillow);
   group.add(sofa);
 
-  // Center Coffee Table + ceramic snack bowl
+  // Center Coffee Table + ceramic snack bowl (hidden automatically when floor funeral mat is active)
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b3a1e, roughness: 0.55 });
+  const livingRoomTableGroup = new THREE.Group();
   const tableTop = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 0.65), woodMat);
   tableTop.position.set(0.08, 0.34, 0.12);
   tableTop.castShadow = true;
-  group.add(tableTop);
+  livingRoomTableGroup.add(tableTop);
   const bowl = new THREE.Mesh(
     new THREE.CylinderGeometry(0.14, 0.09, 0.08, 16),
     new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 }),
   );
   bowl.position.set(0.08, 0.42, 0.12);
-  group.add(bowl);
+  livingRoomTableGroup.add(bowl);
+  group.add(livingRoomTableGroup);
+  env.livingRoomTableGroup = livingRoomTableGroup;
 
   // Framed wall painting & doorway leaf
   const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.78, 0.06), woodMat);
@@ -1929,9 +2114,17 @@ export function buildEnvironment(
     case 'Himalaya':
       addHimalayaStage(group, rig);
       break;
-    case 'PalaceCourt':
-      addPalaceCourt(group, rig);
+    case 'PalaceCourt': {
+      const sabhaHint = [
+        job.title,
+        job.leftCharacter?.name,
+        job.rightCharacter?.name,
+        ...job.supportingCast.map((c) => c.name),
+      ].join(' ');
+      const isNarasimhaSabha = /narasimha|narsimha|hiranyakashipu|prahlad|नरसिंह|नृसिंह|हिरण्यकशिपु|प्रह्लाद|खंभ|स्तंभ/i.test(sabhaHint);
+      addPalaceCourt(group, rig, isNarasimhaSabha);
       break;
+    }
     case 'Bedroom':
       addBedroom(group, rig);
       break;
@@ -1973,6 +2166,13 @@ export function buildEnvironment(
       break;
   }
 
+  if (setting === 'Temple' || setting === 'PalaceCourt' || setting === 'Himalaya' || setting === 'ForestAshram' || setting === 'RiverGhat' || setting === 'Cosmos') {
+    rig.trialProps = createMythicTrialStageProps(group);
+  }
+  if (setting === 'LivingRoom') {
+    rig.comedyGags = createComedyGagProps(group);
+  }
+
   return rig;
 }
 
@@ -1983,6 +2183,11 @@ export function updateEnvironment(
   sceneIndex: number,
   localProgress: number,
   layout?: StageLayoutJson | null,
+  pillarShattered = false,
+  trialMode: MythicTrialMode = 'none',
+  devoteeX = 0,
+  turnLocal = 0.5,
+  comedyState?: { hasFuneralShroud: boolean; shroudOpen: boolean; hazardMode: ComedyHazardMode },
 ): void {
   for (const fire of env.ambientFireLights) {
     fire.light.intensity = fire.baseIntensity * (0.86 + 0.14 * Math.sin(t * 9.5 + fire.phase));
@@ -2026,6 +2231,34 @@ export function updateEnvironment(
     env.poleStarGroup.visible = boost > 0.02;
     env.poleStarGroup.rotation.y = t * 0.8;
     env.poleStarMat.opacity = boost * 0.28;
+  }
+
+  // Narasimha Sabha pillar burst toggle & molten glow
+  if (env.stambhaWholeGroup && env.stambhaBrokenGroup) {
+    env.stambhaWholeGroup.visible = !pillarShattered;
+    env.stambhaBrokenGroup.visible = pillarShattered;
+  }
+  if (env.stambhaFireLights) {
+    const burstPower = pillarShattered ? 3.8 + Math.sin(t * 14) * 0.55 : 0;
+    env.stambhaFireLights.forEach((l) => {
+      l.intensity = burstPower;
+    });
+  }
+  if (env.trialProps) {
+    updateMythicTrialProps(env.trialProps, t, trialMode, devoteeX, turnLocal);
+  }
+  if (env.livingRoomTableGroup) {
+    env.livingRoomTableGroup.visible = !(comedyState?.hasFuneralShroud);
+  }
+  if (env.comedyGags) {
+    updateComedyGagProps(
+      env.comedyGags,
+      t,
+      comedyState?.hasFuneralShroud ?? false,
+      comedyState?.shroudOpen ?? false,
+      comedyState?.hazardMode ?? 'none',
+      turnLocal,
+    );
   }
 
   // Update AI/User photo backdrop plane (per-scene swap + gentle Ken Burns or locked template)

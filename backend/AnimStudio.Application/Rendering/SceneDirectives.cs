@@ -68,9 +68,9 @@ public static partial class SceneDirectives
     private static readonly (SceneSetting Setting, string[] Tokens)[] SettingTokens =
     [
         (SceneSetting.ForestAshram, ["forest", "ashram", "jungle", "woods", "tapovan", "वन", "जंगल", "आश्रम", "तपोवन", "कुटिया"]),
-        (SceneSetting.RiverGhat, ["river", "ghat", "ganga", "yamuna", "lake", "pond", "sea", "ocean", "shore", "नदी", "घाट", "गंगा", "यमुना", "सरोवर", "समुद्र", "तट"]),
+        (SceneSetting.RiverGhat, ["manikarnika ghat", "manikarnika", "ganga ghat", "dashashwamedh", "river", "ghat", "ganga", "yamuna", "lake", "pond", "sea", "ocean", "shore", "मणिकर्णिका", "गंगा घाट", "काशी घाट", "नदी", "घाट", "गंगा", "यमुना", "सरोवर", "समुद्र", "तट"]),
         (SceneSetting.Himalaya, ["himalaya", "mountain", "kailash", "snow", "peak", "hill", "हिमालय", "पर्वत", "कैलाश", "पहाड़", "शिखर"]),
-        (SceneSetting.PalaceCourt, ["palace", "court", "darbar", "throne", "fort", "kingdom", "sheesh mahal", "mahal", "sufi", "kathak", "ghazal", "महल", "दरबार", "राजमहल", "सिंहासन", "किला", "राज्य", "शीश महल", "हवेली"]),
+        (SceneSetting.PalaceCourt, ["vaikuntha court", "vaikuntha palace", "celestial court", "celestial palace", "palace", "court", "darbar", "throne", "fort", "kingdom", "sheesh mahal", "mahal", "sufi", "kathak", "ghazal", "pillar", "threshold", "वैकुंठ दरबार", "वैकुंठ महल", "वैकुंठधाम", "महल", "दरबार", "राजमहल", "सिंहासन", "किला", "राज्य", "शीश महल", "हवेली", "खंभा", "खंभे", "स्तंभ", "चौखट"]),
         (SceneSetting.Cosmos, ["cosmos", "space", "heaven", "swarga", "vaikuntha", "stars", "sky", "galaxy", "brahmand", "स्वर्ग", "वैकुंठ", "ब्रह्मांड", "आकाश", "तारे", "अंतरिक्ष"]),
         (SceneSetting.Village, ["village", "home", "house", "hut", "farm", "field", "courtyard", "गाँव", "गांव", "घर", "खेत", "आँगन", "आंगन"]),
         (SceneSetting.Battlefield, ["battlefield", "battle", "war", "kurukshetra", "army", "rebellion", "revolt", "fight", "युद्ध", "रणभूमि", "कुरुक्षेत्र", "सेना", "विद्रोह", "संग्राम"]),
@@ -81,7 +81,7 @@ public static partial class SceneDirectives
         (SceneSetting.ChaiStall, ["chai", "tapri", "tea stall", "nukkad", "dhaba", "gali", "टपरी", "चाय", "नुक्कड़", "ढाबा"]),
         (SceneSetting.ComedyStage, ["comedy", "funny", "meme", "standup", "stage", "roast", "sketch", "prank", "laugh", "joker", "joke", "कॉमेडी", "हंसी", "मज़ाक", "चुटकुला"]),
         (SceneSetting.ModernCity, ["city", "office", "street", "modern", "tech", "lab", "studio", "शहर", "दफ्तर", "सड़क", "आधुनिक"]),
-        (SceneSetting.Temple, ["temple", "mandir", "shrine", "sanctum", "garbhagriha", "aarti", "puja", "मंदिर", "देवालय", "गर्भगृह", "आरती", "पूजा"]),
+        (SceneSetting.Temple, ["kashi vishwanath", "temple sanctum", "cosmos temple", "temple aureole", "vishwanath", "shivling", "temple", "mandir", "shrine", "sanctum", "garbhagriha", "aarti", "puja", "काशी विश्वनाथ", "विश्वनाथ", "शिवलिंग", "मंदिर", "देवालय", "गर्भगृह", "आरती", "पूजा"]),
         (SceneSetting.Bedroom, ["bedroom", "bed", "cot", "charpai", "pillow", "blanket", "sleeping", "snoring", "woke up", "alarm", "बेडरूम", "पलंग", "चारपाई", "बिस्तर", "तकिया", "रजाई", "खर्राटे", "सो रहा", "नींद"]),
         (SceneSetting.LivingRoom, ["living room", "drawing room", "sofa", "couch", "tv room", "hallway", "सोफा", "सोफे", "बैठक", "हॉल", "टीवी", "लिविंग रूम"]),
         (SceneSetting.Kitchen, ["kitchen", "stove", "cooking", "kadhai", "rabdi", "rasoi", "paratha", "भोजन", "रसोई", "किचन", "चूल्हा", "कड़ाही", "कढ़ाई", "रबड़ी", "सब्ज़ी", "नाश्ता"]),
@@ -293,13 +293,17 @@ public static partial class SceneDirectives
         var best = SceneSetting.Auto;
         var bestAt = int.MaxValue;
         var bestLen = 0;
-        // Earliest mention wins; at the same position a more specific multi-word phrase ("sky gauntlet") beats a shorter token ("sky").
+        // Concrete physical venues override atmospheric sky modifiers (e.g., "cosmos temple aureole" -> Temple, "celestial vaikuntha court" -> PalaceCourt).
         foreach (var (setting, tokens) in SettingTokens)
         {
             foreach (var token in tokens)
             {
                 var at = IndexOfWord(lower, token);
-                if (at >= 0 && (at < bestAt || (at == bestAt && token.Length > bestLen)))
+                if (at < 0) continue;
+                var candidateReplacesCosmos = best == SceneSetting.Cosmos && setting is SceneSetting.Temple or SceneSetting.PalaceCourt or SceneSetting.RiverGhat or SceneSetting.ForestAshram or SceneSetting.Himalaya;
+                var cosmosBlockedByPhysical = setting == SceneSetting.Cosmos && best is SceneSetting.Temple or SceneSetting.PalaceCourt or SceneSetting.RiverGhat or SceneSetting.ForestAshram or SceneSetting.Himalaya;
+                if (cosmosBlockedByPhysical) continue;
+                if (candidateReplacesCosmos || at < bestAt || (at == bestAt && token.Length > bestLen))
                 {
                     bestAt = at;
                     bestLen = token.Length;

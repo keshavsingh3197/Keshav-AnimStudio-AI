@@ -444,14 +444,80 @@ public sealed class ScheduledPostThumbnailAndNavTests
         Assert.NotNull(snapshot.Panchang);
         Assert.Equal("2026-11-18", snapshot.Panchang!.DateKey);
         Assert.Equal("Shukla Navami", snapshot.Panchang.Tithi);
-        Assert.Single(snapshot.UpcomingFestivals);
-        Assert.Equal("2026-11-24", snapshot.UpcomingFestivals[0].DateKey);
+        Assert.Contains(snapshot.UpcomingFestivals, f => f.DateKey == "2026-11-24");
+        Assert.Contains(snapshot.UpcomingFestivals, f => f.DateKey == "2026-11-18");
 
         Assert.DoesNotContain(snapshot.HistoricalIncidents, h => h.Title.Contains("Lakshmibai", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(snapshot.HistoricalIncidents, h => h.DateKey == "11-18" && h.IsVerified);
         Assert.Contains(snapshot.Warnings, w => w.Contains("Lakshmibai", StringComparison.OrdinalIgnoreCase) || w.Contains("11-19", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(snapshot.Verification);
         Assert.Equal(AutomationFactVerifier.StatusVerified, snapshot.Verification!.OverallStatus);
+    }
+
+    [Fact]
+    public async Task EcosystemSignalsClient_caches_warm_snapshots_and_handles_upstream_timeout_without_throwing()
+    {
+        var ct = CancellationToken.None;
+        var panchangCalls = 0;
+
+        HttpResponseMessage TimedOutResponder(HttpRequestMessage req)
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/api/panchang/daily", StringComparison.Ordinal))
+            {
+                panchangCalls++;
+                // Simulates HttpClient.Timeout firing internally when ct was NOT cancelled
+                throw new TaskCanceledException("Simulated Render cold-start timeout", new TimeoutException());
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        using var timeoutHarness = BuildHarness(
+            new FakeAutomationRepository(),
+            new FakeYouTubeConnectionRepository(),
+            new FakePublishQueueRepository(),
+            new FakeRenderJobRepository(),
+            new FakeProjectRepository(),
+            new InMemoryObjectStore(),
+            httpResponder: TimedOutResponder,
+            useRealSignalsClient: true);
+
+        var timeoutClient = timeoutHarness.Provider.GetRequiredService<IEcosystemSignalsClient>();
+        var degraded = await timeoutClient.FetchAsync("2026-11-18", "India (IST)", ct: ct);
+
+        Assert.Equal("2026-11-18", degraded.DateKey);
+        Assert.Equal(1, panchangCalls);
+        Assert.NotEmpty(degraded.Warnings);
+        Assert.NotEmpty(degraded.HistoricalIncidents);
+
+        // Warm live responder should serve the second FetchAsync directly from in-memory snapshot cache
+        var liveCalls = 0;
+        HttpResponseMessage WarmResponder(HttpRequestMessage req)
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/api/panchang/daily", StringComparison.Ordinal))
+            {
+                liveCalls++;
+                return JsonOk(new { dateKey = "2026-11-18", tithi = "Shukla Navami", nakshatra = "Shatabhisha", sunrise = "06:46 AM", sunset = "05:27 PM", abhijitMuhurat = "11:46 AM - 12:27 PM", rahuKaal = "12:07 PM - 01:27 PM" });
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        using var liveHarness = BuildHarness(
+            new FakeAutomationRepository(),
+            new FakeYouTubeConnectionRepository(),
+            new FakePublishQueueRepository(),
+            new FakeRenderJobRepository(),
+            new FakeProjectRepository(),
+            new InMemoryObjectStore(),
+            httpResponder: WarmResponder,
+            useRealSignalsClient: true);
+
+        var liveClient = liveHarness.Provider.GetRequiredService<IEcosystemSignalsClient>();
+        var first = await liveClient.FetchAsync("2026-11-18", "India (IST)", ct: ct);
+        var second = await liveClient.FetchAsync("2026-11-18", "India (IST)", ct: ct);
+
+        Assert.Equal("Shukla Navami", first.Panchang?.Tithi);
+        Assert.Equal("Shukla Navami", second.Panchang?.Tithi);
+        Assert.Equal(1, liveCalls);
     }
 
     [Fact]
@@ -742,6 +808,106 @@ public sealed class ScheduledPostThumbnailAndNavTests
         Assert.Contains("Shukla Dashami", panchang!.Script);
         Assert.Contains("Shukla Ekadashi", panchang.Script);
         Assert.Contains("Until 07:15 AM", panchang.Script);
+    }
+
+    [Fact]
+    public async Task PrepareForDateAsync_Adds_VaikunthaChaturdashi_Festival_And_HariharMilan_Katha_Even_If_Fallback_Katha_Was_Published()
+    {
+        var ct = CancellationToken.None;
+        const string userId = "user-harihar";
+        var repo = new FakeAutomationRepository();
+        var connRepo = new FakeYouTubeConnectionRepository();
+        var queueRepo = new FakePublishQueueRepository();
+        var renderRepo = new FakeRenderJobRepository();
+        var projectRepo = new FakeProjectRepository();
+        var store = new InMemoryObjectStore();
+
+        var panchangNov23 = new EcosystemPanchangSignal(
+            "2026-11-23", "India (IST)", "Shukla Chaturdashi", "Until 11:45 PM",
+            "Bharani", null, "Variyan", "Gara", "Somavara", "Shukla Paksha", "Kartika", "2083",
+            "06:50 AM", "05:25 PM", "11:46 AM - 12:29 PM", "05:02 AM - 05:56 AM",
+            "09:43 PM - 11:10 PM", "08:09 AM - 09:29 AM", "सत्यमेव जयते", "Truth triumphs.", IsVerified: true);
+
+        EcosystemSignalsSnapshot SignalsFor(string d) => new(
+            d, "India (IST)", panchangNov23,
+            VedicFestivalResolver.EnrichFestivals([], d, windowDays: 3, todayPanchang: panchangNov23),
+            new EcosystemDailyKathaSignal("k-2", "Dhruva", "Dhruva", "Summary", "Moral", null),
+            [], [], [], [], DateTimeOffset.UtcNow);
+
+        using var harness = BuildHarness(
+            repo, connRepo, queueRepo, renderRepo, projectRepo, store,
+            signalsClient: new DateAwareSignalsClient(SignalsFor));
+        await SeedChannelAndRenderAsync(harness.Provider, userId, "UC5234567890123456789012", "proj-hh", "job-hh", store, renderRepo);
+
+        var festRule = new AutomationRule
+        {
+            Id = "rule-fest",
+            UserId = userId,
+            Name = "Festivals",
+            SourceType = AutomationSourceType.HinduFestival,
+            FestivalLeadDays = 0,
+            TargetChannelId = "UC5234567890123456789012",
+            Language = "hi",
+            PreferredPublishTime = "07:15",
+            TimeZoneId = "Asia/Kolkata"
+        };
+        var kathaRule = new AutomationRule
+        {
+            Id = "rule-katha",
+            UserId = userId,
+            Name = "Daily Katha",
+            SourceType = AutomationSourceType.DailyKatha,
+            NarrativeMode = AutomationNarrativeMode.FullStory,
+            VideoFormat = AutomationVideoFormat.Wide,
+            TargetChannelId = "UC5234567890123456789012",
+            Language = "hi",
+            PreferredPublishTime = "19:00",
+            TimeZoneId = "Asia/Kolkata"
+        };
+        await repo.UpsertRuleAsync(festRule, ct);
+        await repo.UpsertRuleAsync(kathaRule, ct);
+
+        // Simulate earlier published fallback Prahlad card before Vaikuntha Chaturdashi was added
+        await repo.UpsertPostAsync(new AutomationPost
+        {
+            Id = "ap_old_prahlad",
+            UserId = userId,
+            RuleId = "rule-katha",
+            RuleName = "Daily Katha",
+            SourceType = AutomationSourceType.DailyKatha,
+            DateKey = "2026-11-23",
+            Fingerprint = "2026-11-23:rule-katha:katha:2026-11-23",
+            SourceItemKey = "katha:2026-11-23",
+            SourceTitle = "भक्त प्रह्लाद",
+            Title = "भक्त प्रह्लाद की अटूट भक्ति और नरसिंह अवतार की अमर कथा",
+            TargetChannelId = "UC5234567890123456789012",
+            Status = AutomationPostStatus.Published,
+            PublishedVideoId = "yt_prahlad_1",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        }, ct);
+
+        var svc = harness.Provider.GetRequiredService<EcosystemAutomationService>();
+        var prep = await svc.PrepareForDateAsync(userId, "2026-11-23", ruleId: null, forceRegenerate: false, ct);
+
+        var festCard = prep.Posts.FirstOrDefault(p => p.SourceType == AutomationSourceType.HinduFestival);
+        Assert.NotNull(festCard);
+        Assert.Contains("वैकुंठ चतुर्दशी", festCard!.Title);
+
+        var hariharKatha = prep.Posts.FirstOrDefault(p =>
+            p.SourceType == AutomationSourceType.DailyKatha
+            && p.Title.Contains("हरिहर मिलन", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(hariharKatha);
+        Assert.Contains("भगवान श्रीहरि विष्णु", hariharKatha!.Script);
+        Assert.Contains("भगवान शिव", hariharKatha.Script);
+
+        // Verify PublishDaysBefore = 1 schedules Day N content on Day N-1 evening for overnight search indexing
+        kathaRule.PublishDaysBefore = 1;
+        kathaRule.PreferredPublishTime = "20:30";
+        await repo.UpsertRuleAsync(kathaRule, ct);
+        var evePrep = await svc.PrepareForDateAsync(userId, "2026-11-23", ruleId: kathaRule.Id, forceRegenerate: true, ct);
+        var eveKatha = evePrep.Posts.First(p => p.Id == hariharKatha.Id);
+        Assert.Equal(new DateTime(2026, 11, 22, 15, 0, 0, DateTimeKind.Utc), eveKatha.ScheduledAtUtc);
     }
 
     [Fact]

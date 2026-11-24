@@ -19,15 +19,26 @@ public sealed class MongoProjectRepository(MongoDbService mongo) : IProjectRepos
         await Collection.Find(p => p.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct) =>
-        await Collection.Find(FilterDefinition<Project>.Empty).ToListAsync(ct).ConfigureAwait(false);
+        await Collection.Find(FilterDefinition<Project>.Empty)
+            .Project<Project>(Builders<Project>.Projection.Exclude(p => p.StudioDraftJson))
+            .ToListAsync(ct).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct) =>
         await Collection.Find(p => p.UserId == userId)
+            .Project<Project>(Builders<Project>.Projection.Exclude(p => p.StudioDraftJson))
             .SortByDescending(p => p.UpdatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<string>> ListIdsByUserAsync(string userId, int limit, CancellationToken ct) =>
+        await Collection.Find(p => p.UserId == userId)
+            .SortByDescending(p => p.UpdatedAt)
+            .Limit(Math.Clamp(limit, 1, 200))
+            .Project(p => p.Id)
             .ToListAsync(ct).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<Project>> ListSubProjectsAsync(string parentProjectId, CancellationToken ct) =>
         await Collection.Find(p => p.ParentProjectId == parentProjectId)
+            .Project<Project>(Builders<Project>.Projection.Exclude(p => p.StudioDraftJson))
             .SortByDescending(p => p.UpdatedAt)
             .ToListAsync(ct).ConfigureAwait(false);
 

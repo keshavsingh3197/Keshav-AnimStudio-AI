@@ -139,7 +139,9 @@ public class AutomationImprovementsTests
         Assert.DoesNotContain("bit.ly", sanitized.Title, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("bit.ly", sanitized.Description, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("tinyurl.com", sanitized.PinnedComment ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("https://panchang.example.com/daily?utm_source=youtube", sanitized.Description);
+        Assert.Contains("https://panchang.example.com", sanitized.Description);
+        Assert.DoesNotContain("utm_source", sanitized.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/daily", sanitized.Description, StringComparison.OrdinalIgnoreCase);
         Assert.True(YouTubePublishValidator.TagsLength(sanitized.Tags) <= YouTubePublishValidator.MaxTagsLength);
         Assert.InRange(sanitized.Tags.Count, 3, 30);
         Assert.False(sanitized.MadeForKids);
@@ -147,6 +149,43 @@ public class AutomationImprovementsTests
         var hashCount = sanitized.Description.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Count(t => t.StartsWith('#'));
         Assert.InRange(hashCount, 3, 8);
+    }
+
+    [Fact]
+    public void YouTubePolicyComplianceSanitizer_trims_urls_to_root_subdomain_and_keeps_multiple_portal_links()
+    {
+        var rawDesc = """
+            Desi 3D Comedy Short — Watch full animated episodes!
+
+            🌐 Keshav Hub: https://keshavsingh.in?utm_source=youtube&utm_medium=automation
+            • AnimStudio AI: https://studio.keshavsingh.in/projects?utm_campaign=c1
+            • Pratiyogita: https://pratiyogita.keshavsingh.in/competitions
+            • Hindu Panchang: https://panchang.keshavsingh.in/festivals?city=patna
+            • Duplicate Hub: https://keshavsingh.in/about
+
+            #Shorts #HindiComedy #3DAnimation
+            """;
+
+        var sanitized = YouTubePolicyComplianceSanitizer.Sanitize(
+            rawTitle: "Desi Comedy Episode",
+            rawDescription: rawDesc,
+            rawTags: ["Shorts", "Hindi Comedy", "3D Cartoon"],
+            rawPinnedComment: "Explore: https://studio.keshavsingh.in/editor?utm_source=youtube",
+            primaryDestinationUrl: "https://keshavsingh.in?utm_source=youtube",
+            isShort: true,
+            language: "hi");
+
+        Assert.DoesNotContain("utm_source", sanitized.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/projects", sanitized.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("/competitions", sanitized.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("/festivals", sanitized.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("Duplicate Hub", sanitized.Description, StringComparison.Ordinal);
+        Assert.Contains("https://keshavsingh.in", sanitized.Description, StringComparison.Ordinal);
+        Assert.Contains("https://studio.keshavsingh.in", sanitized.Description, StringComparison.Ordinal);
+        Assert.Contains("https://pratiyogita.keshavsingh.in", sanitized.Description, StringComparison.Ordinal);
+        Assert.Contains("https://panchang.keshavsingh.in", sanitized.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("utm_source", sanitized.PinnedComment ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://studio.keshavsingh.in", sanitized.PinnedComment ?? string.Empty, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -395,10 +434,11 @@ public class AutomationImprovementsTests
 
         Assert.DoesNotContain("DesiKhadiSitcom", item.Description, StringComparison.Ordinal);
         Assert.DoesNotContain("DesiKhadiSitcom", item.SourceSummary, StringComparison.Ordinal);
+        Assert.DoesNotContain("utm_source", item.Description, StringComparison.OrdinalIgnoreCase);
         var httpCount = System.Text.RegularExpressions.Regex.Matches(item.Description, @"https?://").Count;
-        Assert.InRange(httpCount, 0, 1);
+        Assert.InRange(httpCount, 1, 4);
 
-        var dirtyDesc = "Test <script>alert(1)</script> — DesiKhadiSitcom देसी कॉमेडी\n👉 A: https://one.example.com\n👉 B: https://two.example.com\n👉 C: https://three.example.com\n#tag1 #tag2 #tag3";
+        var dirtyDesc = "Test <script>alert(1)</script> — DesiKhadiSitcom देसी कॉमेडी\n👉 A: https://one.example.com/page?utm_source=x\n👉 B: https://two.example.com\n👉 C: https://three.example.com\n👉 D: https://four.example.com\n👉 E: https://five.example.com\n👉 Dup: https://one.example.com/other\n#tag1 #tag2 #tag3";
         var sanitized = YouTubePolicyComplianceSanitizer.Sanitize(
             rawTitle: "Test <Title>",
             rawDescription: dirtyDesc,
@@ -415,7 +455,10 @@ public class AutomationImprovementsTests
         Assert.DoesNotContain("<", sanitized.Description);
         Assert.DoesNotContain(">", sanitized.Description);
         Assert.DoesNotContain("DesiKhadiSitcom", sanitized.Description);
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(sanitized.Description, @"https?://"));
+        Assert.DoesNotContain("utm_source", sanitized.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("five.example.com", sanitized.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Dup:", sanitized.Description, StringComparison.Ordinal);
+        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(sanitized.Description, @"https?://").Count);
     }
 
     [Fact]
@@ -466,5 +509,35 @@ public class AutomationImprovementsTests
         var hook = ProceduralComedyThumbnailService.ExtractPunchHookHeadline("कंटाप हेयरकट कांड 😂 | नाई की दुकान का बवाल");
         Assert.DoesNotContain("|", hook);
         Assert.Contains("कंटाप हेयरकट कांड", hook);
+    }
+
+    [Theory]
+    [InlineData("hi", "पंचांग डॉट केशवसिंह डॉट इन", "राशिफल")]
+    [InlineData("en", "panchang dot keshavsingh dot in", "Rashifal")]
+    public void ComposePanchang_uses_natural_spoken_website_invitation_without_raw_urls_while_preserving_description_links(
+        string language, string expectedSpokenDomain, string expectedRashifalHint)
+    {
+        var signals = SampleSignalsWithAstrology("2026-11-23");
+        var rule = new AutomationRule
+        {
+            Id = "ar_panchang_cta",
+            Name = "Daily Panchang",
+            SourceType = AutomationSourceType.HinduPanchang,
+            VideoFormat = AutomationVideoFormat.Vertical,
+            Language = language,
+            IncludePinnedComment = true,
+            EnableCharacterDialogue = true,
+            FunnelWebsiteKeys = ["panchang", "studio"]
+        };
+
+        var composed = Assert.Single(AutomationContentComposer.ComposeForRule(rule, signals, SampleEcosystem()));
+        Assert.DoesNotContain("https://", composed.Script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expectedSpokenDomain, composed.Script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expectedRashifalHint, composed.Script, StringComparison.OrdinalIgnoreCase);
+
+        var spoken = DialogueScriptParser.ToSpokenText(composed.Script, language);
+        Assert.Contains(expectedSpokenDomain, spoken, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://panchang.example.com", composed.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://panchang.example.com", composed.PinnedComment ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 }

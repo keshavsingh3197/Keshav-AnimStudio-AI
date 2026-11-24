@@ -46,18 +46,28 @@ public sealed class GeminiImageProvider(
 
     protected override async Task<string?> GetSecretAsync(CancellationToken ct)
     {
-        if (await base.GetSecretAsync(ct).ConfigureAwait(false) is { Length: > 0 } own)
-            return own;
+        var candidates = await GetSecretCandidatesAsync(ct).ConfigureAwait(false);
+        return candidates.Count > 0 ? candidates[0].Secret : null;
+    }
 
-        if (AiProviderId.TryParse(KnownAiProviders.GeminiTts, out var ttsId) &&
-            await _secrets.GetSecretAsync(ttsId, ct).ConfigureAwait(false) is { Length: > 0 } ttsKey)
-            return ttsKey;
+    protected override async Task<IReadOnlyList<AiSecretCandidate>> GetSecretCandidatesAsync(CancellationToken ct)
+    {
+        var combined = new List<AiSecretCandidate>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        if (AiProviderId.TryParse(KnownAiProviders.Gemini, out var textId) &&
-            await _secrets.GetSecretAsync(textId, ct).ConfigureAwait(false) is { Length: > 0 } textKey)
-            return textKey;
+        foreach (var rawId in new[] { Id.Value, KnownAiProviders.GeminiTts, KnownAiProviders.Gemini })
+        {
+            if (!AiProviderId.TryParse(rawId, out var pid)) continue;
 
-        return null;
+            var list = await _secrets.GetSecretCandidatesAsync(pid, ct).ConfigureAwait(false);
+            foreach (var item in list)
+            {
+                if (seen.Add(item.Fingerprint))
+                    combined.Add(item);
+            }
+        }
+
+        return combined;
     }
 
     public async Task<AiImageResult> GenerateAsync(AiImageRequest request, CancellationToken ct)

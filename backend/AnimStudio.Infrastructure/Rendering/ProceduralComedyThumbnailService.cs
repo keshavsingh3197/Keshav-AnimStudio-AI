@@ -91,9 +91,27 @@ public sealed partial class ProceduralComedyThumbnailService(
                 sourceInputPath = videoPath;
             }
 
-            var hookHeadline = ExtractPunchHookHeadline(title);
+            var heroCopy = ThumbnailPosterCopy.ExtractComedyHooks(title, script);
+            var emotionPalette = ProceduralThumbnailStyler.GetEmotionPalette(heroCopy.Emotion);
+
+            // Step 1: Decode & hero-zoom raw RGBA pixels so characters fill 55-65% of the canvas
+            var cropFilter = BuildHeroCropFilter(sourceIsCleanPng, isPortrait, outWidth, outHeight);
+            var rawRgba = await DecodeToRgbaAsync(
+                workspace,
+                sourceInputPath,
+                sourceIsCleanPng ? null : timestamp,
+                cropFilter,
+                outWidth,
+                outHeight,
+                ct).ConfigureAwait(false);
+            if (rawRgba is null)
+                return null;
+
+            // Step 2: Apply radial emotion spotlight, 60-30-10 edge vignette & text safe-zone scrim
+            ProceduralThumbnailStyler.ApplyHighCtrLightingRgba(rawRgba, outWidth, outHeight, heroCopy.Emotion, isPortrait);
+
             string? assRelPath = null;
-            if (capabilities.Supports(RenderFeature.BurnedSubtitles) && !string.IsNullOrWhiteSpace(hookHeadline))
+            if (capabilities.Supports(RenderFeature.BurnedSubtitles))
             {
                 var canvas = new Canvas(outWidth, outHeight, new FrameRate(1, 1));
                 var lines = new List<DialogueLine>
@@ -101,31 +119,89 @@ public sealed partial class ProceduralComedyThumbnailService(
                     new()
                     {
                         Index = 0,
-                        SpeakerLabel = "Hook",
-                        SpeakerCharacterId = "ct-hook",
-                        Text = hookHeadline,
+                        SpeakerLabel = "HeroHook",
+                        SpeakerCharacterId = "ct-hero",
+                        Text = WrapHookLines(heroCopy.HeroHook, isPortrait ? 20 : 18),
+                        RelativeStartFrame = 0,
+                        RelativeEndFrame = 2
+                    },
+                    new()
+                    {
+                        Index = 1,
+                        SpeakerLabel = "ReactionBadge",
+                        SpeakerCharacterId = "ct-badge",
+                        Text = heroCopy.ReactionBadge,
                         RelativeStartFrame = 0,
                         RelativeEndFrame = 2
                     }
                 };
 
-                // Single punchy MJO-style opaque hook pill cleanly positioned away from character faces (top-center on 9:16, bottom-left on 16:9)
-                var styles = new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
-                {
-                    ["ct-hook"] = new(
-                        "ThumbHook",
-                        "#FEF08A",
-                        Bold: true,
-                        Alignment: isPortrait ? 8 : 1,
-                        MarginV: isPortrait ? 24 : 26,
-                        MarginL: isPortrait ? 24 : 28,
-                        MarginR: isPortrait ? 24 : 320,
-                        FontScalePercent: isPortrait ? 116 : 108,
-                        OutlineColorHex: "#7F1D1D",
-                        BackColorHex: "#DC2626",
-                        SecondaryColorHex: palette.PrimaryHex,
-                        OpaqueBox: true)
-                };
+                // Bold thick-stroked YouTube curiosity headline + vivid reaction pill safely inside mobile viewport
+                var styles = isPortrait
+                    ? new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
+                    {
+                        ["ct-hero"] = new(
+                            "ThumbHero",
+                            emotionPalette.HeroTextHex,
+                            Bold: true,
+                            Alignment: 8,
+                            MarginV: 44,
+                            MarginL: 34,
+                            MarginR: 34,
+                            FontScalePercent: 146,
+                            OutlineColorHex: emotionPalette.HeroOutlineHex,
+                            BackColorHex: "#000000",
+                            SecondaryColorHex: palette.PrimaryHex,
+                            OpaqueBox: false,
+                            OutlineWidth: 8.0,
+                            ShadowDepth: 4.5,
+                            AngleDegrees: -1.8),
+                        ["ct-badge"] = new(
+                            "ThumbBadge",
+                            emotionPalette.PillTextHex,
+                            Bold: true,
+                            Alignment: 2,
+                            MarginV: 144,
+                            MarginL: 48,
+                            MarginR: 48,
+                            FontScalePercent: 98,
+                            OutlineColorHex: emotionPalette.PillBgHex,
+                            BackColorHex: emotionPalette.PillBgHex,
+                            SecondaryColorHex: emotionPalette.AccentHex,
+                            OpaqueBox: true)
+                    }
+                    : new Dictionary<string, SubtitleStyle>(StringComparer.Ordinal)
+                    {
+                        ["ct-hero"] = new(
+                            "ThumbHero",
+                            emotionPalette.HeroTextHex,
+                            Bold: true,
+                            Alignment: 7,
+                            MarginV: 36,
+                            MarginL: 44,
+                            MarginR: 640,
+                            FontScalePercent: 136,
+                            OutlineColorHex: emotionPalette.HeroOutlineHex,
+                            BackColorHex: "#000000",
+                            SecondaryColorHex: palette.PrimaryHex,
+                            OpaqueBox: false,
+                            OutlineWidth: 8.5,
+                            ShadowDepth: 4.5,
+                            AngleDegrees: -1.5),
+                        ["ct-badge"] = new(
+                            "ThumbBadge",
+                            emotionPalette.PillTextHex,
+                            Bold: true,
+                            Alignment: 1,
+                            MarginV: 58,
+                            MarginL: 48,
+                            MarginR: 640,
+                            FontScalePercent: 98,
+                            OutlineColorHex: emotionPalette.PillBgHex,
+                            BackColorHex: emotionPalette.PillBgHex,
+                            SecondaryColorHex: emotionPalette.AccentHex,
+                            OpaqueBox: true)
+                    };
 
                 var fontSize = isPortrait ? 52 : 56;
                 var assText = subtitleWriter.Write(new SubtitleRequest(
@@ -135,22 +211,10 @@ public sealed partial class ProceduralComedyThumbnailService(
                 assRelPath = "in/thumb.ass";
             }
 
-            // Aggressive zoomed MJO upper-body & face composition: frame from above hair/mirror down to waist (cropping out floor/shoes)
-            var colorGrade = "eq=contrast=1.22:saturation=1.42:brightness=0.04,unsharp=5:5:0.95:5:5:0.0";
-            var assFilter = assRelPath is not null ? $",ass={assRelPath}" : string.Empty;
-            string filterComplex;
-            if (sourceIsCleanPng)
-            {
-                filterComplex = isPortrait
-                    ? $"[0:v]crop=iw*0.92:ih*0.70:iw*0.04:ih*0.09,scale={outWidth}:{outHeight}:flags=lanczos,{colorGrade}{assFilter}[v]"
-                    : $"[0:v]crop=iw*0.86:ih*0.78:iw*0.07:ih*0.02,scale={outWidth}:{outHeight}:flags=lanczos,{colorGrade}{assFilter}[v]";
-            }
-            else
-            {
-                filterComplex = isPortrait
-                    ? $"[0:v]crop=iw*0.92:ih*0.48:iw*0.04:ih*0.16,scale={outWidth}:{outHeight}:force_original_aspect_ratio=increase,crop={outWidth}:{outHeight},{colorGrade}{assFilter}[v]"
-                    : $"[0:v]crop=iw*0.78:ih*0.58:iw*0.11:ih*0.14,scale={outWidth}:{outHeight}:flags=lanczos,{colorGrade}{assFilter}[v]";
-            }
+            var colorGrade = string.Create(
+                CultureInfo.InvariantCulture,
+                $"eq=contrast={emotionPalette.ContrastBoost:0.00}:saturation={emotionPalette.SaturationBoost:0.00}:brightness=0.04,unsharp=5:5:1.10:5:5:0.0");
+            var vfChain = assRelPath is not null ? $"{colorGrade},ass={assRelPath}" : colorGrade;
 
             foreach (var quality in new[] { 2, 4, 7 })
             {
@@ -158,31 +222,35 @@ public sealed partial class ProceduralComedyThumbnailService(
                 {
                     FileName = ResolveFfmpegExe(),
                     WorkingDirectory = workspace.RootPath,
+                    RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-                var args = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
-                if (!sourceIsCleanPng)
+                foreach (var arg in new[]
                 {
-                    args.Add("-ss");
-                    args.Add(timestamp.ToString("0.###", CultureInfo.InvariantCulture));
-                }
-                args.AddRange([
-                    "-i", sourceInputPath,
-                    "-filter_complex", filterComplex,
-                    "-map", "[v]",
+                    "-hide_banner", "-loglevel", "error", "-y",
+                    "-f", "rawvideo", "-pixel_format", "rgba",
+                    "-video_size", string.Create(CultureInfo.InvariantCulture, $"{outWidth}x{outHeight}"),
+                    "-framerate", "1", "-i", "pipe:0",
+                    "-vf", vfChain,
                     "-frames:v", "1",
                     "-q:v", quality.ToString(CultureInfo.InvariantCulture),
                     "-f", "image2", "-c:v", "mjpeg",
                     outPath
-                ]);
-                foreach (var arg in args)
+                })
+                {
                     psi.ArgumentList.Add(arg);
+                }
 
                 using var proc = new Process { StartInfo = psi };
                 if (!proc.Start()) return null;
+                await using (var stdin = proc.StandardInput.BaseStream)
+                {
+                    await stdin.WriteAsync(rawRgba, 0, rawRgba.Length, ct).ConfigureAwait(false);
+                    await stdin.FlushAsync(ct).ConfigureAwait(false);
+                }
                 _ = proc.StandardError.ReadToEndAsync(ct);
                 await proc.WaitForExitAsync(ct).ConfigureAwait(false);
 
@@ -256,9 +324,79 @@ public sealed partial class ProceduralComedyThumbnailService(
         return joined;
     }
 
+    private static string BuildHeroCropFilter(bool sourceIsCleanPng, bool isPortrait, int outWidth, int outHeight)
+    {
+        if (sourceIsCleanPng)
+        {
+            return isPortrait
+                // Preserve clean upper ceiling headroom for the safe-zone hero hook while cropping lower floor space
+                ? $"crop=iw*0.88:ih*0.72:iw*0.06:ih*0.04,scale={outWidth}:{outHeight}:flags=lanczos,format=rgba"
+                : $"crop=iw*0.82:ih*0.74:iw*0.06:ih*0.02,scale={outWidth}:{outHeight}:flags=lanczos,format=rgba";
+        }
+        return isPortrait
+            ? $"crop=iw*0.88:ih*0.48:iw*0.06:ih*0.14,scale={outWidth}:{outHeight}:force_original_aspect_ratio=increase,crop={outWidth}:{outHeight},format=rgba"
+            : $"crop=iw*0.78:ih*0.58:iw*0.10:ih*0.11,scale={outWidth}:{outHeight}:flags=lanczos,format=rgba";
+    }
+
+    private async Task<byte[]?> DecodeToRgbaAsync(
+        IRenderWorkspace workspace,
+        string sourceInputPath,
+        double? seekSeconds,
+        string vfFilter,
+        int width,
+        int height,
+        CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ResolveFfmpegExe(),
+            WorkingDirectory = workspace.RootPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-y" };
+        if (seekSeconds is { } ss)
+        {
+            args.Add("-ss");
+            args.Add(ss.ToString("0.###", CultureInfo.InvariantCulture));
+        }
+        args.AddRange([
+            "-i", sourceInputPath,
+            "-vf", vfFilter,
+            "-frames:v", "1",
+            "-f", "rawvideo", "-pix_fmt", "rgba",
+            "pipe:1"
+        ]);
+        foreach (var arg in args)
+            psi.ArgumentList.Add(arg);
+
+        using var proc = new Process { StartInfo = psi };
+        if (!proc.Start()) return null;
+        var expected = width * height * 4;
+        using var ms = new MemoryStream(expected);
+        await Task.WhenAll(
+            proc.StandardOutput.BaseStream.CopyToAsync(ms, ct),
+            proc.StandardError.ReadToEndAsync(ct)).ConfigureAwait(false);
+        await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+        var bytes = ms.ToArray();
+        return proc.ExitCode == 0 && bytes.Length == expected ? bytes : null;
+    }
+
+    private static string WrapHookLines(string text, int maxCharsPerLine)
+    {
+        var clean = (text ?? string.Empty).Trim();
+        if (clean.Length <= maxCharsPerLine) return clean;
+        var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length <= 2) return clean;
+        var mid = (words.Length + 1) / 2;
+        return $"{string.Join(' ', words.Take(mid))}\n{string.Join(' ', words.Skip(mid))}";
+    }
+
     private string ResolveFfmpegExe() =>
         string.IsNullOrWhiteSpace(ffmpegOptions.Value.FfmpegPath) ? "ffmpeg" : ffmpegOptions.Value.FfmpegPath;
 
-    [GeneratedRegex(@"\b(angry|surprised|laughing|punch|kick|facepalm|crash|scared|mirr|glasses|cutting|chasma)\b|अबे|बावले|गया|कांड|😂|😡|😱", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(angry|surprised|laughing|punch|kick|facepalm|crash|scared|mirr|glasses|cutting|chasma|corpseSnapUp)\b|अबे|बावले|गया|कांड|मर गए|तार|साँप|टंकी|गड्ढा|ओ मार भी दे|सब्र|😂|😡|😱", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PeakCueRegex();
 }

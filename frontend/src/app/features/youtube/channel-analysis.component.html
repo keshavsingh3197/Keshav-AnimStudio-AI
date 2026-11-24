@@ -136,6 +136,98 @@
           }
         </div>
 
+        <!-- 4,000 Watch-Hours YPP Target & Multi-Channel December Sprint Command Center -->
+        @if (watchTimeCommand(); as wt) {
+          <section class="ca-card ca-watch-cmd" id="ca-watch-target" aria-labelledby="ca-watch-title">
+            <div class="ca-watch-head">
+              <div>
+                <p class="ca-eyebrow"><span class="ca-badge">YPP</span> 4,000 Watch-Hours Target • December Sprint ({{ wt.daysLeft }} days left)</p>
+                <h3 id="ca-watch-title">⏱️ Watch-Time Command Center — {{ wt.channelTitle }}</h3>
+                <p class="ca-hint">
+                  YouTube Partner Program requires <strong>1,000 subscribers</strong> and <strong>4,000 valid public long-form watch hours</strong> (16:9 VOD + Live streams; Shorts watch hours are tracked separately).
+                </p>
+              </div>
+              <div class="ca-watch-actions">
+                <a routerLink="/automation" class="ca-btn">⚡ Open Auto-Post &amp; Evening-Before Scheduler</a>
+              </div>
+            </div>
+
+            <div class="ca-watch-kpis">
+              <div class="ca-watch-kpi highlight">
+                <span class="lbl">YPP Eligible 16:9 Watch Time</span>
+                <strong>{{ wt.longFormHours | number: '1.0-1' }} <small>/ 4,000 hrs ({{ wt.eligiblePct }}%)</small></strong>
+                <div class="ca-bar"><div class="ca-bar-fill" [style.width.%]="wt.eligiblePct"></div></div>
+                <span class="sub">Remaining: <strong>{{ wt.remainingEligibleHours | number: '1.0-1' }} hrs</strong> ({{ wt.longVideosCount }} long videos analysed)</span>
+              </div>
+
+              <div class="ca-watch-kpi">
+                <span class="lbl">Total Watch Time (Long + Shorts)</span>
+                <strong>{{ wt.totalHours | number: '1.0-1' }} <small>hrs ({{ wt.totalPct }}% of 4,000h)</small></strong>
+                <div class="ca-bar"><div class="ca-bar-fill ca-bar-short" [style.width.%]="wt.totalPct"></div></div>
+                <span class="sub">Shorts: <strong>{{ wt.shortsHours | number: '1.0-1' }} hrs</strong> ({{ wt.shortVideosCount }} Shorts) • Window: {{ wt.windowDays }}d</span>
+              </div>
+
+              <div class="ca-watch-kpi">
+                <span class="lbl">Total Channel Views &amp; Subscribers</span>
+                <strong>{{ wt.totalViews | number }} <small>views</small></strong>
+                <div class="ca-bar"><div class="ca-bar-fill" [style.width.%]="wt.subsPct"></div></div>
+                <span class="sub">Subscribers: <strong>{{ wt.subscribers | number }} / 1,000</strong> ({{ wt.subsRemaining === 0 ? '✓ 1K Reached!' : wt.subsRemaining + ' more to 1K' }})</span>
+              </div>
+
+              <div class="ca-watch-kpi target">
+                <span class="lbl">Daily Target Before Dec 31 ({{ wt.daysLeft }}d)</span>
+                <strong>{{ wt.dailyTargetEligibleHours | number: '1.0-1' }} <small>long-form hrs / day</small></strong>
+                <span class="sub">Total hrs pace needed: <strong>{{ wt.dailyTargetTotalHours | number: '1.0-1' }} hrs/day</strong> • Avg/long video: ~{{ wt.avgHoursPerLongVideo | number: '1.0-1' }}h</span>
+              </div>
+            </div>
+
+            <div class="ca-watch-grid">
+              <div class="ca-panel ca-panel-good">
+                <h4>📅 Daily Execution System for {{ wt.channelTitle }}</h4>
+                <ul>
+                  @for (step of wt.dailyPlaybook; track $index) {
+                    <li>{{ step }}</li>
+                  }
+                </ul>
+              </div>
+
+              @if (multiChannelSprint().length > 1) {
+                <div class="ca-panel">
+                  <h4>🌐 All 3 Channels — Watch-Time &amp; Views Rollup</h4>
+                  <div class="ca-mc-table-wrap">
+                    <table class="ca-mc-table">
+                      <thead>
+                        <tr>
+                          <th>Channel</th>
+                          <th>Subs</th>
+                          <th>Total Views</th>
+                          <th>Total Watch Hrs</th>
+                          <th>16:9 Eligible Hrs</th>
+                          <th>Shorts Hrs</th>
+                          <th>Need / Day (Dec)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (mc of multiChannelSprint(); track mc.channelId) {
+                          <tr [class.active]="mc.channelId === wt.channelId" (click)="select(mc.channelId)">
+                            <td><strong>{{ mc.channelTitle }}</strong></td>
+                            <td>{{ mc.subscribers | number }} ({{ mc.subsPct }}%)</td>
+                            <td>{{ mc.totalViews | number }}</td>
+                            <td><strong>{{ mc.totalHours | number: '1.0-1' }}h</strong></td>
+                            <td><strong>{{ mc.longFormHours | number: '1.0-1' }}h</strong> / 4,000h</td>
+                            <td>{{ mc.shortsHours | number: '1.0-1' }}h</td>
+                            <td>{{ mc.dailyTargetEligibleHours | number: '1.0-1' }}h/day</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              }
+            </div>
+          </section>
+        }
+
         <!-- What to do next: when, and what -->
         <div class="ca-grid ca-grid-top">
           @if (nextUpload(); as nu) {

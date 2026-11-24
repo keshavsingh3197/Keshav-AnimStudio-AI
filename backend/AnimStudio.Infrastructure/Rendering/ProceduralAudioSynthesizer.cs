@@ -336,21 +336,21 @@ public static class ProceduralAudioSynthesizer
         await fs.WriteAsync(header, ct).ConfigureAwait(false);
     }
 
-    private enum ComedySfxKind { Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep, TempleBell, EatingPop, Punch, KickThud, ComicGong, ComicSlap, ScissorSnip, GavelBang, PhoneRing, DoorKnock, Snore, TeacupClink, SpraySfx, AngrySteam, LaughChuckle, SadTrombone }
+    internal enum ComedySfxKind
+    {
+        Boing, Bonk, VineBoom, RecordScratch, TankCannon, Whoosh, AlarmDing, Footstep,
+        TempleBell, EatingPop, Punch, KickThud, ComicGong, ComicSlap, ScissorSnip,
+        GavelBang, PhoneRing, DoorKnock, Snore, TeacupClink, SpraySfx, AngrySteam,
+        LaughChuckle, SadTrombone, ElectricZap, HornHonk, SnakeHiss,
+        TireBrakeScreech, VehicleEngineRev, AchievementChime, CoinCashDing,
+        RimshotPunch, SlideWhistleUp, SlideWhistleDown, DramaticGasp, PaperOfficeFlip, CricketChirp
+    }
 
-    /// <summary>
-    /// Synthesizes deterministic cartoon, cinematic &amp; situational action sound effects aligned to turns, actions,
-    /// camera smash-cuts, and meme cutaways. Streams out in 5-second windows so even 60-minute episodes use &lt; 4 MB RAM.
-    /// </summary>
-    public static async Task WriteComedySfxWavAsync(
-        string outputPath,
+    internal static IReadOnlyList<(double Time, ComedySfxKind Kind, double Gain)> CollectComedySfxEvents(
         ProceduralDialoguePlan plan,
-        int durationSeconds,
-        CancellationToken ct,
-        bool comedyIntensity = true)
+        bool comedyIntensity)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        var totalSamples = Math.Max((long)SampleRate, (long)durationSeconds * SampleRate);
         var events = new List<(double Time, ComedySfxKind Kind, double Gain)>();
 
         foreach (var meme in plan.Memes)
@@ -378,10 +378,11 @@ public static class ProceduralAudioSynthesizer
             }
             prevCue = turn.SceneBackdropCue;
 
+            var turnSpan = Math.Max(0.35, turn.EndSeconds - turn.StartSeconds);
             var txtLower = (turn.Text ?? string.Empty).ToLowerInvariant();
             if (comedyIntensity && (txtLower.Contains("कंटाप") || txtLower.Contains("थप्पड़") || txtLower.Contains("चाँटा") || txtLower.Contains("slap")))
             {
-                events.Add((turn.StartSeconds + Math.Min(0.45, (turn.EndSeconds - turn.StartSeconds) * 0.4), ComedySfxKind.ComicSlap, 0.72));
+                events.Add((turn.StartSeconds + Math.Min(0.45, turnSpan * 0.4), ComedySfxKind.ComicSlap, 0.72));
             }
             var hasScissorsCue = turn.Action == "cutting"
                 || turn.ListenerAction == "cutting"
@@ -390,46 +391,32 @@ public static class ProceduralAudioSynthesizer
                 || (comedyIntensity && (txtLower.Contains("केंची") || txtLower.Contains("कैंची") || txtLower.Contains("चक") || txtLower.Contains("कच") || txtLower.Contains("scissor") || txtLower.Contains("snip") || txtLower.Contains("haircut") || txtLower.Contains("trim")));
             if (hasScissorsCue)
             {
-                // Crisp dual-shear metallic scissor snips ("snick-snick") synced to blade action rather than spoken "chak-chak"
-                var snipSpan = Math.Max(0.25, turn.EndSeconds - turn.StartSeconds);
                 var primaryCutting = turn.Action == "cutting" || txtLower.Contains("चक");
                 var vol = primaryCutting ? 0.68 : 0.42;
-                events.Add((turn.StartSeconds + Math.Min(0.10, snipSpan * 0.12), ComedySfxKind.ScissorSnip, vol));
-                if (snipSpan > 0.75 && primaryCutting)
-                    events.Add((turn.StartSeconds + Math.Min(0.54, snipSpan * 0.48), ComedySfxKind.ScissorSnip, vol * 0.92));
-                if (snipSpan > 1.35 && primaryCutting)
-                    events.Add((turn.StartSeconds + Math.Min(1.02, snipSpan * 0.76), ComedySfxKind.ScissorSnip, vol * 0.96));
+                events.Add((turn.StartSeconds + Math.Min(0.10, turnSpan * 0.12), ComedySfxKind.ScissorSnip, vol));
+                if (turnSpan > 0.75 && primaryCutting)
+                    events.Add((turn.StartSeconds + Math.Min(0.54, turnSpan * 0.48), ComedySfxKind.ScissorSnip, vol * 0.92));
+                if (turnSpan > 1.35 && primaryCutting)
+                    events.Add((turn.StartSeconds + Math.Min(1.02, turnSpan * 0.76), ComedySfxKind.ScissorSnip, vol * 0.96));
             }
             if (turn.Action == "bangingGavel" || string.Equals(turn.SpeakerProp, "gavel", StringComparison.OrdinalIgnoreCase) || txtLower.Contains("ऑर्डर"))
-            {
                 events.Add((turn.StartSeconds + 0.06, ComedySfxKind.GavelBang, 0.64));
-            }
             else if (turn.Action == "callingPhone" || string.Equals(turn.SpeakerProp, "phone", StringComparison.OrdinalIgnoreCase) || txtLower.Contains("ट्रिंग"))
-            {
                 events.Add((turn.StartSeconds + 0.05, ComedySfxKind.PhoneRing, 0.48));
-            }
             else if (txtLower.Contains("खटखट") || txtLower.Contains("खट-खट") || txtLower.Contains("knock"))
-            {
                 events.Add((turn.StartSeconds + 0.05, ComedySfxKind.DoorKnock, 0.56));
-            }
             else if (turn.Action == "removingTowel")
-            {
                 events.Add((turn.StartSeconds + 0.08, ComedySfxKind.Whoosh, 0.45));
-            }
             else if (turn.Action == "spraying" || string.Equals(turn.SpeakerProp, "sprayBottle", StringComparison.OrdinalIgnoreCase))
             {
                 events.Add((turn.StartSeconds + 0.08, ComedySfxKind.SpraySfx, 0.55));
-                if (turn.EndSeconds - turn.StartSeconds > 1.0)
+                if (turnSpan > 1.0)
                     events.Add((turn.StartSeconds + 0.52, ComedySfxKind.SpraySfx, 0.48));
             }
             else if (turn.Action == "sipping" || string.Equals(turn.SpeakerProp, "teacup", StringComparison.OrdinalIgnoreCase))
-            {
                 events.Add((turn.StartSeconds + 0.14, ComedySfxKind.TeacupClink, 0.36));
-            }
             else if (comedyIntensity && (txtLower.Contains("घंटी") || txtLower.Contains("gong") || txtLower.Contains("bell") || txtLower.Contains("rhyme")))
-            {
-                events.Add((turn.EndSeconds - 0.15, ComedySfxKind.ComicGong, 0.56));
-            }
+                events.Add((Math.Max(0.1, turn.EndSeconds - 0.15), ComedySfxKind.ComicGong, 0.56));
 
             var action = turn.Action ?? "none";
             if (action is "punching" or "kicking")
@@ -442,7 +429,39 @@ public static class ProceduralAudioSynthesizer
                     events.Add((Math.Max(0.05, hits[0] - 0.14), ComedySfxKind.Whoosh, 0.22));
                 continue;
             }
-            if (turn.SpeakerRole == CharacterVisualRole.CartoonTank && turn.Emotion is "angry" or "proud")
+            else if (action == "corpseSnapUp")
+            {
+                events.Add((Math.Max(0.02, turn.StartSeconds - 0.03), ComedySfxKind.RecordScratch, 0.56));
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.VineBoom, 0.72));
+                events.Add((turn.StartSeconds + 0.14, ComedySfxKind.AngrySteam, 0.48));
+            }
+            else if (action == "brakeStop")
+            {
+                events.Add((turn.StartSeconds + 0.05, ComedySfxKind.HornHonk, 0.54));
+                events.Add((turn.StartSeconds + Math.Min(0.45, turnSpan * 0.32), ComedySfxKind.TireBrakeScreech, 0.76));
+            }
+            else if (action == "celebrate")
+            {
+                events.Add((Math.Max(0.05, turn.EndSeconds + 0.02), ComedySfxKind.AchievementChime, 0.74));
+            }
+            else if (action == "hazardWire")
+                events.Add((turn.StartSeconds + 0.10, ComedySfxKind.ElectricZap, 0.52));
+            else if (action == "hazardTruck")
+            {
+                events.Add((turn.StartSeconds + 0.08, ComedySfxKind.HornHonk, 0.54));
+                events.Add((turn.StartSeconds + 0.34, ComedySfxKind.TireBrakeScreech, 0.62));
+            }
+            else if (action == "hazardSnake")
+                events.Add((turn.StartSeconds + 0.10, ComedySfxKind.SnakeHiss, 0.44));
+            else if (action == "hazardPit" || action is "jumping" or "dancing")
+                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Boing, 0.38));
+            else if (action == "hazardTank")
+                events.Add((turn.StartSeconds + 0.08, ComedySfxKind.Whoosh, 0.36));
+            else if (action == "hazardFood")
+                events.Add((turn.StartSeconds + 0.10, ComedySfxKind.EatingPop, 0.38));
+            else if (action == "hazardPhone")
+                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.PhoneRing, 0.40));
+            else if (turn.SpeakerRole == CharacterVisualRole.CartoonTank && turn.Emotion is "angry" or "proud")
                 events.Add((turn.StartSeconds + 0.08, ComedySfxKind.TankCannon, 0.72));
             else if (action == "sleeping" || txtLower.Contains("ख्र्र") || txtLower.Contains("खर्र"))
                 events.Add((turn.StartSeconds + 0.10, ComedySfxKind.Snore, 0.44));
@@ -471,8 +490,64 @@ public static class ProceduralAudioSynthesizer
                 events.Add((turn.StartSeconds + 0.06, comedyIntensity && (txtLower.Contains("ओह तेरी") || txtLower.Contains("अब क्या")) ? ComedySfxKind.SadTrombone : ComedySfxKind.Bonk, comedyIntensity ? 0.48 : 0.24));
             else if (action == "eating")
                 events.Add((turn.StartSeconds + 0.12, ComedySfxKind.EatingPop, 0.30));
-            else if (action is "jumping" or "dancing")
-                events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Boing, 0.38));
+
+            // Explicit or contextual SFX cues derived from vehicle, office, achievement, cash, and punchline speech beats
+            if (comedyIntensity && !string.IsNullOrWhiteSpace(turn.SfxCue))
+            {
+                switch (turn.SfxCue.Trim().ToLowerInvariant())
+                {
+                    case "brake":
+                        if (action != "brakeStop")
+                        {
+                            events.Add((turn.StartSeconds + Math.Min(0.35, turnSpan * 0.28), ComedySfxKind.TireBrakeScreech, 0.72));
+                        }
+                        break;
+                    case "horn":
+                        events.Add((turn.StartSeconds + 0.08, ComedySfxKind.HornHonk, 0.60));
+                        break;
+                    case "engine":
+                        events.Add((turn.StartSeconds + 0.06, ComedySfxKind.VehicleEngineRev, 0.58));
+                        break;
+                    case "tada":
+                        if (action != "celebrate")
+                            events.Add((turn.EndSeconds + 0.02, ComedySfxKind.AchievementChime, 0.74));
+                        break;
+                    case "coin":
+                        events.Add((turn.EndSeconds + 0.01, ComedySfxKind.CoinCashDing, 0.62));
+                        break;
+                    case "rimshot":
+                        events.Add((turn.EndSeconds + 0.02, ComedySfxKind.RimshotPunch, 0.68));
+                        break;
+                    case "slideup":
+                        events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.SlideWhistleUp, 0.52));
+                        break;
+                    case "slidedown":
+                        events.Add((turn.EndSeconds + 0.01, ComedySfxKind.SlideWhistleDown, 0.56));
+                        break;
+                    case "trombone":
+                        events.Add((turn.EndSeconds + 0.02, ComedySfxKind.SadTrombone, 0.68));
+                        break;
+                    case "gasp":
+                        events.Add((Math.Max(0.03, turn.StartSeconds - 0.03), ComedySfxKind.DramaticGasp, 0.60));
+                        break;
+                    case "cricket":
+                        events.Add((turn.EndSeconds + 0.04, ComedySfxKind.CricketChirp, 0.52));
+                        break;
+                    case "paper":
+                        events.Add((turn.StartSeconds + 0.10, ComedySfxKind.PaperOfficeFlip, 0.46));
+                        break;
+                    case "boom":
+                        events.Add((turn.StartSeconds + 0.04, ComedySfxKind.VineBoom, 0.68));
+                        break;
+                    case "slap":
+                        events.Add((turn.StartSeconds + Math.Min(0.4, turnSpan * 0.4), ComedySfxKind.ComicSlap, 0.72));
+                        break;
+                    case "bonk":
+                        events.Add((turn.StartSeconds + 0.06, ComedySfxKind.Bonk, 0.58));
+                        break;
+                }
+            }
+
             var emotionChanged = !string.Equals(prevEmotion, turn.Emotion, StringComparison.OrdinalIgnoreCase);
             prevEmotion = turn.Emotion;
 
@@ -480,13 +555,37 @@ public static class ProceduralAudioSynthesizer
                 events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.Whoosh, 0.34));
             else if (comedyIntensity && turn.Emotion is "surprised" && emotionChanged)
                 events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.Boing, 0.38));
+            else if (comedyIntensity && turn.Emotion is "scared" && emotionChanged)
+                events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.DramaticGasp, 0.46));
+            else if (comedyIntensity && turn.Emotion is "smug" && emotionChanged && string.IsNullOrWhiteSpace(turn.SfxCue))
+                events.Add((turn.EndSeconds + 0.02, ComedySfxKind.RimshotPunch, 0.54));
             else if (comedyIntensity && turn.Emotion is "angry" && emotionChanged)
-                events.Add((turn.StartSeconds + 0.16, ComedySfxKind.AngrySteam, 0.34));
+                events.Add((turn.StartSeconds + 0.16, ComedySfxKind.AngrySteam, 0.38));
             else if (comedyIntensity && (turn.Emotion is "laughing" || action == "laughing"))
                 events.Add((Math.Max(turn.StartSeconds + 0.12, turn.EndSeconds - 0.45), ComedySfxKind.LaughChuckle, 0.38));
+            else if (comedyIntensity && turn.Emotion is "sad" && emotionChanged && string.IsNullOrWhiteSpace(turn.SfxCue))
+                events.Add((turn.EndSeconds + 0.02, ComedySfxKind.SadTrombone, 0.54));
             else if (comedyIntensity && turn.Emotion is "confused" && emotionChanged)
-                events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.RecordScratch, 0.34));
+                events.Add((Math.Max(0.03, turn.StartSeconds - 0.02), ComedySfxKind.RecordScratch, 0.36));
         }
+
+        return events;
+    }
+
+    /// <summary>
+    /// Synthesizes deterministic cartoon, cinematic &amp; situational action sound effects aligned to turns, actions,
+    /// camera smash-cuts, and meme cutaways. Streams out in 5-second windows so even 60-minute episodes use &lt; 4 MB RAM.
+    /// </summary>
+    public static async Task WriteComedySfxWavAsync(
+        string outputPath,
+        ProceduralDialoguePlan plan,
+        int durationSeconds,
+        CancellationToken ct,
+        bool comedyIntensity = true)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var totalSamples = Math.Max((long)SampleRate, (long)durationSeconds * SampleRate);
+        var events = CollectComedySfxEvents(plan, comedyIntensity);
 
         // Precompute sound effects into a window-streamed PCM file (5s window = 240,000 samples = <2 MB RAM even for 60 min!).
         var dir = Path.GetDirectoryName(outputPath);
@@ -551,10 +650,16 @@ public static class ProceduralAudioSynthesizer
     {
         ComedySfxKind.VineBoom or ComedySfxKind.TankCannon => 0.75,
         ComedySfxKind.TempleBell or ComedySfxKind.ComicGong or ComedySfxKind.SadTrombone => 0.95,
-        ComedySfxKind.PhoneRing or ComedySfxKind.Snore or ComedySfxKind.AngrySteam or ComedySfxKind.LaughChuckle => 0.58,
-        ComedySfxKind.Boing or ComedySfxKind.AlarmDing or ComedySfxKind.DoorKnock => 0.44,
+        ComedySfxKind.AchievementChime => 0.84,
+        ComedySfxKind.CricketChirp => 0.72,
+        ComedySfxKind.TireBrakeScreech => 0.68,
+        ComedySfxKind.VehicleEngineRev => 0.64,
+        ComedySfxKind.PhoneRing or ComedySfxKind.Snore or ComedySfxKind.AngrySteam or ComedySfxKind.LaughChuckle or ComedySfxKind.DramaticGasp => 0.56,
+        ComedySfxKind.RimshotPunch or ComedySfxKind.SlideWhistleDown => 0.52,
+        ComedySfxKind.Boing or ComedySfxKind.AlarmDing or ComedySfxKind.DoorKnock or ComedySfxKind.ElectricZap or ComedySfxKind.HornHonk or ComedySfxKind.SnakeHiss or ComedySfxKind.CoinCashDing or ComedySfxKind.SlideWhistleUp => 0.44,
         ComedySfxKind.GavelBang => 0.38,
         ComedySfxKind.ScissorSnip => 0.40,
+        ComedySfxKind.PaperOfficeFlip => 0.34,
         ComedySfxKind.Whoosh or ComedySfxKind.TeacupClink or ComedySfxKind.SpraySfx => 0.28,
         ComedySfxKind.RecordScratch => 0.24,
         ComedySfxKind.Footstep => 0.11,
@@ -640,6 +745,30 @@ public static class ProceduralAudioSynthesizer
             return (0.62 * Math.Sin(phase) + 0.38 * Math.Sin(phase2)) * Math.Min(1.0, u / 0.002) * Math.Exp(-u * 15.5);
         }
 
+        if (kind == ComedySfxKind.ElectricZap)
+        {
+            var pulse = Math.Sin(2.0 * Math.PI * 19.0 * u) > -0.2 ? 1.0 : 0.15;
+            var buzzFreq = 120.0 + 480.0 * Math.Abs(Math.Sin(2.0 * Math.PI * 33.0 * u));
+            phase += 2.0 * Math.PI * buzzFreq / SampleRate;
+            var spark = rng.NextDouble() * 2.0 - 1.0;
+            return Math.Tanh((0.55 * Math.Sin(phase) + 0.65 * spark) * pulse) * Math.Exp(-u * 4.5) * 0.72;
+        }
+        if (kind == ComedySfxKind.HornHonk)
+        {
+            var second = u >= 0.02 && u <= 0.17 ? 1.0 : u >= 0.22 && u <= 0.41 ? 1.0 : 0.0;
+            if (second == 0) return 0.0;
+            phase += 2.0 * Math.PI * 415.0 / SampleRate;
+            phase2 += 2.0 * Math.PI * 523.0 / SampleRate;
+            return Math.Tanh((0.58 * Math.Sin(phase) + 0.48 * Math.Sin(phase2)) * 1.45) * 0.62;
+        }
+        if (kind == ComedySfxKind.SnakeHiss)
+        {
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hp = white - lpNoise;
+            lpNoise = 0.28 * white + 0.72 * lpNoise;
+            return Math.Tanh(hp * 1.65) * Math.Sin(Math.PI * Math.Min(1.0, u / sfxDur)) * 0.62;
+        }
+
         if (kind == ComedySfxKind.SpraySfx)
         {
             var white = rng.NextDouble() * 2.0 - 1.0;
@@ -679,6 +808,134 @@ public static class ProceduralAudioSynthesizer
             phase2 += 2.0 * Math.PI * (f * 2.0) / SampleRate;
             var envTrombone = u < 0.60 ? Math.Sin(Math.PI * ((u % 0.20) / 0.20)) : Math.Exp(-Math.Max(0, u - 0.60) * 3.2);
             return Math.Tanh((0.68 * Math.Sin(phase) + 0.32 * Math.Sin(phase2)) * 1.8) * envTrombone * 0.56;
+        }
+
+        if (kind == ComedySfxKind.TireBrakeScreech)
+        {
+            // Sharp rubber-on-asphalt screech sweep + comic stop thud at the end
+            var skidProg = Math.Min(1.0, u / Math.Max(0.1, sfxDur - 0.10));
+            var squealA = 1480.0 - 520.0 * skidProg + 65.0 * Math.Sin(2.0 * Math.PI * 34.0 * u);
+            var squealB = 2940.0 - 980.0 * skidProg + 110.0 * Math.Sin(2.0 * Math.PI * 41.0 * u);
+            phase += 2.0 * Math.PI * squealA / SampleRate;
+            phase2 += 2.0 * Math.PI * squealB / SampleRate;
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var grit = white - lpNoise;
+            lpNoise = 0.42 * white + 0.58 * lpNoise;
+            var envSkid = Math.Min(1.0, u / 0.015) * (1.0 - 0.65 * skidProg);
+            var tireSqueal = Math.Tanh((0.55 * Math.Sin(phase) + 0.35 * Math.Sin(phase2) + 0.28 * grit) * 1.5) * envSkid;
+            var stopDt = u - (sfxDur - 0.10);
+            var thud = stopDt >= 0 ? Math.Sin(2.0 * Math.PI * (95.0 - stopDt * 300.0) * stopDt) * Math.Exp(-stopDt * 24.0) * 0.72 : 0.0;
+            return Math.Clamp(tireSqueal * 0.66 + thud, -1.0, 1.0);
+        }
+
+        if (kind == ComedySfxKind.VehicleEngineRev)
+        {
+            // Pulsed scooter/motorcycle/auto throttle rev up then ease down
+            var rise = u < 0.36 ? (u / 0.36) : Math.Max(0.0, 1.0 - (u - 0.36) / 0.28);
+            var engineHz = 64.0 + 135.0 * Math.Pow(rise, 1.25);
+            phase += 2.0 * Math.PI * engineHz / SampleRate;
+            var flutter = 0.65 + 0.35 * Math.Sin(2.0 * Math.PI * (engineHz * 0.5) * u);
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            lpNoise = 0.78 * lpNoise + 0.22 * white;
+            var exhaust = Math.Tanh((0.68 * Math.Sin(phase) + 0.36 * Math.Sin(phase * 2.0) + 0.22 * lpNoise) * 1.9);
+            var envEng = Math.Min(1.0, u / 0.04) * Math.Min(1.0, (sfxDur - u) / 0.09);
+            return exhaust * flutter * envEng * 0.64;
+        }
+
+        if (kind == ComedySfxKind.AchievementChime)
+        {
+            // Bright ascending C5 -> E5 -> G5 -> C6 joyful "Ta-Da!" job-completed chime
+            var noteIdx = u < 0.11 ? 0 : u < 0.22 ? 1 : u < 0.34 ? 2 : 3;
+            var noteStart = noteIdx == 0 ? 0.0 : noteIdx == 1 ? 0.11 : noteIdx == 2 ? 0.22 : 0.34;
+            var noteF = noteIdx switch { 0 => 523.25, 1 => 659.25, 2 => 783.99, _ => 1046.50 };
+            phase += 2.0 * Math.PI * noteF / SampleRate;
+            phase2 += 2.0 * Math.PI * (noteF * 1.5) / SampleRate;
+            var dt = u - noteStart;
+            var decayRate = noteIdx == 3 ? 4.2 : 12.0;
+            var envNote = Math.Min(1.0, dt / 0.005) * Math.Exp(-dt * decayRate);
+            return (0.66 * Math.Sin(phase) + 0.24 * Math.Sin(phase * 2.0) + 0.14 * Math.Sin(phase2)) * envNote * 0.78;
+        }
+
+        if (kind == ComedySfxKind.CoinCashDing)
+        {
+            // Crisp two-tone cash register / idea coin ding ("Bling-Ting!")
+            var dt = u < 0.13 ? u : u - 0.13;
+            var f = u < 0.13 ? 1318.51 : 1975.53;
+            phase += 2.0 * Math.PI * f / SampleRate;
+            phase2 += 2.0 * Math.PI * (f * 2.0) / SampleRate;
+            var envCoin = Math.Min(1.0, dt / 0.003) * Math.Exp(-dt * (u < 0.13 ? 18.0 : 8.5));
+            return (0.72 * Math.Sin(phase) + 0.28 * Math.Sin(phase2)) * envCoin * 0.72;
+        }
+
+        if (kind == ComedySfxKind.RimshotPunch)
+        {
+            // Classic comedy "Ba-Dum-Tss!" (0.00 snare, 0.13 tom, 0.25 crash cymbal hiss)
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hp = white - lpNoise;
+            lpNoise = 0.30 * white + 0.70 * lpNoise;
+            if (u < 0.13)
+            {
+                phase += 2.0 * Math.PI * (240.0 * Math.Exp(-u * 18.0) + 125.0) / SampleRate;
+                return (0.60 * Math.Sin(phase) + 0.45 * hp) * Math.Exp(-u * 26.0) * 0.78;
+            }
+            if (u < 0.25)
+            {
+                var dt = u - 0.13;
+                phase += 2.0 * Math.PI * (185.0 * Math.Exp(-dt * 16.0) + 98.0) / SampleRate;
+                return (0.68 * Math.Sin(phase) + 0.35 * hp) * Math.Exp(-dt * 24.0) * 0.78;
+            }
+            var cDt = u - 0.25;
+            phase2 += 2.0 * Math.PI * 5400.0 / SampleRate;
+            return Math.Tanh((0.76 * hp + 0.24 * Math.Sin(phase2)) * 1.4) * Math.Exp(-cDt * 7.8) * 0.65;
+        }
+
+        if (kind == ComedySfxKind.SlideWhistleUp || kind == ComedySfxKind.SlideWhistleDown)
+        {
+            var frac = Math.Clamp(u / sfxDur, 0.0, 1.0);
+            var f = kind == ComedySfxKind.SlideWhistleUp
+                ? 360.0 + 1120.0 * Math.Pow(frac, 1.35)
+                : 1420.0 - 1180.0 * Math.Pow(frac, 0.85);
+            phase += 2.0 * Math.PI * f / SampleRate;
+            var envW = Math.Min(1.0, u / 0.025) * Math.Min(1.0, (sfxDur - u) / 0.045);
+            return (0.82 * Math.Sin(phase) + 0.18 * Math.Sin(phase * 2.0)) * envW * 0.56;
+        }
+
+        if (kind == ComedySfxKind.DramaticGasp)
+        {
+            // Sharp tense orchestral minor-second sting + quick gasp breath
+            var noteA = 392.0;
+            var noteB = 415.3; // semitone clash for sudden comic shock!
+            phase += 2.0 * Math.PI * noteA / SampleRate;
+            phase2 += 2.0 * Math.PI * noteB / SampleRate;
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hp = white - lpNoise;
+            lpNoise = 0.50 * white + 0.50 * lpNoise;
+            var breathEnv = u < 0.16 ? Math.Sin(Math.PI * (u / 0.16)) : 0.0;
+            var stringEnv = Math.Min(1.0, u / 0.01) * Math.Exp(-u * 6.5);
+            return Math.Tanh((0.46 * Math.Sin(phase) + 0.46 * Math.Sin(phase2)) * stringEnv * 1.4 + hp * breathEnv * 0.55) * 0.66;
+        }
+
+        if (kind == ComedySfxKind.PaperOfficeFlip)
+        {
+            // Twin rapid paper/file rustle snaps for office meeting / desk gags
+            var slot = u < 0.16 ? 0 : 1;
+            var dt = slot == 0 ? u : u - 0.16;
+            if (dt > 0.14) return 0.0;
+            var white = rng.NextDouble() * 2.0 - 1.0;
+            var hp = white - lpNoise;
+            lpNoise = 0.35 * white + 0.65 * lpNoise;
+            return Math.Tanh(hp * 1.7) * Math.Sin(Math.PI * (dt / 0.14)) * 0.58;
+        }
+
+        if (kind == ComedySfxKind.CricketChirp)
+        {
+            // Classic 3-pulse field cricket chirp for deadpan awkward silence
+            var slot = (int)(u / 0.24);
+            var dt = u - slot * 0.24;
+            if (slot > 2 || dt > 0.17) return 0.0;
+            phase += 2.0 * Math.PI * 4420.0 / SampleRate;
+            var pulseMod = Math.Max(0.0, Math.Sin(2.0 * Math.PI * 32.0 * dt));
+            return Math.Sin(phase) * pulseMod * Math.Sin(Math.PI * (dt / 0.17)) * 0.46;
         }
 
         var freq = kind switch

@@ -132,6 +132,21 @@ public abstract class HttpAiProviderBase : IAiProvider
         _secrets.GetSecretAsync(Id, ct);
 
     /// <summary>
+    /// Ordered secret candidates tried sequentially when a key fails with quota/rate/auth errors.
+    /// Defaults to delegating to <see cref="GetSecretAsync"/> when a subclass only overrides single-key lookup.
+    /// </summary>
+    protected virtual async Task<IReadOnlyList<AiSecretCandidate>> GetSecretCandidatesAsync(CancellationToken ct)
+    {
+        var candidates = await _secrets.GetSecretCandidatesAsync(Id, ct).ConfigureAwait(false);
+        if (candidates.Count > 0) return candidates;
+
+        var fallback = await GetSecretAsync(ct).ConfigureAwait(false);
+        return string.IsNullOrEmpty(fallback)
+            ? []
+            : [new AiSecretCandidate(null, "single", fallback)];
+    }
+
+    /// <summary>
     /// Attaches the key. Overridden by providers that do not use a bearer token.
     /// </summary>
     protected virtual void ApplyAuthentication(HttpRequestMessage request, string secret) =>
@@ -139,7 +154,10 @@ public abstract class HttpAiProviderBase : IAiProvider
 
     /// <summary>
     /// Sends a request with the key attached, mapping every transport failure and failure
-    /// status onto an <see cref="AiProviderException"/> the executor can record.
+    /// status onto an <see cref="AiProviderException"/> the executor can record. When
+    /// multiple backup keys are configured in the pool, key-level failures (<c>quota-exhausted</c>,
+    /// <c>rate-limited</c>, <c>credential-rejected</c>, <c>billing-required</c>) fail over
+    /// automatically to the next healthy key before bubbling up.
     /// </summary>
     /// <remarks>
     /// The caller owns the returned response and must dispose it. Failure bodies are read
@@ -150,20 +168,103 @@ public abstract class HttpAiProviderBase : IAiProvider
         HttpRequestMessage request, CancellationToken ct)
     {
         var client = Client();
-        var secret = RequiresApiKey ? await GetSecretAsync(ct).ConfigureAwait(false) : null;
+        if (!RequiresApiKey)
+            return await SendSingleAsync(client, request, ct).ConfigureAwait(false);
 
-        if (RequiresApiKey && string.IsNullOrEmpty(secret))
+        var candidates = await GetSecretCandidatesAsync(ct).ConfigureAwait(false);
+        if (candidates.Count == 0)
         {
-            // Reachable despite IsConfigured: a key can be deleted between chain
-            // composition and the call. A named code makes the chain fall through cleanly.
             request.Dispose();
+
+            var cooldown = _secrets.GetPoolCooldown(Id);
+            if (cooldown.AllInCooldown)
+            {
+                var resetHint = cooldown.EarliestResetUtc is { } reset
+                    ? $" (resets around {reset:HH:mm} UTC)"
+                    : string.Empty;
+                throw new AiProviderException(
+                    cooldown.Reason ?? "quota-exhausted",
+                    $"All configured API keys for '{Id.Value}' are in cooldown{resetHint}.");
+            }
 
             throw new AiProviderException("credential-missing",
                 $"No API key is installed for '{Id.Value}'.");
         }
 
-        if (secret is not null) ApplyAuthentication(request, secret);
+        var buffered = candidates.Count > 1
+            ? await BufferedHttpRequest.CaptureAsync(request, ct).ConfigureAwait(false)
+            : null;
 
+        AiProviderException? lastFailure = null;
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            var attempt = buffered is null ? request : buffered.BuildAttempt();
+            ApplyAuthentication(attempt, candidate.Secret);
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.SendAsync(attempt, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                if (buffered is not null) attempt.Dispose();
+                throw;
+            }
+            catch (TaskCanceledException ex)
+            {
+                if (buffered is not null) attempt.Dispose();
+                throw new AiProviderException("timeout", $"'{Id.Value}' did not respond in time.", ex);
+            }
+            catch (HttpRequestException ex)
+            {
+                if (buffered is not null) attempt.Dispose();
+                throw new AiProviderException("transport-failed", $"Could not reach '{Id.Value}'.", ex);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                await _secrets.RecordSecretOutcomeAsync(
+                    Id, candidate.KeyId, candidate.Fingerprint, AiSecretOutcomeKind.Succeeded,
+                    null, null, CancellationToken.None).ConfigureAwait(false);
+                return response;
+            }
+
+            var retryAfterUtc = ResolveRetryAfterUtc(response);
+            using (response)
+            {
+                var payload = await ReadErrorBodyAsync(response, ct).ConfigureAwait(false);
+                if (buffered is not null) attempt.Dispose();
+                lastFailure = Failure(response.StatusCode, payload);
+            }
+
+            var outcome = MapFailureToSecretOutcome(lastFailure.Code);
+            if (outcome is { } secretOutcome)
+            {
+                await _secrets.RecordSecretOutcomeAsync(
+                    Id, candidate.KeyId, candidate.Fingerprint, secretOutcome,
+                    lastFailure.Code, retryAfterUtc, CancellationToken.None).ConfigureAwait(false);
+
+                if (i + 1 < candidates.Count)
+                {
+                    Logger.LogWarning(
+                        "AI provider {ProviderId} key {Fingerprint} hit {ErrorCode}; failing over to backup key {NextFingerprint}.",
+                        Id.Value, candidate.Fingerprint, lastFailure.Code, candidates[i + 1].Fingerprint);
+                    continue;
+                }
+            }
+
+            throw lastFailure;
+        }
+
+        throw lastFailure ?? new AiProviderException("credential-missing",
+            $"No API key is installed for '{Id.Value}'.");
+    }
+
+    private async Task<HttpResponseMessage> SendSingleAsync(
+        HttpClient client, HttpRequestMessage request, CancellationToken ct)
+    {
         HttpResponseMessage response;
         try
         {
@@ -175,7 +276,6 @@ public abstract class HttpAiProviderBase : IAiProvider
         }
         catch (TaskCanceledException ex)
         {
-            // Not the caller cancelling - HttpClient reports its own timeout this way.
             throw new AiProviderException("timeout", $"'{Id.Value}' did not respond in time.", ex);
         }
         catch (HttpRequestException ex)
@@ -189,6 +289,87 @@ public abstract class HttpAiProviderBase : IAiProvider
         {
             var payload = await ReadErrorBodyAsync(response, ct).ConfigureAwait(false);
             throw Failure(response.StatusCode, payload);
+        }
+    }
+
+    private static AiSecretOutcomeKind? MapFailureToSecretOutcome(string errorCode) => errorCode switch
+    {
+        "quota-exhausted" => AiSecretOutcomeKind.QuotaExhausted,
+        "rate-limited" => AiSecretOutcomeKind.RateLimited,
+        "credential-rejected" or "billing-required" => AiSecretOutcomeKind.CredentialRejected,
+        _ => null
+    };
+
+    private static DateTime? ResolveRetryAfterUtc(HttpResponseMessage response)
+    {
+        var ra = response.Headers.RetryAfter;
+        if (ra?.Delta is { } delta && delta > TimeSpan.Zero)
+            return DateTime.UtcNow + delta;
+        if (ra?.Date is { } date)
+            return date.UtcDateTime;
+        return null;
+    }
+
+    private sealed class BufferedHttpRequest
+    {
+        public required HttpMethod Method { get; init; }
+        public required Uri? RequestUri { get; init; }
+        public required Version Version { get; init; }
+        public required HttpVersionPolicy VersionPolicy { get; init; }
+        public required List<KeyValuePair<string, IEnumerable<string>>> Headers { get; init; }
+        public byte[]? ContentBytes { get; init; }
+        public List<KeyValuePair<string, IEnumerable<string>>>? ContentHeaders { get; init; }
+
+        public static async Task<BufferedHttpRequest> CaptureAsync(HttpRequestMessage source, CancellationToken ct)
+        {
+            byte[]? bytes = null;
+            List<KeyValuePair<string, IEnumerable<string>>>? contentHeaders = null;
+            if (source.Content is not null)
+            {
+                bytes = await source.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                contentHeaders = [.. source.Content.Headers];
+            }
+
+            var headers = source.Headers
+                .Where(h => !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase)
+                         && !string.Equals(h.Key, "x-goog-api-key", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return new BufferedHttpRequest
+            {
+                Method = source.Method,
+                RequestUri = source.RequestUri,
+                Version = source.Version,
+                VersionPolicy = source.VersionPolicy,
+                Headers = headers,
+                ContentBytes = bytes,
+                ContentHeaders = contentHeaders
+            };
+        }
+
+        public HttpRequestMessage BuildAttempt()
+        {
+            var clone = new HttpRequestMessage(Method, RequestUri)
+            {
+                Version = Version,
+                VersionPolicy = VersionPolicy
+            };
+
+            foreach (var header in Headers)
+                clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+
+            if (ContentBytes is not null)
+            {
+                var content = new ByteArrayContent(ContentBytes);
+                if (ContentHeaders is not null)
+                {
+                    foreach (var header in ContentHeaders)
+                        content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+                clone.Content = content;
+            }
+
+            return clone;
         }
     }
 
@@ -325,6 +506,19 @@ public abstract class HttpAiProviderBase : IAiProvider
         };
 
         var identifier = ShortErrorIdentifier(payload);
+        if (code == "rate-limited"
+            && identifier is not null
+            && (identifier.Contains("PerDay", StringComparison.OrdinalIgnoreCase)
+                || identifier.Contains("Daily", StringComparison.OrdinalIgnoreCase)))
+        {
+            code = "quota-exhausted";
+        }
+        else if (code == "bad-request"
+            && identifier is not null
+            && identifier.StartsWith("API_KEY_", StringComparison.OrdinalIgnoreCase))
+        {
+            code = "credential-rejected";
+        }
 
         Logger.LogWarning(
             "AI provider {ProviderId} returned {StatusCode} ({Code}){Identifier}.",
@@ -346,7 +540,7 @@ public abstract class HttpAiProviderBase : IAiProvider
     /// short and token-shaped. <c>message</c> is never read: providers put the offending
     /// input in it, and the offending input is the user's transcript.
     /// </remarks>
-    protected static string? ShortErrorIdentifier(string? payload)
+    internal static string? ShortErrorIdentifier(string? payload)
     {
         if (string.IsNullOrWhiteSpace(payload) || payload.Length > 64 * 1024) return null;
 
@@ -367,15 +561,30 @@ public abstract class HttpAiProviderBase : IAiProvider
                 root = error;
             }
 
-            // Google's details name the exact reason ("API_KEY_INVALID") under error.details[].reason: the most specific.
+            // Google's details name the exact reason ("API_KEY_INVALID") under error.details[].reason,
+            // or quota violation id ("GenerateRequestsPerDayPerProjectPerModel-FreeTier") under error.details[].violations[].quotaId.
             if (root.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Array)
             {
                 foreach (var detail in details.EnumerateArray())
                 {
-                    if (detail.ValueKind == JsonValueKind.Object && detail.TryGetProperty("reason", out var reason)
+                    if (detail.ValueKind != JsonValueKind.Object) continue;
+                    if (detail.TryGetProperty("reason", out var reason)
                         && reason.ValueKind == JsonValueKind.String && IsTokenShaped(reason.GetString()))
                     {
                         return reason.GetString();
+                    }
+                    if (detail.TryGetProperty("violations", out var violations) && violations.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var violation in violations.EnumerateArray())
+                        {
+                            if (violation.ValueKind == JsonValueKind.Object
+                                && violation.TryGetProperty("quotaId", out var quotaId)
+                                && quotaId.ValueKind == JsonValueKind.String
+                                && IsTokenShaped(quotaId.GetString()))
+                            {
+                                return quotaId.GetString();
+                            }
+                        }
                     }
                 }
             }

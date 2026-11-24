@@ -349,6 +349,179 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
     }
 
     [FfmpegFact]
+    public async Task Narasimha_Janga_WebGl3D_renders_lion_avatar_split_pillar_and_threshold_climax()
+    {
+        if (!WebGlVideoFrameRenderer.IsAvailable())
+            return;
+
+        var store = new InMemoryObjectStore();
+        var jobsRepo = new InMemoryRenderJobRepo();
+        var projectsRepo = new InMemoryProjectRepo();
+        var ffmpegOptions = Options.Create(new FfmpegOptions
+        {
+            FfmpegPath = FfmpegLocator.FfmpegPath,
+            FfprobePath = FfmpegLocator.FfprobePath
+        });
+        var capabilities = new FfmpegCapabilities
+        {
+            IsAvailable = true,
+            HasLibass = true,
+            HasLibx264 = true,
+            HasAac = true,
+            Major = FfmpegLocator.MajorVersion
+        };
+
+        var service = new ProceduralVideoGeneratorService(
+            ffmpegOptions,
+            capabilities,
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            jobsRepo,
+            projectsRepo,
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string narasimhaScript = """
+            [SCENE]: himalaya | day | perilous
+            [हिरण्यकशिपु]: इसे पर्वत शिखर से नीचे गहरी खाई में फेंक दो!
+            [SCENE]: palace court | night | dark
+            [हिरण्यकशिपु]: इसे विषैले सर्पों के बीच बंद करके डसवा दो!
+            [भक्त प्रह्लाद]: विषैले साँप भी प्रभु की कृपा से हार गए!
+            [हिरण्यकशिपु]: अब मतवाले गजराज हाथी के पैरों तले कुचलवा दो!
+            [SCENE]: temple | night | fiery
+            [होलिका]: मैं प्रह्लाद को गोद में लेकर धधकती ज्वाला में बैठती हूँ।
+            [सूत्रधार]: अग्निकुंड की ज्वाला में होलिका भस्म हो गई और प्रह्लाद सुरक्षित बच गए!
+            [SCENE]: palace court | sunset | fierce
+            [हिरण्यकशिपु]: गदा के प्रहार से आज मैं इस खंभे को तोड़ता हूँ!
+            [सूत्रधार]: गोधूलि वेला में खंभा फटा और भगवान नरसिंह गर्जना के साथ प्रकट हुए।
+            [हिरण्यकशिपु]: (surprised) त्राहिमाम्! न नर, न पशु... यह कैसा अलौकिक रूप है?
+            [भगवान नरसिंह]: (angry) अब चौखट पर मेरी जंघाओं के ऊपर तेरा अहंकार समाप्त होगा!
+            [SCENE]: palace court | sunset | serene
+            [भगवान नरसिंह]: वत्स प्रह्लाद, मैं अत्यंत प्रसन्न हूँ।
+            [सूत्रधार]: निश्छल भक्ति सदैव विजयी होती है।
+            """;
+
+        var result = await service.GenerateAsync("user-narasimha-verify", new ProceduralVideoRequest
+        {
+            Title = "भक्त प्रह्लाद और नरसिंह अवतार की अमर कथा",
+            EventType = "DailyKatha",
+            TopCategoryLabel = "PAURANIK KATHA & DIALOGUE",
+            Language = "hi",
+            Script = narasimhaScript,
+            Theme = ProceduralSceneTheme.VedicTempleSunrise3D,
+            RenderEngine = ProceduralRenderEngine.WebGl3D,
+            EnableCharacterDialogue = true,
+            SpeakerAName = "हिरण्यकशिपु",
+            SpeakerBName = "भक्त प्रह्लाद",
+            Format = "landscape",
+            Resolution = "720p",
+            DurationSeconds = 24,
+            Fps = 12,
+            IncludeCaptions = true,
+            IncludeSpeech = false,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.True(result.SizeBytes > 30_000);
+        Assert.Contains("engine=webgl-3d", result.Summary);
+
+        var outPath = Path.Combine(_root, "narasimha-verify.mp4");
+        await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
+
+        var auditOut = Environment.GetEnvironmentVariable("ANIMSTUDIO_NARASIMHA_AUDIT_MP4");
+        if (!string.IsNullOrWhiteSpace(auditOut))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(auditOut)!);
+            await File.WriteAllBytesAsync(auditOut, result.InlineMp4Bytes!);
+        }
+
+        Assert.Equal("h264,1280,720", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outPath}\""));
+    }
+
+    [FfmpegFact]
+    public async Task HariharMilan_WebGl3D_renders_Vishnu_Shiva_lotus_and_chakra()
+    {
+        if (!WebGlVideoFrameRenderer.IsAvailable())
+            return;
+
+        var store = new InMemoryObjectStore();
+        var jobsRepo = new InMemoryRenderJobRepo();
+        var projectsRepo = new InMemoryProjectRepo();
+        var ffmpegOptions = Options.Create(new FfmpegOptions
+        {
+            FfmpegPath = FfmpegLocator.FfmpegPath,
+            FfprobePath = FfmpegLocator.FfprobePath
+        });
+        var capabilities = new FfmpegCapabilities
+        {
+            IsAvailable = true,
+            HasLibass = true,
+            HasLibx264 = true,
+            HasAac = true,
+            Major = FfmpegLocator.MajorVersion
+        };
+
+        var service = new ProceduralVideoGeneratorService(
+            ffmpegOptions,
+            capabilities,
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            jobsRepo,
+            projectsRepo,
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string hariharScript = """
+            [SCENE]: river ghat | dawn | serene
+            [CAST]: भगवान श्रीहरि विष्णु | divine | azure silk dhoti, pitambara, gold crown, sudarshana chakra
+            [CAST]: भगवान शिव | divine | vibhuti ash skin, crescent moon jata, vasuki snake, trishul
+            [सूत्रधार]: (waving, wide) कार्तिक शुक्ल चतुर्दशी — वैकुंठ चतुर्दशी एवं हरिहर मिलन का महापर्व!
+            [SCENE]: temple | night | glowing
+            [भगवान श्रीहरि विष्णु]: (praying, lotus, closeUpSpeaker) हे विश्वनाथ महादेव! १,००० स्वर्ण कमलों में अंतिम कमल कम है — मैं अपना कमलनयन नेत्र अर्पित करता हूँ!
+            [भगवान शिव]: (proud, trishul, closeUpSpeaker) ठहरो मेरे प्रिय हरि! आपके प्रेम से प्रसन्न होकर मैं आपको सुदर्शन चक्र प्रदान करता हूँ!
+            [भगवान श्रीहरि विष्णु]: (proud, chakra, blessing) आज से हरि को बेलपत्र और शिव को तुलसी अर्पित होगी!
+            """;
+
+        var result = await service.GenerateAsync("user-harihar-verify", new ProceduralVideoRequest
+        {
+            Title = "वैकुंठ चतुर्दशी और हरिहर मिलन की अमर कथा",
+            EventType = "DailyKatha",
+            TopCategoryLabel = "PAURANIK KATHA & DIALOGUE",
+            Language = "hi",
+            Script = hariharScript,
+            Theme = ProceduralSceneTheme.VedicTempleSunrise3D,
+            RenderEngine = ProceduralRenderEngine.WebGl3D,
+            EnableCharacterDialogue = true,
+            SpeakerAName = "भगवान श्रीहरि विष्णु",
+            SpeakerBName = "भगवान शिव",
+            Format = "landscape",
+            Resolution = "720p",
+            DurationSeconds = 12,
+            Fps = 12,
+            IncludeCaptions = true,
+            IncludeSpeech = false,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.True(result.SizeBytes > 30_000);
+        Assert.Contains("engine=webgl-3d", result.Summary);
+
+        var outPath = Path.Combine(_root, "harihar-milan-verify.mp4");
+        await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
+        Assert.Equal("h264,1280,720", FfmpegLocator.Probe(
+            $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outPath}\""));
+    }
+
+    [FfmpegFact]
     public async Task Generates_salon_barbershop_landscape_comedy_video_with_webgl_3d()
     {
         var store = new InMemoryObjectStore();
@@ -862,6 +1035,102 @@ public sealed class ProceduralVideoGenerationTests : IAsyncLifetime
         await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
         Assert.Equal("h264,720,1280", FfmpegLocator.Probe(
             $"-v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 \"{outPath}\""));
+    }
+
+    [FfmpegFact]
+    public async Task SabarKaImtihan_Comedy_WebGl3D_renders_shroud_hazards_and_corpse_snap_climax()
+    {
+        if (!WebGlVideoFrameRenderer.IsAvailable())
+            return;
+
+        var store = new InMemoryObjectStore();
+        var service = new ProceduralVideoGeneratorService(
+            Options.Create(new FfmpegOptions
+            {
+                FfmpegPath = FfmpegLocator.FfmpegPath,
+                FfprobePath = FfmpegLocator.FfprobePath
+            }),
+            new FfmpegCapabilities
+            {
+                IsAvailable = true,
+                HasLibass = true,
+                HasLibx264 = true,
+                HasAac = true,
+                Major = FfmpegLocator.MajorVersion
+            },
+            new Workspaces(_root, store),
+            new AssSubtitleWriter(),
+            store,
+            new InMemoryRenderJobRepo(),
+            new InMemoryProjectRepo(),
+            TimeProvider.System,
+            NullLogger<ProceduralVideoGeneratorService>.Instance);
+
+        const string script = """
+            [CAST]: बबलू यार | scholar | white kurta, dark shawl | voice=Orus
+            [CAST]: पप्पू भैया | scholar | yellow sweater, spiky hair | voice=Puck
+            [CAST]: सुखिया चाचा | male | white kurta, comic mustache | voice=Algenib
+            [CAST]: भाभी जी | noblewoman | pastel saree | voice=Aoede
+            [SCENE]: living room | day | comedy
+            [पप्पू भैया]: (surprised) कैसे मर गए भाई साहब?!
+            [बबलू यार]: (hazardWire, sad) सामने बिजली का छिला तार पड़ा था!
+            [बबलू यार]: (hazardSnake, confused) आगे इतना बड़ा साँप... देखो कितना अच्छा जा रहा है!
+            [सुखिया चाचा]: (corpseSnapUp, angry) ओ मार भी दे हुं!! कब से सुन रहा हूँ!!
+            """;
+
+        var result = await service.GenerateAsync(string.Empty, new ProceduralVideoRequest
+        {
+            Title = "सब्र का इम्तिहान 😂 | ओ मार भी दे!!",
+            EventType = "FunnyComedy",
+            TopCategoryLabel = "KESHAV-ANIM-FF • COMEDY SHORT",
+            Language = "hi",
+            Script = script,
+            Theme = ProceduralSceneTheme.ComedyStage3D,
+            RenderEngine = ProceduralRenderEngine.WebGl3D,
+            SubtitlePreset = "karaoke-pulse",
+            EnableCharacterDialogue = true,
+            EnableComedySfx = true,
+            FollowScriptExactly = true,
+            SpeakerAName = "बबलू यार",
+            SpeakerBName = "पप्पू भैया",
+            Format = "vertical",
+            Resolution = "720p",
+            DurationSeconds = 12,
+            Fps = 24,
+            IncludeCaptions = true,
+            IncludeSpeech = false,
+            IncludeAmbientAudio = true,
+            SaveAsRenderJob = false,
+            ReturnInlineBytes = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(result.InlineMp4Bytes);
+        Assert.Contains("engine=webgl-3d", result.Summary);
+
+        var outPath = Path.Combine(_root, "sabar-smoke-webgl3d.mp4");
+        await File.WriteAllBytesAsync(outPath, result.InlineMp4Bytes!);
+
+        var frameAuditDir = Environment.GetEnvironmentVariable("ANIMSTUDIO_COMEDY_AUDIT_DIR");
+        if (!string.IsNullOrWhiteSpace(frameAuditDir))
+        {
+            Directory.CreateDirectory(frameAuditDir);
+            await File.WriteAllBytesAsync(Path.Combine(frameAuditDir, "sabar-smoke.mp4"), result.InlineMp4Bytes!);
+            foreach (var (name, sec) in new[] { ("1-shroud.png", "1.5"), ("2-wire.png", "4.0"), ("3-snake.png", "7.8"), ("4-snapup.png", "10.3") })
+            {
+                var png = Path.Combine(frameAuditDir, name);
+                var psi = new System.Diagnostics.ProcessStartInfo(FfmpegLocator.FfmpegPath,
+                    $"-nostdin -loglevel error -y -ss {sec} -i \"{outPath}\" -frames:v 1 \"{png}\"")
+                {
+                    RedirectStandardError = false,
+                    RedirectStandardOutput = false,
+                    UseShellExecute = false
+                };
+                using var p = System.Diagnostics.Process.Start(psi)!;
+                await p.WaitForExitAsync();
+                Assert.Equal(0, p.ExitCode);
+                Assert.True(File.Exists(png), $"Expected extracted audit frame {png}");
+            }
+        }
     }
 
     private sealed class Workspaces(string root, IObjectStore store) : IRenderWorkspaceFactory

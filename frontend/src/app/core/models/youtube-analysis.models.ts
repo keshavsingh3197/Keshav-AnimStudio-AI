@@ -172,4 +172,17 @@ export interface ChannelAnalysis {
   lookups: VideoLookup[];
   /** Cached YPP monetization & originality policy audit from the latest channel refresh. */
   policyAudit?: YouTubeMonetizationAuditReport | null;
+  /** 365-day watch-time breakdown separating YPP-eligible long-form watch minutes from Shorts watch minutes. */
+  watchTime365d?: YouTubeWatchTimeBreakdown | null;
+}
+
+export interface YouTubeWatchTimeBreakdown {
+  longFormWatchMinutes: number;
+  shortsWatchMinutes: number;
+  liveStreamWatchMinutes: number;
+  totalWatchMinutes: number;
+  longFormViews: number;
+  shortsViews: number;
+  source: string;
+  windowDays: number;
 }

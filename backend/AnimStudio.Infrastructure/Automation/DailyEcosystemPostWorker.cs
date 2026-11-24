@@ -14,7 +14,7 @@ public sealed class DailyEcosystemPostWorker(
     TimeProvider clock,
     ILogger<DailyEcosystemPostWorker> logger) : BackgroundService
 {
-    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(35);
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(3);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

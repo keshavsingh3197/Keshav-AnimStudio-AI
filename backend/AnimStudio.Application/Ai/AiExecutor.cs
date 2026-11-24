@@ -232,7 +232,13 @@ public sealed class AiExecutor(
                 stopwatch.Stop();
                 lastErrorCode = ex is AiProviderException typed ? typed.Code : "provider-failed";
 
-                registry.ReportOutcome(provider.Id, success: false);
+                // Do not trip the 2-minute circuit breaker on transient rate-limits or per-turn empty responses
+                // when this is the sole configured provider in the chain; wait-and-retry recovery handles them cleanly.
+                if (!(chain.Count == 1
+                    && lastErrorCode is "rate-limited" or "empty-response" or "malformed-response"))
+                {
+                    registry.ReportOutcome(provider.Id, success: false);
+                }
 
                 await RecordAsync(provider, capability, model, AiCallOutcome.Failed,
                     context, (int)stopwatch.ElapsedMilliseconds, lastErrorCode, ct)

@@ -35,9 +35,10 @@ internal static class ProceduralSpeechSynthesizer
 {
     private const double LeadInSeconds = 0.35;
     private const double PauseBetweenTurnsSeconds = 0.24;
-    private const double ComedyStandardGapSeconds = 0.13;
+    private const double ComedyStandardGapSeconds = 0.15;
     private const double ComedyInterruptGapSeconds = 0.05;
     private const double ComedyDeadpanBeatSeconds = 0.32;
+    private const double ComedySfxReactionGapSeconds = 0.52;
     private const double MinTitleHoldSeconds = 1.25;
     private const double TailSeconds = 0.75;
     private static readonly TimeSpan DefaultRateLimitCooldown = TimeSpan.FromSeconds(18);
@@ -107,7 +108,7 @@ internal static class ProceduralSpeechSynthesizer
         var providers = ResolveProviders(aiRegistry, request.SpeechProviderId, customVoiceProfile, studioVoiceRenderer);
         if (providers.Count == 0)
         {
-            const string noProviderReason = "No Speech AI provider is enabled/configured (enable gemini-tts with API key or Google gTTS).";
+            const string noProviderReason = "No Speech AI provider is enabled/configured (configure gemini-tts or your preferred Pro Speech provider in Admin -> AI Providers).";
             logger?.LogWarning("Procedural video speech skipped: {Reason}", noProviderReason);
             return new(null, noProviderReason);
         }
@@ -190,11 +191,51 @@ internal static class ProceduralSpeechSynthesizer
         var activeIdx = 0;
         var successfulClips = 0;
         var nonEmptySpokenTurns = 0;
+        var totalExpectedSpokenTurns = speechTurns.Count(t =>
+            !string.IsNullOrWhiteSpace(DialogueScriptParser.ToSpokenText(t.Text, langCode)));
+        var brokeEarly = false;
         var rpmRecoveryWaits = 0;
         var consecutiveProviderWideFails = 0;
         string? lastFailureSummary = null;
         string? lastFailureCode = null;
         var isComedy = IsComedyRequest(request, initialPlan);
+
+        Dictionary<int, (byte[] Wav, double Duration, string VoiceLabel)> preSynthesized = [];
+        if (providers.Count > 0 && !blocked[activeIdx])
+        {
+            var firstCtx = contexts[activeIdx] ??= await CreateProviderContextAsync(
+                providers[activeIdx], initialPlan, request, activeIdx == 0,
+                customVoiceProfile, studioVoiceRenderer, ct).ConfigureAwait(false);
+            if (firstCtx.IsGemini && !isComedy && totalExpectedSpokenTurns >= 12)
+            {
+                var (batchCode, batchSummary, batchModel) = await TrySynthesizeGeminiBatchesAsync(
+                    firstCtx,
+                    overrideModels[activeIdx],
+                    request,
+                    initialPlan,
+                    speechTurns,
+                    langCode,
+                    isComedy,
+                    workspaceInputDir,
+                    userId,
+                    ai,
+                    ffmpegOptions,
+                    logger,
+                    customVoiceProfile,
+                    studioVoiceRenderer,
+                    rateLimitCooldown,
+                    preSynthesized,
+                    ct).ConfigureAwait(false);
+                overrideModels[activeIdx] = batchModel;
+                if (batchCode is not null)
+                {
+                    lastFailureCode = batchCode;
+                    lastFailureSummary = batchSummary;
+                    if (IsTerminalProviderFailure(batchCode))
+                        blocked[activeIdx] = true;
+                }
+            }
+        }
 
         for (var i = 0; i < speechTurns.Count; i++)
         {
@@ -208,12 +249,26 @@ internal static class ProceduralSpeechSynthesizer
             }
 
             nonEmptySpokenTurns++;
+            if (preSynthesized.TryGetValue(i, out var batched))
+            {
+                clipBytesList.Add(batched.Wav);
+                clipDurations.Add(batched.Duration);
+                var pName = contexts[activeIdx]?.Provider.Id.Value ?? KnownAiProviders.GeminiTts;
+                if (usedProvidersInOrder.Count == 0 || !string.Equals(usedProvidersInOrder[^1], pName, StringComparison.OrdinalIgnoreCase))
+                    usedProvidersInOrder.Add(pName);
+                voicesUsed.Add(batched.VoiceLabel);
+                successfulClips++;
+                consecutiveProviderWideFails = 0;
+                continue;
+            }
+
             var candidateIndices = BuildCandidateOrder(activeIdx, blocked);
             if (candidateIndices.Count == 0)
             {
                 clipBytesList.Add([]);
                 clipDurations.Add(FallbackSeconds(turn));
                 consecutiveProviderWideFails++;
+                brokeEarly = true;
                 break;
             }
 
@@ -232,8 +287,7 @@ internal static class ProceduralSpeechSynthesizer
 
                 var canTryRpmWait = pIdx == candidateIndices[^1]
                     && candidateIndices.Count == 1
-                    && successfulClips > 0
-                    && rpmRecoveryWaits < 1
+                    && rpmRecoveryWaits < 24
                     && rateLimitCooldown > TimeSpan.Zero;
 
                 var (attempt, updatedOverride) = await SynthesizeSingleTurnAsync(
@@ -288,11 +342,12 @@ internal static class ProceduralSpeechSynthesizer
                 if (IsProviderWideFailure(lastFailureCode))
                 {
                     consecutiveProviderWideFails++;
-                    if (consecutiveProviderWideFails >= 3 || blocked.All(b => b))
+                    if (consecutiveProviderWideFails >= 8 || blocked.All(b => b))
                     {
                         logger?.LogWarning(
                             "Stopping procedural speech synthesis early after {Consecutive} consecutive provider-wide failures ({Summary}).",
                             consecutiveProviderWideFails, lastFailureSummary);
+                        brokeEarly = true;
                         break;
                     }
                 }
@@ -306,9 +361,9 @@ internal static class ProceduralSpeechSynthesizer
         if (successfulClips == 0)
             return (null, lastFailureSummary ?? "All configured Speech providers failed.");
 
-        if (nonEmptySpokenTurns >= 4 && successfulClips * 2 < nonEmptySpokenTurns)
+        if (totalExpectedSpokenTurns >= 4 && (brokeEarly || successfulClips * 4 < totalExpectedSpokenTurns * 3))
         {
-            var reason = $"Only {successfulClips} of {nonEmptySpokenTurns} spoken lines succeeded ({lastFailureSummary ?? "rate-limited"}).";
+            var reason = $"Only {successfulClips} of {totalExpectedSpokenTurns} spoken lines succeeded ({lastFailureSummary ?? "rate-limited"}).";
             logger?.LogWarning("Discarding incomplete procedural speech track: {Reason}", reason);
             return (null, reason);
         }
@@ -416,17 +471,18 @@ internal static class ProceduralSpeechSynthesizer
         var style = BuildSpeechStyle(turn, speakerProfile, isComedy, initialPlan.HasCharacters, langCode);
         var rate = ComputeSpeechRate(turn, speakerProfile, isComedy);
 
-        Task<AiOutcome<AiSpeechResult>> CallSpeechAsync(string? model) =>
+        Task<AiOutcome<AiSpeechResult>> CallSpeechAsync(string? model, string? textOverride = null, bool bypassCache = false) =>
             ai.SpeechAsync(new AiSpeechRequest
             {
-                Text = spokenText,
+                Text = textOverride ?? spokenText,
                 VoiceId = voiceId,
                 Rate = rate,
                 LanguageCode = langCode,
                 Style = style,
                 Model = model,
                 ProviderId = provider.Id.Value,
-                ReplicatedVoiceId = turnReplicatedVoiceId
+                ReplicatedVoiceId = turnReplicatedVoiceId,
+                BypassCache = bypassCache
             }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct);
 
         AiOutcome<AiSpeechResult> outcome;
@@ -434,14 +490,55 @@ internal static class ProceduralSpeechSynthesizer
         try
         {
             outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+            if (!outcome.IsSuccess && string.Equals(outcome.ErrorCode, "endpoint-or-model-not-found", StringComparison.OrdinalIgnoreCase))
+            {
+                logger?.LogWarning("Speech provider {ProviderId} rejected configured model ({Error}); keeping configuration strict with no lower-tier fallback.", provider.Id.Value, outcome.ErrorCode);
+            }
 
             if (!outcome.IsSuccess
-                && string.Equals(outcome.ErrorCode, "endpoint-or-model-not-found", StringComparison.OrdinalIgnoreCase)
-                && overrideModel is null
-                && provider.Id.Value.Contains("gemini", StringComparison.OrdinalIgnoreCase))
+                && outcome.ErrorCode is "empty-response" or "malformed-response"
+                && rpmCooldownIfRateLimited > TimeSpan.Zero)
             {
-                overrideModel = "gemini-2.5-flash-preview-tts";
-                outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+                // Gemini 2.5 preview TTS can transiently return empty/OTHER on short ellipses ("हूँ..."), colons or dashes; retry immediately with cleaned text.
+                var cleanedRetryText = spokenText
+                    .Replace("...", ", ")
+                    .Replace("…", ", ")
+                    .Replace("?!", "?")
+                    .Replace("—", ", ")
+                    .Replace("–", ", ")
+                    .Replace(":", ", ")
+                    .Trim();
+                var gentlePlainText = System.Text.RegularExpressions.Regex
+                    .Replace(cleanedRetryText, @"[^\p{L}\p{N}\s,।.?!'\-]", " ")
+                    .Trim();
+                if (!string.IsNullOrWhiteSpace(gentlePlainText) && gentlePlainText[^1] is not ('.' or '।' or '?' or '!'))
+                    gentlePlainText += langCode.StartsWith("hi", StringComparison.OrdinalIgnoreCase) ? "।" : ".";
+
+                for (var emptyTry = 0; emptyTry < 2 && !outcome.IsSuccess && outcome.ErrorCode is "empty-response" or "malformed-response"; emptyTry++)
+                {
+                    logger?.LogInformation(
+                        "Speech provider {Provider} returned {Code} at turn {Index}; retrying after 2.5s.",
+                        provider.Id.Value, outcome.ErrorCode, turnIndex);
+                    await Task.Delay(TimeSpan.FromSeconds(2.5), ct).ConfigureAwait(false);
+                    var retryText = emptyTry == 0
+                        ? (string.IsNullOrWhiteSpace(cleanedRetryText) ? spokenText : cleanedRetryText)
+                        : (string.IsNullOrWhiteSpace(gentlePlainText) ? spokenText : gentlePlainText);
+                    outcome = await CallSpeechAsync(overrideModel, retryText).ConfigureAwait(false);
+                }
+            }
+
+            var isDailyQuotaCap = !outcome.IsSuccess
+                && string.Equals(outcome.ErrorCode, "rate-limited", StringComparison.OrdinalIgnoreCase)
+                && outcome.Message is { } errMsg
+                && (errMsg.Contains("PerDay", StringComparison.OrdinalIgnoreCase)
+                    || errMsg.Contains("Daily", StringComparison.OrdinalIgnoreCase));
+
+            if (isDailyQuotaCap)
+            {
+                logger?.LogWarning(
+                    "Speech provider {Provider} reported daily quota exhaustion at turn {Index} ({Msg}); skipping RPM cooldown.",
+                    provider.Id.Value, turnIndex, outcome.Message);
+                return (TurnSynthesisAttempt.Fail("quota-exhausted", $"{provider.Id.Value}: quota-exhausted ({outcome.Message})"), overrideModel);
             }
 
             if (!outcome.IsSuccess
@@ -449,11 +546,23 @@ internal static class ProceduralSpeechSynthesizer
                 && rpmCooldownIfRateLimited > TimeSpan.Zero)
             {
                 usedCooldownRetry = true;
+                var firstWait = TimeSpan.FromSeconds(Math.Max(22, rpmCooldownIfRateLimited.TotalSeconds));
                 logger?.LogInformation(
                     "Speech provider {Provider} hit rate limit at turn {Index}; waiting {Seconds:0}s for window recovery before retry.",
-                    provider.Id.Value, turnIndex, rpmCooldownIfRateLimited.TotalSeconds);
-                await Task.Delay(rpmCooldownIfRateLimited, ct).ConfigureAwait(false);
+                    provider.Id.Value, turnIndex, firstWait.TotalSeconds);
+                await Task.Delay(firstWait, ct).ConfigureAwait(false);
                 outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+
+                if (!outcome.IsSuccess
+                    && string.Equals(outcome.ErrorCode, "rate-limited", StringComparison.OrdinalIgnoreCase))
+                {
+                    var secondWait = TimeSpan.FromSeconds(38);
+                    logger?.LogInformation(
+                        "Speech provider {Provider} still rate-limited at turn {Index}; waiting {Seconds:0}s more to clear 60s RPM bucket.",
+                        provider.Id.Value, turnIndex, secondWait.TotalSeconds);
+                    await Task.Delay(secondWait, ct).ConfigureAwait(false);
+                    outcome = await CallSpeechAsync(overrideModel).ConfigureAwait(false);
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -493,6 +602,24 @@ internal static class ProceduralSpeechSynthesizer
 
         var normalizedWav = await EnsureStereo48kWavAsync(rawAudio, workspaceInputDir, turnIndex, ffmpegOptions, ct)
             .ConfigureAwait(false);
+        if (normalizedWav is null)
+        {
+            var headHex = rawAudio.Length > 0
+                ? Convert.ToHexString(rawAudio.AsSpan(0, Math.Min(12, rawAudio.Length)))
+                : "empty";
+            logger?.LogWarning(
+                "Procedural speech turn {Index} got unusable audio from {Provider} (mime={Mime}, sniff={Sniff}, len={Len}, head={Head}); retrying with BypassCache=true.",
+                turnIndex, provider.Id.Value, speech.MimeType, AiAudioValidator.Sniff(rawAudio), rawAudio.Length, headHex);
+
+            var freshOutcome = await CallSpeechAsync(overrideModel, bypassCache: true).ConfigureAwait(false);
+            if (freshOutcome.IsSuccess && freshOutcome.Value is { Content.Length: > 0 } freshSpeech)
+            {
+                speech = freshSpeech;
+                rawAudio = freshSpeech.Content;
+                normalizedWav = await EnsureStereo48kWavAsync(rawAudio, workspaceInputDir, turnIndex, ffmpegOptions, ct)
+                    .ConfigureAwait(false);
+            }
+        }
         if (normalizedWav is null)
         {
             logger?.LogWarning("Procedural speech turn {Index} returned unusable audio format on {Provider}.", turnIndex, provider.Id.Value);
@@ -1016,6 +1143,419 @@ internal static class ProceduralSpeechSynthesizer
         "dadi", "nani", "bhabhi", "didi", "rani", "suniti", "suruchi", "seeta", "radha", "pinki", "priya"
     ];
 
+    /// <summary>
+    /// Synthesizes adjacent non-custom Gemini dialogue/narration turns in multi-speaker (or single-speaker multi-line)
+    /// batches of 2-4 turns (using <see cref="AiSpeechRequest.Speakers"/>) and slices the returned WAV at inter-turn
+    /// energy valleys. Cuts Gemini Pro TTS RPD API calls by 3x-4x while preserving distinct cast voices and timings.
+    /// </summary>
+    private static async Task<(string? TerminalErrorCode, string? FailureSummary, string? OverrideModel)> TrySynthesizeGeminiBatchesAsync(
+        ProviderContext ctx,
+        string? overrideModel,
+        ProceduralVideoRequest request,
+        ProceduralDialoguePlan initialPlan,
+        List<ProceduralDialogueTurn> speechTurns,
+        string langCode,
+        bool isComedy,
+        string workspaceInputDir,
+        string userId,
+        IAiExecutor ai,
+        FfmpegOptions ffmpegOptions,
+        ILogger? logger,
+        VoiceProfile? customVoiceProfile,
+        IStudioVoiceRenderer? studioVoiceRenderer,
+        TimeSpan rpmCooldownIfRateLimited,
+        Dictionary<int, (byte[] Wav, double Duration, string VoiceLabel)> outClips,
+        CancellationToken ct)
+    {
+        var (entries, batches) = BuildGeminiSpeechBatches(
+            ctx.VoiceA, ctx.VoiceB, ctx.CanLocalReVoice, ctx.ReplicatedVoiceId,
+            request, initialPlan, speechTurns, langCode, isComedy, customVoiceProfile);
+
+        if (batches.Count == 0)
+            return (null, null, overrideModel);
+
+        logger?.LogInformation(
+            "Batching {TurnCount} of {EligibleCount} Gemini speech turns into {BatchCount} multi-turn calls on {Provider} to conserve daily RPD quota.",
+            batches.Sum(b => b.Count), entries.Count, batches.Count, ctx.Provider.Id.Value);
+
+        for (var bIdx = 0; bIdx < batches.Count; bIdx++)
+        {
+            var batch = batches[bIdx];
+            var speakersList = batch
+                .Select(b => (b.VoiceId, b.ReplicatedVoiceId))
+                .DistinctBy(k => $"{k.VoiceId}|{k.ReplicatedVoiceId}", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            string promptText;
+            IReadOnlyList<AiSpeechSpeaker>? speakers = null;
+            IReadOnlyList<string?>? lineStyles = null;
+            if (speakersList.Count == 2)
+            {
+                const string label1 = "Speaker1";
+                const string label2 = "Speaker2";
+                speakers =
+                [
+                    new AiSpeechSpeaker(label1, speakersList[0].VoiceId, speakersList[0].ReplicatedVoiceId),
+                    new AiSpeechSpeaker(label2, speakersList[1].VoiceId, speakersList[1].ReplicatedVoiceId)
+                ];
+                var sb = new StringBuilder();
+                var styles = new List<string?>(batch.Count);
+                foreach (var item in batch)
+                {
+                    var isFirst = string.Equals(item.VoiceId, speakersList[0].VoiceId, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(item.ReplicatedVoiceId, speakersList[0].ReplicatedVoiceId, StringComparison.Ordinal);
+                    sb.Append(isFirst ? label1 : label2).Append(": ").AppendLine(item.SpokenText);
+                    styles.Add(item.Style);
+                }
+                promptText = sb.ToString().TrimEnd();
+                lineStyles = styles;
+            }
+            else
+            {
+                promptText = string.Join("\n\n", batch.Select(b => b.SpokenText));
+            }
+
+            var batchRate = batch[0].Rate;
+            var batchStyle = batch[0].Style;
+            var batchPrimaryVoice = speakersList[0].VoiceId;
+            var batchPrimaryRep = speakersList[0].ReplicatedVoiceId;
+
+            Task<AiOutcome<AiSpeechResult>> CallBatchAsync(string? model, bool bypassCache = false) =>
+                ai.SpeechAsync(new AiSpeechRequest
+                {
+                    Text = promptText,
+                    VoiceId = batchPrimaryVoice,
+                    Rate = batchRate,
+                    LanguageCode = langCode,
+                    Style = batchStyle,
+                    ProviderId = ctx.Provider.Id.Value,
+                    Model = model,
+                    ReplicatedVoiceId = speakers is null ? batchPrimaryRep : null,
+                    Speakers = speakers,
+                    LineStyles = lineStyles,
+                    BypassCache = bypassCache
+                }, new AiCallContext(null, string.IsNullOrWhiteSpace(userId) ? null : userId), ct);
+
+            var outcome = await CallBatchAsync(overrideModel).ConfigureAwait(false);
+            if (!outcome.IsSuccess && string.Equals(outcome.ErrorCode, "rate-limited", StringComparison.OrdinalIgnoreCase) && rpmCooldownIfRateLimited > TimeSpan.Zero)
+            {
+                var wait = TimeSpan.FromSeconds(Math.Max(22, rpmCooldownIfRateLimited.TotalSeconds));
+                logger?.LogInformation("Gemini batch {Batch}/{Total} hit RPM limit; waiting {Sec:0}s.", bIdx + 1, batches.Count, wait.TotalSeconds);
+                await Task.Delay(wait, ct).ConfigureAwait(false);
+                outcome = await CallBatchAsync(overrideModel).ConfigureAwait(false);
+            }
+
+            if (!outcome.IsSuccess || outcome.Value is not { Content.Length: > 0 } speech)
+            {
+                var code = outcome.ErrorCode ?? (outcome.Reason == AiUnavailableReason.CircuitOpen ? "circuit-open" : "speech-failed");
+                var summary = $"{ctx.Provider.Id.Value}: {code}";
+                logger?.LogWarning("Gemini speech batch {Batch}/{Total} failed with {Code}; falling back cleanly.", bIdx + 1, batches.Count, code);
+                if (IsTerminalProviderFailure(code))
+                    return (code, summary, overrideModel);
+                continue;
+            }
+
+            var normalizedBatch = await EnsureStereo48kWavAsync(speech.Content, workspaceInputDir, 900 + bIdx, ffmpegOptions, ct)
+                .ConfigureAwait(false);
+            if (normalizedBatch is null || !IsStereo48kPcmWav(normalizedBatch))
+                continue;
+
+            var splitClips = SplitBatchWavIntoTurnClips(normalizedBatch, [.. batch.Select(x => x.SpokenText)]);
+            if (splitClips is null || splitClips.Count != batch.Count)
+            {
+                logger?.LogInformation("Gemini speech batch {Batch}/{Total} could not be split unambiguously into {Count} turn clips; falling back to per-turn synthesis.", bIdx + 1, batches.Count, batch.Count);
+                continue;
+            }
+
+            for (var k = 0; k < batch.Count; k++)
+            {
+                var item = batch[k];
+                var turnWav = await ApplyTurnVoiceCharacterAsync(
+                    splitClips[k],
+                    item.Turn,
+                    item.Profile,
+                    isComedy,
+                    isSingleVoiceGoogle: false,
+                    workspaceInputDir,
+                    400 + item.TurnIndex,
+                    ffmpegOptions,
+                    ct).ConfigureAwait(false);
+                var dur = AiAudioValidator.TryGetWavDuration(turnWav) ?? 0;
+                if (dur < 0.45) dur = Math.Max(1.0, item.SpokenText.Length / 14.0);
+                var vLabel = item.ReplicatedVoiceId is not null
+                    ? $"{item.VoiceId} (Google My Voice)"
+                    : item.VoiceId;
+                outClips[item.TurnIndex] = (turnWav, dur, vLabel);
+            }
+        }
+
+        return (null, null, overrideModel);
+    }
+
+    internal sealed record GeminiBatchEntry(
+        int TurnIndex,
+        ProceduralDialogueTurn Turn,
+        ProceduralCharacterProfile? Profile,
+        string SpokenText,
+        string VoiceId,
+        string? ReplicatedVoiceId,
+        string Style,
+        double Rate);
+
+    internal static (List<GeminiBatchEntry> Entries, List<List<GeminiBatchEntry>> Batches) BuildGeminiSpeechBatches(
+        string voiceA,
+        string voiceB,
+        bool canLocalReVoice,
+        string? replicatedVoiceId,
+        ProceduralVideoRequest request,
+        ProceduralDialoguePlan initialPlan,
+        IReadOnlyList<ProceduralDialogueTurn> speechTurns,
+        string langCode,
+        bool isComedy,
+        VoiceProfile? customVoiceProfile)
+    {
+        const int maxBatchTurns = 4;
+        const int maxBatchChars = 1100;
+
+        var entries = new List<GeminiBatchEntry>();
+        var hasAnyNarrator = speechTurns.Any(t => t.Slot == DialogueSpeakerSlot.Narrator);
+
+        for (var i = 0; i < speechTurns.Count; i++)
+        {
+            var turn = speechTurns[i];
+            var spoken = DialogueScriptParser.ToSpokenText(turn.Text, langCode)
+                .Replace("\r", " ", StringComparison.Ordinal)
+                .Replace("\n", " ", StringComparison.Ordinal)
+                .Trim();
+            if (string.IsNullOrWhiteSpace(spoken)) continue;
+
+            var useCustomForTurn = customVoiceProfile is not null
+                && (!initialPlan.HasCharacters
+                    || turn.Slot == DialogueSpeakerSlot.Narrator
+                    || turn.SpeakerRole == CharacterVisualRole.Narrator
+                    || (initialPlan.HasCharacters && turn.Slot == DialogueSpeakerSlot.Left && !hasAnyNarrator));
+
+            if (useCustomForTurn && canLocalReVoice)
+                continue;
+
+            var profile = ResolveSpeakerProfile(initialPlan, turn);
+            var repVoice = useCustomForTurn ? replicatedVoiceId : null;
+            var baseProfileVoice = !string.IsNullOrWhiteSpace(customVoiceProfile?.BaseVoiceId)
+                ? customVoiceProfile.BaseVoiceId
+                : voiceA;
+            var voiceId = repVoice is not null
+                ? baseProfileVoice
+                : ResolveGeminiTurnVoice(initialPlan, request, turn, voiceA, voiceB, isComedy);
+            var style = BuildSpeechStyle(turn, profile, isComedy, initialPlan.HasCharacters, langCode);
+            var rate = ComputeSpeechRate(turn, profile, isComedy);
+
+            entries.Add(new GeminiBatchEntry(i, turn, profile, spoken, voiceId, repVoice, style, rate));
+        }
+
+        var batches = new List<List<GeminiBatchEntry>>();
+        if (entries.Count < 2) return (entries, batches);
+
+        var pos = 0;
+        while (pos < entries.Count)
+        {
+            var cur = new List<GeminiBatchEntry> { entries[pos] };
+            var charSum = entries[pos].SpokenText.Length;
+            var distinct = new List<(string VoiceId, string? RepVoice)> { (entries[pos].VoiceId, entries[pos].ReplicatedVoiceId) };
+
+            var next = pos + 1;
+            while (next < entries.Count && cur.Count < maxBatchTurns)
+            {
+                var cand = entries[next];
+                if (cand.TurnIndex != cur[^1].TurnIndex + 1) break;
+                if (charSum + cand.SpokenText.Length > maxBatchChars) break;
+                if (Math.Abs(cand.Rate - cur[0].Rate) > 0.25) break;
+
+                var key = (cand.VoiceId, cand.ReplicatedVoiceId);
+                if (!distinct.Any(d => string.Equals(d.VoiceId, key.VoiceId, StringComparison.OrdinalIgnoreCase) && string.Equals(d.RepVoice, key.ReplicatedVoiceId, StringComparison.Ordinal)))
+                {
+                    if (distinct.Count >= 2) break;
+                    distinct.Add(key);
+                }
+
+                cur.Add(cand);
+                charSum += cand.SpokenText.Length;
+                next++;
+            }
+
+            if (cur.Count >= 2)
+                batches.Add(cur);
+
+            pos = cur.Count >= 2 ? next : pos + 1;
+        }
+
+        return (entries, batches);
+    }
+
+    /// <summary>
+    /// Splits a combined multi-turn 48kHz stereo 16-bit PCM WAV into per-turn WAV clips by finding the quietest
+    /// inter-turn pause valley near each character-proportion expected boundary.
+    /// </summary>
+    internal static IReadOnlyList<byte[]>? SplitBatchWavIntoTurnClips(byte[] stereo48kWav, IReadOnlyList<string> spokenTexts)
+    {
+        var count = spokenTexts.Count;
+        if (count <= 1 || !IsStereo48kPcmWav(stereo48kWav))
+            return count == 1 ? [stereo48kWav] : null;
+
+        const int sampleRate = 48_000;
+        const int blockAlign = 4;
+        const int dataOffset = 44;
+        if (!TryLocateWavDataChunk(stereo48kWav, out var chunkStart, out var dataLen))
+            return null;
+
+        var totalFrames = dataLen / blockAlign;
+        var windowFrames = sampleRate / 50; // 20ms analysis window (960 frames)
+        var totalWindows = totalFrames / windowFrames;
+        var minTurnWindows = 22; // 0.44s minimum per turn
+        if (totalWindows < count * minTurnWindows)
+            return null;
+
+        var rmsValues = new double[totalWindows];
+        var nonZero = new List<double>(totalWindows);
+        for (var w = 0; w < totalWindows; w++)
+        {
+            double sumSq = 0;
+            var startFrame = w * windowFrames;
+            for (var f = 0; f < windowFrames; f++)
+            {
+                var p = chunkStart + (startFrame + f) * blockAlign;
+                var s = System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(stereo48kWav.AsSpan(p, 2)) / 32768.0;
+                sumSq += s * s;
+            }
+            var rms = Math.Sqrt(sumSq / windowFrames);
+            rmsValues[w] = rms;
+            if (rms > 1e-4) nonZero.Add(rms);
+        }
+
+        if (nonZero.Count == 0)
+            return null;
+
+        nonZero.Sort();
+        var p85 = nonZero[(int)Math.Floor((nonZero.Count - 1) * 0.85)];
+        var silenceThresh = Math.Clamp(p85 * 0.09, 0.004, 0.022);
+
+        var weights = spokenTexts.Select(t => Math.Max(4.0, (double)t.Trim().Length)).ToArray();
+        var weightTotal = weights.Sum();
+        var cuts = new int[count + 1];
+        cuts[0] = 0;
+        cuts[count] = totalWindows;
+
+        double cumWeight = 0;
+        for (var j = 1; j < count; j++)
+        {
+            cumWeight += weights[j - 1];
+            var expW = (int)Math.Round(totalWindows * (cumWeight / weightTotal));
+            var radius = Math.Max(110, totalWindows / (count * 2));
+            var minW = cuts[j - 1] + minTurnWindows;
+            var maxW = totalWindows - (count - j) * minTurnWindows;
+            var lo = Math.Clamp(expW - radius, minW, maxW);
+            var hi = Math.Clamp(expW + radius, minW, maxW);
+
+            if (lo >= hi)
+            {
+                cuts[j] = minW;
+                continue;
+            }
+
+            var bestW = Math.Clamp(expW, lo, hi);
+            var bestScore = double.MaxValue;
+            for (var w = lo; w <= hi; w++)
+            {
+                var wLo = Math.Max(lo, w - 1);
+                var wHi = Math.Min(hi, w + 1);
+                double avgRms = 0;
+                for (var k = wLo; k <= wHi; k++) avgRms += rmsValues[k];
+                avgRms /= (wHi - wLo + 1);
+
+                var distPenalty = 0.015 * Math.Abs(w - expW) / Math.Max(1, radius);
+                var silenceBonus = avgRms <= silenceThresh ? -0.02 : 0.0;
+                var score = avgRms + distPenalty + silenceBonus;
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestW = w;
+                }
+            }
+
+            cuts[j] = bestW;
+        }
+
+        var clips = new List<byte[]>(count);
+        for (var j = 0; j < count; j++)
+        {
+            var frameStart = cuts[j] * windowFrames;
+            var frameEnd = j == count - 1 ? totalFrames : cuts[j + 1] * windowFrames;
+            var frameCount = frameEnd - frameStart;
+            if (frameCount < sampleRate * 4 / 10)
+                return null;
+
+            var sliceLen = frameCount * blockAlign;
+            var seg = new byte[dataOffset + sliceLen];
+            WriteStereo48kWavHeader(seg, sliceLen);
+            Buffer.BlockCopy(stereo48kWav, chunkStart + frameStart * blockAlign, seg, dataOffset, sliceLen);
+
+            var trimmed = TrimLeadingAndTrailingSilence(seg);
+            var dur = AiAudioValidator.TryGetWavDuration(trimmed) ?? 0;
+            if (dur < 0.42 && spokenTexts[j].Trim().Length >= 8)
+                return null;
+
+            clips.Add(trimmed);
+        }
+
+        return clips;
+    }
+
+    private static bool TryLocateWavDataChunk(byte[] wav, out int dataStart, out int dataLength)
+    {
+        dataStart = -1;
+        dataLength = 0;
+        if (wav.Length < 44 || !wav.AsSpan(0, 4).SequenceEqual("RIFF"u8) || !wav.AsSpan(8, 4).SequenceEqual("WAVE"u8))
+            return false;
+
+        var offset = 12;
+        while (offset + 8 <= wav.Length)
+        {
+            var id = wav.AsSpan(offset, 4);
+            var size = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(wav.AsSpan(offset + 4, 4));
+            var body = offset + 8;
+            if (id.SequenceEqual("data"u8))
+            {
+                dataStart = body;
+                dataLength = Math.Min(Math.Max(0, size), wav.Length - body);
+                return dataLength > 0;
+            }
+            if (size <= 0) break;
+            offset = body + size + (size & 1);
+        }
+        return false;
+    }
+
+    private static void WriteStereo48kWavHeader(byte[] wav, int dataLen)
+    {
+        const int sampleRate = 48_000;
+        const short channels = 2;
+        const short bits = 16;
+        const short blockAlign = 4;
+        var hs = wav.AsSpan();
+        "RIFF"u8.CopyTo(hs[..4]);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(4, 4), 36 + dataLen);
+        "WAVE"u8.CopyTo(hs.Slice(8, 4));
+        "fmt "u8.CopyTo(hs.Slice(12, 4));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(16, 4), 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(20, 2), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(22, 2), channels);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(24, 4), sampleRate);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(28, 4), sampleRate * blockAlign);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(32, 2), blockAlign);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(hs.Slice(34, 2), bits);
+        "data"u8.CopyTo(hs.Slice(36, 4));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(hs.Slice(40, 4), dataLen);
+    }
+
     private static async Task<byte[]?> EnsureStereo48kWavAsync(
         byte[] rawAudio,
         string dir,
@@ -1285,12 +1825,23 @@ internal static class ProceduralSpeechSynthesizer
         try { if (File.Exists(path)) File.Delete(path); } catch { /* ignore */ }
     }
 
+    private static bool IsExplicitNonComedyEventType(string? eventType) =>
+        !string.IsNullOrWhiteSpace(eventType)
+        && (string.Equals(eventType, "DailyKatha", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "HinduFestival", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "HinduPanchang", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "DevotionalPrarthana", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "DailyRashifal", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "AajKaItihaas", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "EcosystemSpotlight", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, "Pratiyogita", StringComparison.OrdinalIgnoreCase));
+
     internal static bool IsComedyRequest(ProceduralVideoRequest request, ProceduralDialoguePlan plan) =>
         string.Equals(request.EventType, "FunnyComedy", StringComparison.OrdinalIgnoreCase)
         || request.Theme == ProceduralSceneTheme.ComedyStage3D
         || request.EnableComedySfx
         || request.SparseComedyAudio
-        || IsComedyPlan(plan);
+        || (!IsExplicitNonComedyEventType(request.EventType) && IsComedyPlan(plan));
 
     internal static bool IsComedyPlan(ProceduralDialoguePlan plan) =>
         plan.LeftCharacter?.Role is CharacterVisualRole.ComicBobble or CharacterVisualRole.CartoonTank
@@ -1367,9 +1918,11 @@ internal static class ProceduralSpeechSynthesizer
         var emotionCue = emotion switch
         {
             "angry" => "Explosive angry furious shouting at top lung capacity, cracking exasperated MJO comedy rage, biting impatient interruption",
-            "surprised" or "scared" => "Loud panicked shouting disbelief, frantic high-pitch gasp and rapid comic outrage",
+            "surprised" => "Loud panicked shouting disbelief, frantic high-pitch gasp and rapid comic outrage",
+            "scared" => "Trembling terrified stammer and frantic high-pitched comic panic, catching breath while caught red-handed",
             "laughing" => "Sharp mocking cackle and wicked giggling teasing belly-laugh",
-            "proud" or "sarcastic" => "Loud cocky irritated swagger and snapping sarcastic comedy pressure",
+            "smug" => "Sarcastic deadpan dry swagger, slow cocky eyebrow-raised mocking delivery",
+            "proud" => "Booming victorious chest-thumping triumph and celebratory swagger",
             "confused" => "Incredulous aggressive yelling confusion, sharp impatient irritated interrogation",
             "sad" => "Exaggerated loud comical wailing whine and dramatic outrage",
             _ => "Heated irritated animated comedy snapping, high-energy urgent exasperation, punchy UP/Kanpuria outburst cadence"
@@ -1389,7 +1942,8 @@ internal static class ProceduralSpeechSynthesizer
         {
             "angry" => 1.18,
             "surprised" or "scared" => 1.16,
-            "laughing" or "sarcastic" or "mischievous" => 1.11,
+            "laughing" => 1.11,
+            "smug" or "sarcastic" or "mischievous" => 1.03,
             "proud" or "confused" => 1.09,
             "sad" => 0.98,
             _ => 1.10
@@ -1408,10 +1962,15 @@ internal static class ProceduralSpeechSynthesizer
         var nextEmotion = (next.Emotion ?? string.Empty).Trim().ToLowerInvariant();
         var currentEmotion = (current.Emotion ?? string.Empty).Trim().ToLowerInvariant();
 
-        if (interruptedMidLine || nextEmotion is "angry" or "surprised" or "scared" || next.Action is "shockedFall")
+        if (interruptedMidLine || (current.SfxCue is null && (nextEmotion is "angry" or "surprised" || next.Action is "shockedFall")))
             return ComedyInterruptGapSeconds;
 
-        if (currentEmotion == "angry" && nextEmotion is "calm" or "sad" or "confused")
+        if (current.Action is "celebrate" or "brakeStop"
+            || current.SfxCue is "tada" or "brake" or "rimshot" or "trombone" or "coin" or "cricket" or "slidedown")
+            return ComedySfxReactionGapSeconds;
+
+        if ((currentEmotion == "angry" && nextEmotion is "calm" or "sad" or "confused" or "scared" or "smug")
+            || currentEmotion == "smug")
             return ComedyDeadpanBeatSeconds;
 
         return ComedyStandardGapSeconds;
@@ -1448,9 +2007,11 @@ internal static class ProceduralSpeechSynthesizer
         var (emoPitchMul, emoSpeed, volGain, midDb) = emotion switch
         {
             "angry" => (1.04, 1.13, 1.32, 4.0),
-            "surprised" or "scared" => (1.06, 1.10, 1.18, 2.5),
-            "laughing" or "sarcastic" or "mischievous" => (1.02, 1.06, 1.12, 1.5),
-            "proud" => (0.99, 1.03, 1.10, 1.5),
+            "scared" => (1.07, 1.12, 1.16, 2.2),
+            "surprised" => (1.06, 1.10, 1.18, 2.5),
+            "laughing" => (1.02, 1.06, 1.12, 1.5),
+            "smug" or "sarcastic" or "mischievous" => (0.98, 1.00, 1.08, 1.8),
+            "proud" => (0.99, 1.03, 1.12, 1.8),
             "sad" => (0.97, 0.96, 0.95, 0.0),
             _ => (1.00, 1.02, 1.00, 0.5)
         };

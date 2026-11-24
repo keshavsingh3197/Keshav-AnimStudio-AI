@@ -127,6 +127,7 @@ public static class DependencyInjection
         services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
         services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
         services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
+        services.AddScoped<IAiApiKeyRepository, MongoAiApiKeyRepository>();
         services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
         services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
         services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
@@ -202,6 +203,7 @@ public static class DependencyInjection
         services.AddSingleton(sp => new Lazy<DataProtector>(sp.GetRequiredService<DataProtector>));
         services.AddSingleton<CentralAdminSecretsProvider>();
         services.AddScoped<IAiCredentialStore, AiCredentialStore>();
+        services.AddScoped<IAiApiKeyPoolStore, AiApiKeyPoolStore>();
         services.AddScoped<IAiSettingsStore, AiSettingsStore>();
 
         // One pooled client per provider endpoint, with the SSRF checks applied at connect

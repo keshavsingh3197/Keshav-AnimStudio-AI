@@ -320,6 +320,11 @@ public class AutomationContentComposerTests
         Assert.True(item.Tags.Count >= 18, $"Expected >=18 MJO SEO tags, got {item.Tags.Count}");
         Assert.Contains("Make Joke Of Style", item.Tags);
         Assert.Contains("Hindi Comedy Video", item.Tags);
+        Assert.DoesNotContain("utm_source", item.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("utm_source", item.PinnedComment ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://studio.example.com", item.Description, StringComparison.Ordinal);
+        Assert.Contains("https://pratiyogita.example.com", item.Description, StringComparison.Ordinal);
+        Assert.Contains("https://social.example.com", item.Description, StringComparison.Ordinal);
     }
 
     [Fact]

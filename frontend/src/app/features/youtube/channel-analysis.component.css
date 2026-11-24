@@ -321,3 +321,24 @@
   .ca-lv-head { flex-direction: column; }
   .ca-rank li { flex-wrap: wrap; }
 }
+
+/* 4,000 Watch-Hours Command Center */
+.ca-watch-cmd { border-color: var(--brand-glow); background: linear-gradient(160deg, var(--surface-2), var(--surface)); gap: .9rem; }
+.ca-watch-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.ca-watch-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ca-watch-kpis { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.ca-watch-kpi { display: flex; flex-direction: column; gap: .35rem; padding: .85rem 1rem; border-radius: var(--radius); border: 1px solid var(--border); background: var(--ov-1); }
+.ca-watch-kpi.highlight { border-color: var(--brand); background: var(--brand-subtle); }
+.ca-watch-kpi.target { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.ca-watch-kpi .lbl { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+.ca-watch-kpi strong { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ca-watch-kpi strong small { font-size: .78rem; font-weight: 600; color: var(--muted); }
+.ca-watch-kpi .sub { font-size: .76rem; color: var(--muted); }
+.ca-watch-grid { display: grid; gap: .85rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.ca-mc-table-wrap { overflow-x: auto; }
+.ca-mc-table { width: 100%; border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.ca-mc-table th, .ca-mc-table td { padding: .45rem .55rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ca-mc-table th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ca-mc-table tbody tr { cursor: pointer; transition: background .12s; }
+.ca-mc-table tbody tr:hover { background: var(--ov-2); }
+.ca-mc-table tbody tr.active { background: var(--brand-subtle); }

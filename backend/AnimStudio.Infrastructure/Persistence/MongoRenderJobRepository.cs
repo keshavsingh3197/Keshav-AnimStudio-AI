@@ -22,6 +22,19 @@ public sealed class MongoRenderJobRepository(MongoDbService mongo, TimeProvider 
             .Limit(200)
             .ToListAsync(ct).ConfigureAwait(false);
 
+    public async Task<int> CountCompletedWithOutputAsync(
+        IReadOnlyList<string> projectIds, CancellationToken ct)
+    {
+        if (projectIds.Count == 0) return 0;
+        var b = Builders<RenderJob>.Filter;
+        var filter = b.And(
+            b.In(j => j.ProjectId, projectIds),
+            b.In(j => j.Status, new[] { RenderJobStatus.Completed, RenderJobStatus.CompletedWithWarnings }),
+            b.Ne(j => j.OutputStorageKey, null),
+            b.Ne(j => j.OutputStorageKey, string.Empty));
+        return (int)await Collection.CountDocumentsAsync(filter, cancellationToken: ct).ConfigureAwait(false);
+    }
+
     public Task InsertAsync(RenderJob job, CancellationToken ct) =>
         Collection.InsertOneAsync(job, cancellationToken: ct);
 

@@ -518,4 +518,84 @@ public class GeminiSpeechProviderTests
         Assert.Equal(BaseUrl + "voices/voice_r3pl1ca", handler.Requests[0].RequestUri!.ToString());
         await Assert.ThrowsAsync<ArgumentException>(() => provider.DeleteReplicatedVoiceAsync("../x", CancellationToken.None));
     }
+
+    [Fact]
+    public async Task Gemini_2_5_pro_tts_omits_speechMetadata_so_google_v1beta_accepts_it()
+    {
+        var (provider, handler) = Build();
+        handler.RespondJson(AudioResponse(new byte[4_800]));
+
+        await provider.SynthesizeAsync(new AiSpeechRequest
+        {
+            Text = "ओ मार भी दे हुं!!",
+            VoiceId = "Algenib",
+            Style = "angry comedic shout",
+            Model = "gemini-2.5-pro-preview-tts"
+        }, CancellationToken.None);
+
+        var sent = handler.Sent();
+        var part = sent.GetProperty("contents")[0].GetProperty("parts")[0];
+        Assert.Equal("ओ मार भी दे हुं!!", part.GetProperty("text").GetString());
+        Assert.False(part.TryGetProperty("speechMetadata", out _));
+    }
+
+    [Fact]
+    public async Task Raw_l16_pcm_starting_with_0xFF_0xFF_is_wrapped_as_wav_not_misread_as_mp3()
+    {
+        var (provider, handler) = Build();
+        // Signed 16-bit PCM value -1 is [0xFF, 0xFF], matching MP3's 11-bit frame sync pattern.
+        var rawPcm = new byte[4_800];
+        Array.Fill<byte>(rawPcm, 0xFF);
+        handler.RespondJson(AudioResponse(rawPcm));
+
+        var result = await provider.SynthesizeAsync(new AiSpeechRequest
+        {
+            Text = "हाय करंट लग गया वो?!",
+            VoiceId = "Puck",
+            Model = "gemini-2.5-pro-preview-tts"
+        }, CancellationToken.None);
+
+        Assert.Equal(AiAudioValidator.Wav, result.MimeType);
+        Assert.Equal(44 + rawPcm.Length, result.Content.Length);
+        Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(result.Content, 0, 4));
+    }
+
+    [Fact]
+    public async Task Daily_quota_exhaustion_429_maps_to_quota_exhausted_while_rpm_stays_rate_limited()
+    {
+        var (provider, handler) = Build();
+        handler.Respond(System.Net.HttpStatusCode.TooManyRequests, """
+            {
+              "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "details": [
+                  { "violations": [ { "quotaId": "GenerateRequestsPerDayPerProjectPerModel" } ] }
+                ]
+              }
+            }
+            """);
+
+        var dailyEx = await Assert.ThrowsAsync<AiProviderException>(() => provider.SynthesizeAsync(
+            new AiSpeechRequest { Text = "नमस्ते", VoiceId = "Puck", Model = "gemini-2.5-pro-preview-tts" },
+            CancellationToken.None));
+        Assert.Equal("quota-exhausted", dailyEx.Code);
+
+        handler.Respond(System.Net.HttpStatusCode.TooManyRequests, """
+            {
+              "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "details": [
+                  { "violations": [ { "quotaId": "GenerateRequestsPerMinutePerProjectPerModel" } ] }
+                ]
+              }
+            }
+            """);
+
+        var rpmEx = await Assert.ThrowsAsync<AiProviderException>(() => provider.SynthesizeAsync(
+            new AiSpeechRequest { Text = "नमस्ते", VoiceId = "Puck", Model = "gemini-2.5-pro-preview-tts" },
+            CancellationToken.None));
+        Assert.Equal("rate-limited", rpmEx.Code);
+    }
 }

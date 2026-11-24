@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, finalize, map, retry, shareReplay, tap, timer, timeout } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { silentHttpContext } from '../interceptors/loading.interceptor';
@@ -255,6 +255,7 @@ export interface AutomationRule {
   location: string;
   preferredPublishTime: string;
   timeZoneId: string;
+  publishDaysBefore?: number;
   daysOfWeek: number[];
   festivalLeadDays: number;
   funnelWebsiteKeys: string[];
@@ -496,6 +497,8 @@ export interface AutomationWorkspaceConfig {
   panchangDefaultBackgroundAssetId?: string | null;
   panchangThumbnailTitleTemplate?: string | null;
   panchangThumbnailSubtitleTemplate?: string | null;
+  advanceBufferDays?: number;
+  autoFillBufferInBackground?: boolean;
   updatedAtUtc: string;
 }
 
@@ -613,6 +616,79 @@ export interface AutomationPrepareResult {
   posts: AutomationPost[];
 }
 
+export interface ChannelWeeklyBufferStatus {
+  channelKey: string;
+  channelTitle: string;
+  channelHandle?: string | null;
+  audienceProfile: 'GlobalEnglish' | 'HindiDevotional' | 'HindiComedy' | 'CommunityMulti' | string;
+  language: string;
+  primarySourceLabel: string;
+  activeRulesCount: number;
+  targetDaysPerWeek: number;
+  currentWeekPreparedDays: number;
+  nextWeekPreparedDays: number;
+  currentWeekExpectedPosts: number;
+  currentWeekPreparedPosts: number;
+  currentWeekReadyOrScheduledPosts: number;
+  nextWeekExpectedPosts: number;
+  nextWeekPreparedPosts: number;
+  nextWeekReadyOrScheduledPosts: number;
+  videosReadyCount: number;
+  thumbnailsReadyCount: number;
+  scheduledOrPublishedCount: number;
+  isCurrentWeekComplete: boolean;
+  isNextWeekComplete: boolean;
+  currentWeekStatus: 'Complete' | 'Partial' | 'Empty' | string;
+  nextWeekStatus: 'Complete' | 'Partial' | 'Empty' | string;
+  missingCurrentWeekDates: string[];
+  missingNextWeekDates: string[];
+}
+
+export interface WeeklyNotificationItem {
+  id: string;
+  severity: 'success' | 'warning' | 'urgent' | string;
+  badge: string;
+  title: string;
+  message: string;
+  actionLabel?: string | null;
+  channelId?: string | null;
+}
+
+export interface WeeklyBufferSummary {
+  baseDateKey: string;
+  currentWeekStart: string;
+  currentWeekEnd: string;
+  nextWeekStart: string;
+  nextWeekEnd: string;
+  advanceBufferDays: number;
+  totalExpectedSlots: number;
+  totalPreparedSlots: number;
+  videosReadySlots: number;
+  scheduledOrPublishedSlots: number;
+  isCurrentWeekComplete: boolean;
+  isNextWeekComplete: boolean;
+  channels: ChannelWeeklyBufferStatus[];
+  notifications: WeeklyNotificationItem[];
+}
+
+export interface PrepareBufferHorizonRequest {
+  startDateKey?: string | null;
+  days?: number;
+  channelId?: string | null;
+  forceRegenerate?: boolean;
+  rebalanceChannels?: boolean;
+}
+
+export interface PrepareBufferHorizonResult {
+  startDateKey: string;
+  daysScanned: number;
+  daysNewlyPrepared: number;
+  postsCreated: number;
+  postsUpdated: number;
+  warnings: string[];
+  summary: WeeklyBufferSummary;
+}
+
 export interface AutomationOverview {
   dateKey: string;
   settings: AutomationWorkspaceConfig;
@@ -624,6 +700,7 @@ export interface AutomationOverview {
   posts: AutomationPost[];
   unusedDriveClipsCount: number;
   finishedRendersCount: number;
+  weeklyBuffer?: WeeklyBufferSummary | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -631,6 +708,16 @@ export class AutomationService {
   private readonly http = inject(HttpClient);
   private readonly media = inject(MediaTicketService);
   private readonly base = `${environment.apiUrl}/api/automation`;
+  private readonly overviewCache = new Map<string, AutomationOverview>();
+  private readonly inFlightOverview = new Map<string, Observable<AutomationOverview>>();
+
+  getCachedOverview(date?: string): AutomationOverview | null {
+    return this.overviewCache.get(date || '__default__') ?? this.overviewCache.get('__default__') ?? null;
+  }
+
+  invalidateOverviewCache(): void {
+    this.overviewCache.clear();
+  }
 
   getPalettes(): Observable<ProceduralEventPalette[]> {
     return this.unwrap(
@@ -638,16 +725,47 @@ export class AutomationService {
     );
   }
 
-  /** `background` marks refresh polls so they never raise the global "waking up" loader. */
+  /**
+   * Loads Auto-Post overview with in-flight deduplication, transient timeout recovery,
+   * and instant in-memory snapshot caching so UI loads fast & never stalls on first visit.
+   * `background` marks refresh polls so they never raise the global "waking up" loader.
+   */
   getOverview(date?: string, background = false): Observable<AutomationOverview> {
+    const key = date || '__default__';
+    const flightKey = `${key}:${background ? 'bg' : 'fg'}`;
+    const existing = this.inFlightOverview.get(flightKey);
+    if (existing) return existing;
+
     let params = new HttpParams();
     if (date) params = params.set('date', date);
-    return this.unwrap(
+    const req$ = this.unwrap(
       this.http.get<ApiResponse<AutomationOverview>>(`${this.base}/overview`, {
         params,
         context: background ? silentHttpContext() : undefined,
       })
+    ).pipe(
+      timeout(20_000),
+      retry({
+        count: 1,
+        delay: (err: unknown) => {
+          const status = (err as { status?: number })?.status ?? 0;
+          const retryable = status === 0 || status === 502 || status === 503 || status === 504 || (err as Error)?.name === 'TimeoutError';
+          if (!retryable) throw err;
+          return timer(900);
+        },
+      }),
+      tap((ov) => {
+        this.overviewCache.set(key, ov);
+        if (!date) this.overviewCache.set('__default__', ov);
+      }),
+      finalize(() => {
+        this.inFlightOverview.delete(flightKey);
+      }),
+      shareReplay(1)
     );
+
+    this.inFlightOverview.set(flightKey, req$);
+    return req$;
   }
 
   getSettings(): Observable<AutomationWorkspaceConfig> {
@@ -657,50 +775,67 @@ export class AutomationService {
   }
 
   saveSettings(config: AutomationWorkspaceConfig): Observable<AutomationWorkspaceConfig> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.put<ApiResponse<AutomationWorkspaceConfig>>(`${this.base}/settings`, config)
     );
   }
 
   bootstrapRules(): Observable<AutomationRule[]> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.post<ApiResponse<AutomationRule[]>>(`${this.base}/rules/bootstrap`, {})
     );
   }
 
   createRule(rule: Partial<AutomationRule>): Observable<AutomationRule> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.post<ApiResponse<AutomationRule>>(`${this.base}/rules`, rule)
     );
   }
 
   updateRule(id: string, rule: Partial<AutomationRule>): Observable<AutomationRule> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.put<ApiResponse<AutomationRule>>(`${this.base}/rules/${encodeURIComponent(id)}`, rule)
     );
   }
 
   deleteRule(id: string): Observable<void> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.delete<ApiResponse<unknown>>(`${this.base}/rules/${encodeURIComponent(id)}`)
     ).pipe(map(() => undefined));
   }
 
   prepare(body: { dateKey?: string | null; ruleId?: string | null; forceRegenerate?: boolean }): Observable<AutomationPrepareResult> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.post<ApiResponse<AutomationPrepareResult>>(`${this.base}/prepare`, body)
     );
   }
 
   rebalanceChannels(): Observable<AutomationRebalanceResult> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.post<ApiResponse<AutomationRebalanceResult>>(`${this.base}/rules/rebalance-channels`, {})
     );
   }
 
   preparePublishPack(body: PreparePublishPackRequest): Observable<PreparePublishPackResult> {
+    this.invalidateOverviewCache();
     return this.unwrap(
       this.http.post<ApiResponse<PreparePublishPackResult>>(`${this.base}/prepare-publish-pack`, body, {
+        context: silentHttpContext(),
+      })
+    );
+  }
+
+  prepareBufferHorizon(body: PrepareBufferHorizonRequest): Observable<PrepareBufferHorizonResult> {
+    this.invalidateOverviewCache();
+    return this.unwrap(
+      this.http.post<ApiResponse<PrepareBufferHorizonResult>>(`${this.base}/prepare-buffer`, body, {
         context: silentHttpContext(),
       })
     );

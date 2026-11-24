@@ -6,14 +6,14 @@ import { silentHttpContext } from '../interceptors/loading.interceptor';
 import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
 import {
-  AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
+  AdminAccess, AdminApiKeys, AdminApiKeyTest, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
   BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, AutoShortsPreview, AutoShortsResult, ClipMergeBody, ClipOrder,
-  ClipStudio, CreateProjectBody, CreateSubProjectBody, SetParentBody,
+  ClipStudio, CreateAdminApiKeyBody, CreateProjectBody, CreateSubProjectBody, SetParentBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail, SceneTimeline,
-  SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
+  SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateAdminApiKeyBody, UpdateProjectBody, UpdateSceneBody,
   WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
   ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
@@ -815,6 +815,39 @@ export class ApiService {
   saveChain(capability: string, providerIds: string[]): Observable<AdminProviders> {
     return this.unwrap(this.http.put<ApiResponse<AdminProviders>>(
       `${this.admin}/chains/${capability}`, { providerIds }));
+  }
+
+  adminApiKeys(): Observable<AdminApiKeys> {
+    return this.unwrap(this.http.get<ApiResponse<AdminApiKeys>>(`${this.admin}/api-keys`));
+  }
+
+  createAdminApiKey(body: CreateAdminApiKeyBody): Observable<AdminApiKeys> {
+    return this.unwrap(this.http.post<ApiResponse<AdminApiKeys>>(`${this.admin}/api-keys`, body));
+  }
+
+  updateAdminApiKey(keyId: string, body: UpdateAdminApiKeyBody): Observable<AdminApiKeys> {
+    return this.unwrap(this.http.put<ApiResponse<AdminApiKeys>>(`${this.admin}/api-keys/${encodeURIComponent(keyId)}`, body));
+  }
+
+  reorderAdminApiKeys(vendor: string, orderedKeyIds: string[]): Observable<AdminApiKeys> {
+    return this.unwrap(this.http.put<ApiResponse<AdminApiKeys>>(
+      `${this.admin}/api-keys/vendor/${encodeURIComponent(vendor)}/reorder`,
+      { orderedKeyIds }));
+  }
+
+  testAdminApiKey(keyId: string): Observable<AdminApiKeyTest> {
+    return this.unwrap(this.http.post<ApiResponse<AdminApiKeyTest>>(
+      `${this.admin}/api-keys/${encodeURIComponent(keyId)}/test`, {}));
+  }
+
+  resetAdminApiKeyStatus(keyId: string): Observable<AdminApiKeys> {
+    return this.unwrap(this.http.post<ApiResponse<AdminApiKeys>>(
+      `${this.admin}/api-keys/${encodeURIComponent(keyId)}/reset-status`, {}));
+  }
+
+  deleteAdminApiKey(keyId: string): Observable<AdminApiKeys> {
+    return this.unwrap(this.http.delete<ApiResponse<AdminApiKeys>>(
+      `${this.admin}/api-keys/${encodeURIComponent(keyId)}`));
   }
 
   adminUsage(days = 14): Observable<AdminUsage> {

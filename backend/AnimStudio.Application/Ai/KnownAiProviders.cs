@@ -331,9 +331,9 @@ public static class KnownAiProviders
                     "Slightly flatter delivery; 100+ languages. Audio $6 per 1M tokens (about $0.0015 per 10 s, " +
                     "roughly 0.9 cents per minute; doubles on 1 Jan 2027). Tier 1: 100 requests/day.",
                     "cheaper"),
-                new("gemini-2.5-pro-preview-tts", "2.5 Pro TTS (older) - most expensive",
-                    "Older generation. Audio $20 per 1M tokens - over 2x 3.8 Flash TTS. Tier 1: 50 requests/day.",
-                    "legacy"),
+                new("gemini-2.5-pro-preview-tts", "2.5 Pro TTS - Pro studio voice (paid)",
+                    "Pro-tier studio audio ($20 per 1M tokens) with rich multi-speaker acting and dramatic nuance. Tier 1: 50 requests/day.",
+                    "best"),
                 new("gemini-2.5-flash-preview-tts", "2.5 Flash TTS (older)",
                     "Older generation. Audio $10 per 1M tokens - costs more than 3.8 Flash TTS and sounds worse.",
                     "legacy")

@@ -63,7 +63,9 @@ public sealed record AdminProviderResponse(
     bool ModelFolderConfigured,
     string? DefaultBaseUrl,
     string? DefaultModel,
-    IReadOnlyList<AdminModelChoiceResponse>? Models = null);
+    IReadOnlyList<AdminModelChoiceResponse>? Models = null,
+    int PoolKeyCount = 0,
+    int PoolReadyCount = 0);
 
 /// <summary>A model offered in the console's dropdown, with what it trades against the others.</summary>
 public sealed record AdminModelChoiceResponse(
@@ -171,6 +173,86 @@ public sealed record SaveChainRequest
 {
     /// <summary>An empty list restores the order from configuration.</summary>
     public IReadOnlyList<string>? ProviderIds { get; init; }
+}
+
+// --- multi-key pool / api keys vault -------------------------------------------------------
+
+public sealed record AdminApiKeyResponse(
+    string Id,
+    string Vendor,
+    string Label,
+    string? Notes,
+    IReadOnlyList<string> ProviderIds,
+    int Priority,
+    bool Enabled,
+    string Source,
+    string Masked,
+    string? Fingerprint,
+    DateTime? CreatedAtUtc,
+    DateTime? UpdatedAtUtc,
+    DateTime? RotatedAtUtc,
+    DateTime? LastUsedAtUtc,
+    DateTime? LastSucceededAtUtc,
+    DateTime? CooldownUntilUtc,
+    string? CooldownReason,
+    string? LastErrorCode,
+    string? UsageDayBucket,
+    long UsageCountToday,
+    string Status);
+
+public sealed record AdminApiKeyVendorProviderResponse(
+    string Id,
+    string DisplayName,
+    string Capability,
+    bool Enabled,
+    string? Model);
+
+public sealed record AdminApiKeyVendorResponse(
+    string Vendor,
+    string DisplayName,
+    string Description,
+    string? KeyUrl,
+    bool ExpandedByDefault,
+    IReadOnlyList<AdminApiKeyVendorProviderResponse> Providers,
+    IReadOnlyList<AdminApiKeyResponse> Keys);
+
+public sealed record AdminApiKeysResponse(
+    IReadOnlyList<AdminApiKeyVendorResponse> Vendors,
+    bool EncryptionConfigured);
+
+public sealed record AdminApiKeyTestResponse(
+    string KeyId,
+    string Vendor,
+    string Label,
+    bool Healthy,
+    int? StatusCode,
+    string? Reason,
+    AdminApiKeysResponse Snapshot);
+
+public sealed record CreateAdminApiKeyRequest
+{
+    public string Vendor { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public string? Notes { get; init; }
+    public IReadOnlyList<string>? ProviderIds { get; init; }
+    public string? Key { get; init; }
+    public bool Enabled { get; init; } = true;
+    public int? Priority { get; init; }
+}
+
+public sealed record UpdateAdminApiKeyRequest
+{
+    public string Label { get; init; } = string.Empty;
+    public string? Notes { get; init; }
+    public IReadOnlyList<string>? ProviderIds { get; init; }
+    public bool Enabled { get; init; } = true;
+    public string? Key { get; init; }
+    public bool ClearCooldown { get; init; }
+}
+
+public sealed record ReorderAdminApiKeysRequest
+{
+    public IReadOnlyList<string>? OrderedKeyIds { get; init; }
 }
 
 // --- access control & anonymous tier ---------------------------------------------------

@@ -110,10 +110,10 @@ public sealed partial class GeminiSpeechProvider(
 
     /// <summary>
     /// Every Gemini TTS model allows 10 requests a minute (aistudio.google.com/rate-limit), so speech
-    /// calls start at least 6.5 s apart (about 9 a minute). Static, so the limit holds even if more
-    /// than one instance of this provider exists in the process.
+    /// calls start at least 8.5 s apart (~7 a minute) to keep bursty multi-turn dialogues clear of 429s.
+    /// Static, so the limit holds even if more than one instance of this provider exists in the process.
     /// </summary>
-    private static readonly AiRequestPacer SpeechPacer = new(TimeSpan.FromSeconds(6.5));
+    private static readonly AiRequestPacer SpeechPacer = new(TimeSpan.FromSeconds(8.5));
 
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly SemaphoreSlim _catalogLock = new(1, 1);
@@ -180,10 +180,13 @@ public sealed partial class GeminiSpeechProvider(
             throw new AiProviderException("endpoint-rejected", $"'{Id.Value}' has a model name that cannot be used in a URL.");
 
         var style = DeliveryOf(request.Style, request.Rate);
+        // Google's Gemini 3.8 TTS supports per-part speechMetadata.style, whereas Gemini 2.5 TTS models
+        // reject speechMetadata with HTTP 400 INVALID_ARGUMENT and accept clean text parts + prebuiltVoiceConfig.
+        var supportsSpeechMetadata = !model.StartsWith("gemini-2.5", StringComparison.OrdinalIgnoreCase);
         var parts = new List<Dictionary<string, object>>();
         if (request.Speakers is { Count: > 0 } turnSpeakers)
         {
-            // Gemini 3.8 reads text as a verbatim transcript: each turn is its own part, its speaker named in the metadata.
+            // Reads dialogue as a transcript: Gemini 3.8 uses per-part speechMetadata; 2.5 uses clean "Speaker: words" parts.
             var turns = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             for (var turn = 0; turn < turns.Length; turn++)
             {
@@ -194,19 +197,25 @@ public sealed partial class GeminiSpeechProvider(
                 if (label is null || words.Length == 0 || !turnSpeakers.Any(s => string.Equals(s.Label, label, StringComparison.Ordinal)))
                     throw new AiProviderException("speakers-invalid", "Each line of a Gemini dialogue starts with one of its speakers' labels.");
 
-                // The line's own delivery (its emotion) when the caller gave one, else the request's.
-                var turnStyle = request.LineStyles is { } lineStyles && turn < lineStyles.Count && !string.IsNullOrWhiteSpace(lineStyles[turn])
-                    ? DeliveryOf(lineStyles[turn], request.Rate)
-                    : style;
-                var metadata = new Dictionary<string, object> { ["speaker"] = label };
-                if (turnStyle is not null) metadata["style"] = turnStyle;
-                parts.Add(new Dictionary<string, object> { ["text"] = words, ["speechMetadata"] = metadata });
+                if (supportsSpeechMetadata)
+                {
+                    var turnStyle = request.LineStyles is { } lineStyles && turn < lineStyles.Count && !string.IsNullOrWhiteSpace(lineStyles[turn])
+                        ? DeliveryOf(lineStyles[turn], request.Rate)
+                        : style;
+                    var metadata = new Dictionary<string, object> { ["speaker"] = label };
+                    if (turnStyle is not null) metadata["style"] = turnStyle;
+                    parts.Add(new Dictionary<string, object> { ["text"] = words, ["speechMetadata"] = metadata });
+                }
+                else
+                {
+                    parts.Add(new Dictionary<string, object> { ["text"] = $"{label}: {words}" });
+                }
             }
         }
         else
         {
             var part = new Dictionary<string, object> { ["text"] = text };
-            if (style is not null)
+            if (supportsSpeechMetadata && style is not null)
                 part["speechMetadata"] = new { style };
             parts.Add(part);
         }
@@ -223,9 +232,10 @@ public sealed partial class GeminiSpeechProvider(
 
         await SpeechPacer.WaitTurnAsync(ct).ConfigureAwait(false);
         using var response = await PostJsonAsync($"models/{model}:generateContent", body, ct).ConfigureAwait(false);
+        SpeechPacer.EnsurePostCompletionGap(TimeSpan.FromSeconds(3.5));
 
         var (data, mimeType) = ReadInlineAudio(response.RootElement)
-            ?? throw new AiProviderException("empty-response", $"'{Id.Value}' returned no audio.");
+            ?? throw new AiProviderException("empty-response", $"'{Id.Value}' returned no audio ({DescribeMissingAudio(response.RootElement)}).");
 
         byte[] pcm;
         try
@@ -243,8 +253,18 @@ public sealed partial class GeminiSpeechProvider(
                 $"'{Id.Value}' returned more than the {MaxAudioBytes} bytes allowed.");
         }
 
-        // Already a container (a future default, or a configured format) - kept as it is.
-        var bytes = AiAudioValidator.Sniff(pcm) is null ? WrapPcmAsWav(pcm, SampleRate(mimeType)) : pcm;
+        // Gemini native TTS returns headerless 16-bit PCM (audio/L16;codec=pcm;rate=24000). Negative sample pairs
+        // starting with [0xFF, 0xE0..0xFF] match MP3's 11-bit frame sync pattern, so treat explicit PCM MIME types
+        // (or unlabelled bytes lacking a strong container signature) as raw PCM to wrap cleanly in a RIFF WAV header.
+        var isRawPcmMime = mimeType is not null
+            && (mimeType.StartsWith("audio/L", StringComparison.OrdinalIgnoreCase)
+                || mimeType.Contains("pcm", StringComparison.OrdinalIgnoreCase));
+        var sniffedRaw = isRawPcmMime ? null : AiAudioValidator.Sniff(pcm);
+        var hasStrongContainerHeader = sniffedRaw is not null
+            && (sniffedRaw != AiAudioValidator.Mp3
+                || !string.IsNullOrWhiteSpace(mimeType)
+                || pcm.AsSpan(0, Math.Min(3, pcm.Length)).SequenceEqual("ID3"u8));
+        var bytes = hasStrongContainerHeader ? pcm : WrapPcmAsWav(pcm, SampleRate(mimeType));
 
         var sniffed = AiAudioValidator.Require(bytes, Id.Value);
 
@@ -762,6 +782,18 @@ public sealed partial class GeminiSpeechProvider(
 
     /// <summary>The first inline audio part of the first candidate, in either casing.</summary>
     private static (string Data, string? MimeType)? ReadInlineAudio(JsonElement root) => ReadInlineData(root, null);
+
+    private static string DescribeMissingAudio(JsonElement root)
+    {
+        if (root.TryGetProperty("promptFeedback", out var feedback) && StringOf(feedback, "blockReason", "block_reason") is { } block)
+            return $"blockReason={block}";
+        if (root.TryGetProperty("candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
+        {
+            var reason = StringOf(candidates[0], "finishReason", "finish_reason");
+            return string.IsNullOrWhiteSpace(reason) ? "no inlineData" : $"finishReason={reason}";
+        }
+        return "no candidates";
+    }
 
     /// <summary>
     /// The first inline part of the first candidate, in either casing, whose mime type starts with

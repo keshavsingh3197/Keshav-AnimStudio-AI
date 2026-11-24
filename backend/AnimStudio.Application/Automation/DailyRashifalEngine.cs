@@ -1,4 +1,5 @@
 using AnimStudio.Application.Ecosystem;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Domain.Automation;
 
 namespace AnimStudio.Application.Automation;
@@ -159,7 +160,7 @@ public static class DailyRashifalEngine
         string? primaryLink,
         bool isHindi)
     {
-        var link = primaryLink ?? links.FirstOrDefault()?.TrackedUrl ?? string.Empty;
+        var link = YouTubePolicyComplianceSanitizer.ToRootDomainUrl(primaryLink ?? links.FirstOrDefault()?.BaseUrl ?? links.FirstOrDefault()?.TrackedUrl);
         var title = isHindi
             ? $"{rashi.Symbol} {rashi.HindiName} राशिफल {report.DateKey} | आज क्या होगा, अर्थ व अचूक उपाय"
             : $"{rashi.Symbol} {rashi.EnglishName} Horoscope {report.DateKey} | Prediction, Meaning & Remedy";
@@ -171,14 +172,14 @@ public static class DailyRashifalEngine
               [{rule.SpeakerBName ?? "जिज्ञासु शिष्य"}]: गुरुदेव, आज {rashi.HindiName} राशि वालों के जीवन में क्या विशेष होगा और शुभ आचरण क्या रखें?
               [{rule.SpeakerAName ?? "आचार्य वेद"}]: {rashi.TodayPredictionHindi}
               [{rule.SpeakerAName ?? "आचार्य वेद"}]: {rashi.AacharanUpayHindi} आज का शुभ रंग {rashi.LuckyColor}, शुभ अंक {rashi.LuckyNumber} और मंत्र '{rashi.Mantra}' है।
-              [सूत्रधार]: संपूर्ण पंचांग, चंद्रबल व सभी 12 राशियों का फल देखने के लिए लिंक पर जाएं: {link}
+              [सूत्रधार]: {AutomationContentComposer.BuildSpokenPortalInvite(true, "पंचांग डॉट केशवसिंह डॉट इन", "नाम या राशि के अनुसार पूरा दैनिक राशिफल, ग्रह गोचर और पंचांग")}
               """
             : $"""
               [Narrator]: Welcome to {report.DateKey} Vedic {rashi.EnglishName} ({rashi.HindiName}) Rashifal, powered by today's {report.MoonSign} Moon, {report.Nakshatra} Nakshatra and {report.Tithi}.
               [{rule.SpeakerAName ?? "Acharya Veda"}]: {rashi.EnglishName} sits in lunar house {rashi.GocharHouseFromMoon} today ({rashi.StatusBadge}). {rashi.TodayPredictionEnglish}
               [{rule.SpeakerBName ?? "Seeker"}]: What conduct and simple remedy brings peace today?
               [{rule.SpeakerAName ?? "Acharya Veda"}]: {rashi.AacharanUpayEnglish} Lucky color {rashi.LuckyColor}, number {rashi.LuckyNumber}, and mantra {rashi.Mantra}.
-              [Narrator]: View full daily Panchang timings and all 12 Rashi forecasts at {link}
+              [Narrator]: {AutomationContentComposer.BuildSpokenPortalInvite(false, "panchang dot keshavsingh dot in", "personalized Rashifal by name, planetary transits, and daily Panchang")}
               """;
 
         var tags = isHindi
@@ -189,8 +190,12 @@ public static class DailyRashifalEngine
             ? $"{rashi.HindiName} ({rashi.EnglishName}) दैनिक राशिफल ({report.DateKey}): {rashi.TodayPredictionHindi}\n\n{rashi.MeaningSummary}\n{rashi.AacharanUpayHindi}\nशुभ रंग: {rashi.LuckyColor} | शुभ अंक: {rashi.LuckyNumber} | मंत्र: {rashi.Mantra}\nपंचांग आधार: तिथि {report.Tithi}, नक्षत्र {report.Nakshatra}, चन्द्र राशि {report.MoonSign}।"
             : $"{rashi.EnglishName} ({rashi.HindiName}) Daily Rashifal ({report.DateKey}): {rashi.TodayPredictionEnglish}\n\n{rashi.AacharanUpayEnglish}\nLucky Color: {rashi.LuckyColor} | Number: {rashi.LuckyNumber} | Mantra: {rashi.Mantra}\nPanchang Basis: {report.Tithi}, {report.Nakshatra}, Moon in {report.MoonSign}.";
 
-        var linkLines = links.Count > 0
-            ? "\n\n" + string.Join("\n", links.Select(l => $"👉 {l.Label}: {l.TrackedUrl}"))
+        var portalLines = YouTubePolicyComplianceSanitizer.FormatRootPortalLines(
+            links.Select(l => (l.Label, (string?)(string.IsNullOrWhiteSpace(l.BaseUrl) ? l.TrackedUrl : l.BaseUrl))),
+            primaryPrefix: "👉 ",
+            secondaryPrefix: "👉 ");
+        var linkLines = portalLines.Count > 0
+            ? "\n\n" + string.Join("\n", portalLines)
             : string.Empty;
 
         var desc = $"{bodySummary}{linkLines}\n\n#Rashifal #{rashi.EnglishName} #AajKaRashifal #HinduPanchang #Shorts";
@@ -237,15 +242,17 @@ public static class DailyRashifalEngine
 
         var rashiLinesHi = string.Join("\n", report.Rashis.Take(6).Select(r =>
             $"[{rule.SpeakerAName ?? "आचार्य वेद"}]: {r.HindiName} ({r.EnglishName}) — {r.TodayPredictionHindi} उपाय: {r.Mantra}।"));
+        var cleanPrimary = YouTubePolicyComplianceSanitizer.ToRootDomainUrl(primaryLink);
         var script = isHindi
             ? $"""
               [सूत्रधार]: नमस्कार! आज {report.DateKey} को चन्द्रमा {report.MoonSign} व नक्षत्र {report.Nakshatra} में हैं। आइए जानें आज किन राशियों पर विशेष कृपा रहेगी।
               [{rule.SpeakerAName ?? "आचार्य वेद"}]: आज चंद्रबल से {shubhList} राशियों के लिए विशेष शुभ योग हैं। अभिजीत मुहूर्त {report.AbhijitMuhurat} है।
               {rashiLinesHi}
-              [सूत्रधार]: अपनी पूरी 12 राशियों का अर्थ, आज का आचरण व शुभ समय जानने के लिए लिंक देखें: {primaryLink ?? string.Empty}
+              [सूत्रधार]: {AutomationContentComposer.BuildSpokenPortalInvite(true, "पंचांग डॉट केशवसिंह डॉट इन", "नाम से अपनी सटीक राशि, 9 ग्रह गोचर चक्र और सभी 12 राशियों का फल")}
               """
             : string.Join("\n", report.Rashis.Take(6).Select(r =>
-                $"[Narrator]: {r.EnglishName} ({r.HindiName}): {r.TodayPredictionEnglish}"));
+                $"[Narrator]: {r.EnglishName} ({r.HindiName}): {r.TodayPredictionEnglish}"))
+              + $"\n[Narrator]: {AutomationContentComposer.BuildSpokenPortalInvite(false, "panchang dot keshavsingh dot in", "personalized Rashifal lookup by name and full Panchang")}";
 
         var summary = $"चन्द्र राशि: {report.MoonSign} | नक्षत्र: {report.Nakshatra} | शुभ चंद्रबल: {shubhList}";
         var desc = $"{summary}\n\n" + string.Join("\n", report.Rashis.Select(r =>
@@ -260,7 +267,7 @@ public static class DailyRashifalEngine
             AiVideoPrompt: $"Cosmic glowing 12 zodiac chakra wheel spinning slowly in deep indigo starlight with golden sacred rays for {report.DateKey}",
             AiThumbnailPrompt: $"Sacred Vedic zodiac wheel of 12 rashis with golden temple glow and rising sun, crisp high contrast, zero text",
             Description: desc,
-            PinnedComment: string.IsNullOrWhiteSpace(primaryLink) ? null : $"सभी 12 राशियों का पूरा राशिफल और पंचांग देखें: {primaryLink}",
+            PinnedComment: string.IsNullOrWhiteSpace(cleanPrimary) ? null : $"सभी 12 राशियों का पूरा राशिफल और पंचांग देखें: {cleanPrimary}",
             Tags: ["Aaj Ka Rashifal", "Daily Rashifal", "12 Rashi", "Hindu Panchang", report.Nakshatra, "Horoscope Hindi", "Shorts"],
             PrimaryDestinationUrl: primaryLink,
             TrackedLinks: links,

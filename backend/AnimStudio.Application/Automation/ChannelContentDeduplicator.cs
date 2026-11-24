@@ -10,6 +10,8 @@ public static class ChannelContentDeduplicator
 {
     private static readonly (string Key, string[] Aliases)[] StorySubjectAliases =
     [
+        ("vaikuntha", ["वैकुंठ चतुर्दशी", "vaikuntha chaturdashi", "vaikunth chaturdashi", "हरिहर", "harihar", "कमलनयन", "kamalnayan", "चक्रदान", "chakradana"]),
+        ("devdeepawali", ["देव दीपावली", "dev deepawali", "त्रिपुरासुर", "tripurasura", "कार्तिक पूर्णिमा", "kartik purnima"]),
         ("markandeya", ["मार्कण्डेय", "markandeya", "महामृत्युंजय", "mrityunjay", "maha mrityunjaya", "pradosh katha", "प्रदोष व्रत कथा"]),
         ("harishchandra", ["हरिश्चंद्र", "harishchandra", "सत्य की विजय"]),
         ("dhruva", ["ध्रुव", "dhruva", "dhruv"]),
@@ -31,6 +33,30 @@ public static class ChannelContentDeduplicator
 
     private static readonly CuratedKathaOption[] CuratedKathaPool =
     [
+        new(
+            "vaikuntha",
+            new EcosystemDailyKathaSignal(
+                Id: "katha-vaikuntha",
+                Title: "वैकुंठ चतुर्दशी और हरिहर मिलन की अमर कथा (१००० कमल, कमलनयन नेत्र व सुदर्शन चक्र)",
+                DeityOrSage: "भगवान श्रीहरि विष्णु एवं भगवान शिव",
+                StorySummary: "कार्तिक शुक्ल चतुर्दशी (वैकुंठ चतुर्दशी) को भगवान विष्णु काशी विश्वनाथ में १,००० स्वर्ण कमलों से महादेव की सहस्रनाम आराधना करने पहुँचे। परीक्षा लेने हेतु महादेव ने अंतिम कमल छिपा दिया, तो कमलनयन श्रीहरि ने अपना नेत्र ही कमल मानकर अर्पित करने का संकल्प लिया। प्रसन्न होकर साक्षात् भगवान शिव प्रकट हुए, उन्हें सुदर्शन चक्र प्रदान किया और तुलसी-बेलपत्र के आदान-प्रदान संग दिव्य हरिहर मिलन रचा।",
+                MoralTeaching: "हरि (विष्णु) और हर (शिव) एक ही परमात्मा के दो स्वरूप हैं; निष्काम भक्ति भेदभाव मिटाकर वैकुंठ के द्वार खोलती है।",
+                SanskritMantra: "ॐ नमो भगवते वासुदेवाय नमः शिवाय च",
+                IsVerified: true,
+                SourceName: "Shiva Purana (Kotirudra Samhita) & Padma Purana"),
+            ["vaikunth", "वैकुंठ", "harihar", "हरिहर", "chaturdashi", "चतुर्दशी"]),
+        new(
+            "devdeepawali",
+            new EcosystemDailyKathaSignal(
+                Id: "katha-dev-deepawali",
+                Title: "कार्तिक पूर्णिमा और देव दीपावली की अमर कथा (भगवान शिव त्रिपुरारी एवं काशी दीपदान)",
+                DeityOrSage: "भगवान शिव एवं देवतागण",
+                StorySummary: "कार्तिक पूर्णिमा के दिन ही देवाधिदेव महादेव ने त्रिपुरासुर के तीन अभेद्य पुरों का संहार कर तीनों लोकों को भयमुक्त किया था। उस विजय के उत्सव में समस्त देवता काशी के गंगा घाटों पर उतरे और लाखों दीप प्रज्वलित कर देव दीपावली मनाई।",
+                MoralTeaching: "अधर्म कितना भी प्रबल क्यों न हो, सत्य और लोककल्याण की एकता अंततः अंधकार का नाश करती है।",
+                SanskritMantra: "ॐ नमः शिवाय शुभं कुरु",
+                IsVerified: true,
+                SourceName: "Shiva Purana & Matsya Purana"),
+            ["kartik purnima", "कार्तिक पूर्णिमा", "dev deepawali", "देव दीपावली"]),
         new(
             "markandeya",
             new EcosystemDailyKathaSignal(
@@ -144,12 +170,14 @@ public static class ChannelContentDeduplicator
             .Where(f => string.Equals(f.DateKey, dateKey, StringComparison.Ordinal))
             .Select(f => $"{f.NameHindi} {f.NameEnglish} {f.Tithi}"));
 
-        // 1. Prefer a fresh curated Katha directly tied to today's active Vrat/Festival (e.g. Pradosh -> Markandeya/Shiva)
+        // 1. Prefer a fresh curated Katha directly tied to today's active Vrat/Festival (e.g. Vaikuntha Chaturdashi -> Harihar Milan).
+        //    Do not let Panchang updates or brief Festival Vrat/Muhurat #Shorts block publishing the full festival Pauranik Katha.
         if (!string.IsNullOrWhiteSpace(activeFestivalText))
         {
+            var kathaOnlyHistory = existingChannelTitles.Where(t => !IsNonKathaShortOrAlert(t)).ToList();
             var festivalMatch = CuratedKathaPool.FirstOrDefault(opt =>
                 opt.FestivalHints.Any(h => activeFestivalText.Contains(h, StringComparison.OrdinalIgnoreCase))
-                && !ConflictsWithExisting(opt.Signal.Title, existingChannelTitles));
+                && !ConflictsWithExisting(opt.Signal.Title, kathaOnlyHistory));
             if (festivalMatch is not null)
                 return festivalMatch.Signal;
         }
@@ -162,6 +190,25 @@ public static class ChannelContentDeduplicator
         var unused = CuratedKathaPool.FirstOrDefault(opt =>
             !ConflictsWithExisting($"{opt.Signal.Title} {opt.Signal.DeityOrSage}", existingChannelTitles));
         return unused?.Signal ?? apiKatha ?? CuratedKathaPool[0].Signal;
+    }
+
+    public static bool HasFestivalMatchingKatha(
+        EcosystemDailyKathaSignal? selectedKatha,
+        IReadOnlyList<EcosystemFestivalSignal> festivals,
+        string dateKey)
+    {
+        if (selectedKatha is null) return false;
+        var activeFestivalText = string.Join(' ', festivals
+            .Where(f => string.Equals(f.DateKey, dateKey, StringComparison.Ordinal))
+            .Select(f => $"{f.NameHindi} {f.NameEnglish} {f.Tithi}"));
+        if (string.IsNullOrWhiteSpace(activeFestivalText))
+            return false;
+
+        var opt = CuratedKathaPool.FirstOrDefault(o =>
+            string.Equals(o.Signal.Id, selectedKatha.Id, StringComparison.OrdinalIgnoreCase)
+            || (o.FestivalHints.Any(h => activeFestivalText.Contains(h, StringComparison.OrdinalIgnoreCase))
+                && ExtractSubjects(o.Signal.Title).Overlaps(ExtractSubjects($"{selectedKatha.Title} {selectedKatha.DeityOrSage}"))));
+        return opt is not null && opt.FestivalHints.Any(h => activeFestivalText.Contains(h, StringComparison.OrdinalIgnoreCase));
     }
 
     public static IReadOnlyList<EcosystemHistoricalSignal> PrioritizeFreshHistorical(
@@ -197,9 +244,18 @@ public static class ChannelContentDeduplicator
             .Where(w => w.Length >= 4 && !StopWords.Contains(w))
             .ToHashSet(StringComparer.Ordinal);
 
+    private static bool IsNonKathaShortOrAlert(string title) =>
+        title.Contains("पंचांग", StringComparison.Ordinal)
+        || title.Contains("panchang", StringComparison.OrdinalIgnoreCase)
+        || title.Contains("मुहूर्त व पूजा विधि", StringComparison.Ordinal)
+        || title.Contains("व्रत विधि", StringComparison.Ordinal)
+        || title.Contains("दीपदान का महत्व", StringComparison.Ordinal)
+        || title.Contains("#shorts", StringComparison.OrdinalIgnoreCase);
+
     private static readonly HashSet<string> StopWords = new(StringComparer.Ordinal)
     {
         "katha", "story", "video", "short", "shorts", "full", "complete", "daily", "today", "2026",
-        "कथा", "कहानी", "वीडियो", "संपूर्ण", "सत्य", "पौराणिक", "दैनिक", "इतिहास", "घटना", "विजय"
+        "कथा", "कहानी", "वीडियो", "संपूर्ण", "सत्य", "पौराणिक", "दैनिक", "इतिहास", "घटना", "विजय",
+        "भगवान", "महादेव", "विष्णु", "मुहूर्त", "पूजा", "विधि"
     };
 }
