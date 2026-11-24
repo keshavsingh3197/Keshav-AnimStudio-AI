@@ -19,6 +19,8 @@ export interface VfxRig {
   hairCutGroup: THREE.Group;
   angrySteamGroup: THREE.Group;
   sprayMistGroup: THREE.Group;
+  celebrateStarsGroup: THREE.Group;
+  brakeSmokeGroup: THREE.Group;
 }
 
 export function createVfxRig(
@@ -262,6 +264,33 @@ export function createVfxRig(
   sprayMistGroup.visible = false;
   group.add(sprayMistGroup);
 
+  // Golden celebration / achievement sparkle burst ("Ta-Da / Job Done / Coin!")
+  const celebrateStarsGroup = new THREE.Group();
+  const celebColors = [0xfacc15, 0xfde047, 0x38bdf8, 0xf472b6, 0x4ade80];
+  for (let c = 0; c < 10; c++) {
+    const spark = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.062 + (c % 2) * 0.025, 0),
+      new THREE.MeshBasicMaterial({ color: celebColors[c % celebColors.length], transparent: true, opacity: 0.94 }),
+    );
+    celebrateStarsGroup.add(spark);
+  }
+  celebrateStarsGroup.visible = false;
+  group.add(celebrateStarsGroup);
+
+  // Tire brake-skid smoke billows for vehicle/brake comedy beats
+  const brakeSmokeGroup = new THREE.Group();
+  const smokeMatDark = new THREE.MeshBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.72 });
+  const smokeMatLight = new THREE.MeshBasicMaterial({ color: 0xf1f5f9, transparent: true, opacity: 0.78 });
+  for (let b = 0; b < 8; b++) {
+    const puff = new THREE.Mesh(
+      new THREE.SphereGeometry(0.095 + (b % 3) * 0.028, 8, 6),
+      b % 2 === 0 ? smokeMatDark : smokeMatLight,
+    );
+    brakeSmokeGroup.add(puff);
+  }
+  brakeSmokeGroup.visible = false;
+  group.add(brakeSmokeGroup);
+
   return {
     group,
     ambientPoints,
@@ -280,6 +309,8 @@ export function createVfxRig(
     hairCutGroup,
     angrySteamGroup,
     sprayMistGroup,
+    celebrateStarsGroup,
+    brakeSmokeGroup,
   };
 }
 
@@ -301,6 +332,8 @@ export function updateVfxRig(
   memeActive = false,
   leftEmotion: EmotionKind = 'calm',
   rightEmotion: EmotionKind = 'calm',
+  centerAngrySnap = false,
+  sfxCue: string | null = null,
 ): void {
   const count = vfx.ambientPositions.length / 3;
   const climbDown = vfx.particleMode === 'snow' || (vfx.particleMode === 'petal' && u > 0.6);
@@ -390,14 +423,14 @@ export function updateVfxRig(
     vfx.sleepZGroup.visible = false;
   }
 
-  // 2) Comic shock starburst positioned cleanly ABOVE head top (never occluding face or eyes)
-  const speakerX = activeSlot === 'Right' ? rightX : leftX;
-  const speakerY = activeSlot === 'Right' ? rightY : leftY;
-  const speakerAct = activeSlot === 'Right' ? rightAction : leftAction;
-  const showShock = memeActive || ((speakerAct === 'shockedFall' || speakerAct === 'wakingUp' || emotion === 'surprised') && turnLocalProgress < 0.42);
-  // Comic "POW" flash on the opponent the instant each punch / kick lands (same clock as the SFX track)
-  const leftStrike = leftAction === 'punching' || leftAction === 'kicking';
-  const rightStrike = rightAction === 'punching' || rightAction === 'kicking';
+  // 2) Comic shock starburst positioned cleanly ABOVE head top ONLY on comedy/cartoon sets
+  const speakerX = centerAngrySnap ? 0 : activeSlot === 'Right' ? rightX : leftX;
+  const speakerY = centerAngrySnap ? 0.04 : activeSlot === 'Right' ? rightY : leftY;
+  const speakerAct = centerAngrySnap ? 'corpseSnapUp' : activeSlot === 'Right' ? rightAction : leftAction;
+  const showShock = isComedySet && (centerAngrySnap || memeActive || ((speakerAct === 'shockedFall' || speakerAct === 'wakingUp' || emotion === 'surprised') && turnLocalProgress < 0.42));
+  // Comic "POW" flash on the opponent ONLY during comedy fist/kick bouts
+  const leftStrike = isComedySet && (leftAction === 'punching' || leftAction === 'kicking');
+  const rightStrike = isComedySet && (rightAction === 'punching' || rightAction === 'kicking');
   const strikeKind = (leftStrike ? leftAction : rightAction) as 'punching' | 'kicking';
   const impact = leftStrike || rightStrike ? strikePhase(t, strikeKind).recoil : 0;
   if (impact > 0.08) {
@@ -467,19 +500,19 @@ export function updateVfxRig(
     vfx.hairCutGroup.visible = false;
   }
 
-  // 6) MJO Cartoon Angry Ear-Steam Puffs when either character turns "Angry Bird" furious
+  // 6) MJO Cartoon Angry Ear-Steam Puffs cleanly framing the furious character's own ears without blocking neighbors
   const leftAngry = leftEmotion === 'angry';
   const rightAngry = rightEmotion === 'angry';
-  if (leftAngry || rightAngry) {
+  if (leftAngry || rightAngry || centerAngrySnap) {
     vfx.angrySteamGroup.visible = true;
-    const ax = rightAngry ? rightX : leftX;
-    const ay = (rightAngry ? rightY : leftY) + 1.56;
-    const az = rightAngry ? -0.68 : -0.58;
+    const ax = centerAngrySnap ? 0 : rightAngry ? rightX : leftX;
+    const ay = (centerAngrySnap ? 0.06 : rightAngry ? rightY : leftY) + 1.54;
+    const az = centerAngrySnap ? -0.06 : rightAngry ? -0.68 : -0.58;
     vfx.angrySteamGroup.children.forEach((puff, idx) => {
       const side = idx % 2 === 0 ? -1 : 1;
       const cycle = (t * 2.4 + Math.floor(idx / 2) * 0.34) % 1;
-      puff.position.set(ax + side * (0.28 + cycle * 0.36), ay + cycle * 0.45, az);
-      puff.scale.setScalar(Math.max(0.05, Math.sin(cycle * Math.PI) * 1.35));
+      puff.position.set(ax + side * (0.24 + cycle * 0.22), ay + cycle * 0.36, az);
+      puff.scale.setScalar(Math.max(0.05, Math.sin(cycle * Math.PI) * 0.68));
     });
   } else {
     vfx.angrySteamGroup.visible = false;
@@ -501,5 +534,64 @@ export function updateVfxRig(
     });
   } else {
     vfx.sprayMistGroup.visible = false;
+  }
+
+  // 8) Achievement / Ta-Da victory sparkles around proud/celebrating speaker
+  const showCelebrate = leftAction === 'celebrate'
+    || rightAction === 'celebrate'
+    || leftEmotion === 'proud'
+    || rightEmotion === 'proud'
+    || sfxCue === 'tada'
+    || sfxCue === 'coin';
+  if (showCelebrate) {
+    vfx.celebrateStarsGroup.visible = true;
+    const cx = rightAction === 'celebrate' || rightEmotion === 'proud'
+      ? rightX
+      : leftAction === 'celebrate' || leftEmotion === 'proud'
+        ? leftX
+        : speakerX;
+    const cy = (rightAction === 'celebrate' || rightEmotion === 'proud'
+      ? rightY
+      : leftAction === 'celebrate' || leftEmotion === 'proud'
+        ? leftY
+        : speakerY) + 1.55;
+    vfx.celebrateStarsGroup.children.forEach((spark, idx) => {
+      const cycle = (t * 1.9 + idx * 0.12) % 1;
+      const ang = (idx / 10) * Math.PI * 2 + t * 2.2;
+      const radius = 0.24 + cycle * 0.46;
+      spark.position.set(cx + Math.cos(ang) * radius, cy + Math.sin(ang) * 0.22 + cycle * 0.44, -0.46 + Math.sin(ang) * 0.16);
+      spark.rotation.set(t * 4 + idx, t * 5, idx);
+      spark.scale.setScalar(Math.max(0.05, Math.sin(cycle * Math.PI) * 1.25));
+    });
+  } else {
+    vfx.celebrateStarsGroup.visible = false;
+  }
+
+  // 9) Screeching brake-skid smoke billows at ankle level during sudden vehicle stops
+  const showBrakeSmoke = leftAction === 'brakeStop'
+    || rightAction === 'brakeStop'
+    || leftAction === 'hazardTruck'
+    || rightAction === 'hazardTruck'
+    || sfxCue === 'brake';
+  if (showBrakeSmoke) {
+    vfx.brakeSmokeGroup.visible = true;
+    const bx = rightAction === 'brakeStop' || rightAction === 'hazardTruck'
+      ? rightX
+      : leftAction === 'brakeStop' || leftAction === 'hazardTruck'
+        ? leftX
+        : speakerX;
+    const by = (rightAction === 'brakeStop' || rightAction === 'hazardTruck'
+      ? rightY
+      : leftAction === 'brakeStop' || leftAction === 'hazardTruck'
+        ? leftY
+        : speakerY) + 0.12;
+    vfx.brakeSmokeGroup.children.forEach((puff, idx) => {
+      const cycle = (t * 2.8 + idx * 0.14) % 1;
+      const side = idx % 2 === 0 ? -1 : 1;
+      puff.position.set(bx + side * (0.14 + cycle * 0.62), by + cycle * 0.42, -0.45 + (idx % 3) * 0.08);
+      puff.scale.setScalar(Math.max(0.08, Math.sin(cycle * Math.PI) * 1.55));
+    });
+  } else {
+    vfx.brakeSmokeGroup.visible = false;
   }
 }

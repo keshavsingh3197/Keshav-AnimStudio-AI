@@ -100,7 +100,8 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
             builder.AppendLine(StyleRow(
                 name, font, scaledSize,
                 primary, secondary, outline, back,
-                style.Bold, alignment, marginL, marginR, marginV, style.OpaqueBox));
+                style.Bold, alignment, marginL, marginR, marginV, style.OpaqueBox,
+                style.OutlineWidth, style.ShadowDepth, style.AngleDegrees));
         }
 
         builder.AppendLine();
@@ -128,11 +129,19 @@ public sealed class AssSubtitleWriter(Func<string, bool>? fileExists = null) : I
         int marginL,
         int marginR,
         int marginV,
-        bool opaqueBox = false) =>
-        string.Create(CultureInfo.InvariantCulture,
+        bool opaqueBox = false,
+        double outlineWidth = 3.6,
+        double shadowDepth = 1.8,
+        double angleDegrees = 0)
+    {
+        var effOutline = opaqueBox ? Math.Max(6.0, outlineWidth) : Math.Clamp(outlineWidth, 0.5, 16.0);
+        var effShadow = opaqueBox ? 0.0 : Math.Clamp(shadowDepth, 0.0, 10.0);
+        var effAngle = Math.Clamp(angleDegrees, -25.0, 25.0);
+        return string.Create(CultureInfo.InvariantCulture,
             // Bold is -1 for on and 0 for off in ASS, not 1. BorderStyle 3 draws a decorated pill/bar behind badges.
             $"Style: {name},{font},{size},{primary},{secondary},{outline},"
-            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,0,{(opaqueBox ? 3 : 1)},{(opaqueBox ? "6.0,0" : "3.6,1.8")},{alignment},{marginL},{marginR},{marginV},1");
+            + $"{back},{(bold ? -1 : 0)},0,0,0,100,100,0,{effAngle:0.##},{(opaqueBox ? 3 : 1)},{effOutline:0.#},{effShadow:0.#},{alignment},{marginL},{marginR},{marginV},1");
+    }
 
     private static string Events(SubtitleRequest request)
     {

@@ -115,12 +115,12 @@ internal static class ProceduralCharacterRenderer
         DrawCharacterFigure(canvas, leftX, leftY, leftScale, facingRight: leftFacesRight, timeSeconds,
             activeLeftName, activeLeftRole, leftSpeaking, leftColor, seedOffset: 0.0,
             robeHex: string.Equals(activeLeftName, plan.LeftCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.LeftCharacter.RobeHex : null,
-            emotion: leftSpeaking ? activeTurn?.Emotion : null);
+            emotion: leftSpeaking ? activeTurn?.Emotion : activeTurn?.ListenerEmotion);
 
         DrawCharacterFigure(canvas, rightX, rightY, rightScale, facingRight: !leftFacesRight, timeSeconds,
             activeRightName, activeRightRole, rightSpeaking, rightColor, seedOffset: 1.7,
             robeHex: string.Equals(activeRightName, plan.RightCharacter.Name, StringComparison.OrdinalIgnoreCase) ? plan.RightCharacter.RobeHex : null,
-            emotion: rightSpeaking ? activeTurn?.Emotion : null);
+            emotion: rightSpeaking ? activeTurn?.Emotion : activeTurn?.ListenerEmotion);
     }
 
     private static int IndexOfName(IReadOnlyList<ProceduralCharacterProfile> cast, string? name)
@@ -432,26 +432,57 @@ internal static class ProceduralCharacterRenderer
                 scale * 0.015f, 234, 88, 12, 0.95f);
         }
 
-        // Expressive eyebrow & blinking eyes
+        // Expressive eyebrow & blinking eyes (including smug squint, scared pop + sweat, sad tear, proud sparkles)
         var blinkWindow = (t % 3.8) > 3.66;
         var eyeX = headCenterX + dir * scale * 0.068f;
         var eyeY = headCenterY - scale * 0.016f;
         var emo = (emotion ?? "calm").ToLowerInvariant();
-        var browLift = emo is "surprised" or "laughing" ? scale * 0.020f : (isSpeaking ? scale * 0.010f : 0f);
-        var browSlant = emo == "angry" ? scale * 0.014f : (emo is "sad" or "confused" ? -scale * 0.010f : -scale * 0.004f);
+        var browLift = emo is "surprised" or "scared" or "laughing" or "proud" or "smug"
+            ? scale * (emo == "scared" ? 0.026f : 0.020f)
+            : (isSpeaking ? scale * 0.010f : 0f);
+        var browSlant = emo == "angry"
+            ? scale * 0.014f
+            : (emo is "sad" or "confused" or "scared" ? -scale * 0.012f : emo == "smug" ? -scale * 0.016f : -scale * 0.004f);
         canvas.DrawGlowLine(eyeX - scale * 0.028f, eyeY - scale * 0.040f - browLift,
             eyeX + scale * 0.028f, eyeY - scale * 0.040f - browLift + browSlant * dir, 1.5f, 44, 30, 28, 0.85f);
 
-        if (!blinkWindow && emo != "laughing")
+        if (emo == "smug" && !blinkWindow)
         {
-            var eyeRy = emo == "surprised" ? scale * 0.028f : scale * 0.020f;
+            // Half-lidded knowing sarcastic squint
+            canvas.FillEllipse(eyeX, eyeY + scale * 0.004f, scale * 0.024f, scale * 0.010f, 28, 22, 32, 0.96f);
+            canvas.DrawGlowLine(eyeX - scale * 0.026f, eyeY - scale * 0.005f, eyeX + scale * 0.026f, eyeY - scale * 0.005f,
+                1.8f, 40, 28, 30, 0.92f);
+        }
+        else if (!blinkWindow && emo != "laughing")
+        {
+            var eyeRy = emo is "surprised" or "scared" ? scale * 0.029f : scale * 0.020f;
             canvas.FillEllipse(eyeX, eyeY, scale * 0.025f, eyeRy, 28, 22, 32, 0.96f);
-            canvas.FillEllipse(eyeX + dir * scale * 0.006f, eyeY - scale * 0.004f, scale * 0.008f, scale * 0.008f, 255, 255, 255, 0.92f);
+            var glintR = emo == "scared" ? scale * 0.006f : scale * 0.008f;
+            canvas.FillEllipse(eyeX + dir * scale * 0.006f, eyeY - scale * 0.004f, glintR, glintR, 255, 255, 255, 0.94f);
         }
         else
         {
             canvas.DrawGlowLine(eyeX - scale * 0.022f, eyeY, eyeX + scale * 0.022f, eyeY - (emo == "laughing" ? scale * 0.009f : 0f),
                 1.6f, 40, 28, 30, 0.9f);
+        }
+
+        if (emo == "sad")
+        {
+            var tearDrop = (float)((t * 1.4) % 1.0);
+            canvas.FillEllipse(eyeX - dir * scale * 0.008f, eyeY + scale * (0.028f + tearDrop * 0.045f),
+                scale * 0.009f, scale * 0.014f, 56, 189, 248, 0.90f);
+        }
+        else if (emo == "scared")
+        {
+            var sweatDrop = (float)((t * 2.0) % 1.0);
+            canvas.FillEllipse(headCenterX - dir * scale * 0.095f, headCenterY - headRadius * (0.36f - sweatDrop * 0.16f),
+                scale * 0.012f, scale * 0.020f, 56, 189, 248, 0.92f);
+        }
+        else if (emo == "proud")
+        {
+            var sparkleR = scale * (0.011f + 0.005f * (float)Math.Abs(Math.Sin(t * 7.5)));
+            canvas.FillEllipse(headCenterX - dir * scale * 0.14f, headCenterY - headRadius * 0.72f, sparkleR, sparkleR, 250, 204, 21, 0.92f);
+            canvas.FillEllipse(headCenterX + dir * scale * 0.14f, headCenterY - headRadius * 0.68f, sparkleR, sparkleR, 250, 204, 21, 0.92f);
         }
 
         // Animated mouth: strictly tracks real synthesized audio energy when present so silence never flaps mouth!
@@ -468,9 +499,14 @@ internal static class ProceduralCharacterRenderer
             var mouthOpen = 0.012f + speechEnergy * 0.036f;
             canvas.FillEllipse(mouthX, mouthY, scale * 0.036f, scale * mouthOpen, 128, 26, 36, 0.96f);
         }
+        else if (emo == "scared")
+        {
+            canvas.FillEllipse(mouthX, mouthY, scale * 0.020f, scale * 0.024f, 128, 26, 36, 0.95f);
+        }
         else
         {
-            canvas.DrawGlowLine(mouthX - scale * 0.026f, mouthY, mouthX + scale * 0.026f, mouthY - scale * 0.007f,
+            var smirkLift = emo is "proud" or "smug" or "happy" or "laughing" ? scale * 0.014f : scale * 0.007f;
+            canvas.DrawGlowLine(mouthX - scale * 0.026f, mouthY, mouthX + scale * 0.026f, mouthY - smirkLift,
                 1.6f, 134, 58, 52, 0.92f);
         }
 

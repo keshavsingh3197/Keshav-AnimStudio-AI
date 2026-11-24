@@ -122,6 +122,65 @@ public class YouTubeAnalyticsClientTests
         Assert.False(YouTubeChannelAnalysisService.NeedsAnalyticsRetry(channel, errored));
     }
 
+    [Fact]
+    public async Task ContentType_breakdown_separates_YPP_eligible_long_form_and_live_watch_minutes_from_Shorts()
+    {
+        const string body = """
+            {
+              "columnHeaders": [
+                { "name": "creatorContentType" },
+                { "name": "views" },
+                { "name": "estimatedMinutesWatched" }
+              ],
+              "rows": [
+                [ "VIDEO_ON_DEMAND", 12400, 18600.5 ],
+                [ "LIVE_STREAM", 1500, 2400.0 ],
+                [ "SHORTS", 210000, 44250.0 ]
+              ]
+            }
+            """;
+        var answer = new Answer(HttpStatusCode.OK, body);
+        using var client = new YouTubeAnalyticsClient(NullLogger<YouTubeAnalyticsClient>.Instance, answer);
+
+        var breakdown = await client.GetWatchTimeByContentTypeAsync(
+            new DateOnly(2025, 11, 24), new DateOnly(2026, 11, 23), "token", CancellationToken.None);
+
+        Assert.Contains("dimensions=creatorContentType", answer.Seen!.ToString());
+        Assert.Equal(21000.5, breakdown.LongFormWatchMinutes);
+        Assert.Equal(2400.0, breakdown.LiveStreamWatchMinutes);
+        Assert.Equal(44250.0, breakdown.ShortsWatchMinutes);
+        Assert.Equal(65250.5, breakdown.TotalWatchMinutes);
+        Assert.Equal(13900, breakdown.LongFormViews);
+        Assert.Equal(210000, breakdown.ShortsViews);
+        Assert.Equal("creatorContentType", breakdown.Source);
+        Assert.Equal(365, breakdown.WindowDays);
+    }
+
+    [Fact]
+    public void EstimateWatchTimeBreakdown_separates_long_videos_from_Shorts_when_contentType_report_absent()
+    {
+        var analysis = new YouTubeChannelAnalysis
+        {
+            ChannelId = "UChEkPFnexqQTL0aPqcmwlMw",
+            ChannelTitle = "OMKAR SHIV Bhakti",
+            Videos =
+            [
+                new YouTubeAnalyzedVideo { VideoId = "long1234567", DurationSeconds = 220, Views = 1400, Analytics = new YouTubeVideoAnalytics { WatchMinutes = 636.0 } },
+                new YouTubeAnalyzedVideo { VideoId = "shrt1234567", DurationSeconds = 58, Views = 45000, Analytics = new YouTubeVideoAnalytics { WatchMinutes = 2286.0 } }
+            ],
+            Daily =
+            [
+                new YouTubeDailyPoint { Day = new DateTime(2026, 11, 22, 0, 0, 0, DateTimeKind.Utc), Views = 50000, WatchMinutes = 44250.0 }
+            ]
+        };
+
+        var breakdown = YouTubeChannelAnalysisService.EstimateWatchTimeBreakdown(analysis);
+        Assert.Equal(636.0, breakdown.LongFormWatchMinutes);
+        Assert.Equal(44250.0, breakdown.TotalWatchMinutes);
+        Assert.Equal(43614.0, breakdown.ShortsWatchMinutes);
+        Assert.Equal("video-duration-estimate", breakdown.Source);
+    }
+
     private sealed class Answer(HttpStatusCode status, string body) : HttpMessageHandler
     {
         public Uri? Seen { get; private set; }

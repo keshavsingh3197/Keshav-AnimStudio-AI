@@ -386,7 +386,8 @@ public sealed partial class EcosystemAutomationService
 
         if (string.IsNullOrWhiteSpace(post.PinnedComment))
         {
-            var destUrl = post.PrimaryDestinationUrl ?? post.TrackedFunnelUrls.FirstOrDefault()?.TrackedUrl;
+            var destUrl = YouTubePolicyComplianceSanitizer.ToRootDomainUrl(
+                post.PrimaryDestinationUrl ?? post.TrackedFunnelUrls.FirstOrDefault()?.BaseUrl ?? post.TrackedFunnelUrls.FirstOrDefault()?.TrackedUrl);
             if (!string.IsNullOrWhiteSpace(destUrl))
             {
                 post.PinnedComment = post.Language == "hi"
@@ -425,7 +426,7 @@ public sealed partial class EcosystemAutomationService
         {
             var tz = !string.IsNullOrWhiteSpace(rule.TimeZoneId) ? rule.TimeZoneId : settings.DefaultTimeZone;
             var timeStr = !string.IsNullOrWhiteSpace(rule.PreferredPublishTime) ? rule.PreferredPublishTime : "07:00";
-            post.ScheduledAtUtc = ComputeScheduledUtc(post.DateKey, timeStr, tz);
+            post.ScheduledAtUtc = ComputeScheduledUtc(post.DateKey, timeStr, tz, rule.PublishDaysBefore);
         }
 
         if (string.IsNullOrWhiteSpace(post.ThumbnailStorageKey))
@@ -1052,11 +1053,13 @@ public sealed partial class EcosystemAutomationService
             }
         }
 
-        if (post.TrackedFunnelUrls.Count > 0)
+        var linkLines = YouTubePolicyComplianceSanitizer.FormatRootPortalLines(
+            post.TrackedFunnelUrls.Select(l => (l.Label, (string?)(string.IsNullOrWhiteSpace(l.BaseUrl) ? l.TrackedUrl : l.BaseUrl))));
+        if (linkLines.Count > 0)
         {
-            var link = post.TrackedFunnelUrls[0];
             sb.AppendLine();
-            sb.AppendLine($"🌐 {link.Label}: {link.TrackedUrl}");
+            foreach (var line in linkLines)
+                sb.AppendLine(line);
         }
 
         var result = sb.ToString().Trim();

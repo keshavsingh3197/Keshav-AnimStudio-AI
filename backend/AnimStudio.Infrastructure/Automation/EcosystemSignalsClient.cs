@@ -317,7 +317,8 @@ public sealed class EcosystemSignalsClient(
         var now = DateTimeOffset.UtcNow;
         var hasValidStale = staleEntry is not null && staleEntry.StaleUntilUtc > now;
         var mergedPanchang = panchang ?? (hasValidStale ? staleEntry!.Snapshot.Panchang : null);
-        var mergedFestivals = festivals.Count > 0 || !hasValidStale ? festivals : staleEntry!.Snapshot.UpcomingFestivals;
+        var upstreamFestivals = festivals.Count > 0 || !hasValidStale ? festivals : staleEntry!.Snapshot.UpcomingFestivals;
+        var mergedFestivals = VedicFestivalResolver.EnrichFestivals(upstreamFestivals, effectiveDate, windowDays: 14, todayPanchang: mergedPanchang);
         var mergedKatha = kathaTask.Result ?? (hasValidStale ? staleEntry!.Snapshot.DailyKatha : null);
         var mergedIncidents = incidents.Count > 0 || !hasValidStale ? incidents : staleEntry!.Snapshot.HistoricalIncidents;
         var mergedCompetitions = competitions.Count > 0 || !hasValidStale ? competitions : staleEntry!.Snapshot.Competitions;

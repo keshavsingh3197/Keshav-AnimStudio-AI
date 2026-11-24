@@ -242,7 +242,7 @@ public sealed class ProceduralVideoGeneratorService(
         });
         var hasSfx = false;
         if ((isComedy || (request.IncludeAmbientAudio && (hasActions || hasPlaceBed)))
-            && (dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1 || hasPlaceBed))
+            && ((isComedy && dialoguePlan.Turns.Count >= 1) || dialoguePlan.Memes.Count > 0 || dialoguePlan.Turns.Count > 1 || hasPlaceBed))
         {
             var sfxDst = workspace.Resolve("in/sfx.wav");
             await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxDst, dialoguePlan, durationSeconds, ct, comedyIntensity: isComedy).ConfigureAwait(false);
@@ -276,7 +276,7 @@ public sealed class ProceduralVideoGeneratorService(
         var frameBytes = width * height * 4;
         byte[][] handOff = [new byte[frameBytes], new byte[frameBytes]];
         var cleanThumbFrameIdx = request.SaveAsRenderJob
-            ? PickPeakCleanThumbnailFrame(dialoguePlan, fps, totalFrames)
+            ? PickPeakCleanThumbnailFrame(dialoguePlan, fps, totalFrames, speechEnvelope)
             : -1;
         var cleanThumbRgba = request.SaveAsRenderJob ? new byte[frameBytes] : null;
         var hasCleanThumbRgba = false;
@@ -857,7 +857,11 @@ public sealed class ProceduralVideoGeneratorService(
             fontSize));
     }
 
-    internal static int PickPeakCleanThumbnailFrame(ProceduralDialoguePlan plan, int fps, int totalFrames)
+    internal static int PickPeakCleanThumbnailFrame(
+        ProceduralDialoguePlan plan,
+        int fps,
+        int totalFrames,
+        float[]? speechEnvelope = null)
     {
         if (totalFrames <= 1 || fps <= 0)
             return 0;
@@ -872,11 +876,13 @@ public sealed class ProceduralVideoGeneratorService(
 
         var isDevotionalOrHistory = plan.Memes.Count == 0
             && !activeTurns.Any(t => t.SpeakerRole == CharacterVisualRole.ComicBobble
-                || t.Action is "lookInMirror" or "shockedFall" or "slapForehead" or "removingTowel" or "cutting");
+                || t.Action is "lookInMirror" or "shockedFall" or "slapForehead" or "removingTowel" or "cutting" or "corpseSnapUp" or "lyingShroud");
         foreach (var turn in activeTurns)
         {
             var score = 0;
-            if (turn.Action is "lookInMirror" or "shockedFall" or "slapForehead" or "removingTowel") score += 14;
+            if (turn.Action is "lapSubdue" or "lapSubdued" or "pillarBurst" or "corpseSnapUp") score += 26;
+            else if (turn.Action is "blessing" or "aarti") score += 16;
+            else if (turn.Action is "lookInMirror" or "shockedFall" or "slapForehead" or "removingTowel") score += 14;
             if (turn.SpeakerRole == CharacterVisualRole.Divine) score += 16;
             else if (turn.SpeakerRole == CharacterVisualRole.ChildDevotee) score += 7;
             else if (isDevotionalOrHistory && turn.SpeakerRole == CharacterVisualRole.KingCrown) score -= 5;
@@ -915,8 +921,32 @@ public sealed class ProceduralVideoGeneratorService(
             }
         }
 
-        var peakSeconds = best.StartSeconds + (Math.Max(0.2, best.EndSeconds - best.StartSeconds) * 0.62);
         var minFrame = Math.Min(totalFrames - 1, (int)Math.Round(fps * 2.2));
+        var startFrame = Math.Clamp((int)Math.Floor(best.StartSeconds * fps), 0, Math.Max(0, totalFrames - 2));
+        var endFrame = Math.Clamp((int)Math.Ceiling(best.EndSeconds * fps), startFrame, Math.Max(0, totalFrames - 2));
+
+        // When audio envelope is available, snap to the peak vocal energy frame inside the climax turn
+        // so the character's mouth is wide open in active shock/fury/laughter instead of a flat breath pause.
+        if (speechEnvelope is { Length: > 0 } && endFrame > startFrame)
+        {
+            var span = endFrame - startFrame;
+            var scanStart = Math.Clamp(startFrame + (int)Math.Round(span * 0.15), 0, Math.Min(speechEnvelope.Length - 1, totalFrames - 2));
+            var scanEnd = Math.Clamp(startFrame + (int)Math.Round(span * 0.85), scanStart, Math.Min(speechEnvelope.Length - 1, totalFrames - 2));
+            var bestAudioIdx = -1;
+            var bestAudioLevel = 0.08f;
+            for (var f = scanStart; f <= scanEnd; f++)
+            {
+                if (speechEnvelope[f] > bestAudioLevel)
+                {
+                    bestAudioLevel = speechEnvelope[f];
+                    bestAudioIdx = f;
+                }
+            }
+            if (bestAudioIdx >= Math.Min(minFrame, startFrame))
+                return bestAudioIdx;
+        }
+
+        var peakSeconds = best.StartSeconds + (Math.Max(0.2, best.EndSeconds - best.StartSeconds) * 0.62);
         var targetFrame = (int)Math.Round(peakSeconds * fps);
         return Math.Clamp(targetFrame, Math.Min(minFrame, Math.Max(0, totalFrames - 1)), Math.Max(0, totalFrames - 2));
     }
@@ -1106,7 +1136,7 @@ public sealed class ProceduralVideoGeneratorService(
                 if (audioMap is not null)
                 {
                     fc.Append(CultureInfo.InvariantCulture,
-                        $"[{sfxIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.88[sfx];{audioMap}[sfx]amix=inputs=2:duration=first:normalize=0[aout];");
+                        $"[{sfxIdx}:a]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=1.02[sfx];{audioMap}[sfx]amix=inputs=2:duration=first:normalize=0[aout];");
                     audioMap = "[aout]";
                 }
                 else

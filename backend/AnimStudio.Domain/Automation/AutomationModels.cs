@@ -136,6 +136,12 @@ public sealed class AutomationRule
     public string PreferredPublishTime { get; set; } = "07:00";
     public string TimeZoneId { get; set; } = "Asia/Kolkata";
 
+    /// <summary>
+    /// Days before <c>DateKey</c> to schedule/publish the video (e.g., <c>1</c> publishes Day N content on Day N-1 evening
+    /// so YouTube indexes titles and search tags overnight before morning search traffic peaks).
+    /// </summary>
+    public int PublishDaysBefore { get; set; } = 0;
+
     /// <summary>0=Sunday .. 6=Saturday; empty means daily.</summary>
     public List<int> DaysOfWeek { get; set; } = [];
     public int FestivalLeadDays { get; set; } = 1;

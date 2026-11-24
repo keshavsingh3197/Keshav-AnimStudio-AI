@@ -330,6 +330,24 @@ export function buildCharacterHandProps(
   rightGroup.add(bow);
   rightMeshes['bow'] = bow;
 
+  // Heavy Golden Mythological Gada (Mace for Hiranyakashipu & Hanuman)
+  const gada = new THREE.Group();
+  const gShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.020, 0.028, 0.56, 10), brassMat);
+  gShaft.position.y = 0.24;
+  gada.add(gShaft);
+  const gGlobe = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 12), brassMat);
+  gGlobe.scale.set(1.0, 1.18, 1.0);
+  gGlobe.position.y = 0.56;
+  gada.add(gGlobe);
+  const gSpikeRing = new THREE.Mesh(new THREE.TorusGeometry(0.112, 0.016, 6, 14), brassMat);
+  gSpikeRing.rotation.x = Math.PI / 2;
+  gSpikeRing.position.y = 0.56;
+  gada.add(gSpikeRing);
+  gada.rotation.x = Math.PI * 0.28;
+  gada.visible = false;
+  rightGroup.add(gada);
+  rightMeshes['gada'] = gada;
+
   const money = new THREE.Group();
   const cash = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.025), new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.45 }));
   cash.position.set(0, 0.05, 0.04);
@@ -400,6 +418,49 @@ export function buildCharacterHandProps(
   rightGroup.add(sprayBottle);
   rightMeshes['sprayBottle'] = sprayBottle;
 
+  // Glowing Golden-Pink Sacred Lotus Bloom (Vaikuntha Chaturdashi Sahasra Kamala / Harihar Milan)
+  const lotus = new THREE.Group();
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.24, 8), new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.65 }));
+  stem.position.y = 0.08;
+  lotus.add(stem);
+  const lotusGoldMat = new THREE.MeshStandardMaterial({ color: 0xfde047, emissive: 0xf59e0b, emissiveIntensity: 0.42, roughness: 0.28 });
+  const lotusPinkMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, emissive: 0xdb2777, emissiveIntensity: 0.25, roughness: 0.34 });
+  for (let p = 0; p < 8; p++) {
+    const a = (p / 8) * Math.PI * 2;
+    const petal = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.13, 6), p % 2 === 0 ? lotusPinkMat : lotusGoldMat);
+    petal.position.set(Math.cos(a) * 0.068, 0.22, Math.sin(a) * 0.068);
+    petal.rotation.z = -Math.cos(a) * 0.62;
+    petal.rotation.x = Math.sin(a) * 0.62;
+    lotus.add(petal);
+  }
+  const lotusCore = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 8), lotusGoldMat);
+  lotusCore.position.y = 0.22;
+  lotus.add(lotusCore);
+  lotus.rotation.x = Math.PI * 0.18;
+  lotus.visible = false;
+  rightGroup.add(lotus);
+  rightMeshes['lotus'] = lotus;
+
+  // Handheld Radiant Sudarshana Chakra Discus (gifted by Lord Shiva to Lord Vishnu)
+  const chakra = new THREE.Group();
+  const chakraMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 0.78, metalness: 0.85, roughness: 0.14 });
+  const chakraRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.022, 8, 22), chakraMat);
+  chakraRing.position.y = 0.20;
+  chakra.add(chakraRing);
+  const chakraHub = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), chakraMat);
+  chakraHub.position.y = 0.20;
+  chakra.add(chakraHub);
+  for (let c = 0; c < 10; c++) {
+    const ca = (c / 10) * Math.PI * 2;
+    const spoke = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.065, 4), chakraMat);
+    spoke.position.set(Math.cos(ca) * 0.165, 0.20 + Math.sin(ca) * 0.165, 0);
+    spoke.rotation.z = ca - Math.PI / 2;
+    chakra.add(spoke);
+  }
+  chakra.visible = false;
+  rightGroup.add(chakra);
+  rightMeshes['chakra'] = chakra;
+
   return {
     rightGroup,
     leftGroup,
@@ -449,5 +510,9 @@ export function updateHandPropAnimation(
   if (effectiveProp === 'diya' && props.diyaFlame) {
     const f = 0.85 + 0.25 * Math.sin(t * 14.0);
     props.diyaFlame.scale.set(f, 0.9 + 0.3 * Math.cos(t * 11.0), f);
+  }
+
+  if (effectiveProp === 'chakra' && props.rightMeshes['chakra']) {
+    props.rightMeshes['chakra'].rotation.z = t * 5.2;
   }
 }

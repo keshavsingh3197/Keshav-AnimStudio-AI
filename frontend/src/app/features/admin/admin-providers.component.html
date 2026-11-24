@@ -244,6 +244,12 @@
               <button type="button" class="secondary small" (click)="test(provider)" [disabled]="isBusy(provider.id)">⚡ Test connection</button>
               @if (provider.key.configured) {
                 <span class="pill ok mono">key {{ provider.key.masked }}</span>
+                @if ((provider.poolKeyCount ?? 0) > 1) {
+                  <a class="pill brand" routerLink="/admin/api-keys" [queryParams]="{ provider: provider.id }"
+                     title="Automatic multi-key failover pool configured">
+                    {{ provider.poolReadyCount ?? 0 }}/{{ provider.poolKeyCount }} keys ready
+                  </a>
+                }
               } @else if (provider.requiresApiKey) {
                 <span class="muted" style="font-size: 0.82rem">no key installed</span>
               }
@@ -392,7 +398,12 @@
 
                 @if (provider.requiresApiKey) {
                   <div class="subform">
-                    <h4>API key</h4>
+                    <div class="row" style="justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                      <h4 style="margin: 0">API key</h4>
+                      <a class="ad-link" routerLink="/admin/api-keys" [queryParams]="{ provider: provider.id }">
+                        Manage Google / multi-key failover pool &rarr;
+                      </a>
+                    </div>
 
                     @if (provider.key.configured) {
                       <dl class="kv">

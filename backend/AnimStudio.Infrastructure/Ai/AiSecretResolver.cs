@@ -29,24 +29,90 @@ namespace AnimStudio.Infrastructure.Ai;
 /// </remarks>
 public sealed class AiSecretResolver(
     IServiceScopeFactory scopeFactory,
-    ILogger<AiSecretResolver> logger) : IAiSecretResolver
+    ILogger<AiSecretResolver> logger,
+    TimeProvider? clock = null) : IAiSecretResolver
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private static readonly TimeSpan PresenceCacheTtl = TimeSpan.FromSeconds(60);
     private readonly ConcurrentDictionary<AiProviderId, (bool Installed, DateTime CheckedAt)> _installed = new();
+    private readonly ConcurrentDictionary<AiProviderId, AiSecretPoolCooldown> _cooldowns = new();
 
     public async Task<string?> GetSecretAsync(AiProviderId provider, CancellationToken ct)
     {
-        if (provider.IsEmpty) return null;
+        var candidates = await GetSecretCandidatesAsync(provider, ct).ConfigureAwait(false);
+        return candidates.Count > 0 ? candidates[0].Secret : null;
+    }
+
+    public async Task<IReadOnlyList<AiSecretCandidate>> GetSecretCandidatesAsync(
+        AiProviderId provider, CancellationToken ct)
+    {
+        if (provider.IsEmpty) return [];
 
         using var scope = scopeFactory.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<IAiCredentialStore>();
+        var pool = scope.ServiceProvider.GetService<IAiApiKeyPoolStore>();
 
+        if (pool is not null)
+        {
+            var (candidates, cooldown) = await pool.ResolveCandidatesAsync(provider, ct).ConfigureAwait(false);
+            if (candidates.Count > 0)
+            {
+                _installed[provider] = (true, DateTime.UtcNow);
+                _cooldowns[provider] = AiSecretPoolCooldown.None;
+                return candidates;
+            }
+
+            if (cooldown.AllInCooldown)
+            {
+                _installed[provider] = (true, DateTime.UtcNow);
+                _cooldowns[provider] = cooldown;
+                return [];
+            }
+
+            var hasInstalled = await pool.HasInstalledKeysAsync(provider, ct).ConfigureAwait(false);
+            _installed[provider] = (hasInstalled, DateTime.UtcNow);
+            _cooldowns[provider] = AiSecretPoolCooldown.None;
+            return [];
+        }
+
+        var store = scope.ServiceProvider.GetRequiredService<IAiCredentialStore>();
         var secret = await store.GetSecretAsync(provider, ct).ConfigureAwait(false);
 
-        // Free information: we just learned the truth, so record it.
         _installed[provider] = (!string.IsNullOrEmpty(secret), DateTime.UtcNow);
+        _cooldowns[provider] = AiSecretPoolCooldown.None;
 
-        return secret;
+        return string.IsNullOrEmpty(secret)
+            ? []
+            : [new AiSecretCandidate(null, "primary", secret)];
+    }
+
+    public AiSecretPoolCooldown GetPoolCooldown(AiProviderId provider)
+    {
+        if (!provider.IsEmpty && _cooldowns.TryGetValue(provider, out var cooldown) && cooldown.AllInCooldown)
+        {
+            var nowUtc = _clock.GetUtcNow().UtcDateTime;
+            if (cooldown.EarliestResetUtc is null || cooldown.EarliestResetUtc > nowUtc)
+                return cooldown;
+        }
+        return AiSecretPoolCooldown.None;
+    }
+
+    public async Task RecordSecretOutcomeAsync(
+        AiProviderId provider,
+        string? keyId,
+        string? fingerprint,
+        AiSecretOutcomeKind outcome,
+        string? errorCode,
+        DateTime? retryAfterUtc,
+        CancellationToken ct)
+    {
+        if (provider.IsEmpty || string.IsNullOrWhiteSpace(keyId)) return;
+
+        using var scope = scopeFactory.CreateScope();
+        var pool = scope.ServiceProvider.GetService<IAiApiKeyPoolStore>();
+        if (pool is null) return;
+
+        await pool.RecordOutcomeAsync(
+            provider, keyId, fingerprint, outcome, errorCode, retryAfterUtc, ct).ConfigureAwait(false);
     }
 
     public bool IsInstalled(AiProviderId provider)
@@ -75,6 +141,7 @@ public sealed class AiSecretResolver(
         if (provider.IsEmpty) return;
 
         _installed.TryRemove(provider, out _);
+        _cooldowns.TryRemove(provider, out _);
         _ = RefreshAsync(provider);
     }
 
@@ -83,13 +150,34 @@ public sealed class AiSecretResolver(
         try
         {
             using var scope = scopeFactory.CreateScope();
+            var pool = scope.ServiceProvider.GetService<IAiApiKeyPoolStore>();
+            if (pool is not null)
+            {
+                await pool.EnsureBackfilledAsync(ct).ConfigureAwait(false);
+                var vendors = await pool.ListVendorsAsync(ct).ConfigureAwait(false);
+                var checkedAt = DateTime.UtcNow;
+                foreach (var vendor in vendors)
+                {
+                    foreach (var pidRaw in vendor.ProviderIds)
+                    {
+                        if (!AiProviderId.TryParse(pidRaw, out var pid)) continue;
+                        var hasEnabled = vendor.Keys.Any(k =>
+                            k.Enabled &&
+                            (k.ProviderIds.Count == 0 ||
+                             k.ProviderIds.Contains(pid.Value, StringComparer.OrdinalIgnoreCase)));
+                        if (hasEnabled)
+                            _installed[pid] = (true, checkedAt);
+                    }
+                }
+            }
+
             var store = scope.ServiceProvider.GetRequiredService<IAiCredentialStore>();
 
-            var checkedAt = DateTime.UtcNow;
+            var credCheckedAt = DateTime.UtcNow;
             foreach (var status in await store.DescribeAllAsync(ct).ConfigureAwait(false))
             {
-                if (AiProviderId.TryParse(status.ProviderId, out var id))
-                    _installed[id] = (status.Configured, checkedAt);
+                if (AiProviderId.TryParse(status.ProviderId, out var id) && status.Configured)
+                    _installed[id] = (true, credCheckedAt);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -106,6 +194,15 @@ public sealed class AiSecretResolver(
         try
         {
             using var scope = scopeFactory.CreateScope();
+            var pool = scope.ServiceProvider.GetService<IAiApiKeyPoolStore>();
+            if (pool is not null)
+            {
+                var hasKeys = await pool.HasInstalledKeysAsync(provider, CancellationToken.None)
+                    .ConfigureAwait(false);
+                _installed[provider] = (hasKeys, DateTime.UtcNow);
+                return;
+            }
+
             var store = scope.ServiceProvider.GetRequiredService<IAiCredentialStore>();
 
             var status = await store.DescribeAsync(provider, CancellationToken.None)

@@ -46,7 +46,37 @@ public sealed class YouTubeChannelAnalysis
     /// <summary>Cached YouTube channel monetization &amp; originality policy audit built from the latest upload metadata.</summary>
     public YouTubeMonetizationAuditReport? PolicyAudit { get; set; }
 
+    /// <summary>365-day YouTube Partner Program (YPP) watch-time breakdown separating eligible long-form VOD/Live hours from Shorts hours.</summary>
+    public YouTubeWatchTimeBreakdown? WatchTime365d { get; set; }
+
     public DateTime UpdatedAtUtc { get; set; }
+}
+
+/// <summary>
+/// 365-day YouTube Partner Program (YPP) watch-time breakdown by <c>creatorContentType</c> (<c>VIDEO_ON_DEMAND</c>, <c>LIVE_STREAM</c>, <c>SHORTS</c>),
+/// separating YPP-eligible public long-form watch hours (towards the 4,000-hour threshold) from Shorts watch hours.
+/// </summary>
+public sealed class YouTubeWatchTimeBreakdown
+{
+    /// <summary>YPP-eligible long-form VOD + Live stream watch minutes over the window.</summary>
+    public double LongFormWatchMinutes { get; set; }
+
+    /// <summary>Shorts feed watch minutes over the window (tracked separately from the 4,000h long-form YPP threshold).</summary>
+    public double ShortsWatchMinutes { get; set; }
+
+    /// <summary>Live stream watch minutes over the window (included in <see cref="LongFormWatchMinutes"/>).</summary>
+    public double LiveStreamWatchMinutes { get; set; }
+
+    /// <summary>Total watch minutes across all formats over the window.</summary>
+    public double TotalWatchMinutes { get; set; }
+
+    public long LongFormViews { get; set; }
+    public long ShortsViews { get; set; }
+
+    /// <summary><c>creatorContentType</c> when read from YouTube Analytics API, or <c>video-duration-estimate</c> when derived from analyzed videos &amp; daily totals.</summary>
+    public string Source { get; set; } = "video-duration-estimate";
+
+    public int WindowDays { get; set; } = 365;
 }
 
 /// <summary>One day of a channel's or a video's YouTube Analytics numbers.</summary>

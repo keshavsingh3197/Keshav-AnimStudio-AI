@@ -933,7 +933,7 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                     <div class="badges-wrap">
                       <span class="pill source">{{ sourceInfo(rule.sourceType).icon }} {{ sourceInfo(rule.sourceType).label }}</span>
                       <span class="pill info">{{ rule.mode }}</span>
-                      <span class="pill subtle">{{ rule.preferredPublishTime }} IST • {{ rule.language.toUpperCase() }} • {{ rule.videoFormat }}</span>
+                      <span class="pill subtle">{{ (rule.publishDaysBefore ?? 0) > 0 ? '🌙 Eve Before (-' + rule.publishDaysBefore + 'd) ' : '' }}{{ rule.preferredPublishTime }} IST • {{ rule.language.toUpperCase() }} • {{ rule.videoFormat }}</span>
                       @if (rule.language.toLowerCase() === 'en' || isGlobalEnglishChannelHint(rule.targetChannelHandle, rule.targetChannelTitle)) {
                         <span class="pill ok">🌍 Global English (International)</span>
                       } @else {
@@ -2825,6 +2825,15 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                 </label>
 
                 <label class="field">
+                  <span>Search Indexing Lead (Publish Day)</span>
+                  <select [(ngModel)]="rDraft.publishDaysBefore">
+                    <option [ngValue]="0">Same Day ({{ rDraft.preferredPublishTime || '07:00' }} on Event Day)</option>
+                    <option [ngValue]="1">1 Day Before — Evening Indexing (Recommended for Search)</option>
+                    <option [ngValue]="2">2 Days Before — Early Festival Search</option>
+                  </select>
+                </label>
+
+                <label class="field">
                   <span>Panchang Location</span>
                   <input type="text" [(ngModel)]="rDraft.location" placeholder="New Delhi, India" />
                 </label>
@@ -3874,8 +3883,8 @@ export class AutomationHubComponent implements OnInit {
       ...(post.stage ?? {}),
       presentationMode: isReel ? 'DevotionalImageReel' : (post.stage?.presentationMode ?? 'Default'),
       backgroundMotion: post.stage?.backgroundMotion ?? (isReel ? 'AutoSmooth' : 'Still'),
-      bgmVolumePercent: post.stage?.bgmVolumePercent ?? (isReel ? 18 : null),
-      includeBackgroundMusic: post.stage ? post.stage.includeBackgroundMusic : isReel,
+      bgmVolumePercent: post.stage?.bgmVolumePercent ?? (isReel ? 18 : isDevotionalSource ? 20 : null),
+      includeBackgroundMusic: post.stage ? post.stage.includeBackgroundMusic : (isReel || isDevotionalSource),
       voiceProfileId: proposedVoice,
     };
     this.wizard.set({
@@ -5595,6 +5604,7 @@ export class AutomationHubComponent implements OnInit {
       location: ov?.settings.defaultLocation ?? 'New Delhi, India',
       preferredPublishTime: '07:00',
       timeZoneId: ov?.settings.defaultTimeZone ?? 'Asia/Kolkata',
+      publishDaysBefore: 0,
       daysOfWeek: [],
       festivalLeadDays: 1,
       funnelWebsiteKeys: ov?.websites.slice(0, 2).map((w) => w.key) ?? [],

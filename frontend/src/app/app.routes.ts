@@ -365,6 +365,13 @@ export const routes: Routes = [
             .then((m) => m.AdminProvidersComponent),
       },
       {
+        path: 'api-keys',
+        title: 'API keys - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-api-keys.component')
+            .then((m) => m.AdminApiKeysComponent),
+      },
+      {
         path: 'channels',
         title: 'Channels - AnimStudio AI',
         loadComponent: () =>

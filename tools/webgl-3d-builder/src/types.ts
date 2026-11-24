@@ -63,6 +63,7 @@ export type HeldPropKind =
   | 'flute'
   | 'trishul'
   | 'bow'
+  | 'gada'
   | 'money'
   | 'broom'
   | 'umbrella';
@@ -104,7 +105,50 @@ export type ActionKind =
   | 'writingBoard'
   | 'sweeping'
   | 'adaab'
-  | 'sufiSpin';
+  | 'sufiSpin'
+  | 'lapSubdue'
+  | 'lapSubdued'
+  | 'pillarBurst'
+  | 'clubStrike'
+  | 'serpentAttack'
+  | 'elephantCharge'
+  | 'fireTrial'
+  | 'cliffRescue'
+  | 'blessing'
+  | 'lyingShroud'
+  | 'corpseSnapUp'
+  | 'celebrate'
+  | 'brakeStop'
+  | 'hazardWire'
+  | 'hazardTruck'
+  | 'hazardTank'
+  | 'hazardPit'
+  | 'hazardSnake'
+  | 'hazardFood'
+  | 'hazardPhone';
+
+export type ComedyHazardMode =
+  | 'none'
+  | 'wireSpark'
+  | 'truckRickshaw'
+  | 'waterTank'
+  | 'roadPit'
+  | 'giantSnake'
+  | 'chokeFood'
+  | 'nightPhone';
+
+export function detectComedyHazard(action?: string | null): ComedyHazardMode {
+  switch (action) {
+    case 'hazardWire': return 'wireSpark';
+    case 'hazardTruck': return 'truckRickshaw';
+    case 'hazardTank': return 'waterTank';
+    case 'hazardPit': return 'roadPit';
+    case 'hazardSnake': return 'giantSnake';
+    case 'hazardFood': return 'chokeFood';
+    case 'hazardPhone': return 'nightPhone';
+    default: return 'none';
+  }
+}
 
 /**
  * Strike rhythm for fight actions, on the video clock (seconds since frame 0), so every render and the
@@ -163,7 +207,9 @@ export type EmotionKind =
   | 'angry'
   | 'sad'
   | 'proud'
-  | 'confused';
+  | 'confused'
+  | 'smug'
+  | 'scared';
 
 export interface CharacterProfileJson {
   slot: 'Narrator' | 'Left' | 'Right';
@@ -201,6 +247,8 @@ export interface DialogueTurnJson {
   listenerProp?: HeldPropKind | string | null;
   speakerGlasses?: string | null;
   listenerGlasses?: string | null;
+  listenerEmotion?: string | null;
+  sfxCue?: string | null;
 }
 
 export interface SceneRunJson {

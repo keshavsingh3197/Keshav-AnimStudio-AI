@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { ActionKind, CharacterProfileJson, CharacterRole, EmotionKind, SceneSetting, STRIKE_TIMING, strikePhase } from './types';
 import { buildCharacterHandProps, HeldPropRig, updateHandPropAnimation } from './props';
+import {
+  attachAsuraKingDetails,
+  attachNarasimhaLionHead,
+  attachSacredPattaAndDhoti,
+  attachScallopedMukutCrown,
+  detectMythicArchetype,
+  getMythicPaletteOverride,
+} from './mythic-characters';
 
 export interface CharacterRig {
   root: THREE.Group;
@@ -35,6 +43,10 @@ export interface CharacterRig {
   hairShavedGroup?: THREE.Group;
   leftCheekFlush?: THREE.Mesh;
   rightCheekFlush?: THREE.Mesh;
+  leftTearBead?: THREE.Mesh;
+  rightTearBead?: THREE.Mesh;
+  sweatDropGroup?: THREE.Group;
+  angerMarkGroup?: THREE.Group;
   haloGroup?: THREE.Group;
   haloMaterial?: THREE.MeshBasicMaterial;
   auraRing: THREE.Mesh;
@@ -43,6 +55,12 @@ export interface CharacterRig {
   turretGroup?: THREE.Group;
   cannonBarrel?: THREE.Mesh;
   propPivot?: THREE.Group;
+  chakraWheel?: THREE.Group;
+  lowerJawPivot?: THREE.Group;
+  pattaEnds?: THREE.Object3D[];
+  isNarasimha?: boolean;
+  isAsuraKing?: boolean;
+  isHolika?: boolean;
   mouthBaseY: number;
   baseTorsoY: number;
   restScale: number;
@@ -196,7 +214,7 @@ function getRolePalette(role: CharacterRole, robeHex: string | null | undefined,
     case 'Divine':
       robe = 0x2d62d9;
       sash = 0xffd840;
-      skin = 0x9ec4ff;
+      skin = 0x5b8def;
       isDivine = true;
       break;
     case 'ChildDevotee':
@@ -311,7 +329,8 @@ function createCrownOrHair(
   const lower = name.toLowerCase();
   const isNarada = role === 'SageRishi' && (lower.includes('narad') || lower.includes('नारद'));
   const isGoddess = role === 'NobleWoman' && GODDESS_TOKENS.some((t) => lower.includes(t));
-  const useTurban = role === 'KingCrown' && (
+  const isMythicKingOrAsura = /hiranyakashipu|hiranyakashyap|ravan|kansa|kans|mahishasur|asur|daitya|harishchandra|dashrath|yudhishthir|duryodhan|bali|bhasmasur|हिरण्यकशिपु|हिरण्यकश्यप|रावण|कंस|महिषासुर|असुर|दैत्य|हरिश्चंद्र|दशरथ|युधिष्ठिर|दुर्योधन|बलि/i.test(lower);
+  const useTurban = role === 'KingCrown' && !isMythicKingOrAsura && (
     attire === 'turban'
     || setting === 'PalaceCourt'
     || /sartaaj|sufi|shayar|prince|dulha|singer/i.test(lower)
@@ -399,6 +418,21 @@ function createCrownOrHair(
     moonArc.rotation.y = 0.22;
     headPivot.add(moonArc);
 
+    // Pure sapphire-white Ganga stream emerging from top of Shiva's Jata
+    const gangaMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x7dd3fc,
+      emissiveIntensity: 0.65,
+      roughness: 0.18,
+    });
+    const gangaCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.02, headR * 1.62, -headR * 0.08),
+      new THREE.Vector3(headR * 0.22, headR * 1.78, -headR * 0.16),
+      new THREE.Vector3(headR * 0.42, headR * 1.48, -headR * 0.34),
+      new THREE.Vector3(headR * 0.48, headR * 0.96, -headR * 0.56),
+    ]);
+    headPivot.add(new THREE.Mesh(new THREE.TubeGeometry(gangaCurve, 16, headR * 0.055, 8, false), gangaMat));
+
     const rudraBand = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.42, headR * 0.042, 8, 16), goldMat);
     rudraBand.rotation.x = Math.PI / 2;
     rudraBand.position.set(0, headR * 0.96, -headR * 0.12);
@@ -412,34 +446,17 @@ function createCrownOrHair(
     hair.rotation.x = -0.34;
     headPivot.add(hair);
 
-    const crownGroup = new THREE.Group();
-    crownGroup.position.y = headR * 0.88;
-    const baseBand = new THREE.Mesh(new THREE.CylinderGeometry(headR * 0.82, headR * 0.86, headR * 0.35, 20), goldMat);
-    baseBand.castShadow = true;
-    crownGroup.add(baseBand);
-
-    const tierCount = role === 'Divine' ? 3 : 2;
-    for (let t = 0; t < tierCount; t++) {
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(headR * (0.65 - t * 0.16), headR * (0.55 - t * 0.08), 16),
-        goldMat,
-      );
-      cone.position.y = headR * (0.32 + t * 0.32);
-      cone.castShadow = true;
-      crownGroup.add(cone);
-    }
-
-    const gemMat = new THREE.MeshStandardMaterial({
-      color: role === 'Divine' ? 0x22d3ee : 0xf43f5e,
-      emissive: role === 'Divine' ? 0x0ea5e9 : 0xe11d48,
-      emissiveIntensity: 0.65,
-      metalness: 0.2,
-      roughness: 0.1,
-    });
-    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(headR * 0.15, 0), gemMat);
-    gem.position.set(0, headR * 0.08, headR * 0.82);
-    crownGroup.add(gem);
-    headPivot.add(crownGroup);
+    const isAsura = /hiranyakashipu|hiranyakashyap|ravan|kansa|kans|mahishasur|asur|daitya|हिरण्यकशिपु|हिरण्यकश्यप|रावण|कंस|महिषासुर|असुर|दैत्य/i.test(lower);
+    const crownVariant = isAsura
+      ? 'asuraKing'
+      : /krishna|madhav|govind|keshav|gopal|murlidhar|कृष्ण|माधव|गोविंद|गोपाल/i.test(lower)
+        ? 'krishna'
+        : /ram|raghav|raghunath|राम|राघव/i.test(lower)
+          ? 'ram'
+          : role === 'Divine'
+            ? 'vishnu'
+            : 'sacred';
+    attachScallopedMukutCrown(headPivot, headR, goldMat, crownVariant);
 
     if (role === 'NobleWoman') {
       const braid = new THREE.Mesh(new THREE.CapsuleGeometry(headR * 0.22, headR * 1.4, 8, 12), hairMat);
@@ -639,14 +656,14 @@ function attachFaceRig(
     const eyeY = headR * 0.09;
     const eyeZ = surfaceZ;
 
-    const sclera = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.17 * eyeScale, 14, 12), whiteMat);
-    sclera.scale.set(1.0, 1.05, 0.6);
+    const sclera = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.165 * eyeScale, 14, 12), whiteMat);
+    sclera.scale.set(1.06, 0.90, 0.56);
     sclera.position.set(eyeX, eyeY, eyeZ);
     headPivot.add(sclera);
 
-    const pupil = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.105 * (isGoogly ? 1.15 : 1.0), 12, 10), irisMat);
-    pupil.scale.set(1, 1, 0.65);
-    pupil.position.set(eyeX, eyeY, eyeZ + headR * 0.07 * eyeScale);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.098 * (isGoogly ? 1.15 : 1.0), 12, 10), irisMat);
+    pupil.scale.set(1, 0.95, 0.62);
+    pupil.position.set(eyeX, eyeY, eyeZ + headR * 0.068 * eyeScale);
     headPivot.add(pupil);
 
     const glint = new THREE.Mesh(
@@ -675,6 +692,21 @@ function attachFaceRig(
 
   const leftEye = buildEye(-1);
   const rightEye = buildEye(1);
+
+  // Sculpted nose bridge & golden Makara-kundala ear ornaments for balanced facial dimension
+  const noseMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.45 });
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.085, 10, 8), noseMat);
+  nose.scale.set(0.8, 1.15, 0.9);
+  nose.position.set(0, -headR * 0.08, surfaceZ + headR * 0.065);
+  headPivot.add(nose);
+
+  const earGoldMat = new THREE.MeshStandardMaterial({ color: 0xf6c444, metalness: 0.85, roughness: 0.22 });
+  for (const s of [-1, 1]) {
+    const kundala = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.085, headR * 0.025, 8, 14), earGoldMat);
+    kundala.position.set(s * headR * 0.94, -headR * 0.14, headR * 0.04);
+    kundala.rotation.y = s * Math.PI * 0.42;
+    headPivot.add(kundala);
+  }
 
   const mouthY = -headR * 0.36;
   const mouthZ = surfaceZ + headR * 0.02;
@@ -963,11 +995,12 @@ export function createCharacterRig(
 ): CharacterRig {
   const role = profile.role;
   const standing = isStandingScene(setting, role);
-  const { robe, sash, skin, isDivine } = getRolePalette(role, profile.robeHex, accentHex);
+  const basePalette = getRolePalette(role, profile.robeHex, accentHex);
+  const { isDivine } = basePalette;
   const accentColor = new THREE.Color(accentHex);
 
   if (role === 'BrainrotLog' || role === 'CupDancer' || role === 'CartoonTank') {
-    return buildComedyMascotRig(role, profile.name, facingSign, seedOffset, robe, sash, skin, accentColor);
+    return buildComedyMascotRig(role, profile.name, facingSign, seedOffset, basePalette.robe, basePalette.sash, basePalette.skin, accentColor);
   }
 
   const root = new THREE.Group();
@@ -976,8 +1009,13 @@ export function createCharacterRig(
 
   const isComedyEnv = isDomesticOrComedySetting(setting);
   const isModernComedy = isComedyEnv;
-  const childScale = role === 'ChildDevotee' ? 0.82 : 1.0;
-  bodyPivot.scale.setScalar(childScale);
+  const archetype = detectMythicArchetype(role, profile.name, setting, isModernComedy);
+  const mythicPalette = getMythicPaletteOverride(archetype, basePalette);
+  const robe = mythicPalette.robe;
+  const sash = mythicPalette.sash;
+  const skin = mythicPalette.skin;
+  const modelScale = archetype ? mythicPalette.scale : (role === 'ChildDevotee' ? 0.82 : 1.0);
+  bodyPivot.scale.setScalar(modelScale);
 
   const robeMat = new THREE.MeshStandardMaterial({ color: robe, roughness: 0.58, metalness: 0.08 });
   const robeDarkMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(robe).multiplyScalar(0.75), roughness: 0.65 });
@@ -1082,7 +1120,9 @@ export function createCharacterRig(
   bodyPivot.add(torsoGroup);
 
   const torsoGeo = createLatheTorso(0.28, 0.21, 0.27, 0.62);
-  const torsoMesh = new THREE.Mesh(torsoGeo, robeMat);
+  const bareChestedDeity = archetype === 'narasimha' || archetype === 'hanuman' || archetype === 'shiv'
+    || archetype === 'vishnu' || archetype === 'krishna' || archetype === 'ram';
+  const torsoMesh = new THREE.Mesh(torsoGeo, bareChestedDeity ? skinMat : robeMat);
   torsoMesh.castShadow = true;
   torsoMesh.receiveShadow = true;
   torsoGroup.add(torsoMesh);
@@ -1137,7 +1177,7 @@ export function createCharacterRig(
       zariBorder.rotation.x = Math.PI / 2;
       zariBorder.position.y = -0.44;
       torsoGroup.add(zariBorder);
-    } else if (standing && role === 'KingCrown' && (setting === 'PalaceCourt' || profile.attire === 'turban')) {
+    } else if (standing && role === 'KingCrown' && (!archetype || archetype === 'genericSacred') && (setting === 'PalaceCourt' || profile.attire === 'turban')) {
       // Royal sherwani gold front buttons & flared lower kurta coat
       const coatPts = [
         new THREE.Vector2(0.22, 0.24),
@@ -1206,17 +1246,18 @@ export function createCharacterRig(
   // Two Articulated Arms (Left & Right shoulders -> elbows -> hands) with seamless joint spheres
   const upperArmGeo = new THREE.CapsuleGeometry(0.072, 0.21, 6, 10);
   const forearmGeo = new THREE.CapsuleGeometry(0.060, 0.19, 6, 10);
+  const armMat = bareChestedDeity || archetype === 'asuraKing' ? skinMat : robeMat;
 
   const buildArm = (side: -1 | 1): { shoulder: THREE.Group; elbow: THREE.Group } => {
     const shoulder = new THREE.Group();
     shoulder.position.set(side * 0.245, 0.52, 0);
     torsoGroup.add(shoulder);
 
-    const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.088, 12, 10), robeMat);
+    const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.088, 12, 10), armMat);
     shoulderCap.castShadow = true;
     shoulder.add(shoulderCap);
 
-    const upper = new THREE.Mesh(upperArmGeo, robeMat);
+    const upper = new THREE.Mesh(upperArmGeo, armMat);
     upper.position.y = -0.13;
     upper.castShadow = true;
     shoulder.add(upper);
@@ -1225,11 +1266,11 @@ export function createCharacterRig(
     elbow.position.y = -0.26;
     shoulder.add(elbow);
 
-    const elbowCap = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), robeMat);
+    const elbowCap = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), armMat);
     elbowCap.castShadow = true;
     elbow.add(elbowCap);
 
-    const lower = new THREE.Mesh(forearmGeo, robeMat);
+    const lower = new THREE.Mesh(forearmGeo, armMat);
     lower.position.y = -0.115;
     lower.castShadow = true;
     elbow.add(lower);
@@ -1245,6 +1286,20 @@ export function createCharacterRig(
 
   const leftArm = buildArm(-1);
   const rightArm = buildArm(1);
+
+  const mythicAttachments = attachSacredPattaAndDhoti(
+    bodyPivot,
+    torsoGroup,
+    leftHip,
+    rightHip,
+    leftArm.elbow,
+    rightArm.elbow,
+    archetype,
+    robe,
+    sash,
+    goldMat,
+    standing,
+  );
 
   // Removable 3D snack/rabdi bowl prop attached to right hand (visible during 'eating' action!)
   const snackProp = new THREE.Group();
@@ -1266,7 +1321,7 @@ export function createCharacterRig(
 
   const handProps = buildCharacterHandProps(rightArm.elbow, leftArm.elbow, torsoGroup);
 
-  // Neck + Sculpted Expressive 3D Head
+  // Neck + Sculpted Expressive 3D Head (Narasimha lion-avatar vs human/deva/asura face)
   const headR = role === 'ComicBobble' ? 0.345 : role === 'ChildDevotee' ? 0.265 : 0.245;
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 0.14, 14), skinMat);
   neck.position.y = 0.65;
@@ -1276,116 +1331,207 @@ export function createCharacterRig(
   headPivot.position.y = 0.68 + headR * 0.92;
   torsoGroup.add(headPivot);
 
-  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(headR, 26, 20), skinMat);
-  headMesh.scale.set(0.98, 1.08, 0.95);
-  headMesh.castShadow = true;
-  headMesh.receiveShadow = true;
-  headPivot.add(headMesh);
-
-  // Sculpted small nose + warm ear Kundals
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.14, 10, 8), skinMat);
-  nose.scale.set(0.85, 1.05, 1.2);
-  nose.position.set(0, -headR * 0.04, headR * 0.94);
-  headPivot.add(nose);
-
-  for (const s of [-1, 1]) {
-    const ear = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.18, 10, 8), skinMat);
-    ear.scale.set(0.5, 1.2, 0.8);
-    ear.position.set(s * headR * 0.96, -headR * 0.04, 0);
-    headPivot.add(ear);
-    if (!isModernComedy) {
-      const kundal = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.1, headR * 0.025, 8, 14), goldMat);
-      kundal.rotation.y = Math.PI / 2;
-      kundal.position.set(s * headR * 0.98, -headR * 0.2, 0.01);
-      headPivot.add(kundal);
-    }
-  }
-
-  // MJO expressive angry / laughing cheek blush plates
-  const buildCheekFlush = (side: -1 | 1) => {
-    const flush = new THREE.Mesh(
-      new THREE.SphereGeometry(headR * 0.19, 10, 8),
-      new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0, depthWrite: false }),
-    );
-    flush.scale.set(1.2, 0.75, 0.35);
-    flush.position.set(side * headR * 0.56, -headR * 0.16, headR * 0.84);
-    headPivot.add(flush);
-    return flush;
-  };
-  const leftCheekFlush = isModernComedy ? buildCheekFlush(-1) : undefined;
-  const rightCheekFlush = isModernComedy ? buildCheekFlush(1) : undefined;
-
-  // Articulated Horn-Rimmed Spectacles (supports normal / sidha, crooked, forehead, and UPSIDE-DOWN "ulta chasma"!)
   let glassesGroup: THREE.Group | undefined;
   const glassesBaseY = headR * 0.08;
-  if (isModernComedy) {
-    glassesGroup = new THREE.Group();
-    glassesGroup.position.set(0, glassesBaseY, headR * 0.97);
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.45, roughness: 0.25 });
-    const lensMat = new THREE.MeshBasicMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.24 });
-    // Distinct heavy arched TOP brow-bar so flipping upside down ("Ulta Chasma") is instantly unmistakable!
-    const topBar = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.18, headR * 0.09, headR * 0.05), rimMat);
-    topBar.position.set(0, headR * 0.16, 0.01);
-    glassesGroup.add(topBar);
+  let leftCheekFlush: THREE.Mesh | undefined;
+  let rightCheekFlush: THREE.Mesh | undefined;
+  let leftTearBead: THREE.Mesh | undefined;
+  let rightTearBead: THREE.Mesh | undefined;
+  let sweatDropGroup: THREE.Group | undefined;
+  let angerMarkGroup: THREE.Group | undefined;
+  let hairParts: { hairFullGroup?: THREE.Group; hairShavedGroup?: THREE.Group } | undefined;
+  let lowerJawPivot: THREE.Group | undefined;
+  let face: {
+    leftEye: { sclera: THREE.Mesh; pupil: THREE.Mesh; eyelid: THREE.Mesh; brow: THREE.Mesh };
+    rightEye: { sclera: THREE.Mesh; pupil: THREE.Mesh; eyelid: THREE.Mesh; brow: THREE.Mesh };
+    mouthCavity: THREE.Mesh;
+    upperLip: THREE.Mesh;
+    lowerLip: THREE.Mesh;
+    mouthBaseY: number;
+  };
+
+  if (archetype === 'narasimha') {
+    const nFace = attachNarasimhaLionHead(headPivot, headR, skin);
+    face = nFace;
+    lowerJawPivot = nFace.lowerJawPivot;
+  } else {
+    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(headR, 26, 20), skinMat);
+    headMesh.scale.set(0.98, 1.08, 0.95);
+    headMesh.castShadow = true;
+    headMesh.receiveShadow = true;
+    headPivot.add(headMesh);
+
+    // Sculpted small nose + warm ear Kundals
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.14, 10, 8), skinMat);
+    nose.scale.set(0.85, 1.05, 1.2);
+    nose.position.set(0, -headR * 0.04, headR * 0.94);
+    headPivot.add(nose);
+
     for (const s of [-1, 1]) {
-      const glassRim = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.19, headR * 0.028, 8, 18), rimMat);
-      glassRim.position.set(s * headR * 0.36, 0, 0);
-      glassesGroup.add(glassRim);
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.175, 16), lensMat);
-      lens.position.set(s * headR * 0.36, 0, -0.005);
-      glassesGroup.add(lens);
-      const temple = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.03, headR * 0.035, headR * 0.92), rimMat);
-      temple.position.set(s * headR * 0.56, headR * 0.11, -headR * 0.44);
-      glassesGroup.add(temple);
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.18, 10, 8), skinMat);
+      ear.scale.set(0.5, 1.2, 0.8);
+      ear.position.set(s * headR * 0.96, -headR * 0.04, 0);
+      headPivot.add(ear);
+      if (!isModernComedy) {
+        const kundal = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.1, headR * 0.025, 8, 14), goldMat);
+        kundal.rotation.y = Math.PI / 2;
+        kundal.position.set(s * headR * 0.98, -headR * 0.2, 0.01);
+        headPivot.add(kundal);
+      }
     }
-    const bridge = new THREE.Mesh(new THREE.CylinderGeometry(headR * 0.022, headR * 0.022, headR * 0.36, 6), rimMat);
-    bridge.rotation.z = Math.PI / 2;
-    bridge.position.set(0, headR * 0.02, 0);
-    glassesGroup.add(bridge);
-    glassesGroup.visible = profile.hasGlasses !== undefined && profile.hasGlasses !== null
-      ? !!profile.hasGlasses
-      : facingSign > 0;
-    headPivot.add(glassesGroup);
-  }
 
-  // Tilak / Bindi (for devotional / cultural roles; omitted on casual modern comedy hosts)
-  if (role === 'NobleWoman') {
-    const bindi = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.08, 10, 8), new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 }));
-    bindi.scale.z = 0.4;
-    bindi.position.set(0, headR * 0.24, headR * 0.96);
-    headPivot.add(bindi);
-  } else if (role === 'Divine' && /shiv|mahadev|neelkanth|shambho|शिव|महादेव|नीलकंठ|शंभो/i.test(lowerName)) {
-    const ashMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, emissive: 0xe2e8f0, emissiveIntensity: 0.45, roughness: 0.6 });
-    for (const dy of [-0.045, 0, 0.045]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.36, headR * 0.025, headR * 0.04), ashMat);
-      bar.position.set(0, headR * (0.28 + dy), headR * 0.95);
-      headPivot.add(bar);
+    // MJO expressive angry / laughing cheek blush plates
+    const buildCheekFlush = (side: -1 | 1) => {
+      const flush = new THREE.Mesh(
+        new THREE.SphereGeometry(headR * 0.19, 10, 8),
+        new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0, depthWrite: false }),
+      );
+      flush.scale.set(1.2, 0.75, 0.35);
+      flush.position.set(side * headR * 0.56, -headR * 0.16, headR * 0.84);
+      headPivot.add(flush);
+      return flush;
+    };
+    leftCheekFlush = isModernComedy ? buildCheekFlush(-1) : undefined;
+    rightCheekFlush = isModernComedy ? buildCheekFlush(1) : undefined;
+
+    if (isModernComedy) {
+      const tearMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.92, depthWrite: false });
+      const buildTearBead = (side: -1 | 1) => {
+        const tear = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.056, 8, 8), tearMat);
+        tear.scale.set(0.75, 1.38, 0.46);
+        tear.position.set(side * headR * 0.34, -headR * 0.02, headR * 0.93);
+        tear.visible = false;
+        headPivot.add(tear);
+        return tear;
+      };
+      leftTearBead = buildTearBead(-1);
+      rightTearBead = buildTearBead(1);
+
+      sweatDropGroup = new THREE.Group();
+      const sweatBulb = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.075, 8, 8), tearMat);
+      sweatBulb.scale.set(0.85, 1.05, 0.55);
+      const sweatTip = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.068, headR * 0.14, 8), tearMat);
+      sweatTip.position.y = headR * 0.085;
+      sweatDropGroup.add(sweatBulb, sweatTip);
+      sweatDropGroup.position.set(headR * 0.58, headR * 0.42, headR * 0.80);
+      sweatDropGroup.visible = false;
+      headPivot.add(sweatDropGroup);
+
+      angerMarkGroup = new THREE.Group();
+      const veinMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+      for (const [ang, ox, oy] of [
+        [0.45, -headR * 0.055, headR * 0.045],
+        [-0.45, headR * 0.055, headR * 0.045],
+        [-0.45, -headR * 0.055, -headR * 0.045],
+        [0.45, headR * 0.055, -headR * 0.045],
+      ] as const) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.11, headR * 0.032, headR * 0.03), veinMat);
+        bar.rotation.z = ang;
+        bar.position.set(ox, oy, 0);
+        angerMarkGroup.add(bar);
+      }
+      angerMarkGroup.position.set(-headR * 0.46, headR * 0.44, headR * 0.86);
+      angerMarkGroup.visible = false;
+      headPivot.add(angerMarkGroup);
     }
-    const kumkum = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.045, 8, 8), new THREE.MeshStandardMaterial({ color: 0xdc2626 }));
-    kumkum.position.set(0, headR * 0.28, headR * 0.975);
-    headPivot.add(kumkum);
-  } else if (role !== 'Warrior' && !isModernComedy) {
-    const tilak = new THREE.Mesh(
-      new THREE.CapsuleGeometry(headR * 0.036, headR * 0.16, 4, 8),
-      new THREE.MeshStandardMaterial({ color: role === 'Divine' ? 0xfbbf24 : 0xea580c, emissive: 0x7c2d12, emissiveIntensity: 0.2 }),
-    );
-    tilak.position.set(0, headR * 0.28, headR * 0.95);
-    headPivot.add(tilak);
-  }
 
-  // Hair / Crown + Divine spinning Halo Chakra
-  const hairParts = createCrownOrHair(headPivot, role, profile.name, setting, headR, robe, profile.attire);
+    // Articulated Horn-Rimmed Spectacles (supports normal / sidha, crooked, forehead, and UPSIDE-DOWN "ulta chasma"!)
+    if (isModernComedy) {
+      glassesGroup = new THREE.Group();
+      glassesGroup.position.set(0, glassesBaseY, headR * 0.97);
+      const rimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.45, roughness: 0.25 });
+      const lensMat = new THREE.MeshBasicMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.24 });
+      // Distinct heavy arched TOP brow-bar so flipping upside down ("Ulta Chasma") is instantly unmistakable!
+      const topBar = new THREE.Mesh(new THREE.BoxGeometry(headR * 1.18, headR * 0.09, headR * 0.05), rimMat);
+      topBar.position.set(0, headR * 0.16, 0.01);
+      glassesGroup.add(topBar);
+      for (const s of [-1, 1]) {
+        const glassRim = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.19, headR * 0.028, 8, 18), rimMat);
+        glassRim.position.set(s * headR * 0.36, 0, 0);
+        glassesGroup.add(glassRim);
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.175, 16), lensMat);
+        lens.position.set(s * headR * 0.36, 0, -0.005);
+        glassesGroup.add(lens);
+        const temple = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.03, headR * 0.035, headR * 0.92), rimMat);
+        temple.position.set(s * headR * 0.56, headR * 0.11, -headR * 0.44);
+        glassesGroup.add(temple);
+      }
+      const bridge = new THREE.Mesh(new THREE.CylinderGeometry(headR * 0.022, headR * 0.022, headR * 0.36, 6), rimMat);
+      bridge.rotation.z = Math.PI / 2;
+      bridge.position.set(0, headR * 0.02, 0);
+      glassesGroup.add(bridge);
+      glassesGroup.visible = profile.hasGlasses !== undefined && profile.hasGlasses !== null
+        ? !!profile.hasGlasses
+        : facingSign > 0;
+      headPivot.add(glassesGroup);
+    }
+
+    // Tilak / Bindi (for devotional / cultural roles; omitted on casual modern comedy hosts)
+    if (role === 'NobleWoman') {
+      const bindi = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.08, 10, 8), new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 }));
+      bindi.scale.z = 0.4;
+      bindi.position.set(0, headR * 0.24, headR * 0.96);
+      headPivot.add(bindi);
+    } else if (role === 'Divine' && /shiv|mahadev|neelkanth|shambho|rudra|शिव|महादेव|नीलकंठ|शंभो/i.test(lowerName)) {
+      const ashMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, emissive: 0xe2e8f0, emissiveIntensity: 0.45, roughness: 0.6 });
+      for (const dy of [-0.045, 0, 0.045]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.36, headR * 0.025, headR * 0.04), ashMat);
+        bar.position.set(0, headR * (0.28 + dy), headR * 0.95);
+        headPivot.add(bar);
+      }
+      // Vertical radiant Third Eye (Trinetra) + Crimson kumkum bindu
+      const trinetra = new THREE.Mesh(
+        new THREE.CapsuleGeometry(headR * 0.028, headR * 0.09, 4, 8),
+        new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xdc2626, emissiveIntensity: 0.65 }),
+      );
+      trinetra.position.set(0, headR * 0.42, headR * 0.965);
+      headPivot.add(trinetra);
+      const kumkum = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.045, 8, 8), new THREE.MeshStandardMaterial({ color: 0xdc2626 }));
+      kumkum.position.set(0, headR * 0.28, headR * 0.975);
+      headPivot.add(kumkum);
+    } else if (archetype === 'vishnu' || archetype === 'krishna' || archetype === 'ram') {
+      // Vaishnava Urdhva-Pundra White U-Tilak with crimson Sri line
+      const chandanMat = new THREE.MeshStandardMaterial({ color: 0xfefce8, emissive: 0xfef3c7, emissiveIntensity: 0.25 });
+      const sriMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, emissive: 0x991b1b, emissiveIntensity: 0.35 });
+      for (const s of [-1, 1]) {
+        const prong = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.042, headR * 0.28, headR * 0.04), chandanMat);
+        prong.position.set(s * headR * 0.072, headR * 0.36, headR * 0.955);
+        prong.rotation.z = -s * 0.09;
+        headPivot.add(prong);
+      }
+      const sriLine = new THREE.Mesh(new THREE.CapsuleGeometry(headR * 0.022, headR * 0.20, 4, 8), sriMat);
+      sriLine.position.set(0, headR * 0.36, headR * 0.97);
+      headPivot.add(sriLine);
+    } else if (role !== 'Warrior' && !isModernComedy && archetype !== 'asuraKing') {
+      const tilak = new THREE.Mesh(
+        new THREE.CapsuleGeometry(headR * 0.036, headR * 0.16, 4, 8),
+        new THREE.MeshStandardMaterial({ color: role === 'Divine' ? 0xfbbf24 : 0xea580c, emissive: 0x7c2d12, emissiveIntensity: 0.2 }),
+      );
+      tilak.position.set(0, headR * 0.28, headR * 0.95);
+      headPivot.add(tilak);
+    }
+
+    // Hair / Crown
+    hairParts = createCrownOrHair(headPivot, role, profile.name, setting, headR, robe, profile.attire);
+    if (archetype === 'asuraKing') {
+      attachAsuraKingDetails(headPivot, torsoGroup, headR, goldMat);
+    }
+
+    const browHex = role === 'SageRishi' ? 0xd9dce6 : 0x1c1722;
+    const isGoogly = role === 'ComicBobble' || setting === 'DoorwaySet' || setting === 'SkyGauntlet';
+    face = attachFaceRig(headPivot, headR, skin, browHex, headR * 0.85, isGoogly);
+  }
 
   let haloGroup: THREE.Group | undefined;
   let haloMaterial: THREE.MeshBasicMaterial | undefined;
   const isGoddess = role === 'NobleWoman' && GODDESS_TOKENS.some((t) => lowerName.includes(t));
-  if (isDivine || role === 'SageRishi' || isGoddess) {
+  if (isDivine || role === 'SageRishi' || isGoddess || archetype === 'narasimha') {
     haloGroup = new THREE.Group();
-    haloGroup.position.set(0, 0.04, -headR * 0.72);
+    haloGroup.position.set(0, 0.04, -headR * (archetype === 'narasimha' ? 0.92 : 0.72));
     haloMaterial = new THREE.MeshBasicMaterial({
-      color: isDivine ? 0xffe066 : accentColor,
+      color: isDivine || archetype === 'narasimha' ? 0xffe066 : accentColor,
       transparent: true,
-      opacity: isDivine ? 0.65 : 0.28,
+      opacity: isDivine || archetype === 'narasimha' ? 0.65 : 0.28,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -1401,16 +1547,12 @@ export function createCharacterRig(
     headPivot.add(haloGroup);
   }
 
-  const browHex = role === 'SageRishi' ? 0xd9dce6 : 0x1c1722;
-  const isGoogly = role === 'ComicBobble' || setting === 'DoorwaySet' || setting === 'SkyGauntlet';
-  const face = attachFaceRig(headPivot, headR, skin, browHex, headR * 0.85, isGoogly);
-
   // Rotate character toward partner at ~24 deg for lively 3/4 film staging
   root.rotation.y = facingSign * 0.42;
 
   const rawHeadCenterY = hipY + 0.68 + headR * 0.92;
-  const computedHeadY = (standing ? rawHeadCenterY : 1.04) * childScale;
-  const computedTopY = (standing ? rawHeadCenterY + headR * 1.48 : 1.40) * childScale;
+  const computedHeadY = (standing ? rawHeadCenterY : 1.04) * modelScale;
+  const computedTopY = (standing ? rawHeadCenterY + headR * 1.48 : 1.40) * modelScale;
 
   return {
     root,
@@ -1445,14 +1587,24 @@ export function createCharacterRig(
     hairShavedGroup: hairParts?.hairShavedGroup,
     leftCheekFlush,
     rightCheekFlush,
+    leftTearBead,
+    rightTearBead,
+    sweatDropGroup,
+    angerMarkGroup,
     haloGroup,
     haloMaterial,
     auraRing,
     auraDisc,
     pedestalGlow,
-    mouthBaseY: face.mouthBaseY,
+    chakraWheel: mythicAttachments.chakraWheel,
+    lowerJawPivot,
+    pattaEnds: mythicAttachments.pattaEnds,
+  isNarasimha: archetype === 'narasimha',
+  isAsuraKing: archetype === 'asuraKing',
+  isHolika: /holika|होलिका/i.test(profile.name),
+  mouthBaseY: face.mouthBaseY,
     baseTorsoY: standing ? 0.66 : 0.15,
-    restScale: childScale,
+    restScale: modelScale,
     topY: computedTopY,
     role,
     name: profile.name,
@@ -1537,10 +1689,26 @@ export function updateCharacterRig(
     }
   }
 
-  // MJO Angry Red Cheek Glow / Joyful Laugh Blush
+  // MJO Angry Red Cheek Glow / Joyful Laugh / Panic Shock / Sad Blush / Smug Warm Glow
   if (rig.leftCheekFlush && rig.rightCheekFlush) {
-    const blush = emotion === 'angry' ? 0.68 : emotion === 'laughing' ? 0.36 : 0;
-    const blushHex = emotion === 'angry' ? 0xdc2626 : 0xfb7185;
+    const isAngryState = emotion === 'angry' || act === 'corpseSnapUp';
+    const isPanicState = emotion === 'scared' || act === 'brakeStop' || act === 'lapSubdued';
+    const blush = isAngryState
+      ? 0.78
+      : emotion === 'laughing' || act === 'celebrate'
+        ? 0.44
+        : (emotion === 'surprised' || act === 'shockedFall' || isPanicState)
+          ? 0.30
+          : (emotion === 'proud' || emotion === 'happy' || emotion === 'smug')
+            ? 0.22
+            : 0;
+    const blushHex = isAngryState
+      ? 0xdc2626
+      : emotion === 'laughing' || act === 'celebrate' || emotion === 'proud'
+        ? 0xfb7185
+        : isPanicState
+          ? 0x60a5fa
+          : 0xf87171;
     [rig.leftCheekFlush, rig.rightCheekFlush].forEach((c) => {
       const cm = c.material as THREE.MeshBasicMaterial;
       cm.opacity = blush;
@@ -1548,14 +1716,50 @@ export function updateCharacterRig(
     });
   }
 
+  const headScale = rig.role === 'ComicBobble' ? 0.345 : rig.role === 'ChildDevotee' ? 0.265 : 0.245;
+  if (rig.leftTearBead && rig.rightTearBead) {
+    const showTears = emotion === 'sad';
+    rig.leftTearBead.visible = showTears;
+    rig.rightTearBead.visible = showTears;
+    if (showTears) {
+      const dropL = (lt * 1.65) % 1;
+      const dropR = (lt * 1.65 + 0.42) % 1;
+      rig.leftTearBead.position.y = -headScale * (0.02 + dropL * 0.24);
+      rig.rightTearBead.position.y = -headScale * (0.02 + dropR * 0.24);
+      rig.leftTearBead.scale.setScalar(0.65 + Math.sin(dropL * Math.PI) * 0.65);
+      rig.rightTearBead.scale.setScalar(0.65 + Math.sin(dropR * Math.PI) * 0.65);
+    }
+  }
+  if (rig.sweatDropGroup) {
+    const showSweat = emotion === 'scared' || act === 'brakeStop' || act === 'lapSubdued';
+    rig.sweatDropGroup.visible = showSweat;
+    if (showSweat) {
+      const slide = (lt * 2.15) % 1;
+      rig.sweatDropGroup.position.y = headScale * (0.44 - slide * 0.16);
+      rig.sweatDropGroup.scale.setScalar(0.82 + Math.sin(slide * Math.PI) * 0.42);
+    }
+  }
+  if (rig.angerMarkGroup) {
+    const showVein = emotion === 'angry' || act === 'corpseSnapUp';
+    rig.angerMarkGroup.visible = showVein;
+    if (showVein) {
+      const throb = 0.86 + 0.34 * Math.abs(Math.sin(lt * 11.5));
+      rig.angerMarkGroup.scale.setScalar(throb);
+    }
+  }
+
   // Smooth baseline reset before applying action posture
   let targetBodyRotX = 0;
   let targetBodyRotZ = 0;
+  let targetBodyPosX = 0;
+  let targetBodyPosZ = 0;
   let targetBodyY = 0;
   let targetTorsoRotX = 0;
   let targetTorsoRotZ = 0;
   let targetLeftHipX = 0;
   let targetRightHipX = 0;
+  let targetLeftHipZ = 0;
+  let targetRightHipZ = 0;
   let targetLeftKneeX = 0;
   let targetRightKneeX = 0;
 
@@ -1565,19 +1769,25 @@ export function updateCharacterRig(
 
   const showAura = rig.hasFloorAura !== false;
 
-  if (act === 'sleeping') {
+  if (act === 'sleeping' || act === 'lyingShroud') {
     targetBodyRotX = -Math.PI * 0.48;
-    targetBodyY = rig.standing ? 0.06 : 0.16;
-    targetLeftHipX = 0.14;
-    targetRightHipX = 0.08;
-    targetLeftKneeX = 0.28;
-    targetRightKneeX = 0.16;
+    targetBodyY = act === 'lyingShroud' ? 0.14 : (rig.standing ? 0.06 : 0.16);
+    targetLeftHipX = act === 'lyingShroud' ? 0.04 : 0.14;
+    targetRightHipX = act === 'lyingShroud' ? 0.04 : 0.08;
+    targetLeftKneeX = act === 'lyingShroud' ? 0.06 : 0.28;
+    targetRightKneeX = act === 'lyingShroud' ? 0.06 : 0.16;
     rig.auraRing.visible = false;
     rig.auraDisc.visible = false;
   } else {
     rig.auraRing.visible = showAura;
     rig.auraDisc.visible = showAura;
-    if (act === 'wakingUp') {
+    if (act === 'corpseSnapUp') {
+      const k = Math.max(0, Math.min(1, turnLocal / 0.24));
+      const eased = 1 - Math.pow(1 - k, 3);
+      targetBodyRotX = -Math.PI * 0.48 * (1 - eased) + 0.08 * Math.sin(k * Math.PI);
+      targetBodyY = 0.14 * (1 - eased) + Math.sin(k * Math.PI) * 0.18;
+      targetTorsoRotX = 0.10 * eased;
+    } else if (act === 'wakingUp') {
       const w = Math.max(0, Math.min(1, (turnLocal - 0.04) / 0.36));
       const eased = 1 - Math.pow(1 - w, 3);
       targetBodyRotX = -Math.PI * 0.48 * (1 - eased) - 0.10 * Math.sin(w * Math.PI);
@@ -1661,9 +1871,104 @@ export function updateCharacterRig(
       targetBodyY = -0.02 * recoil;
       targetLeftKneeX = 0.22 * recoil;
       targetRightKneeX = 0.18 * recoil;
-    } else if (act === 'pointing') {
-      targetTorsoRotX = 0.14 + Math.sin(lt * 6.5) * 0.04;
-      targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 7.5)) * 0.035 : 0;
+    } else if (act === 'lapSubdue') {
+      // Wide Alidha / Vajra martial squat forming a powerful horizontal lap (Janga) platform
+      targetBodyY = -0.22;
+      targetLeftHipX = -1.36;
+      targetRightHipX = -1.36;
+      targetLeftHipZ = -0.44;
+      targetRightHipZ = 0.44;
+      targetLeftKneeX = 1.42;
+      targetRightKneeX = 1.42;
+      targetTorsoRotX = 0.14 + Math.sin(lt * 7.5) * 0.03;
+    } else if (act === 'lapSubdued') {
+      // Held horizontally supine clear off the ground across Narasimha's thighs (Janga)!
+      const writhe = Math.sin(lt * 9.0) * 0.04;
+      targetBodyRotZ = Math.PI * 0.48 + writhe * 0.45;
+      targetBodyRotX = -0.26;
+      targetBodyPosX = 0.92;
+      targetBodyPosZ = 0.25;
+      targetBodyY = 0.70 + Math.sin(lt * 11.0) * 0.015;
+      targetLeftHipX = 0.25 + writhe * 2.2;
+      targetRightHipX = -0.15 - writhe * 2.2;
+      targetLeftKneeX = 0.85;
+      targetRightKneeX = 1.05;
+      targetTorsoRotX = -0.10;
+    } else if (act === 'pillarBurst') {
+      // Heroic roaring emergence from the shattered Sabha pillar
+      targetBodyY = 0.02;
+      targetLeftHipX = -0.28;
+      targetRightHipX = 0.22;
+      targetLeftHipZ = -0.18;
+      targetRightHipZ = 0.18;
+      targetLeftKneeX = 0.36;
+      targetRightKneeX = 0.18;
+      targetTorsoRotX = -0.06;
+    } else if (act === 'clubStrike') {
+      const swing = Math.sin(turnLocal * Math.PI);
+      targetBodyY = -0.04 * swing;
+      targetLeftHipX = -0.24 * swing;
+      targetRightHipX = 0.20 * swing;
+      targetLeftKneeX = 0.28 * swing;
+      targetTorsoRotX = 0.24 * swing;
+    } else if (act === 'cliffRescue') {
+      if (rig.role === 'ChildDevotee') {
+        targetBodyY = 0.32 + Math.sin(lt * 3.4) * 0.08;
+        targetTorsoRotX = 0.06;
+      } else {
+        targetTorsoRotX = 0.14;
+      }
+    } else if (act === 'fireTrial') {
+      if (rig.role === 'ChildDevotee' || rig.isHolika) {
+        targetBodyY = rig.standing ? -0.24 : 0;
+        targetLeftHipX = -Math.PI * 0.46;
+        targetRightHipX = -Math.PI * 0.46;
+        targetLeftKneeX = Math.PI * 0.46;
+        targetRightKneeX = Math.PI * 0.46;
+        targetTorsoRotX = rig.isHolika && emotion !== 'proud' ? -0.18 + Math.sin(lt * 16) * 0.06 : 0.08;
+      }
+    } else if (act === 'blessing') {
+      targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 4.5)) * 0.02 : 0;
+      targetTorsoRotX = 0.04;
+    } else if (act === 'brakeStop') {
+      const jolt = turnLocal < 0.34
+        ? Math.sin((turnLocal / 0.34) * Math.PI)
+        : 0;
+      targetTorsoRotX = turnLocal < 0.34 ? 0.26 * jolt : -0.14 * Math.exp(-(turnLocal - 0.34) * 3.5);
+      targetTorsoRotZ = Math.sin(lt * 26) * 0.045;
+      targetBodyPosZ = turnLocal < 0.34 ? 0.12 * jolt : -0.14;
+      targetBodyY = -0.05;
+      targetLeftKneeX = 0.34;
+      targetRightKneeX = 0.24;
+    } else if (act === 'celebrate') {
+      const hop = Math.abs(Math.sin(lt * 8.4));
+      targetBodyY = hop * 0.16;
+      targetTorsoRotX = -0.09;
+      targetTorsoRotZ = Math.sin(lt * 4.2) * 0.07;
+    } else if (act === 'pointing' || act === 'hazardWire' || act === 'hazardTruck' || act === 'hazardTank' || act === 'hazardPit' || act === 'hazardSnake' || act === 'hazardFood' || act === 'hazardPhone') {
+      if (act === 'hazardPit') {
+        const hop = Math.abs(Math.sin(lt * 5.6));
+        targetBodyY = hop * 0.16;
+        targetTorsoRotX = 0.12;
+      } else if (act === 'hazardWire') {
+        targetTorsoRotX = 0.08;
+        targetTorsoRotZ = Math.sin(lt * 26) * 0.06;
+        targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 8.5)) * 0.04 : 0;
+      } else {
+        targetTorsoRotX = 0.10 + Math.sin(lt * 5.8) * 0.04;
+        targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 7.5)) * 0.038 : 0;
+      }
+    } else if (emotion === 'scared') {
+      targetBodyY = rig.standing ? -0.04 : 0;
+      targetTorsoRotX = 0.07;
+      targetTorsoRotZ = Math.sin(lt * 28) * 0.045;
+    } else if (emotion === 'smug') {
+      targetTorsoRotX = -0.06;
+      targetTorsoRotZ = rig.facingSign * 0.07;
+      targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 6.0)) * 0.03 : 0;
+    } else if (emotion === 'proud') {
+      targetTorsoRotX = -0.09;
+      targetBodyY = isSpeaking ? Math.abs(Math.sin(lt * 7.2)) * 0.045 : 0.02;
     } else {
       targetBodyY = isSpeaking && rig.standing
         ? Math.abs(Math.sin(lt * (isComedyMascot ? 9.2 : 7.2))) * (isComedyMascot ? 0.055 : 0.035)
@@ -1672,15 +1977,23 @@ export function updateCharacterRig(
   }
 
   // Smooth exponential tracking for lower body & posture so transitions are crisp yet fluid (and snap on scene cuts / frame 0)
-  const isStrike = act === 'punching' || act === 'kicking' || act === 'hitReact';
-  const blend = snapPose ? 1 : isStrike ? 0.62 : act === 'wakingUp' || act === 'shockedFall' || act === 'walking' || act === 'running' ? 0.45 : 0.28;
+  const isStrike = act === 'punching' || act === 'kicking' || act === 'hitReact' || act === 'lapSubdue' || act === 'lapSubdued' || act === 'pillarBurst' || act === 'corpseSnapUp';
+  const blend = snapPose ? 1 : isStrike ? 0.68 : act === 'wakingUp' || act === 'shockedFall' || act === 'walking' || act === 'running' ? 0.45 : 0.28;
   rig.bodyPivot.rotation.x += (targetBodyRotX - rig.bodyPivot.rotation.x) * blend;
   rig.bodyPivot.rotation.z += (targetBodyRotZ - rig.bodyPivot.rotation.z) * blend;
+  rig.bodyPivot.position.x += (targetBodyPosX - rig.bodyPivot.position.x) * blend;
+  rig.bodyPivot.position.z += (targetBodyPosZ - rig.bodyPivot.position.z) * blend;
   rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * blend;
   rig.torsoGroup.rotation.x += (targetTorsoRotX - rig.torsoGroup.rotation.x) * blend;
   rig.torsoGroup.rotation.z += (targetTorsoRotZ - rig.torsoGroup.rotation.z) * blend;
-  if (rig.leftHip) rig.leftHip.rotation.x += (targetLeftHipX - rig.leftHip.rotation.x) * blend;
-  if (rig.rightHip) rig.rightHip.rotation.x += (targetRightHipX - rig.rightHip.rotation.x) * blend;
+  if (rig.leftHip) {
+    rig.leftHip.rotation.x += (targetLeftHipX - rig.leftHip.rotation.x) * blend;
+    rig.leftHip.rotation.z += (targetLeftHipZ - rig.leftHip.rotation.z) * blend;
+  }
+  if (rig.rightHip) {
+    rig.rightHip.rotation.x += (targetRightHipX - rig.rightHip.rotation.x) * blend;
+    rig.rightHip.rotation.z += (targetRightHipZ - rig.rightHip.rotation.z) * blend;
+  }
   if (rig.leftKnee) rig.leftKnee.rotation.x += (targetLeftKneeX - rig.leftKnee.rotation.x) * blend;
   if (rig.rightKnee) rig.rightKnee.rotation.x += (targetRightKneeX - rig.rightKnee.rotation.x) * blend;
 
@@ -1691,6 +2004,9 @@ export function updateCharacterRig(
   if (act === 'sleeping') {
     const breatheScale = 1 + Math.sin(lt * 2.2) * 0.025;
     rig.bodyPivot.scale.set(rig.restScale, rig.restScale * breatheScale, rig.restScale);
+  } else if (act === 'fireTrial' && rig.isHolika && emotion !== 'proud') {
+    const shrink = Math.max(0.28, 1 - Math.max(0, turnLocal - 0.25) * 0.85);
+    rig.bodyPivot.scale.setScalar(rig.restScale * shrink);
   } else if (isComedyMascot && isSpeaking) {
     const sy = 1 + Math.max(0, targetBodyY) * 0.85;
     const sx = 1 - Math.max(0, targetBodyY) * 0.35;
@@ -1700,7 +2016,9 @@ export function updateCharacterRig(
   }
 
   // Always lock standing characters flush onto y = 0 (no floating or ankle-sinking during dances/punches/crouches)
-  if (rig.standing && act !== 'sleeping' && act !== 'wakingUp' && act !== 'sitting' && !isSeatedInChair) {
+  const isSeatedInFire = act === 'fireTrial' && (rig.role === 'ChildDevotee' || rig.isHolika);
+  const isSnappingUpMid = act === 'corpseSnapUp' && turnLocal < 0.24;
+  if (rig.standing && act !== 'sleeping' && act !== 'lyingShroud' && !isSnappingUpMid && act !== 'wakingUp' && act !== 'sitting' && act !== 'lapSubdued' && !isSeatedInChair && !isSeatedInFire) {
     groundRigFeet(rig, Math.max(0, targetBodyY));
   }
 
@@ -1719,21 +2037,50 @@ export function updateCharacterRig(
     rig.propPivot.rotation.x = isSpeaking ? Math.sin(lt * 8.5) * 0.65 : Math.sin(lt * 2.0) * 0.12;
   }
 
-  // Expressive bulging googly eye pop on surprised / angry / confused / waking up / shocked!
-  const isWideShock = emotion === 'surprised' || act === 'shockedFall' || act === 'hitReact' || (act === 'wakingUp' && turnLocal > 0.25);
-  const eyePop = isWideShock ? 1.38 : emotion === 'angry' || act === 'punching' || act === 'kicking' ? 1.18 : 1.0;
-  rig.leftSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
-  rig.rightSclera.scale.set(eyePop, eyePop * 1.05, 0.6 * eyePop);
-  const pupilDartX = (emotion === 'confused' || act === 'slapForehead') ? Math.sin(lt * 9.0) * 0.016 : 0;
-  const pupilScale = isWideShock ? 0.65 : 1.0;
-  rig.leftPupil.scale.set(pupilScale, pupilScale, 0.65);
-  rig.rightPupil.scale.set(pupilScale, pupilScale, 0.65);
+  // Expressive bulging googly eye pop on surprised / scared / brakeStop / angry / confused / waking up / shocked / corpseSnapUp!
+  const isWideShock = emotion === 'surprised' || emotion === 'scared' || act === 'brakeStop' || act === 'shockedFall' || act === 'hitReact' || act === 'corpseSnapUp' || (act === 'wakingUp' && turnLocal > 0.25);
+  const eyePop = emotion === 'scared' || act === 'brakeStop'
+    ? 1.44
+    : isWideShock
+      ? 1.40
+      : emotion === 'angry' || act === 'punching' || act === 'kicking'
+        ? 1.24
+        : 1.0;
+  // Keep sclera Z thin so bulging white sclera NEVER swallows the front black pupil!
+  rig.leftSclera.scale.set(eyePop, eyePop * 1.08, 0.50);
+  rig.rightSclera.scale.set(eyePop, eyePop * 1.08, 0.50);
+  const pupilDartX = (emotion === 'confused' || emotion === 'scared' || act === 'slapForehead')
+    ? Math.sin(lt * (emotion === 'scared' ? 16.0 : 9.0)) * 0.020
+    : emotion === 'smug'
+      ? rig.facingSign * 0.012
+      : 0;
+  const pupilScale = (emotion === 'scared' || act === 'brakeStop')
+    ? 0.58
+    : isWideShock
+      ? 0.86
+      : emotion === 'angry'
+        ? 0.88
+        : emotion === 'smug'
+          ? 0.94
+          : 1.0;
+  rig.leftPupil.scale.set(pupilScale, pupilScale, 0.92);
+  rig.rightPupil.scale.set(pupilScale, pupilScale, 0.92);
   rig.leftPupil.rotation.y = pupilDartX * 8;
   rig.rightPupil.rotation.y = -pupilDartX * 8;
 
   // Head orientation per action & dialogue speech
   if (act === 'sleeping') {
     rig.headPivot.rotation.set(0.18, rig.facingSign * 0.28, 0.24);
+  } else if (act === 'lyingShroud') {
+    // Turn head toward +Z camera while lying sideways (root.rotation.y = +PI/2) so expression stays 100% readable!
+    const twitch = emotion === 'angry' ? Math.sin(lt * 8.0) * 0.08 : 0;
+    rig.headPivot.rotation.set(0.14, 0.52 + twitch, Math.sin(lt * 1.2) * 0.04);
+  } else if (act === 'corpseSnapUp') {
+    rig.headPivot.rotation.set(0.12 + Math.sin(lt * 20) * 0.04, 0, Math.sin(lt * 24) * 0.05);
+  } else if (act === 'brakeStop') {
+    rig.headPivot.rotation.set(-0.22 + Math.sin(lt * 24) * 0.05, rig.facingSign * -0.14, Math.sin(lt * 30) * 0.06);
+  } else if (act === 'celebrate') {
+    rig.headPivot.rotation.set(-0.10 + Math.sin(lt * 8.4) * 0.09, rig.facingSign * -0.06, Math.sin(lt * 4.2) * 0.09);
   } else if (act === 'lookInMirror') {
     // Customer checks shaved back/front head directly inside BOTH wall & angled side mirrors!
     const lookCycle = Math.sin(turnLocal * Math.PI * 1.4);
@@ -1742,6 +2089,12 @@ export function updateCharacterRig(
     rig.headPivot.rotation.set(0.14 + Math.sin(lt * 5.4) * 0.12, 0, Math.sin(lt * 2.7) * 0.08);
   } else if (act === 'slapForehead') {
     rig.headPivot.rotation.set(0.18, rig.facingSign * -0.1, -0.22 + Math.sin(lt * 6.5) * 0.06);
+  } else if (act === 'lapSubdue' || act === 'pillarBurst') {
+    const roar = Math.sin(lt * 10.5) * 0.05;
+    rig.headPivot.rotation.set(act === 'lapSubdue' ? 0.24 + roar : -0.10 + roar, 0, Math.sin(lt * 7.2) * 0.04);
+  } else if (act === 'lapSubdued') {
+    const panic = Math.sin(lt * 13.0) * 0.14;
+    rig.headPivot.rotation.set(-0.22 + panic, -0.35 + panic * 0.5, 0.12);
   } else if (act === 'hitReact') {
     const { recoil } = strikePhase(t, 'punching');
     rig.headPivot.rotation.set(-0.30 * recoil, rig.facingSign * 0.35 * recoil, rig.facingSign * 0.18 * recoil);
@@ -1754,6 +2107,14 @@ export function updateCharacterRig(
   } else if (emotion === 'angry') {
     // MJO explosive "Angry Bird" lean-forward glare + high-frequency fury tremble
     rig.headPivot.rotation.set(0.14 + Math.sin(lt * 22) * 0.04, rig.facingSign * -0.14, Math.sin(lt * 28) * 0.05);
+  } else if (emotion === 'scared') {
+    // Nervous jittery recoil looking anxiously around
+    rig.headPivot.rotation.set(-0.08 + Math.sin(lt * 20) * 0.04, rig.facingSign * -0.18 + Math.sin(lt * 14) * 0.06, Math.sin(lt * 26) * 0.05);
+  } else if (emotion === 'smug') {
+    // Cocky chin-up side-eye smirk tilt
+    rig.headPivot.rotation.set(-0.08 + (isSpeaking ? Math.sin(lt * 4.5) * 0.04 : 0), rig.facingSign * -0.08, rig.facingSign * 0.13);
+  } else if (emotion === 'proud') {
+    rig.headPivot.rotation.set(-0.07 + (isSpeaking ? Math.sin(lt * 5.0) * 0.06 : 0), rig.facingSign * (isSpeaking ? -0.10 : 0.06), 0);
   } else {
     const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.085 : Math.sin(lt * 1.4) * 0.025;
     const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.065 : 0;
@@ -1764,58 +2125,95 @@ export function updateCharacterRig(
       : rig.facingSign * (isSpeaking ? -0.14 : 0.1);
   }
 
-  // Eyeblinks & emotion/sleep eyelids
+  // Eyeblinks & asymmetric MJO emotion/sleep eyelids
   const blinkPhase = (lt * 0.28) % 1;
   const blinking = blinkPhase > 0.955;
   let lidClose = -Math.PI * 0.48;
   if (act === 'sleeping' || act === 'praying') lidClose = 0.26;
+  else if (act === 'lyingShroud') lidClose = emotion === 'angry' ? -0.18 : 0.28;
+  else if (act === 'corpseSnapUp') lidClose = -Math.PI * 0.66;
   else if (act === 'wakingUp' && turnLocal < 0.2) lidClose = 0.24;
+  else if (act === 'lapSubdue' || act === 'pillarBurst') lidClose = -Math.PI * 0.64;
   else if (blinking) lidClose = 0.15;
   else if (emotion === 'laughing') lidClose = 0.12;
   else if (emotion === 'sad') lidClose = -Math.PI * 0.28;
+  else if (emotion === 'smug') lidClose = -0.10;
+  else if (emotion === 'scared' || act === 'brakeStop') lidClose = -Math.PI * 0.68;
   else if (isWideShock || emotion === 'angry') lidClose = -Math.PI * 0.64;
-  rig.leftEyelid.rotation.x = lidClose;
-  rig.rightEyelid.rotation.x = lidClose;
+  rig.leftEyelid.rotation.x = emotion === 'smug' ? -0.06 : lidClose;
+  rig.rightEyelid.rotation.x = emotion === 'smug' ? -0.16 : lidClose;
 
-  // Expressive eyebrows per emotion (sharper MJO V-brows on angry!)
+  // Expressive eyebrows per emotion (sharper MJO V-brows on angry, high shocked/scared arches, asymmetric Rock eyebrow for smug!)
   const baseBrowY = 0.085;
-  let lift = isSpeaking ? 0.012 : 0;
-  let browTilt = 0;
-  if (isWideShock) {
-    lift = 0.046;
-    browTilt = -0.08;
-  } else if (emotion === 'angry') {
-    lift = -0.026;
-    browTilt = 0.52;
+  let leftLift = isSpeaking ? 0.014 : 0;
+  let rightLift = leftLift;
+  let leftBrowTilt = 0;
+  let rightBrowTilt = 0;
+  if (emotion === 'angry' || act === 'corpseSnapUp') {
+    leftLift = rightLift = -0.032;
+    leftBrowTilt = rightBrowTilt = 0.62;
+  } else if (emotion === 'scared' || act === 'brakeStop') {
+    leftLift = rightLift = 0.062;
+    leftBrowTilt = rightBrowTilt = -0.34;
+  } else if (isWideShock) {
+    leftLift = rightLift = 0.054;
+    leftBrowTilt = rightBrowTilt = -0.10;
+  } else if (emotion === 'smug') {
+    leftLift = 0.052;
+    rightLift = -0.012;
+    leftBrowTilt = -0.20;
+    rightBrowTilt = 0.26;
   } else if (emotion === 'sad' || act === 'slapForehead') {
-    lift = 0.012;
-    browTilt = -0.26;
-  } else if (emotion === 'laughing' || emotion === 'happy') {
-    lift = 0.038;
-    browTilt = -0.06;
+    leftLift = rightLift = 0.012;
+    leftBrowTilt = rightBrowTilt = -0.34;
+  } else if (emotion === 'laughing' || emotion === 'happy' || emotion === 'proud') {
+    leftLift = rightLift = 0.042;
+    leftBrowTilt = rightBrowTilt = -0.08;
   }
-  rig.leftBrow.position.y = baseBrowY + lift;
-  rig.rightBrow.position.y = baseBrowY + lift;
-  rig.leftBrow.rotation.z = Math.PI / 2 - browTilt;
-  rig.rightBrow.rotation.z = Math.PI / 2 + browTilt;
+  rig.leftBrow.position.y = baseBrowY + leftLift;
+  rig.rightBrow.position.y = baseBrowY + rightLift;
+  rig.leftBrow.rotation.z = Math.PI / 2 - leftBrowTilt;
+  rig.rightBrow.rotation.z = Math.PI / 2 + rightBrowTilt;
 
-  // Lip-sync driven strictly by real audio envelope so mouth only articulates when voice audio is active
+  // Lip-sync driven by real audio envelope + expressive emotional jaw acting (never flat-lip during peak shock/fury/laugh!)
   const activeSpeech = isSpeaking && speechLevel > 0.028;
-  const openAmt = activeSpeech ? Math.min(1, speechLevel * 1.45) : 0;
+  const openAmt = activeSpeech ? Math.min(1, speechLevel * 1.50) : 0;
   const vowelWave = 0.5 + 0.5 * Math.sin(t * 24.0 + rig.seedOffset);
-  let mouthOpen = activeSpeech ? 0.12 + openAmt * (0.68 + 0.32 * vowelWave) : 0.02;
+  let mouthOpen = activeSpeech ? 0.16 + openAmt * (0.70 + 0.30 * vowelWave) : 0.02;
   if (act === 'sleeping' && !activeSpeech) {
     mouthOpen = 0.04 + 0.14 * Math.max(0, Math.sin(lt * 2.1));
   } else if (act === 'eating' && !activeSpeech) {
     mouthOpen = 0.08 + 0.32 * Math.max(0, Math.sin(lt * 5.2));
-  } else if (isWideShock && !isSpeaking && turnLocal < 0.42) {
-    mouthOpen = 0.58;
+  } else if (act === 'corpseSnapUp' || (emotion === 'angry' && isSpeaking)) {
+    // Keep furious shouting jaw wide open across words and climax pauses for punchy acting & thumbnails
+    mouthOpen = Math.max(mouthOpen, act === 'corpseSnapUp' ? 0.88 : 0.52);
+  } else if ((isWideShock && !isSpeaking && turnLocal < 0.78) || (emotion === 'scared' && !isSpeaking) || act === 'brakeStop') {
+    mouthOpen = Math.max(mouthOpen, emotion === 'scared' ? 0.42 + 0.08 * Math.sin(lt * 22) : 0.84);
+  } else if (emotion === 'laughing' || act === 'celebrate') {
+    mouthOpen = Math.max(mouthOpen, 0.44 + 0.18 * Math.abs(Math.sin(lt * 11)));
+  } else if (emotion === 'proud' && !isSpeaking) {
+    mouthOpen = Math.max(mouthOpen, 0.22);
+  } else if (emotion === 'smug' && !isSpeaking) {
+    mouthOpen = 0.08;
+  } else if (emotion === 'sad' && isSpeaking) {
+    mouthOpen = Math.max(mouthOpen, 0.12);
   }
-  const mouthWide = activeSpeech ? 0.88 + 0.34 * (1 - vowelWave) : (emotion === 'happy' || emotion === 'laughing' ? 1.24 : 0.96);
+  const mouthWide = activeSpeech
+    ? 0.90 + 0.36 * (1 - vowelWave)
+    : (emotion === 'happy' || emotion === 'laughing' || emotion === 'proud' || act === 'celebrate'
+      ? 1.44
+      : (emotion === 'smug'
+        ? 1.24
+        : (emotion === 'scared' || act === 'brakeStop'
+          ? 0.74
+          : (emotion === 'angry' || act === 'corpseSnapUp')
+            ? 1.22
+            : 0.96)));
 
-  rig.mouthCavity.scale.set(1.12 * mouthWide, mouthOpen, 0.55);
-  rig.upperLip.position.y = rig.mouthBaseY + mouthOpen * 0.024;
-  rig.lowerLip.position.y = rig.mouthBaseY - mouthOpen * 0.048;
+  rig.mouthCavity.scale.set(1.16 * mouthWide, mouthOpen * 1.22, 0.58);
+  rig.mouthCavity.rotation.z = emotion === 'smug' ? rig.facingSign * 0.10 : 0;
+  rig.upperLip.position.y = rig.mouthBaseY + mouthOpen * 0.028;
+  rig.lowerLip.position.y = rig.mouthBaseY - mouthOpen * 0.056;
 
   // Expressive two-arm skeletal animation per action
   if (act === 'sleeping') {
@@ -1823,6 +2221,17 @@ export function updateCharacterRig(
     rig.leftElbow.rotation.set(-0.6, 0, -0.35);
     rig.rightShoulder.rotation.set(-0.2, 0, -0.25);
     rig.rightElbow.rotation.set(-0.6, 0, 0.35);
+  } else if (act === 'lyingShroud') {
+    rig.leftShoulder.rotation.set(-0.52, 0.24, 0.34);
+    rig.leftElbow.rotation.set(-0.88, 0, -0.26);
+    rig.rightShoulder.rotation.set(-0.52, -0.24, -0.34);
+    rig.rightElbow.rotation.set(-0.88, 0, 0.26);
+  } else if (act === 'corpseSnapUp') {
+    const wave = Math.sin(lt * 16) * 0.26;
+    rig.leftShoulder.rotation.set(-1.45 + wave, 0.22, 0.55);
+    rig.leftElbow.rotation.set(-0.62, 0, -0.12);
+    rig.rightShoulder.rotation.set(-1.45 - wave, -0.22, -0.55);
+    rig.rightElbow.rotation.set(-0.62, 0, 0.12);
   } else if (act === 'wakingUp' || act === 'shockedFall') {
     const flail = Math.sin(lt * 14) * 0.22;
     rig.leftShoulder.rotation.set(-1.38 + flail, 0.25, 0.62);
@@ -1985,6 +2394,58 @@ export function updateCharacterRig(
     rig.rightElbow.rotation.set(-0.8, 0, sweep * 0.4);
     rig.leftShoulder.rotation.set(-0.55, 0.15, 0.22 + sweep * 0.5);
     rig.leftElbow.rotation.set(-0.85, 0, 0);
+  } else if (act === 'lapSubdue') {
+    // Both clawed primary hands reach forward and pin/tear over Hiranyakashipu across Narasimha's thighs (Janga)
+    const grip = Math.sin(lt * 7.5) * 0.08;
+    rig.leftShoulder.rotation.set(-1.12 + grip, 0.12, 0.10);
+    rig.leftElbow.rotation.set(-0.75, 0, -0.14);
+    rig.rightShoulder.rotation.set(-1.12 - grip, -0.12, -0.10);
+    rig.rightElbow.rotation.set(-0.75, 0, 0.14);
+  } else if (act === 'lapSubdued') {
+    // Thrashing arms reaching up in terror while suspended across Narasimha's thighs
+    const thrash = Math.sin(lt * 14.5) * 0.28;
+    rig.leftShoulder.rotation.set(-1.45 + thrash, 0.25, 0.65);
+    rig.leftElbow.rotation.set(-0.65, 0, 0);
+    rig.rightShoulder.rotation.set(-1.45 - thrash, -0.25, -0.65);
+    rig.rightElbow.rotation.set(-0.65, 0, 0);
+  } else if (act === 'pillarBurst') {
+    // Arms flung wide apart bursting through stone Sabha pillar
+    const surge = Math.sin(lt * 5.5) * 0.10;
+    rig.leftShoulder.rotation.set(-0.85, 0.22, 0.92 + surge);
+    rig.leftElbow.rotation.set(-0.55, 0, -0.18);
+    rig.rightShoulder.rotation.set(-0.85, -0.22, -0.92 - surge);
+    rig.rightElbow.rotation.set(-0.55, 0, 0.18);
+  } else if (act === 'clubStrike') {
+    const strikeCurve = Math.sin(Math.min(1, turnLocal * 1.45) * Math.PI);
+    rig.rightShoulder.rotation.set(-2.15 + strikeCurve * 1.55, -0.14, -0.22);
+    rig.rightElbow.rotation.set(-0.35, 0, 0);
+    rig.leftShoulder.rotation.set(-0.65, 0.20, 0.35);
+    rig.leftElbow.rotation.set(-0.85, 0, -0.22);
+  } else if (act === 'fireTrial' || act === 'serpentAttack' || act === 'elephantCharge' || act === 'cliffRescue') {
+    if (rig.isHolika && emotion !== 'proud') {
+      const flail = Math.sin(lt * 15) * 0.26;
+      rig.leftShoulder.rotation.set(-1.55 + flail, 0.22, 0.52);
+      rig.leftElbow.rotation.set(-0.65, 0, 0);
+      rig.rightShoulder.rotation.set(-1.55 - flail, -0.22, -0.52);
+      rig.rightElbow.rotation.set(-0.65, 0, 0);
+    } else if (rig.role === 'ChildDevotee') {
+      rig.leftShoulder.rotation.set(-0.95, 0.25, -0.42);
+      rig.leftElbow.rotation.set(-1.35, 0, -0.5);
+      rig.rightShoulder.rotation.set(-0.95, -0.25, 0.42);
+      rig.rightElbow.rotation.set(-1.35, 0, 0.5);
+    } else {
+      const jab = Math.sin(lt * 7.5) * 0.14;
+      rig.rightShoulder.rotation.set(-1.38 + jab, -0.15 * rig.facingSign, -0.22);
+      rig.rightElbow.rotation.set(-0.22, 0, 0);
+      rig.leftShoulder.rotation.set(-0.28, 0.18, 0.38);
+      rig.leftElbow.rotation.set(-0.90, 0, -0.45);
+    }
+  } else if (act === 'blessing') {
+    // Raised serene Abhaya Mudra blessing right hand
+    rig.rightShoulder.rotation.set(-1.35, -0.14, -0.16);
+    rig.rightElbow.rotation.set(-1.05, 0, 0.14);
+    rig.leftShoulder.rotation.set(-0.32, 0.12, 0.18);
+    rig.leftElbow.rotation.set(-0.85, 0, -0.20);
   } else if (act === 'dancing' || act === 'adaab' || act === 'sufiSpin') {
     const style: DanceChoreographyStyle = isComedyMascot ? 'viralBounce' : 'sufiKathak';
     const dance = computeDanceKinematics(lt, style, act, rig.facingSign < 0, 0);
@@ -1994,6 +2455,20 @@ export function updateCharacterRig(
     rig.rightElbow.rotation.set(dance.rightElbow[0], dance.rightElbow[1], dance.rightElbow[2]);
     rig.torsoGroup.rotation.y += (dance.torsoRotY - rig.torsoGroup.rotation.y) * 0.35;
     rig.headPivot.rotation.z += (dance.headRotZ - rig.headPivot.rotation.z) * 0.35;
+  } else if (act === 'celebrate') {
+    // Twin overhead fist-pump victory celebration
+    const pump = Math.sin(lt * 9.0) * 0.30;
+    rig.leftShoulder.rotation.set(-2.42 + pump, 0.18, 0.30);
+    rig.leftElbow.rotation.set(-0.38, 0, -0.10);
+    rig.rightShoulder.rotation.set(-2.42 - pump, -0.18, -0.30);
+    rig.rightElbow.rotation.set(-0.38, 0, 0.10);
+  } else if (act === 'brakeStop') {
+    // Both arms thrust forward bracing against screeching sudden stop
+    const braceShake = Math.sin(lt * 22) * 0.07;
+    rig.leftShoulder.rotation.set(-1.32 + braceShake, 0.18, 0.26);
+    rig.leftElbow.rotation.set(-0.26, 0, -0.12);
+    rig.rightShoulder.rotation.set(-1.32 - braceShake, -0.18, -0.26);
+    rig.rightElbow.rotation.set(-0.26, 0, 0.12);
   } else if (act === 'jumping') {
     const groove = Math.sin(lt * 8.5) * 0.48;
     rig.leftShoulder.rotation.set(-1.4 + groove, 0.2, 0.48);
@@ -2001,10 +2476,11 @@ export function updateCharacterRig(
     rig.rightShoulder.rotation.set(-1.4 - groove, -0.2, -0.48);
     rig.rightElbow.rotation.set(-0.6, 0, -0.2);
   } else if (isSpeaking) {
-    if (emotion === 'surprised') {
-      rig.leftShoulder.rotation.set(-1.3, 0.2, 0.55);
+    if (emotion === 'surprised' || emotion === 'scared') {
+      const tremble = emotion === 'scared' ? Math.sin(lt * 19) * 0.12 : 0;
+      rig.leftShoulder.rotation.set(-1.3 + tremble, 0.2, 0.55);
       rig.leftElbow.rotation.set(-0.65, 0, 0);
-      rig.rightShoulder.rotation.set(-1.35, -0.2, -0.55);
+      rig.rightShoulder.rotation.set(-1.35 - tremble, -0.2, -0.55);
       rig.rightElbow.rotation.set(-0.65, 0, 0);
     } else if (emotion === 'angry') {
       // MJO fury shake: both arms clenched & pumping angrily!
@@ -2020,6 +2496,17 @@ export function updateCharacterRig(
       rig.leftElbow.rotation.set(-0.52, 0, -0.12);
       rig.rightShoulder.rotation.set(-0.58 + guffaw, -0.22, -0.28);
       rig.rightElbow.rotation.set(-1.25 - guffaw * 0.4, 0, -0.32);
+    } else if (emotion === 'smug') {
+      // One arm crossed coolly across chest, other hand gesturing knowingly
+      rig.leftShoulder.rotation.set(-0.48, 0.22, -0.25);
+      rig.leftElbow.rotation.set(-1.28, 0, -0.45);
+      rig.rightShoulder.rotation.set(-0.92 + Math.sin(lt * 4.2) * 0.16, -0.18, -0.28);
+      rig.rightElbow.rotation.set(-0.85, 0, 0.12);
+    } else if (emotion === 'proud') {
+      rig.leftShoulder.rotation.set(-0.42, 0.22, 0.36);
+      rig.leftElbow.rotation.set(-1.05, 0, -0.45);
+      rig.rightShoulder.rotation.set(-1.22 + Math.sin(lt * 5.0) * 0.15, -0.18, -0.30);
+      rig.rightElbow.rotation.set(-0.62, 0, 0.18);
     } else {
       const g1 = Math.sin(lt * 4.8) * 0.32;
       const g2 = Math.cos(lt * 3.9) * 0.24;
@@ -2029,11 +2516,35 @@ export function updateCharacterRig(
       rig.leftElbow.rotation.set(-0.85, 0, -0.15);
     }
   } else {
-    // Calm attentive listening / lotus mudra
-    rig.leftShoulder.rotation.set(-0.32, 0.12, 0.18);
-    rig.leftElbow.rotation.set(-0.85, 0, -0.25);
-    rig.rightShoulder.rotation.set(-0.32, -0.12, -0.18);
-    rig.rightElbow.rotation.set(-0.85, 0, 0.25);
+    // Expressive listening reactions so silent listeners react physically in real time!
+    if (emotion === 'scared' || emotion === 'surprised') {
+      const jitter = Math.sin(lt * 18) * 0.08;
+      rig.leftShoulder.rotation.set(-0.95 + jitter, 0.20, 0.38);
+      rig.leftElbow.rotation.set(-1.12, 0, -0.18);
+      rig.rightShoulder.rotation.set(-0.95 - jitter, -0.20, -0.38);
+      rig.rightElbow.rotation.set(-1.12, 0, 0.18);
+    } else if (emotion === 'angry') {
+      // Hands on waist / fists clenched fuming
+      rig.leftShoulder.rotation.set(-0.42, 0.20, 0.42);
+      rig.leftElbow.rotation.set(-1.08, 0, -0.46);
+      rig.rightShoulder.rotation.set(-0.42, -0.20, -0.42);
+      rig.rightElbow.rotation.set(-1.08, 0, 0.46);
+    } else if (emotion === 'smug') {
+      rig.leftShoulder.rotation.set(-0.48, 0.24, -0.32);
+      rig.leftElbow.rotation.set(-1.35, 0, -0.52);
+      rig.rightShoulder.rotation.set(-0.48, -0.24, 0.32);
+      rig.rightElbow.rotation.set(-1.35, 0, 0.52);
+    } else if (emotion === 'sad') {
+      rig.leftShoulder.rotation.set(-0.18, 0.06, 0.14);
+      rig.leftElbow.rotation.set(-0.55, 0, -0.15);
+      rig.rightShoulder.rotation.set(-0.18, -0.06, -0.14);
+      rig.rightElbow.rotation.set(-0.55, 0, 0.15);
+    } else {
+      rig.leftShoulder.rotation.set(-0.32, 0.12, 0.18);
+      rig.leftElbow.rotation.set(-0.85, 0, -0.25);
+      rig.rightShoulder.rotation.set(-0.32, -0.12, -0.18);
+      rig.rightElbow.rotation.set(-0.85, 0, 0.25);
+    }
   }
 
   // Aura rings + divine chakra rotation (when enabled for devotional/cinematic sets)
@@ -2054,6 +2565,26 @@ export function updateCharacterRig(
   if (rig.pedestalGlow) {
     const pm = rig.pedestalGlow.material as THREE.MeshBasicMaterial;
     pm.opacity = isSpeaking ? 0.48 : 0.22;
+  }
+  if (rig.chakraWheel) {
+    rig.chakraWheel.rotation.z = t * (act === 'lapSubdue' || act === 'pillarBurst' ? 6.5 : 2.8);
+  }
+  if (rig.lowerJawPivot) {
+    const roarOpen = act === 'lapSubdue' || act === 'pillarBurst' ? Math.max(0.26, mouthOpen * 0.42) : mouthOpen * 0.36;
+    rig.lowerJawPivot.rotation.x = roarOpen;
+  }
+  if (rig.pattaEnds && rig.pattaEnds.length > 0) {
+    rig.pattaEnds.forEach((p, idx) => {
+      if (act === 'lapSubdued') {
+        p.visible = false;
+        return;
+      }
+      p.visible = true;
+      const s = idx === 0 ? -1 : 1;
+      const flutter = act === 'pillarBurst' || act === 'lapSubdue' ? 0.14 : 0.05;
+      p.rotation.z = s * (0.14 + Math.sin(lt * 3.4 + idx) * flutter);
+      p.rotation.x = Math.cos(lt * 2.8 + idx) * flutter * 0.7;
+    });
   }
 }
 

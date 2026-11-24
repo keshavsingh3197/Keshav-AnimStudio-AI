@@ -867,6 +867,24 @@ public sealed class ProceduralTemplateAndDialogueTests
 
         var peakFrame = ProceduralVideoGeneratorService.PickPeakCleanThumbnailFrame(plan, fps: 24, totalFrames: 12 * 24);
         Assert.True(peakFrame >= 24 * 2, $"Expected peak clean thumbnail frame past intro hook (>=48), got {peakFrame}");
+
+        // Audio-peak snapping: spike an inner frame near the chosen turn's core window and verify it snaps right onto it
+        var env = new float[12 * 24];
+        var spikeFrame = Math.Clamp(peakFrame - 4, 48, env.Length - 2);
+        env[spikeFrame] = 0.96f;
+        var audioPeakFrame = ProceduralVideoGeneratorService.PickPeakCleanThumbnailFrame(plan, fps: 24, totalFrames: 12 * 24, env);
+        Assert.Equal(spikeFrame, audioPeakFrame);
+
+        // Curiosity-gap comedy hook avoids echoing the lead title verbatim and classifies Rage emotion
+        var comedyScript = """
+            [पप्पू भैया]: (surprised) अरे बबलू भाई! ये सुबह-सुबह सुखिया चाचा को क्या हो गया?!
+            [सुखिया चाचा]: (corpseSnapUp, angry) ओ मार भी दे हुं!! अरे साले दो घंटे से तेरी बकवास सुन रहा हूँ!!
+            [MEME]: surprised_pikachu | अरे ज़िंदा है बे!!
+            """;
+        var hooks = ThumbnailPosterCopy.ExtractComedyHooks("सब्र का इम्तिहान 😂 | ओ मार भी दे हुं!! #shorts", comedyScript);
+        Assert.DoesNotContain("सब्र का इम्तिहान", hooks.HeroHook, StringComparison.Ordinal);
+        Assert.Equal(ThumbnailEmotion.Rage, hooks.Emotion);
+        Assert.False(string.IsNullOrWhiteSpace(hooks.ReactionBadge));
     }
 
     [Fact]
@@ -948,5 +966,321 @@ public sealed class ProceduralTemplateAndDialogueTests
 
         var peakFrame = ProceduralVideoGeneratorService.PickPeakCleanThumbnailFrame(plan, fps: 24, totalFrames: 30 * 24);
         Assert.True(peakFrame >= 24 * 12, $"Expected peak clean thumbnail frame during Divine Shiva climax (>=288), got {peakFrame}");
+    }
+
+    [Fact]
+    public void DialogueScriptParser_ComedySfx_And_ExpressiveEmotions_StripTtsTags_And_Infer_Vehicle_Achievement_Cues()
+    {
+        var script = """
+            [SCENE]: modern city | day | slapstick
+            [पप्पू]: (angry, pointing, sfx: paper) मीटिंग की लाल फ़ाइल अभी तक खाली क्यों पड़ी है?!
+            [बबलू]: (scared, brakeStop, sfx: brake) अरे स्कूटर का ब्रेक फ़ेल हो गया भैया — रास्ते में ही अटक गया था!
+            [पप्पू]: (smug) वाह, पूरा एक महीने का काम बिना सेव किए उड़ा दिया!
+            [बबलू]: (proud, celebrate, sfx: tada) अरे सुनो बॉस — पूरा प्रोजेक्ट कंप्लीट हो गया और बोनस भी आ गया!
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "Office & Scooter Comedy Test",
+            script,
+            prompt: null,
+            durationSeconds: 18,
+            enableDialogue: true,
+            preferredSpeakerA: "पप्पू",
+            preferredSpeakerB: "बबलू",
+            eventType: "FunnyComedy");
+
+        var turns = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+        Assert.Equal(4, turns.Count);
+
+        Assert.Equal("angry", turns[0].Emotion);
+        Assert.Equal("paper", turns[0].SfxCue);
+        Assert.Equal("book", turns[0].SpeakerProp);
+        Assert.Equal("scared", turns[0].ListenerEmotion);
+
+        Assert.Equal("scared", turns[1].Emotion);
+        Assert.Equal("brakeStop", turns[1].Action);
+        Assert.Equal("brake", turns[1].SfxCue);
+
+        Assert.Equal("smug", turns[2].Emotion);
+
+        Assert.Equal("proud", turns[3].Emotion);
+        Assert.Equal("celebrate", turns[3].Action);
+        Assert.Equal("tada", turns[3].SfxCue);
+        Assert.Equal("surprised", turns[3].ListenerEmotion);
+
+        // TTS spoken text must strip all emotion/action/(sfx: ...) cues cleanly while keeping spoken dialogue!
+        foreach (var turn in turns)
+        {
+            var spoken = DialogueScriptParser.ToSpokenText(turn.Text, "hi");
+            Assert.DoesNotContain("sfx:", spoken, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("brakeStop", spoken, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("celebrate", spoken, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("smug", spoken, StringComparison.OrdinalIgnoreCase);
+            Assert.False(string.IsNullOrWhiteSpace(spoken));
+        }
+
+        // Also test automatic inference when no explicit (sfx: ...) or (celebrate)/(brakeStop) tags are written
+        var inferredScript = """
+            [SCENE]: modern city | day | comedy
+            [ड्राइवर]: गाड़ी की स्पीड तेज़ थी, अचानक आगे बस आ गई और ज़ोर का ब्रेक दबाया!
+            [दोस्त]: बहुत बढ़िया भाई, हमारा आज का काम पूरा हो गया!
+            """;
+        var inferredPlan = DialogueScriptParser.ParsePlan(
+            "Inferred Sfx Comedy",
+            inferredScript,
+            prompt: null,
+            durationSeconds: 12,
+            enableDialogue: true,
+            eventType: "FunnyComedy");
+        var inferredTurns = inferredPlan.Turns.Where(t => !t.IsTitleHook).ToList();
+        Assert.Equal("brakeStop", inferredTurns[0].Action);
+        Assert.Equal("brake", inferredTurns[0].SfxCue);
+        Assert.Equal("proud", inferredTurns[1].Emotion);
+        Assert.Equal("celebrate", inferredTurns[1].Action);
+        Assert.Equal("tada", inferredTurns[1].SfxCue);
+    }
+
+    [Fact]
+    public async Task ProceduralAudioSynthesizer_CollectComedySfxEvents_And_WriteComedySfxWavAsync_Emits_Vehicle_Achievement_And_Office_Sfx()
+    {
+        var script = """
+            [SCENE]: modern city | day | slapstick
+            [बॉस]: (angry, pointing, sfx: paper) मेरी लाल फ़ाइल कहाँ है?!
+            [पप्पू]: (scared, sfx: gasp) सर स्कूटर का ब्रेक फ़ेल हो गया!
+            [ताऊ]: (proud, sfx: engine) हटो रे, सवारी आ गई और हॉर्न बजाओ!
+            [पप्पू]: (scared, brakeStop, sfx: brake) अरे मोरी मैया ब्रेक दबा रे!!
+            [बॉस]: (smug, sfx: rimshot) वाह बेटे, क्या शानदार बहाना मारा!
+            [पप्पू]: (sad, sfx: cricket) पर सर आज काम हो गया पूरा...
+            [बॉस]: (proud, celebrate, sfx: tada) बहुत बढ़िया, मिशन कंप्लीट!
+            """;
+
+        var plan = DialogueScriptParser.ParsePlan(
+            "All Comedy Sfx Test",
+            script,
+            prompt: null,
+            durationSeconds: 28,
+            enableDialogue: true,
+            eventType: "FunnyComedy");
+
+        var events = ProceduralAudioSynthesizer.CollectComedySfxEvents(plan, comedyIntensity: true);
+        var kinds = events.Select(e => e.Kind).ToHashSet();
+
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.PaperOfficeFlip, kinds);
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.DramaticGasp, kinds);
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.VehicleEngineRev, kinds);
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.TireBrakeScreech, kinds);
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.RimshotPunch, kinds);
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.CricketChirp, kinds);
+        Assert.Contains(ProceduralAudioSynthesizer.ComedySfxKind.AchievementChime, kinds);
+
+        var tempDir = Directory.CreateTempSubdirectory("animstudio-comedy-sfx-");
+        try
+        {
+            var sfxWav = Path.Combine(tempDir.FullName, "sfx.wav");
+            await ProceduralAudioSynthesizer.WriteComedySfxWavAsync(sfxWav, plan, 28, CancellationToken.None, comedyIntensity: true);
+            Assert.True(File.Exists(sfxWav));
+            Assert.True(ProceduralBgmCacheService.IsStereo48kWav(sfxWav));
+            var env = ProceduralAudioSynthesizer.ComputeFrameEnvelope(sfxWav, 28 * 10, 10);
+            Assert.Contains(env, v => v > 0.08f);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProceduralSpeechSynthesizer_ComedySfxReactionGap_Gives_Punchlines_Room_Without_Breaking_Normal_Speech()
+    {
+        var charA = new ProceduralCharacterProfile(DialogueSpeakerSlot.Left, "बॉस", CharacterVisualRole.Scholar);
+        var charB = new ProceduralCharacterProfile(DialogueSpeakerSlot.Right, "पप्पू", CharacterVisualRole.ChildDevotee);
+
+        var brakeTurn = new ProceduralDialogueTurn(0, 0, 2, DialogueSpeakerSlot.Right, charB.Name, "ब्रेक दबा रे!", false, charB.Role, Emotion: "scared", Action: "brakeStop", SfxCue: "brake");
+        var tadaTurn = new ProceduralDialogueTurn(1, 2.52, 4.5, DialogueSpeakerSlot.Left, charA.Name, "काम हो गया!", false, charA.Role, Emotion: "proud", Action: "celebrate", SfxCue: "tada");
+        var normalNext = new ProceduralDialogueTurn(2, 5.02, 7.0, DialogueSpeakerSlot.Right, charB.Name, "अब चाय पिलाओ सर।", false, charB.Role, Emotion: "happy");
+
+        Assert.Equal(0.52, ProceduralSpeechSynthesizer.ResolveTurnGapSeconds(brakeTurn, tadaTurn, isComedy: true));
+        Assert.Equal(0.52, ProceduralSpeechSynthesizer.ResolveTurnGapSeconds(tadaTurn, normalNext, isComedy: true));
+        Assert.Equal(0.24, ProceduralSpeechSynthesizer.ResolveTurnGapSeconds(brakeTurn, tadaTurn, isComedy: false));
+
+        var smugPrompt = ProceduralSpeechSynthesizer.BuildSpeechStyle(
+            brakeTurn with { Emotion = "smug" }, charB, isComedy: true, hasCharacters: true, "hi");
+        var scaredPrompt = ProceduralSpeechSynthesizer.BuildSpeechStyle(brakeTurn, charB, isComedy: true, hasCharacters: true, "hi");
+        Assert.Contains("sarcastic", smugPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("terrified", scaredPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AutomationContentComposer_ComposeForRule_Generates_Mjo_Office_Vehicle_And_Longer_FullStory_Comedies()
+    {
+        var ecosystem = new StudioEcosystemConfig(
+            StudioTitle: "AnimStudio AI",
+            StudioTagline: "Comedy & Stories",
+            CreatorName: "Creator",
+            CreatorPortfolioUrl: "https://example.com",
+            LegalUpdatedDate: "2026-11-23",
+            CopyrightNotice: "Copyright",
+            AdminUrl: "https://admin.example.com",
+            IdpUrl: "https://id.example.com",
+            StudioUrl: "https://studio.example.com",
+            DefaultChannelKey: "ch-com",
+            EngineName: "AnimStudio",
+            VisualsCredit: null,
+            DefaultBranding: new ChannelBranding(),
+            Websites: [new EcosystemWebsiteItem("studio", "AnimStudio AI", "Studio", "Comedy", "https://studio.example.com", null, null, null, null, true, 1)],
+            Channels: [],
+            SocialLinks: [],
+            RetiredChannelUrls: [],
+            RetiredChannelNames: [],
+            SyncedFromCentral: true,
+            LastSyncedAt: DateTimeOffset.UtcNow);
+        var signals = new EcosystemSignalsSnapshot(
+            DateKey: "2026-11-23",
+            Location: "New Delhi, India",
+            Panchang: new EcosystemPanchangSignal("2026-11-23", "New Delhi, India", "Shukla Trayodashi", "05:00 PM", "Ashwini", "08:00 PM", "Siddha", "Kaulava", "Somavara", "Shukla", "Kartika", "2083", "06:45 AM", "05:27 PM", "11:45 AM - 12:28 PM", "05:08 AM - 05:56 AM", "08:15 AM - 09:45 AM", "07:30 AM - 09:00 AM", "सत्यमेव जयते", "Truth alone triumphs."),
+            UpcomingFestivals: [],
+            DailyKatha: new EcosystemDailyKathaSignal("d1", "Katha", "Deity", "Summary", "Moral", null),
+            HistoricalIncidents: [],
+            Competitions: [],
+            FunnelCampaigns: [],
+            Warnings: [],
+            FetchedAtUtc: DateTimeOffset.UtcNow);
+
+        var seenSlots = new Dictionary<int, ComposedAutomationContent>();
+        for (var i = 0; i < 60 && seenSlots.Count < 7; i++)
+        {
+            var id = $"rule-com-{i}";
+            var slot = Math.Abs(StringComparer.Ordinal.GetHashCode($"2026-11-23:@comedytest:{id}")) % 7;
+            if (seenSlots.ContainsKey(slot)) continue;
+
+            var rule = new AutomationRule
+            {
+                Id = id,
+                Name = $"Funny Comedy {i}",
+                SourceType = AutomationSourceType.FunnyComedy,
+                NarrativeMode = AutomationNarrativeMode.FullStory,
+                VideoFormat = AutomationVideoFormat.Wide,
+                TargetChannelHandle = "@comedytest",
+                Language = "hi",
+                EnableCharacterDialogue = true,
+                AutoInsertMemes = true,
+                ComedyStyle = AnimStudio.Domain.Stories.ComedyToneStyle.Auto
+            };
+            seenSlots[slot] = Assert.Single(AutomationContentComposer.ComposeForRule(rule, signals, ecosystem));
+        }
+
+        Assert.Equal(7, seenSlots.Count);
+        Assert.Contains("लाल फ़ाइल", seenSlots[5].Title);
+        Assert.Contains("स्कूटर का ब्रेक फ़ेल", seenSlots[6].Title);
+        Assert.Contains("sfx: brake", seenSlots[6].Script);
+        Assert.Contains("sfx: tada", seenSlots[6].Script);
+
+        foreach (var kv in seenSlots)
+        {
+            var plan = DialogueScriptParser.ParsePlan(kv.Value.Title, kv.Value.Script, kv.Value.AiVideoPrompt, 80, true, eventType: "FunnyComedy");
+            var turns = plan.Turns.Where(t => !t.IsTitleHook).ToList();
+            Assert.True(turns.Count >= 6, $"Expected longer FullStory comedy slot {kv.Key} to have >= 6 turns, got {turns.Count}");
+            var spoken = DialogueScriptParser.ToSpokenText(kv.Value.Script, "hi");
+            Assert.DoesNotContain("sfx:", spoken, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void VedicFestivalResolver_And_HariharMilanKatha_Enrich_VaikunthaChaturdashi_And_3D_DeityProps()
+    {
+        var enriched = VedicFestivalResolver.EnrichFestivals([], "2026-11-23", windowDays: 14);
+        var nov23 = enriched.FirstOrDefault(f => f.DateKey == "2026-11-23" && f.NameEnglish.Contains("Vaikuntha Chaturdashi", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(nov23);
+        Assert.Contains("Harihar Milan", nov23!.NameEnglish);
+        Assert.Contains("वैकुंठ चतुर्दशी", nov23.NameHindi);
+        Assert.Contains(enriched, f => f.DateKey == "2026-11-24" && f.NameEnglish.Contains("Kartik Purnima", StringComparison.OrdinalIgnoreCase));
+
+        var pickedKatha = ChannelContentDeduplicator.SelectFreshDailyKatha(
+            apiKatha: new EcosystemDailyKathaSignal("k-2", "Dhruva", "Dhruva", "Summary", "Moral", null),
+            festivals: enriched,
+            dateKey: "2026-11-23",
+            existingChannelTitles:
+            [
+                "भक्त प्रह्लाद की अटूट भक्ति और नरसिंह अवतार की अमर कथा",
+                "पापांकुशा एकादशी व्रत कथा व भजन: क्रूर बहेलिया कैसे गया वैकुंठ? 🔱 Papankusha Ekadashi #Shorts",
+                "वैकुंठ चतुर्दशी & हरिहर मिलन: जब विष्णु जी ने चढ़ाया अपना नेत्र | मुहूर्त व पूजा विधि"
+            ]);
+        Assert.Equal("katha-vaikuntha", pickedKatha.Id);
+        Assert.Contains("हरिहर मिलन", pickedKatha.Title);
+
+        var ecosystem = new StudioEcosystemConfig(
+            "AnimStudio AI", "Stories", "Creator", "https://example.com", "2026-11-23", "Copyright",
+            "https://admin.example.com", "https://id.example.com", "https://studio.example.com",
+            "ch-1", "AnimStudio", null, new ChannelBranding(),
+            [new EcosystemWebsiteItem("panchang", "Hindu Panchang", "Panchang", "Panchang", "https://panchang.example.com", null, null, null, null, true, 1)],
+            [], [], [], [], true, DateTimeOffset.UtcNow);
+        var signals = new EcosystemSignalsSnapshot(
+            "2026-11-23", "New Delhi, India", null, enriched, pickedKatha, [], [], [], [], DateTimeOffset.UtcNow);
+
+        var kathaRule = new AutomationRule
+        {
+            Id = "rule-katha-vaikuntha",
+            SourceType = AutomationSourceType.DailyKatha,
+            NarrativeMode = AutomationNarrativeMode.FullStory,
+            VideoFormat = AutomationVideoFormat.Wide,
+            Language = "hi",
+            EnableCharacterDialogue = true
+        };
+        var kathaPost = Assert.Single(AutomationContentComposer.ComposeForRule(kathaRule, signals, ecosystem));
+        Assert.Contains("वैकुंठ चतुर्दशी", kathaPost.Title);
+        Assert.Contains("हरिहर मिलन", kathaPost.Title);
+        Assert.Contains("[भगवान श्रीहरि विष्णु]:", kathaPost.Script);
+        Assert.Contains("[भगवान शिव]:", kathaPost.Script);
+        Assert.Contains("सुदर्शन चक्र", kathaPost.Script);
+        Assert.Contains(kathaPost.Tags, t => t.Contains("Harihar Milan Kaise Kiya Jata Hai", StringComparison.OrdinalIgnoreCase));
+
+        var plan = DialogueScriptParser.ParsePlan(kathaPost.Title, kathaPost.Script, kathaPost.AiVideoPrompt, 200, true, eventType: "DailyKatha");
+        Assert.Equal(CharacterVisualRole.Divine, DialogueScriptParser.InferRole("भगवान श्रीहरि विष्णु"));
+        Assert.Equal(CharacterVisualRole.Divine, DialogueScriptParser.InferRole("भगवान शिव"));
+        Assert.Contains(plan.Turns, t => t.SpeakerProp == "lotus");
+        Assert.Contains(plan.Turns, t => t.SpeakerProp == "chakra");
+        Assert.Contains(plan.Turns, t => t.SpeakerProp == "trishul");
+
+        // Regression guard: stage directions like "(praying, smiling)" or "(walking, serene)" must NEVER leak into subtitles or TTS,
+        // and physical architectural scene tokens must override atmospheric sky modifiers.
+        const string messyStageScript = """
+            [SCENE]: celestial vaikuntha court | dawn | regal
+            [देवर्षि नारद मुनि]: (praying, smiling) धन्य हैं प्रभु!
+            [SCENE]: manikarnika ghat kashi | dawn | serene
+            [सूत्रधार]: (walking, serene) मणिकर्णिका घाट पर स्नान करके श्रीहरि ने कमल एकत्रित किए।
+            [SCENE]: cosmos temple aureole | night | radiant
+            [भगवान शिव]: (blessing, compassionate) ठहरो मेरे प्रिय हरि!
+            """;
+        var cleanedPlan = DialogueScriptParser.ParsePlan("हरिहर मिलन", messyStageScript, null, 45, true, eventType: "DailyKatha");
+        Assert.All(cleanedPlan.Turns.Where(t => !t.IsTitleHook), t =>
+        {
+            Assert.DoesNotContain("(praying", t.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("(walking", t.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("(blessing", t.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("smiling", t.Text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("serene", t.Text, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.Equal(SceneSetting.PalaceCourt, SceneDirectives.ParseScene("celestial vaikuntha court | dawn").Setting);
+        Assert.Equal(SceneSetting.RiverGhat, SceneDirectives.ParseScene("manikarnika ghat kashi | dawn").Setting);
+        Assert.Equal(SceneSetting.Temple, SceneDirectives.ParseScene("cosmos temple aureole | night").Setting);
+
+        var festRule = new AutomationRule
+        {
+            Id = "rule-fest-vaikuntha",
+            SourceType = AutomationSourceType.HinduFestival,
+            FestivalLeadDays = 0,
+            Language = "hi",
+            EnableCharacterDialogue = true
+        };
+        var festPost = Assert.Single(AutomationContentComposer.ComposeForRule(festRule, signals, ecosystem));
+        Assert.Contains("वैकुंठ चतुर्दशी", festPost.Title);
+        Assert.Contains("हरिहर मिलन", festPost.Title);
+        Assert.Contains("कमलनयन", festPost.Script);
+        Assert.Contains(festPost.Tags, t => t.Contains("Harihar Milan Kaise Kiya Jata Hai", StringComparison.OrdinalIgnoreCase));
+
+        // Explicit [Speaker]: lines with multiple Hindi sentences ('।') stay unified as 1 turn per speaker line (cutting TTS API calls by ~50%)
+        var parsedFull = DialogueScriptParser.ParsePlan(kathaPost.Title, kathaPost.Script, null, 220, true, null, null, "DailyKatha");
+        var spokenTurns = parsedFull.Turns.Where(t => !t.IsTitleHook).ToList();
+        Assert.InRange(spokenTurns.Count, 12, 24);
     }
 }

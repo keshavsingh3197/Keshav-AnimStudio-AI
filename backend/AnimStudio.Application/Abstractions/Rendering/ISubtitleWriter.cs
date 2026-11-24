@@ -24,7 +24,10 @@ public sealed record SubtitleStyle(
     SubtitleMotionPreset MotionPreset = SubtitleMotionPreset.None,
     int MarginL = 72,
     int MarginR = 72,
-    bool OpaqueBox = false);
+    bool OpaqueBox = false,
+    double OutlineWidth = 3.6,
+    double ShadowDepth = 1.8,
+    double AngleDegrees = 0);
 
 public sealed record SubtitleRequest(
     Canvas Canvas,

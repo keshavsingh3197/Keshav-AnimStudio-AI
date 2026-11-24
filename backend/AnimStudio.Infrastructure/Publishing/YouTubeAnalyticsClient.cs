@@ -77,6 +77,63 @@ public sealed class YouTubeAnalyticsClient : IDisposable
         return ParseDaily(document.RootElement);
     }
 
+    /// <summary>
+    /// Reads the channel's watch-time and view totals grouped by <c>creatorContentType</c> (<c>VIDEO_ON_DEMAND</c>, <c>LIVE_STREAM</c>, <c>SHORTS</c>)
+    /// over the requested window (typically 365 days for YPP 4,000 watch-hour tracking).
+    /// </summary>
+    public async Task<YouTubeWatchTimeBreakdown> GetWatchTimeByContentTypeAsync(
+        DateOnly from, DateOnly to, string accessToken, CancellationToken ct)
+    {
+        var url = Url(from, to, "views,estimatedMinutesWatched", "creatorContentType", null);
+        using var document = await GetJsonAsync(url, accessToken, "reports.creatorContentType", ct).ConfigureAwait(false);
+        var windowDays = Math.Max(1, to.DayNumber - from.DayNumber + 1);
+        return ParseContentTypeBreakdown(document.RootElement, windowDays);
+    }
+
+    public static YouTubeWatchTimeBreakdown ParseContentTypeBreakdown(JsonElement root, int windowDays = 365)
+    {
+        double longMins = 0, shortsMins = 0, liveMins = 0, totalMins = 0;
+        long longViews = 0, shortsViews = 0;
+
+        foreach (var row in Rows(root))
+        {
+            var kind = (row.Text("creatorContentType") ?? string.Empty).Trim().ToUpperInvariant();
+            var mins = row.Number("estimatedMinutesWatched");
+            var views = (long)row.Number("views");
+            totalMins += mins;
+
+            if (kind == "SHORTS")
+            {
+                shortsMins += mins;
+                shortsViews += views;
+            }
+            else if (kind == "LIVE_STREAM")
+            {
+                liveMins += mins;
+                longMins += mins;
+                longViews += views;
+            }
+            else
+            {
+                // VIDEO_ON_DEMAND and any standard long-form upload count toward the 4,000-hour YPP threshold.
+                longMins += mins;
+                longViews += views;
+            }
+        }
+
+        return new YouTubeWatchTimeBreakdown
+        {
+            LongFormWatchMinutes = Math.Round(longMins, 1),
+            ShortsWatchMinutes = Math.Round(shortsMins, 1),
+            LiveStreamWatchMinutes = Math.Round(liveMins, 1),
+            TotalWatchMinutes = Math.Round(totalMins, 1),
+            LongFormViews = longViews,
+            ShortsViews = shortsViews,
+            Source = "creatorContentType",
+            WindowDays = windowDays
+        };
+    }
+
     private static string Url(DateOnly from, DateOnly to, string metrics, string dimensions, string? filters)
     {
         if (from < Earliest) from = Earliest;

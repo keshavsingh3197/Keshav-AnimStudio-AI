@@ -49,6 +49,16 @@ public interface IAiCredentialRepository
     Task<bool> DeleteAsync(string providerId, CancellationToken ct);
 }
 
+public interface IAiApiKeyRepository
+{
+    Task<AiApiKeyEntry?> GetByIdAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<AiApiKeyEntry>> ListAsync(CancellationToken ct);
+    Task<IReadOnlyList<AiApiKeyEntry>> ListByVendorAsync(string vendor, CancellationToken ct);
+    Task InsertAsync(AiApiKeyEntry entry, CancellationToken ct);
+    Task ReplaceAsync(AiApiKeyEntry entry, CancellationToken ct);
+    Task<bool> DeleteAsync(string id, CancellationToken ct);
+}
+
 public interface IPromptTemplateRepository
 {
     /// <summary>The highest enabled version of one template, or null when none is stored.</summary>

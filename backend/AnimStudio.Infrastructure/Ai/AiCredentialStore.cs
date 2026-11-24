@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Ai;
 using AnimStudio.Domain.Ai;
 using AnimStudio.Infrastructure.Settings;
 using KeshavSingh.Security;
@@ -41,7 +42,8 @@ public sealed class AiCredentialStore(
     IAiSecretResolver resolver,
     TimeProvider clock,
     ILogger<AiCredentialStore> logger,
-    CentralAdminSecretsProvider? centralSecrets = null) : IAiCredentialStore
+    CentralAdminSecretsProvider? centralSecrets = null,
+    IAiApiKeyRepository? apiKeyRepository = null) : IAiCredentialStore
 {
     /// <summary>
     /// Where a host-supplied key is read from, e.g. <c>Ai:Secrets:groq</c>, which in
@@ -96,23 +98,7 @@ public sealed class AiCredentialStore(
         if (provider.IsEmpty)
             throw new AiCredentialException("provider-invalid", "That is not a valid provider id.");
 
-        var normalized = NormalizeOrNull(secret)
-            ?? throw new AiCredentialException("key-required", "Enter the provider's API key.");
-
-        // Length bounds, not a format guess: every provider invents its own prefix, and a
-        // store that rejected an unfamiliar shape would age badly.
-        if (normalized.Length < MinSecretLength)
-            throw new AiCredentialException("key-too-short", "That key looks too short to be valid.");
-
-        if (normalized.Length > MaxSecretLength)
-            throw new AiCredentialException("key-too-long", "That key is longer than any provider issues.");
-
-        // A key that arrived with an embedded newline or tab is a paste accident. Sending it
-        // would produce an authentication failure that looks like a wrong key, so it is
-        // caught here where the message can be accurate.
-        if (normalized.Any(char.IsControl))
-            throw new AiCredentialException("key-invalid",
-                "That key contains line breaks or control characters - paste it as a single line.");
+        var normalized = ValidateAndNormalize(secret);
 
         var now = clock.GetUtcNow().UtcDateTime;
         var existing = await repository.GetAsync(provider.Value, ct).ConfigureAwait(false);
@@ -122,14 +108,21 @@ public sealed class AiCredentialStore(
             Id = existing?.Id ?? string.Empty,
             ProviderId = provider.Value,
             CipherText = protector.Value.Encrypt(normalized),
-            Fingerprint = Fingerprint(normalized),
-            Last4 = Last4(normalized),
+            Fingerprint = ComputeFingerprint(normalized),
+            Last4 = ComputeLast4(normalized),
             CreatedByUserId = existing?.CreatedByUserId ?? actorUserId,
             CreatedAt = existing?.CreatedAt ?? now,
             RotatedAt = existing is null ? null : now
         };
 
         await repository.UpsertAsync(credential, ct).ConfigureAwait(false);
+
+        // Keep multi-key pool synchronized when rotating from the legacy single-key endpoint,
+        // promoting the newly saved key to priority 0 without deleting configured backups.
+        if (apiKeyRepository is not null)
+        {
+            await PromoteInPoolAsync(provider.Value, credential, actorUserId, now, ct).ConfigureAwait(false);
+        }
 
         // Without this the key would save correctly and the capability would keep reporting
         // NotConfigured until the next restart, because provider availability is answered
@@ -159,7 +152,7 @@ public sealed class AiCredentialStore(
         {
             return new AiCredentialStatus(
                 provider.Value, AiCredentialSource.Configuration,
-                Fingerprint(fromCentral), Last4(fromCentral), null, null);
+                ComputeFingerprint(fromCentral), ComputeLast4(fromCentral), null, null);
         }
 
         var fromConfiguration = NormalizeOrNull(configuration[$"{SecretsSection}:{provider.Value}"]);
@@ -168,7 +161,7 @@ public sealed class AiCredentialStore(
             ? AiCredentialStatus.NotConfigured(provider.Value)
             : new AiCredentialStatus(
                 provider.Value, AiCredentialSource.Configuration,
-                Fingerprint(fromConfiguration), Last4(fromConfiguration), null, null);
+                ComputeFingerprint(fromConfiguration), ComputeLast4(fromConfiguration), null, null);
     }
 
     public async Task<IReadOnlyList<AiCredentialStatus>> DescribeAllAsync(CancellationToken ct)
@@ -188,7 +181,7 @@ public sealed class AiCredentialStore(
 
                 byProvider[entry.Key] = new AiCredentialStatus(
                     entry.Key, AiCredentialSource.Configuration,
-                    Fingerprint(value), Last4(value), null, null);
+                    ComputeFingerprint(value), ComputeLast4(value), null, null);
             }
         }
 
@@ -203,7 +196,7 @@ public sealed class AiCredentialStore(
 
             byProvider[entry.Key] = new AiCredentialStatus(
                 entry.Key, AiCredentialSource.Configuration,
-                Fingerprint(value), Last4(value), null, null);
+                ComputeFingerprint(value), ComputeLast4(value), null, null);
         }
 
         return [.. byProvider.Values.OrderBy(c => c.ProviderId, StringComparer.Ordinal)];
@@ -215,6 +208,11 @@ public sealed class AiCredentialStore(
 
         var removed = await repository.DeleteAsync(provider.Value, ct).ConfigureAwait(false);
 
+        if (apiKeyRepository is not null)
+        {
+            await DetachFromPoolAsync(provider.Value, ct).ConfigureAwait(false);
+        }
+
         if (removed)
         {
             resolver.Invalidate(provider);
@@ -222,6 +220,123 @@ public sealed class AiCredentialStore(
         }
 
         return removed;
+    }
+
+    private async Task PromoteInPoolAsync(
+        string providerId, AiCredential credential, string? actorUserId, DateTime now, CancellationToken ct)
+    {
+        var vendor = AiProviderVendors.VendorFor(providerId);
+        var entries = (await apiKeyRepository!.ListByVendorAsync(vendor, ct).ConfigureAwait(false)).ToList();
+
+        var existing = entries.FirstOrDefault(e =>
+            string.Equals(e.Fingerprint, credential.Fingerprint, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is null)
+        {
+            var displayName = KnownAiProviders.Find(providerId)?.DisplayName ?? providerId;
+            existing = new AiApiKeyEntry
+            {
+                Vendor = vendor,
+                Label = displayName,
+                ProviderIds = [providerId],
+                Priority = 0,
+                Enabled = true,
+                CipherText = credential.CipherText,
+                Fingerprint = credential.Fingerprint,
+                Last4 = credential.Last4,
+                CreatedByUserId = actorUserId,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+            await apiKeyRepository.InsertAsync(existing, ct).ConfigureAwait(false);
+            entries.Insert(0, existing);
+        }
+        else
+        {
+            if (existing.ProviderIds.Count > 0 &&
+                !existing.ProviderIds.Contains(providerId, StringComparer.OrdinalIgnoreCase))
+            {
+                existing.ProviderIds.Add(providerId);
+            }
+
+            existing.Enabled = true;
+            existing.CipherText = credential.CipherText;
+            existing.CooldownUntilUtc = null;
+            existing.CooldownReason = null;
+            existing.LastErrorCode = null;
+            existing.UpdatedAtUtc = now;
+            entries.Remove(existing);
+            entries.Insert(0, existing);
+        }
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            entries[i].Priority = i;
+            await apiKeyRepository.ReplaceAsync(entries[i], ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task DetachFromPoolAsync(string providerId, CancellationToken ct)
+    {
+        var repo = apiKeyRepository!;
+        var vendor = AiProviderVendors.VendorFor(providerId);
+        var entries = (await repo.ListByVendorAsync(vendor, ct).ConfigureAwait(false)).ToList();
+        var vendorProviders = AiProviderVendors.ProvidersForVendor(vendor);
+
+        var remaining = new List<AiApiKeyEntry>();
+        foreach (var entry in entries)
+        {
+            if (entry.ProviderIds.Count == 0)
+            {
+                entry.ProviderIds = vendorProviders
+                    .Where(p => !string.Equals(p, providerId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (entry.ProviderIds.Count == 0)
+                {
+                    await repo.DeleteAsync(entry.Id, ct).ConfigureAwait(false);
+                    continue;
+                }
+                await repo.ReplaceAsync(entry, ct).ConfigureAwait(false);
+            }
+            else if (entry.ProviderIds.RemoveAll(p => string.Equals(p, providerId, StringComparison.OrdinalIgnoreCase)) > 0)
+            {
+                if (entry.ProviderIds.Count == 0)
+                {
+                    await repo.DeleteAsync(entry.Id, ct).ConfigureAwait(false);
+                    continue;
+                }
+                await repo.ReplaceAsync(entry, ct).ConfigureAwait(false);
+            }
+
+            remaining.Add(entry);
+        }
+
+        for (var i = 0; i < remaining.Count; i++)
+        {
+            if (remaining[i].Priority != i)
+            {
+                remaining[i].Priority = i;
+                await repo.ReplaceAsync(remaining[i], ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    internal static string ValidateAndNormalize(string? secret)
+    {
+        var normalized = NormalizeOrNull(secret)
+            ?? throw new AiCredentialException("key-required", "Enter the provider's API key.");
+
+        if (normalized.Length < MinSecretLength)
+            throw new AiCredentialException("key-too-short", "That key looks too short to be valid.");
+
+        if (normalized.Length > MaxSecretLength)
+            throw new AiCredentialException("key-too-long", "That key is longer than any provider issues.");
+
+        if (normalized.Any(char.IsControl))
+            throw new AiCredentialException("key-invalid",
+                "That key contains line breaks or control characters - paste it as a single line.");
+
+        return normalized;
     }
 
     private static AiCredentialStatus Describe(AiCredential credential) => new(
@@ -232,15 +347,15 @@ public sealed class AiCredentialStore(
     /// Identifies a key without disclosing it: eight hex characters of its SHA-256. Enough
     /// to confirm two systems hold the same key, useless to anyone who obtains it.
     /// </summary>
-    private static string Fingerprint(string secret) =>
+    internal static string ComputeFingerprint(string secret) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret)))[..8];
 
-    private static string Last4(string secret) =>
+    internal static string ComputeLast4(string secret) =>
         secret.Length <= 4 ? new string('*', secret.Length) : secret[^4..];
 
     /// <summary>Trims surrounding whitespace - a trailing newline from a paste is the single
     /// most common reason a correct key is rejected by a provider.</summary>
-    private static string? NormalizeOrNull(string? value)
+    internal static string? NormalizeOrNull(string? value)
     {
         var trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;

@@ -150,7 +150,7 @@ public static class AutomationContentComposer
                   [{speakerB}]: (confused) गुरुदेव, आज शुभ कार्य प्रारंभ करने का श्रेष्ठ समय, राहुकाल और शहरों के अनुसार सूर्योदय कैसा रहेगा?
                   [{speakerA}]: (pointing, diya) अभिजीत मुहूर्त {p.AbhijitMuhurat} और ब्रह्म मुहूर्त {p.BrahmaMuhurat} अत्यंत शुभ हैं; राहुकाल {p.RahuKaal} में नया शुभ आरंभ टालें। सूर्योदय लगभग {p.Sunrise} व सूर्यास्त {p.Sunset} (IST मानक) के आसपास रहेगा, जो मुंबई, वाराणसी, जयपुर, कोलकाता और बेंगलुरु जैसे शहरों में कुछ मिनट भिन्न होता है।{sutraLine}
                   [SCENE]: river ghat | dawn | peaceful
-                  [सूत्रधार]: (praying, diya) अपने शहर का सटीक सूर्योदय, चौघड़िया और लाइव पंचांग देखने के लिए डिस्क्रिप्शन में दी गई वेबसाइट लिंक पर जरूर जाएं: {primaryLink}
+                  [सूत्रधार]: (praying, diya) {PanchangInviteHi}
                   """;
             script = fullStory
                 ? $"""
@@ -165,7 +165,7 @@ public static class AutomationContentComposer
                   [{speakerA}]: (pointing) सर्वोत्तम अभिजीत मुहूर्त {p.AbhijitMuhurat}, ब्रह्म मुहूर्त {p.BrahmaMuhurat} तथा अमृत काल {p.AmritKaal} है। वहीं राहुकाल {p.RahuKaal} रहेगा — इस दौरान बड़े शुभ कार्य टालें।{sutraLine}
                   [SCENE]: river ghat | dawn | peaceful
                   [सूत्रधार]: (praying) आज की जीवन सीख — समय और तिथि के अनुरूप अनुशासित कर्म करने से हर प्रयास सफल व मंगलमय बनता है।
-                  [{speakerB}]: (waving) अपने शहर का चौघड़िया, होरा और पूरा पंचांग देखने के लिए डिस्क्रिप्शन में दिए गए हमारे पोर्टल लिंक पर जाएं: {primaryLink}
+                  [{speakerB}]: (waving) {PanchangInviteHi}
                   """
                 : panchangScriptBody;
         }
@@ -180,7 +180,7 @@ public static class AutomationContentComposer
                 • आज का शुभ अभिजीत मुहूर्त: {p.AbhijitMuhurat} | ब्रह्म मुहूर्त: {p.BrahmaMuhurat}
                 • सावधान समय (राहुकाल): {p.RahuKaal} — इस दौरान शुभ कार्य व निवेश टालें।{(string.IsNullOrWhiteSpace(p.DailySanskritSutra) ? "" : $"\nआज का श्लोक: {p.DailySanskritSutra} ({p.DailySutraMeaning})")}
                 [MORAL] सीख — अनुशासन और शुभ मुहूर्त के अनुसार किया गया कर्म सदैव कल्याणकारी होता है।
-                [WEBSITE CTA 35-50s] पूरे दिन का चौघड़िया, होरा और अपने शहर (मुंबई, जयपुर, वाराणसी, पटना, बेंगलुरु, कोलकाता आदि) का सटीक पंचांग देखने के लिए डिस्क्रिप्शन लिंक पर जाएं: {primaryLink}
+                [WEBSITE CTA 35-50s] {PanchangInviteHi}
                 """;
         }
         else
@@ -193,7 +193,7 @@ public static class AutomationContentComposer
                   [{speakerB}]: Which windows are most auspicious for prayers, study, and new beginnings, and when should we pause?
                   [{speakerA}]: Abhijit Muhurat ({p.AbhijitMuhurat}), Brahma Muhurat ({p.BrahmaMuhurat}), and Amrit Kaal ({p.AmritKaal}) carry uplifting harmony. Pause important starts during Rahu Kaal ({p.RahuKaal}).
                   [Narrator]: Moral of the day — aligning action with clarity, gratitude, and mindful timing turns ordinary hours into sacred progress.
-                  [{speakerB}]: Explore exact city-wise Choghadiya, Sunrise, Hora, Festivals, and Aaj Ka Itihaas directly on our portal: {primaryLink}
+                  [{speakerB}]: {PanchangInviteEn}
                   """
                 : $"""
                   [HOOK 0-4s] Namaste! Here is today's authentic Vedic Panchang for {p.DateKey} ({panIndiaRefEn}).
@@ -203,7 +203,7 @@ public static class AutomationContentComposer
                   • Best Auspicious Window (Abhijit Muhurat): {p.AbhijitMuhurat}
                   • Brahma Muhurat: {p.BrahmaMuhurat} | Amrit Kaal: {p.AmritKaal}
                   • Avoid Important Starts (Rahu Kaal): {p.RahuKaal}
-                  [WEBSITE CTA 35-50s] Check exact city-wise Sunrise, Choghadiya, Hora, and Festivals in the description link: {primaryLink}
+                  [WEBSITE CTA 35-50s] {PanchangInviteEn}
                   """;
         }
 
@@ -276,10 +276,25 @@ public static class AutomationContentComposer
 
             var (festA, festB) = ResolveSpeakerPair(rule, title, null, isHindi);
             var festFull = IsFullStoryMode(rule);
+            var isVaikunthaFest = f.NameEnglish.Contains("Vaikuntha Chaturdashi", StringComparison.OrdinalIgnoreCase)
+                || f.NameEnglish.Contains("Harihar", StringComparison.OrdinalIgnoreCase)
+                || f.NameHindi.Contains("वैकुंठ चतुर्दशी", StringComparison.OrdinalIgnoreCase)
+                || f.NameHindi.Contains("हरिहर", StringComparison.OrdinalIgnoreCase);
             var festDescHi = LocalizeBriefSummaryHindi(f.Description, $"{f.NameHindi} हमें भक्ति, संयम और सकारात्मक ऊर्जा से जोड़ता है।");
             var festVidhiHi = LocalizeBriefSummaryHindi(f.RitualsAndPujaVidhi ?? f.FastingRules, "प्रातः स्नान करके दीप प्रज्वलन करें, श्रद्धा से अर्घ्य और आरती करें तथा सात्विक आचरण रखें।");
             var script = isHindi && rule.EnableCharacterDialogue
-                ? (festFull
+                ? (isVaikunthaFest
+                    ? $"""
+                       [CAST]: भगवान श्रीहरि विष्णु | divine | radiant azure silk dhoti, pitambara, glittering kiritamukut crown, golden vanamala, sudarshana chakra
+                       [CAST]: भगवान शिव | divine | vibhuti sacred ash skin, crescent moon jata crown, tiger-skin drape, vasuki naga, golden trishul
+                       [SCENE]: temple | night | glowing | IMAGE: sacred Kashi Vishwanath stone sanctum bathed in golden lotus glow and brass diyas around black Shivling
+                       [सूत्रधार]: (waving, wide) {whenLabel} ({f.DateKey}) कार्तिक शुक्ल चतुर्दशी — पावन वैकुंठ चतुर्दशी एवं हरिहर मिलन का महापर्व है! आज की रात हरि और हर के अद्भुत प्रेम व १,००० स्वर्ण कमलों की कथा का स्मरण होता है।
+                       [भगवान श्रीहरि विष्णु]: (praying, lotus, closeup) हे काशी विश्वनाथ महादेव! आज कार्तिक शुक्ल चतुर्दशी को मैं मणिकर्णिका स्नान करके सहस्र स्वर्ण कमलों से आपकी आराधना करता हूँ — पर अंतिम १,०००वाँ कमल कहाँ गया? मेरी आराधना अधूरी नहीं रहेगी — संसार मुझे कमलनयन कहता है, मैं अपना नेत्र ही अर्पित करता हूँ!
+                       [भगवान शिव]: (proud, trishul, reactionZoom) ठहरो मेरे प्रिय हरि! आपके प्रेम ने तीनों लोकों को धन्य कर दिया। आज से आप संपूर्ण जगत में कमलनयन कहलाएंगे — और धर्म की रक्षा के लिए मैं आपको अजेय सुदर्शन चक्र प्रदान करता हूँ!
+                       [भगवान श्रीहरि विष्णु]: (blessing, chakra, twoShot) आज से काशी व उज्जैन सहित संपूर्ण सृष्टि में जो भक्त हरि को बेलपत्र और शिव को तुलसी अर्पित कर १४ दीप जलाएगा, उसके लिए वैकुंठ के द्वार खुल जाएंगे!
+                       [सूत्रधार]: (aarti, diya, wide) पूजा विधि: आज रात्रि निशीथ काल में भगवान विष्णु व शिव की संयुक्त पूजा करें, शिव को तुलसी व विष्णु को बेलपत्र चढ़ाएं तथा १४ घी के दीप जलाएं। {BuildSpokenPortalInvite(true, "पंचांग डॉट केशवसिंह डॉट इन", "वैकुंठ चतुर्दशी संपूर्ण कथा, निशीथ मुहूर्त और आरती")}
+                       """
+                    : festFull
                     ? $"""
                        [SCENE]: temple | sunset | glowing
                        [सूत्रधार]: (waving, wide) {whenLabel} ({f.DateKey}) को संपूर्ण भारत में {displayName} का पावन पर्व मनाया जा रहा है। आइए जानते हैं इसकी पौराणिक पृष्ठभूमि, संपूर्ण पूजा विधि और आध्यात्मिक संदेश।
@@ -291,7 +306,7 @@ public static class AutomationContentComposer
                        [SCENE]: temple | night | radiant
                        [{festB}]: (confused) पंडित जी, इस पर्व का मुख्य जीवन संदेश क्या है जो हर परिवार को अपनाना चाहिए?
                        [{festA}]: (praying, closeUpSpeaker) हर व्रत-त्योहार हमें संयम, कृतज्ञता, परोपकार और सत्य के मार्ग पर स्थिर रहने की प्रेरणा देता है।
-                       [सूत्रधार]: (praying, wide) आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। संपूर्ण व्रत कथा व आरती समय देखें: {festPrimaryLink}
+                       [सूत्रधार]: (praying, wide) आज की सीख — जब पर्व बाहरी उत्सव के साथ भीतर करुणा और अनुशासन जगाए, तभी सच्चा आशीर्वाद प्राप्त होता है। {BuildSpokenPortalInvite(true, "पंचांग डॉट केशवसिंह डॉट इन", "संपूर्ण व्रत कथा, पूजा विधि, आरती और दैनिक राशिफल")}
                        """
                     : $"""
                        [SCENE]: temple | sunset | glowing
@@ -301,7 +316,7 @@ public static class AutomationContentComposer
                        [SCENE]: forest ashram | dawn | peaceful
                        [{festB}]: (praying) आज पूजा और व्रत किस विधि से करना सबसे फलदायी रहेगा?
                        [{festA}]: (praying, diya) {festVidhiHi}
-                       [सूत्रधार]: (praying, wide) जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। संपूर्ण व्रत कथा व पारण समय देखें: {festPrimaryLink}
+                       [सूत्रधार]: (praying, wide) जीवन सीख — श्रद्धा, संयम और सद्भावना से मनाया गया पर्व पूरे परिवार में मंगल लाता है। {BuildSpokenPortalInvite(true, "पंचांग डॉट केशवसिंह डॉट इन", "पूरी व्रत कथा, पारण समय और दैनिक राशिफल")}
                        """)
                 : isHindi
                     ? $"""
@@ -311,7 +326,7 @@ public static class AutomationContentComposer
                        • महत्व: {f.Description}
                        • पूजा व व्रत नियम: {f.RitualsAndPujaVidhi ?? f.FastingRules ?? "प्रातः स्नान के बाद दीप प्रज्वलन और भगवान का स्मरण करें।"}
                        [MORAL] सीख — भक्ति, संयम और करुणा हर पर्व को सार्थक बनाते हैं।
-                       [WEBSITE CTA 40-52s] पूरी व्रत कथा, आरती, और सटीक पारण/पूजा समय देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {festPrimaryLink}
+                       [WEBSITE CTA 40-52s] {BuildSpokenPortalInvite(true, "पंचांग डॉट केशवसिंह डॉट इन", "पूरी व्रत कथा, आरती, पारण समय और राशिफल")}
                        """
                     : $"""
                        [HOOK 0-4s] {whenLabel} marks the sacred occasion of {displayName}! Let us explore its story, rituals, and lasting wisdom.
@@ -320,7 +335,7 @@ public static class AutomationContentComposer
                        • Why it matters: {f.Description}
                        • Puja Vidhi & Observance: {f.RitualsAndPujaVidhi ?? f.FastingRules ?? "Morning prayers, diya lighting, and mindful charity."}
                        [MORAL] Takeaway — Sacred festivals remind us to cultivate gratitude, discipline, and kindness toward all beings.
-                       [WEBSITE CTA 40-52s] Read the full Puja Vidhi & Muhurat table on our Panchang website: {festPrimaryLink}
+                       [WEBSITE CTA 40-52s] {BuildSpokenPortalInvite(false, "panchang dot keshavsingh dot in", "complete Puja Vidhi, Vrat Katha, and daily Rashifal")}
                        """;
 
             var prompt = ApplyPromptOverride(rule,
@@ -328,7 +343,10 @@ public static class AutomationContentComposer
 
             var thumbPrompt = $"Vibrant Hindu festival artwork for {f.NameEnglish}, glowing diyas, sacred deity aura, bold space for '{f.NameHindi}' & '{f.DateKey}'.";
 
-            var tags = MergeTags([f.NameEnglish, f.NameHindi, f.Category ?? "Hindu Festival", "Vrat Vidhi", "Puja Muhurat", "Hindu Calendar", "Sanatan"], baseTags, baseHashtags);
+            var extraFestTags = isVaikunthaFest
+                ? (string[])["Harihar Milan Kaise Kiya Jata Hai", "Harihar Milan Kis Din Hai", "Harihar Milan Kab Hai", "Vaikuntha Chaturdashi 2026", "Vaikuntha Chaturdashi Puja Vidhi", "Harihar Milan Katha"]
+                : [];
+            var tags = MergeTags([f.NameEnglish, f.NameHindi, .. extraFestTags, f.Category ?? "Hindu Festival", "Vrat Vidhi", "Puja Muhurat", "Hindu Calendar", "Sanatan"], baseTags, baseHashtags);
             var description = BuildDescription(rule,
                 $"🪔 पर्व / Festival: {displayName}\n" +
                 $"📆 दिनांक: {f.DateKey} | तिथि: {f.Tithi ?? "विशेष"}\n" +
@@ -382,30 +400,43 @@ public static class AutomationContentComposer
                    [{speakerB}]: Meditate deeply upon the sacred chant — {mantraEn}.
                    [{speakerA}]: Steadfast devotion opens doors no obstacle in all the worlds can shut.
                    [Narrator]: Moral of the story — {moralEn} Reflect gently on how this timeless lesson speaks to your own challenges today.
-                   [{speakerB}]: Explore complete Pauranik Katha stories & daily Vedic Panchang on our portal: {primaryLink}
+                   [{speakerB}]: {BuildSpokenPortalInvite(false, "panchang dot keshavsingh dot in", "complete Pauranik Kathas, daily Panchang, and Rashifal")}
                    """
                 : $"""
                    [Narrator]: Today we bring you a living sacred story — {k.Title}.
                    [{speakerA}]: {k.StorySummary}
                    [{speakerB}]: Remember the timeless lesson: {moralEn}
                    [{speakerA}]: Chant together with devotion — {mantraEn}.
-                   [Narrator]: Moral — {moralEn} Explore full Pauranik Katha dialogues & daily Panchang: {primaryLink}
+                   [Narrator]: Moral — {moralEn} {BuildSpokenPortalInvite(false, "panchang dot keshavsingh dot in", "full sacred stories, Panchang, and daily Rashifal")}
                    """;
         }
 
         var visualSubject = string.IsNullOrWhiteSpace(k.DeityOrSage) ? speakerA : k.DeityOrSage;
+        var isVaikunthaPrompt = $"{k.Title} {k.DeityOrSage}".Contains("Vaikuntha", StringComparison.OrdinalIgnoreCase)
+            || $"{k.Title} {k.DeityOrSage}".Contains("Harihar", StringComparison.OrdinalIgnoreCase)
+            || $"{k.Title} {k.DeityOrSage}".Contains("वैकुंठ", StringComparison.Ordinal)
+            || $"{k.Title} {k.DeityOrSage}".Contains("हरिहर", StringComparison.Ordinal);
         var prompt = ApplyPromptOverride(rule,
-            $"Create an attractive classical Indian multi-scene spiritual animation in {ratioLabel} depicting '{k.Title}' with characters {speakerA} and {speakerB} ({visualSubject}): act 1 sacred Madhuvan forest ashram at dawn with lotus pond and swaying temple bells, act 2 radiant guru-shishya mantra initiation with golden light orbs, act 3 steadfast tapasya glow culminating in eternal starlight & flower petals blessing. Expressive talking characters, rich depth, zero text watermarks.");
+            isVaikunthaPrompt
+                ? $"Create an attractive classical Indian multi-scene spiritual animation in {ratioLabel} depicting '{k.Title}' with Lord Vishnu ({speakerA}) and Lord Shiva ({speakerB}): act 1 radiant golden Vaikuntha gateway & Manikarnika Ganga Ghat in Kashi at sunrise with floating brass diyas, act 2 Kashi Vishwanath temple sanctum where azure four-armed Lord Vishnu offers 1,000 golden lotuses to the Shivling and raises his hand to offer his lotus-eye, act 3 blazing manifestation of ash-smeared Lord Shiva with crescent moon jata & trishul stopping Vishnu's hand in Harihar Milan, embracing and bestowing the spinning golden Sudarshana Chakra amidst showering Tulsi and Belpatra petals. Expressive 3D mythology characters, zero text watermarks."
+                : $"Create an attractive classical Indian multi-scene spiritual animation in {ratioLabel} depicting '{k.Title}' with characters {speakerA} and {speakerB} ({visualSubject}): act 1 sacred Madhuvan forest ashram at dawn with lotus pond and swaying temple bells, act 2 radiant guru-shishya mantra initiation with golden light orbs, act 3 steadfast tapasya glow culminating in eternal starlight & flower petals blessing. Expressive talking characters, rich depth, zero text watermarks.");
 
         var thumbPrompt = $"Epic Indian devotional artwork with {speakerA} and {speakerB}, golden celestial glow and sacred temple horizon, crisp dark vignette space on the left for large gold Hindi headline, zero text";
         var formatTag = IsFullStoryMode(rule) || rule.VideoFormat == AutomationVideoFormat.Wide ? "Full Katha Video" : "Shorts";
-        var tags = MergeTags([visualSubject, speakerA, speakerB, "Vedic Katha", "Pauranik Katha", "Hindi Kahani", "Sanatan Wisdom", "Daily Katha", formatTag], baseTags, baseHashtags);
+        var vaikunthaSearchTags = isVaikunthaPrompt
+            ? (string[])["Harihar Milan Kaise Kiya Jata Hai", "Harihar Milan Kab Hai 2026", "Harihar Milan Kis Din Hai", "Vaikuntha Chaturdashi Katha", "Vaikuntha Chaturdashi Puja Vidhi", "Kashi 1000 Lotus Story", "Kamalnayan Vishnu"]
+            : [];
+        var tags = MergeTags([visualSubject, speakerA, speakerB, .. vaikunthaSearchTags, "Vedic Katha", "Pauranik Katha", "Hindi Kahani", "Sanatan Wisdom", "Daily Katha", formatTag], baseTags, baseHashtags);
         var hindiSummary = isHindi ? LocalizeBriefSummaryHindi(k.StorySummary, $"{speakerA} और {speakerB} की पावन भक्ति कथा।") : k.StorySummary;
         var hindiMoral = isHindi ? LocalizeBriefSummaryHindi(k.MoralTeaching, "सच्ची भक्ति और दृढ़ संकल्प से ईश्वर अवश्य दर्शन देते हैं।") : (k.MoralTeaching ?? string.Empty);
+        var searchVidhiBlock = isVaikunthaPrompt
+            ? "\n🪔 हरिहर मिलन और वैकुंठ चतुर्दशी कब व कैसे मनाएं (Puja Vidhi):\n• तिथि: कार्तिक शुक्ल चतुर्दशी (23 नवंबर 2026)\n• पूजा विधि: निशीथ काल में भगवान श्रीहरि विष्णु व भगवान शिव की संयुक्त पूजा करें, शिव को प्रिय तुलसी व विष्णु को प्रिय बेलपत्र अर्पित करें तथा 14 घी के दीपक प्रज्वलित करें।\n"
+            : string.Empty;
         var description = BuildDescription(rule,
             $"📿 आज की पावन कथा: {title}\n" +
             $"🙏 पात्र: {speakerA} व {speakerB}\n" +
-            $"{hindiSummary}\n" +
+            $"{hindiSummary}" +
+            $"{searchVidhiBlock}\n" +
             (!string.IsNullOrWhiteSpace(hindiMoral) ? $"💡 जीवन संदेश: {hindiMoral}\n" : string.Empty) +
             (!string.IsNullOrWhiteSpace(k.SanskritMantra) ? $"🕉️ पावन मंत्र: {k.SanskritMantra}" : string.Empty),
             links, tags);
@@ -414,8 +445,13 @@ public static class AutomationContentComposer
             ? BuildPinnedComment($"🙏 {k.SanskritMantra ?? "ॐ नमो भगवते वासुदेवाय"}\nसंपूर्ण पौराणिक कथा व आज का पंचांग पढ़ने के लिए 👇\n🔗 {primaryLink}", links)
             : null;
 
+        var kathaSourceKey = string.Equals(k.Id, "katha-vaikuntha", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(k.Id, "katha-dev-deepawali", StringComparison.OrdinalIgnoreCase)
+            ? $"katha:{dateKey}:{k.Id}"
+            : $"katha:{dateKey}";
+
         return new ComposedAutomationContent(
-            $"katha:{dateKey}",
+            kathaSourceKey,
             k.Title,
             $"{k.DeityOrSage} — {hindiMoral}",
             title, script.Trim(), prompt, thumbPrompt, description, comment, tags, primaryLink, links);
@@ -454,7 +490,7 @@ public static class AutomationContentComposer
                    [{histA}]: (proud, twoShot) {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का एक निर्णायक मोड़ बनी।")} {LocalizeBriefSummaryHindi(leadIncident.CulturalSignificance, string.Empty)}
                    [SCENE]: modern city | day | radiant
                    {(secondary.Count > 0 ? $"[{histB}]: (waving) इसके अलावा आज के दिन इतिहास में {string.Join(" और ", secondary.Select(s => $"सन् {s.Year} की प्रमुख घटना '{s.Title}'"))} भी दर्ज है।" : $"[{histB}]: (waving) इतिहास की ये घटनाएं केवल तारीखें नहीं, बल्कि मानव साहस और दूरदृष्टि के प्रमाण हैं।")}
-                   [सूत्रधार]: (proud, wide) आज की ऐतिहासिक सीख — अतीत के संघर्ष और नवाचार हमें वर्तमान में सही निर्णय लेने की स्पष्ट दृष्टि देते हैं। पूरी ऐतिहासिक टाइमलाइन व GK नोट्स देखें: {primaryLink}
+                   [सूत्रधार]: (proud, wide) आज की ऐतिहासिक सीख — अतीत के संघर्ष और नवाचार हमें वर्तमान में सही निर्णय लेने की स्पष्ट दृष्टि देते हैं। {BuildSpokenPortalInvite(true, "केशवसिंह डॉट इन", "पूरी ऐतिहासिक टाइमलाइन और सामान्य ज्ञान नोट्स")}
                    """
                 : $"""
                    [SCENE]: archive | dawn | dramatic
@@ -464,7 +500,7 @@ public static class AutomationContentComposer
                    [{histA}]: (pointing, closeUpSpeaker) सन् {leadIncident.Year} में आज ही के दिन '{leadIncident.Title}' घटी थी। {LocalizeBriefSummaryHindi(leadIncident.Description, $"सन् {leadIncident.Year} की यह घटना इतिहास का प्रमुख मोड़ रही।")}
                    [SCENE]: modern city | day | clear
                    {(secondary.Count > 0 ? $"[{histB}]: (waving) साथ ही आज के दिन {string.Join(" व ", secondary.Select(s => $"सन् {s.Year} की घटना '{s.Title}'"))} भी महत्वपूर्ण रही।" : $"[{histB}]: (waving) इसका दूरगामी प्रभाव आज भी महसूस किया जाता है।")}
-                   [सूत्रधार]: (proud, wide) सीख — इतिहास हमें वर्तमान को संवारने की प्रेरणा देता है। पूरी टाइमलाइन व GK नोट्स देखें: {primaryLink}
+                   [सूत्रधार]: (proud, wide) सीख — इतिहास हमें वर्तमान को संवारने की प्रेरणा देता है। {BuildSpokenPortalInvite(true, "केशवसिंह डॉट इन", "पूरी ऐतिहासिक टाइमलाइन व नोट्स")}
                    """)
             : isHindi
                 ? $"""
@@ -475,7 +511,7 @@ public static class AutomationContentComposer
                    {(string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? "" : $"प्रभाव: {leadIncident.CulturalSignificance}")}
                    {(secondary.Count > 0 ? "\nआज की अन्य प्रमुख घटनाएं:\n" + string.Join("\n", secondary.Select(s => $"• {s.Year}: {s.Title}")) : "")}
                    [MORAL] सीख — अतीत की घटनाएं हमें धैर्य, दूरदृष्टि और जागरूकता का पाठ पढ़ाती हैं।
-                   [WEBSITE CTA 42-55s] इतिहास की पूरी टाइमलाइन, एग्जाम नोट्स और क्विज़ प्रैक्टिस के लिए हमारी वेबसाइट देखें: {primaryLink}
+                   [WEBSITE CTA 42-55s] {BuildSpokenPortalInvite(true, "केशवसिंह डॉट इन", "इतिहास की पूरी टाइमलाइन, एग्जाम नोट्स और क्विज़ प्रैक्टिस")}
                    """
                 : $"""
                    [HOOK 0-4s] What happened on this exact date ({dateKey}) that changed world & Indian history?
@@ -485,7 +521,7 @@ public static class AutomationContentComposer
                    {(string.IsNullOrWhiteSpace(leadIncident.CulturalSignificance) ? "" : $"Why it shaped today: {leadIncident.CulturalSignificance}")}
                    {(secondary.Count > 0 ? "\nAlso on this date:\n" + string.Join("\n", secondary.Select(s => $"• {s.Year}: {s.Title}")) : "")}
                    [MORAL] Lesson — Remembering pivotal turning points empowers wiser choices in the present.
-                   [WEBSITE CTA 42-55s] Explore the full interactive world history archive & notes on our portal: {primaryLink}
+                   [WEBSITE CTA 42-55s] {BuildSpokenPortalInvite(false, "keshavsingh dot in", "the full interactive world history archive and daily milestones")}
                    """;
 
         var prompt = ApplyPromptOverride(rule,
@@ -555,13 +591,13 @@ public static class AutomationContentComposer
                        [{mentorName}]: बिल्कुल! इसकी खास बात है — {LocalizeBriefSummaryHindi(top.PrizeOrHighlight, "सटीक अभ्यास, लाइव लीडरबोर्ड और राष्ट्रीय स्तर का अनुभव।")}{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" ध्यान रहे अंतिम तिथि {top.DeadlineLabel} है।")}
                        [{participantName}]: इसमें सफलता पाने का सबसे सही तरीका क्या रहेगा?
                        [{mentorName}]: रोज़ नियमित अभ्यास करें, पिछले प्रश्नों का विश्लेषण करें और समय-प्रबंधन पर ध्यान दें।
-                       [सूत्रधार]: आज की सीख — निरंतर प्रयास और स्वयं को परखने का साहस हर विद्यार्थी को विजेता बनाता है। अभी फ्री रजिस्टर करने के लिए पिन कमेंट के लिंक पर जाएं: {primaryLink}
+                       [सूत्रधार]: आज की सीख — निरंतर प्रयास और स्वयं को परखने का साहस हर विद्यार्थी को विजेता बनाता है। {BuildSpokenPortalInvite(true, "प्रतियोगिता डॉट केशवसिंह डॉट इन", "फ्री रजिस्ट्रेशन, लाइव लीडरबोर्ड और प्रैक्टिस सेट")}
                        """
                     : $"""
                        [सूत्रधार]: विद्यार्थियों के लिए बड़ा अवसर — '{top.Title}' ({top.Category}) में हिस्सा लें!
                        [{participantName}]: {mentorName}, इसकी अंतिम तिथि और खास लाभ क्या हैं?
                        [{mentorName}]: स्टेटस अभी {top.Status} है{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" (अंतिम तिथि: {top.DeadlineLabel})")}। {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : LocalizeBriefSummaryHindi(top.PrizeOrHighlight, "लाइव प्रैक्टिस व सम्मान प्राप्त करें।"))}
-                       [सूत्रधार]: सीख — जो अभ्यास की चुनौती स्वीकारते हैं, वही आगे बढ़ते हैं। फ्री रजिस्टर करें: {primaryLink}
+                       [सूत्रधार]: सीख — जो अभ्यास की चुनौती स्वीकारते हैं, वही आगे बढ़ते हैं। {BuildSpokenPortalInvite(true, "प्रतियोगिता डॉट केशवसिंह डॉट इन", "फ्री रजिस्ट्रेशन और क्विज़ अभ्यास")}
                        """)
                 : $"""
                    [HOOK 0-4s] क्या आप अपनी तैयारी और नॉलेज को आज़माना चाहते हैं? सुनहरा मौका आ गया है!
@@ -570,7 +606,7 @@ public static class AutomationContentComposer
                    • स्टेटस: {top.Status}{(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $" | अंतिम तिथि: {top.DeadlineLabel}")}
                    {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : $"• खास बात: {top.PrizeOrHighlight}")}
                    [MORAL] सीख — नियमित स्व-मूल्यांकन और अभ्यास हर लक्ष्य को आसान बनाता है।
-                   [CTA 40-55s] अभी फ्री रजिस्टर करने, लीडरबोर्ड और प्रैक्टिस सेट देखने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
+                   [CTA 40-55s] {BuildSpokenPortalInvite(true, "प्रतियोगिता डॉट केशवसिंह डॉट इन", "फ्री रजिस्ट्रेशन, लीडरबोर्ड और प्रैक्टिस सेट")}
                    """)
             : $"""
                [HOOK 0-4s] Ready to test your skills and compete nationwide? Here is what '{top.Title}' offers.
@@ -579,7 +615,7 @@ public static class AutomationContentComposer
                {(string.IsNullOrWhiteSpace(top.DeadlineLabel) ? "" : $"• Deadline: {top.DeadlineLabel}")}
                {(string.IsNullOrWhiteSpace(top.PrizeOrHighlight) ? "" : $"• Highlight: {top.PrizeOrHighlight}")}
                [MORAL] Takeaway — Consistent practice under real challenge builds lasting mastery.
-               [CTA 40-55s] Join now & explore live competitions via the link in the pinned comment: {primaryLink}
+               [CTA 40-55s] {BuildSpokenPortalInvite(false, "pratiyogita dot keshavsingh dot in", "live competitions and instant registration")}
                """;
 
         var prompt = ApplyPromptOverride(rule,
@@ -636,13 +672,13 @@ public static class AutomationContentComposer
                        [{guideA}]: जब लेखन, आवाज़, पात्र निर्माण और दृश्य रचना एक ही बुद्धिमान प्रणाली से जुड़ जाते हैं, तब घंटों का काम मिनटों में पूरा हो जाता है!
                        [{guideB}]: क्या इसमें आज का सटीक वैदिक पंचांग ({panchangNote}), इतिहास और पौराणिक कथाएँ भी स्वतः जुड़ती हैं?
                        [{guideA}]: बिल्कुल! {ecosystem.StudioTitle} में स्वचालित स्क्रिप्ट, हिंदी आवाज़, जीवंत पात्र और सीधा YouTube प्रकाशन एक साथ काम करते हैं।
-                       [सूत्रधार]: आज की सीख — सही प्रणाली और निरंतरता किसी भी अच्छे विचार को व्यापक प्रभाव में बदल सकती है। सभी फ्री टूल्स देखें: {primaryLink}
+                       [सूत्रधार]: आज की सीख — सही प्रणाली और निरंतरता किसी भी अच्छे विचार को व्यापक प्रभाव में बदल सकती है। {BuildSpokenPortalInvite(true, "स्टूडियो डॉट केशवसिंह डॉट इन", "सभी फ्री क्रिएटर टूल्स और एआई वीडियो वर्कफ़्लो")}
                        """
                     : $"""
                        [सूत्रधार]: आज डिजिटल युग में हर क्रिएटर चाहता है कि उसका ज्ञान और सनातन कहानियाँ बिना भारी तकनीकी झंझट के दुनिया तक पहुँचें।
                        [{guideB}]: {guideA}, क्या बिना घंटों एडिटिंग किए रोज़ प्रोफेशनल AI स्टोरी वीडियो और शॉर्ट्स बनाए जा सकते हैं?
                        [{guideA}]: बिल्कुल! {ecosystem.StudioTitle} में AI स्क्रिप्ट, हिंदी आवाज़, 3D एनिमेशन और लाइव वैदिक पंचांग ({panchangNote}) एक साथ काम करते हैं।
-                       [सूत्रधार]: सीख — सही तकनीक का उपयोग सृजनशीलता को पंख देता है और आपका समय बचाता है। सभी फ्री टूल्स देखें: {primaryLink}
+                       [सूत्रधार]: सीख — सही तकनीक का उपयोग सृजनशीलता को पंख देता है और आपका समय बचाता है। {BuildSpokenPortalInvite(true, "स्टूडियो डॉट केशवसिंह डॉट इन", "सभी फ्री क्रिएटर टूल्स और लाइव वेब ऐप्स")}
                        """)
                 : $"""
                    [HOOK 0-4s] क्या आप हर दिन बिना घंटों एडिटिंग किए प्रोफेशनल AI वीडियो, शॉर्ट्स और चैनल ग्रोथ एनालिटिक्स चाहते हैं?
@@ -652,7 +688,7 @@ public static class AutomationContentComposer
                    • लाइव YouTube ग्रोथ और RPM कैलकुलेटर
                    • आज का सटीक वैदिक पंचांग ({panchangNote}) और डेली इतिहास
                    [MORAL] सीख — स्मार्ट टूल्स सार्थक विचारों को तेज़ी से लोगों तक पहुँचाते हैं।
-                   [CTA 42-55s] सभी फ्री टूल्स और वेबसाइट लिंक्स पिन कमेंट और डिस्क्रिप्शन में हैं: {primaryLink}
+                   [CTA 42-55s] {BuildSpokenPortalInvite(true, "स्टूडियो डॉट केशवसिंह डॉट इन", "सभी फ्री टूल्स और क्रिएटर वर्कस्पेस")}
                    """)
             : (ecoFull && rule.EnableCharacterDialogue
                 ? $"""
@@ -661,14 +697,14 @@ public static class AutomationContentComposer
                    [{guideA}]: By connecting research, scriptwriting, character design, voiceover, and publishing in one workflow inside {ecosystem.StudioTitle} ({panchangNote}).
                    [{guideB}]: So the creator stays focused on the message while scenes and voices build automatically?
                    [{guideA}]: Exactly — consistency becomes effortless while every story keeps clear visuals, clean music, and authentic citations.
-                   [Narrator]: Takeaway — A well-designed creative workflow turns scattered ideas into lasting daily impact. Explore all tools: {primaryLink}
+                   [Narrator]: Takeaway — A well-designed creative workflow turns scattered ideas into lasting daily impact. {BuildSpokenPortalInvite(false, "studio dot keshavsingh dot in", "all creator tools and workflows")}
                    """
                 : $"""
                    [HOOK 0-4s] Want AI storytelling, daily Vedic knowledge, and creator analytics in one unified workspace?
                    [BODY 4-42s]
                    Explore our creator platform: automated AI stories & Shorts ({ecosystem.StudioTitle}), YouTube RPM & Growth Advisor, daily Panchang ({panchangNote}), and interactive quizzes.
                    [MORAL] Takeaway — The right creative system turns ideas into finished stories consistently.
-                   [CTA 42-55s] Try all tools directly via our ecosystem links below: {primaryLink}
+                   [CTA 42-55s] {BuildSpokenPortalInvite(false, "studio dot keshavsingh dot in", "AI storytelling and creator analytics tools")}
                    """);
 
         var prompt = ApplyPromptOverride(rule,
@@ -721,25 +757,25 @@ public static class AutomationContentComposer
                        [{custA}]: {LocalizeBriefSummaryHindi(custDetail, $"{topicSeed} हमें धैर्य, सत्य और संकल्प का जीवंत उदाहरण दिखाता है।")}
                        [{custB}]: जब परिस्थिति सबसे कठिन हुई, तब आगे बढ़ने की शक्ति कहाँ से मिली?
                        [{custA}]: अटूट विश्वास, सही मार्गदर्शन और अपने कर्तव्य पर अडिग रहने से ही हर असंभव दिखने वाला मार्ग खुलता है।
-                       [सूत्रधार]: इस कथा की मुख्य सीख — कठिन समय हमें तोड़ने नहीं, बल्कि भीतर की शक्ति जगाने आता है। अधिक जानकारी के लिए वेबसाइट पर जाएं: {primaryLink}
+                       [सूत्रधार]: इस कथा की मुख्य सीख — कठिन समय हमें तोड़ने नहीं, बल्कि भीतर की शक्ति जगाने आता है। {BuildSpokenPortalInvite(true, "स्टूडियो डॉट केशवसिंह डॉट इन", "पूरी जानकारी और अन्य कहानियां")}
                        """
                     : $"""
                        [सूत्रधार]: आज की विशेष कथा — '{topicSeed}' का संक्षिप्त संदर्भ व प्रेरणादायक सीख!
                        [{custB}]: {custA}, '{topicSeed}' से हमें क्या विशेष जानने को मिलता है?
                        [{custA}]: {LocalizeBriefSummaryHindi(custDetail, $"{topicSeed} हमें कर्मनिष्ठा और आत्मविश्वास की राह दिखाता है।")}
-                       [सूत्रधार]: मुख्य सीख — सच्चा संकल्प हमेशा विजय दिलाता है। अधिक देखें: {primaryLink}
+                       [सूत्रधार]: मुख्य सीख — सच्चा संकल्प हमेशा विजय दिलाता है। {BuildSpokenPortalInvite(true, "स्टूडियो डॉट केशवसिंह डॉट इन", "विस्तृत कथा और दैनिक अपडेट")}
                        """)
                 : $"""
                    [HOOK 0-4s] {topicSeed} पर आज की विशेष प्रस्तुति।
                    [BODY 4-42s] मुख्य विषय: {custDetail}।
                    [MORAL] सीख — स्पष्ट उद्देश्य और धैर्य जीवन में बड़ा परिवर्तन लाते हैं।
-                   [CTA 42-55s] अधिक जानकारी के लिए वेबसाइट पर जाएं: {primaryLink}
+                   [CTA 42-55s] {BuildSpokenPortalInvite(true, "स्टूडियो डॉट केशवसिंह डॉट इन", "पूरी जानकारी और टूल्स")}
                    """)
             : $"""
                [Narrator]: Before we begin, here is the context behind {topicSeed}.
                [{custB}]: What happens at the heart of {topicSeed}, and why does it resonate so deeply?
                [{custA}]: {custDetail}. Through challenge and persistence, every scene moves toward clarity and transformation.
-               [Narrator]: Moral of the story — Steadfast purpose and kindness turn obstacles into wisdom. Explore more on our website: {primaryLink}
+               [Narrator]: Moral of the story — Steadfast purpose and kindness turn obstacles into wisdom. {BuildSpokenPortalInvite(false, "studio dot keshavsingh dot in", "more stories and creative tools")}
                """;
 
         var prompt = ApplyPromptOverride(rule,
@@ -834,7 +870,7 @@ public static class AutomationContentComposer
             : "Comedy Chai Tapri";
         var (speakerA, speakerB) = ResolveSpeakerPair(rule, customSeed ?? defaultPairSeed, null, isHindi && !isTank && !isGlobal);
         var byStander = isHindi ? "टपरी भैया" : "Chai Guy";
-        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode($"{dateKey}:{rule.TargetChannelHandle}:{rule.Id}")) % 5;
+        var slot = Math.Abs(StringComparer.Ordinal.GetHashCode($"{dateKey}:{rule.TargetChannelHandle}:{rule.Id}")) % 7;
         var isFull = IsFullStoryMode(rule);
         var includeMemes = rule.AutoInsertMemes;
 
@@ -844,14 +880,18 @@ public static class AutomationContentComposer
             1 => "सुबह 5 बजे का अलार्म और छोले-भटूरे का सपना 😂",
             2 => "भाई के 2 मिनट मतलब पूरा एक युग 😂 देसी रोस्ट",
             3 => "मम्मी का फ्लाइंग चप्पल रडार बनाम पप्पू 😂",
-            _ => "शादी के बुफ़े में पनीर लूटने की खुफ़िया प्लानिंग 😂"
+            4 => "शादी के बुफ़े में पनीर लूटने की खुफ़िया प्लानिंग 😂",
+            5 => "ऑफिस मीटिंग में लाल फ़ाइल कांड 😂 बॉस बनाम पप्पू",
+            _ => "स्कूटर का ब्रेक फ़ेल और चाचा का ट्रैफ़िक कांड 😂"
         } : slot switch
         {
             0 => "टपरी पर फ्री की चाय और दोस्त का 'वॉलेट घर पे' स्कैम 😂",
             1 => "सुबह 5 बजे जिम का जोश और 11 बजे तक खर्राटे 😂",
             2 => "'अबे 2 मिनट में आया' बोलकर चप्पल ढूँढता दोस्त 😂",
             3 => "फ्री वाई-फ़ाई पासवर्ड के लिए दोस्त की भयानक बेइज़्ज़ती 😂",
-            _ => "शादी के बुफ़े में पनीर बचाने की सीक्रेट प्लानिंग 😂"
+            4 => "शादी के बुफ़े में पनीर बचाने की सीक्रेट प्लानिंग 😂",
+            5 => "ऑफिस मीटिंग का लाल फ़ाइल कांड 😂 डेडलाइन और पप्पू",
+            _ => "स्कूटर का ब्रेक फ़ेल और रोड पर कॉमेडी बवाल 😂"
         });
 
         var topicTitleEn = customSeed ?? slot switch
@@ -860,14 +900,16 @@ public static class AutomationContentComposer
             1 => "The 5 AM Gym Plan vs. Chole Bhature 😂",
             2 => "When '2 Minutes Away' Means Still In Bed 😂",
             3 => "Free Wi-Fi Password Negotiation Gone Wrong 😂",
-            _ => "Wedding Buffet Paneer Strategy Exposed 😂"
+            4 => "Wedding Buffet Paneer Strategy Exposed 😂",
+            5 => "Office Meeting Red File Disaster 😂 Boss vs Employee",
+            _ => "Scooter Brake Fail & Traffic Horn Disaster 😂"
         };
 
         var epTag = $"EP {(slot + 1):00}";
         var title = Truncate(
             isTank ? $"{topicTitleEn} | Cartoon Tank Series | {epTag}"
-                : isHindi ? $"{topicTitleHi} | #Shorts Comedy"
-                : $"{topicTitleEn} | 3D Comedy Loop",
+                : isHindi ? $"{topicTitleHi} | {(isFull ? "Full 3D Comedy Story" : "#Shorts Comedy")}"
+                : $"{topicTitleEn} | {(isFull ? "Full 3D Comedy Episode" : "3D Comedy Loop")}",
             MaxTitleLength);
 
         var script = isTank || isGlobal
@@ -963,7 +1005,7 @@ public static class AutomationContentComposer
 
         if (tone is AnimStudio.Domain.Stories.ComedyToneStyle.KhadiBhasha or AnimStudio.Domain.Stories.ComedyToneStyle.DesiKhadiSitcom)
         {
-            return (slot % 3) switch
+            var khadiBody = slot switch
             {
                 0 => $"""
                     [CAST]: {speakerA} | scholar | bright orange hoodie, tousled hair, cheeky grin
@@ -972,12 +1014,16 @@ public static class AutomationContentComposer
                     [SCENE]: bedroom | day | playful
                     [{speakerA}]: (sleeping) ख्र्र्र... बस पाँच मिनट और सोने दे यार, आज रविवार है...
                     [{speakerB}]: (angry, pointing) अबे सुन बावले! ग्यारह बज गए — तू अभी तक पलंग पे ही सो रहा है क्या?!
-                    [{speakerA}]: (waking up, surprised) अरे बाप रे! ग्यारह बज गए?! गरम समोसे खत्म हो जाएँगे, जल्दी चल!
+                    [{speakerA}]: (waking up, scared, sfx: gasp) अरे बाप रे! ग्यारह बज गए?! गरम समोसे खत्म हो जाएँगे, जल्दी चल!
                     {memeMid("shocked_face", "अरे बावले, यो के बोल दिया!")}[SCENE]: chai stall | day | playful
-                    [{speakerA}]: (walking) {bystander}, दो बढ़िया अदरक की चाय और गरम समोसे ठोक दे — इब म्हारा भाई बिल देगा!
-                    [{bystander}]: (pointing) यारा, थारा पिछला चार सौ रुपया का उधार खाता दीवार पे टँगा सै — किसे मूर्ख बनावै सै!
-                    [{speakerB}]: (facepalm, laughing) ले इब कर ले जुगाड़ — बर्तन मांजने की ड्यूटी पक्की तेरी!
-                    {(isFull ? $"[{speakerA}]: (running, surprised) अबे बबलू रुक! मेरी चप्पल तो उठा ले, दौड़ने का टैम आ गया!" : string.Empty)}
+                    [{speakerA}]: (walking, proud) {bystander}, दो बढ़िया अदरक की चाय और गरम समोसे ठोक दे — इब म्हारा भाई बिल देगा!
+                    [{bystander}]: (smug, pointing, sfx: paper) यारा, थारा पिछला चार सौ रुपया का उधार खाता दीवार पे टँगा सै — किसे मूर्ख बनावै सै!
+                    [{speakerB}]: (facepalm, laughing, sfx: rimshot) ले इब कर ले जुगाड़ — बर्तन मांजने की ड्यूटी पक्की तेरी!
+                    {(isFull ? $"""
+                    [{speakerA}]: (scared) अरे बबलू भैया, मेरा फोन अभी अपडेट पे लगा है — दस मिनट में ट्रांसफ़र मार दूँगा!
+                    [{bystander}]: (angry, sfx: trombone) पिछली दीवाली से तेरा फोन अपडेट ही चल रहा है — जा के पतीला रगड़!
+                    [{speakerB}]: (proud, celebrate, sfx: tada) काम हो गया गुरु! चाय फ्री और बर्तन साफ़ — दोनों टारगेट पूरे!
+                    """ : string.Empty)}
                     {memeMid("khatam_tata_bye", "इब बोल... मोये मोये हो गया!")}
                     """,
                 1 => $"""
@@ -985,26 +1031,70 @@ public static class AutomationContentComposer
                     [CAST]: {speakerB} | child | teal jacket, backwards cap, smug smile
                     [SCENE]: bedroom | night | playful
                     [{speakerA}]: (sleeping) ख्र्र्र... रसोई से गरम रबड़ी की खुशबू आ रही है...
-                    [{speakerB}]: (waking up, confused) अरे पप्पू! आधी रात को ये रसोई में कड़ाही कौन खड़का रहा है?!
+                    [{speakerB}]: (waking up, confused, sfx: cricket) अरे पप्पू! आधी रात को ये रसोई में कड़ाही कौन खड़का रहा है?!
                     [SCENE]: kitchen | night | mischievous
-                    [{speakerA}]: (eating, proud) आहाहा! आज गरम कड़ाही की सारी मलाईदार रबड़ी अकेले साफ कर दूँगा!
-                    {memeMid("shocked_face", "रबड़ी कांड रंगे हाथ पकड़ा गया!")}[{speakerB}]: (angry, pointing) पकड़ लिया बे बावले! सारी रबड़ी अकेले चट कर गया नालायक?!
-                    [{speakerA}]: (shocked) अरे नहीं यार! मैं तो बस चेक कर रहा था कि दूध ठंडा हुआ या नहीं!
-                    [{speakerB}]: (facepalm, laughing) अबे पूरी कड़ाही चाट के टेम्परेचर चेक होता है क्या?!
+                    [{speakerA}]: (eating, proud, celebrate, sfx: tada) आहाहा! पूरा मिशन कंप्लीट — मलाईदार रबड़ी अकेले साफ कर दी!
+                    {memeMid("shocked_face", "रबड़ी कांड रंगे हाथ पकड़ा गया!")}[{speakerB}]: (angry, pointing, sfx: gasp) पकड़ लिया बे बावले! सारी रबड़ी अकेले चट कर गया नालायक?!
+                    [{speakerA}]: (scared) अरे नहीं यार! मैं तो बस चेक कर रहा था कि दूध ठंडा हुआ या नहीं!
+                    [{speakerB}]: (smug, facepalm, sfx: rimshot) अबे पूरी कड़ाही चाट के टेम्परेचर चेक होता है क्या?!
+                    {(isFull ? $"""
+                    [{speakerA}]: (sad) यार टेस्टिंग में क्वालिटी कंट्रोल भी ज़रूरी होता है ना...
+                    [{speakerB}]: (laughing) सही है गुरु — अब मम्मी का फ्लाइंग चप्पल रडार भी लाइव टेस्ट करा दूँ क्या?!
+                    """ : string.Empty)}
                     {memeMid("run_comedy", "रबड़ी ग़ायब, बहाना तैयार!")}
+                    """,
+                5 => $"""
+                    [CAST]: {speakerA} | scholar | charcoal office blazer, oversized black specs, red file folder
+                    [CAST]: {speakerB} | child | wrinkled striped shirt, nervous tie, panicked face
+                    [CAST]: {bystander} | villager | office peon uniform, teacup tray, deadpan stare
+                    [SCENE]: modern city | day | tense
+                    [{speakerA}]: (angry, pointing, sfx: paper) अबे ओ बावले पप्पू! मीटिंग में तीन दिन पुरानी लाल फ़ाइल अभी तक मेरी टेबल पे क्यों नहीं आई?!
+                    [{speakerB}]: (scared, sfx: gasp) सर जी! रात भर जाग के सारी रिपोर्ट टाइप करी — बस प्रिंटर ने आखिरी पेज खा लिया!
+                    [{speakerA}]: (smug, sfx: slideup) अच्छा? तो ईमेल काहे नहीं भेजा — क्या वाई-फ़ाई भी समोसा खाने गया था?!
+                    {memeMid("brain_buffering", "बॉस का पारा 100 पार!")}[{bystander}]: (smug, pointing, sfx: cricket) मालिक, ये सुबह से कैंटीन में समोसे का ही रिव्यू मीटिंग कर रहे थे!
+                    [{speakerB}]: (sad) भैया तुमने भी आज ही गद्दारी करनी थी — पूरी सैलरी की ऐसी-तैसी करा दी!
+                    [{speakerA}]: (proud, celebrate, sfx: tada) बहुत बढ़िया! दोनों का काम हो गया — इब तुम दोनों चाय के कप धोओ, और मीटिंग मेरी कैंसल!
+                    [{speakerB}]: (laughing, sfx: rimshot) वाह सर! मीटिंग से बचे, ऊपर से चाय भी फ्री मिली!
+                    {(isFull ? $"""
+                    [SCENE]: chai stall | sunset | laughing
+                    [{speakerA}]: (angry) अबे हँसता क्या है बावले! कल सुबह नौ बजे लाल फ़ाइल का पूरा टारगेट कंप्लीट चाहिए!
+                    [{speakerB}]: (proud, celebrate, sfx: coin) डन सर जी! बोनस दोगे तो दो मिनट में फ़ाइल क्या, पूरा ऑफिस कलर प्रिंट कर दूँगा!
+                    """ : string.Empty)}
+                    {memeMid("khatam_tata_bye", "लाल फ़ाइल गायब, बर्तन पक्के!")}
+                    """,
+                6 => $"""
+                    [CAST]: {speakerA} | scholar | bright windbreaker jacket, crooked helmet, wide panicked eyes
+                    [CAST]: {speakerB} | child | kurta waistcoat, tea mug, calm smirk
+                    [SCENE]: modern city | day | slapstick
+                    [{speakerA}]: (proud, sfx: engine) हटो रे बावले! आज चाचा का नया स्कूटर सौ की स्पीड से सीधा टपरी पे लैंड करेगा!
+                    [{speakerB}]: (scared, pointing, sfx: horn) अबे ताऊ! सामने ट्रैफ़िक पुलिस और ठेला दोनों खड़े हैं — ब्रेक लगा, ब्रेक लगा!!
+                    [{speakerA}]: (scared, brakeStop, sfx: brake) अरे मोरी मैया रे! अरे इसका ब्रेक तो पिछले महीने ही गिर गया था — चप्पल घिस के रोको!!
+                    {memeMid("shocked_face", "ब्रेक गायब, चप्पल मोड ऑन!")}[{speakerB}]: (smug, laughing, sfx: rimshot) वाह ताऊ! बिना डिस्क ब्रेक के सड़क पे ऐसा ड्रिफ्ट तो फ़िल्मों में भी ना दिखा!
+                    [{speakerA}]: (proud, celebrate, sfx: tada) देखा भतीजे! गाड़ी भी सही सलामत रुक गई और दो समोसे का ठेला भी बच गया — मिशन कंप्लीट!
+                    {(isFull ? $"""
+                    [SCENE]: chai stall | sunset | playful
+                    [{speakerB}]: (surprised, sfx: horn) पर ताऊ, सामने वाले हवलदार ने हेलमेट के बिना चालान की कॉपी खोल ली है!
+                    [{speakerA}]: (sad, sfx: trombone) अरे बाप रे! स्कूटर बचा और दो सौ की चप्पल का भी नुकसान हो गया — अब पैदल ही घर चल!
+                    """ : string.Empty)}
+                    {memeMid("run_comedy", "देसी चप्पल ब्रेक ज़िंदाबाद!")}
                     """,
                 _ => $"""
                     [CAST]: {speakerA} | scholar | yellow sweater, messy hair, oversized specs
                     [CAST]: {speakerB} | child | teal jacket, backwards cap, smug smile
                     [SCENE]: living room | dawn | playful
                     [{speakerA}]: (sitting) ताऊ की कसम खा के बोला था पाँच बजे जिम फोड़ूँगा — अब सोफे पे कमर सीधी कर लूँ!
-                    [{speakerB}]: (sarcastic, pointing) अरे बावले! ग्यारह बज गए और हाथ में समोसा दबा के जिम हो रहा है?!
+                    [{speakerB}]: (smug, pointing, sfx: slideup) अरे बावले! ग्यारह बज गए और हाथ में समोसा दबा के जिम हो रहा है?!
                     {memeMid("confused_math", "ताऊ का अलार्म फेल हो गया!")}[SCENE]: sweet shop | day | laughing
-                    [{speakerB}]: (laughing) यो के जुगाड़ सै? बॉडी बनानी थी और हलवाई की दुकान पे लड्डू फोड़ रहा है!
-                    [{speakerA}]: (eating) चुपचाप प्लेट पकड़ — डंबल से भारी तो अपना यह मलाई लड्डू सै!
+                    [{speakerB}]: (laughing, sfx: rimshot) यो के जुगाड़ सै? बॉडी बनानी थी और हलवाई की दुकान पे लड्डू फोड़ रहा है!
+                    [{speakerA}]: (eating, proud, celebrate, sfx: tada) चुपचाप प्लेट पकड़ — डंबल से भारी तो अपना यह मलाई लड्डू सै! डाइट मिशन कंप्लीट!
+                    {(isFull ? $"""
+                    [{speakerB}]: (sad, sfx: trombone) तेरे जैसे जिम पार्टनर की वजह से मेरा भी वजन तीन किलो बढ़ गया बावले!
+                    [{speakerA}]: (smug) खुश रह यार — भारी आदमी की हवा में भी इज़्ज़त होती है!
+                    """ : string.Empty)}
                     {memeMid("run_comedy", "बॉडी नहीं, मिठाई चैंपियन!")}
                     """
             };
+            return khadiBody;
         }
 
         if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.FamilyClean)
@@ -1013,11 +1103,15 @@ public static class AutomationContentComposer
                 [CAST]: {speakerA} | scholar | sky blue shirt, neat hair, cheerful expression
                 [CAST]: {speakerB} | child | sunny yellow vest, bright smile, curious eyes
                 [SCENE]: chai stall | day | playful | IMAGE: cozy clean Indian tea corner courtyard with colorful bunting and clay cups, cheerful daylight, 3D cartoon background, no people
-                [{speakerB}]: (excited) अरे वाह भैया, आज पूरे मोहल्ले को चाय पिलाने का इरादा है क्या?
-                [{speakerA}]: (proud) बिल्कुल बबलू! आज अपनी नई लॉटरी निकलने ही वाली थी बस...
+                [{speakerB}]: (excited, proud) अरे वाह भैया, आज पूरे मोहल्ले को चाय पिलाने का इरादा है क्या?
+                [{speakerA}]: (proud, celebrate, sfx: tada) बिल्कुल बबलू! आज अपनी नई लॉटरी निकलने ही वाली थी बस...
                 {memeMid("surprised_kid", "अरे यह क्या गड़बड़ हो गई!")}[SCENE]: comedy stage | sunset | joyful | IMAGE: lively bright cartoon park bench scene, festive lamps, playful sunset light, no people
-                [{speakerB}]: (surprised) भैया नंबर तो ठीक से पढ़ो — वह लॉटरी का नहीं, किराने का उधार बिल है!
-                [{speakerA}]: (confused) अरे बाप रे! चलो कोई बात नहीं, अगले हफ़्ते चाय पक्की!
+                [{speakerB}]: (surprised, sfx: paper) भैया नंबर तो ठीक से पढ़ो — वह लॉटरी का नहीं, किराने का उधार बिल है!
+                [{speakerA}]: (scared, sfx: trombone) अरे बाप रे! चलो कोई बात नहीं, अगले हफ़्ते चाय पक्की!
+                {(isFull ? $"""
+                [{speakerB}]: (laughing, sfx: rimshot) भैया लॉटरी लगे ना लगे, आपकी हँसी से पूरा मोहल्ला खुश हो जाता है!
+                [{speakerA}]: (proud, sfx: coin) बस यही असली इनाम है छोटू — खुशी बाँटो और मुस्कुराते रहो!
+                """ : string.Empty)}
                 {memeMid("laugh_clean", "सपना टूटा पर हँसी छूटी!")}
                 """;
         }
@@ -1032,33 +1126,75 @@ public static class AutomationContentComposer
                 [SCENE]: bedroom | day | playful
                 [{speakerA}]: (sleeping) ख्र्र्र... बस आ रहा हूँ भाई, रास्ते में ट्रैफिक बहुत है...
                 [{speakerB}]: (angry, pointing) अबे सुन पप्पू! दस बार फ़ोन कर चुका — दो मिनट बोल के अभी तक पलंग पे ही सो रहा है क्या?!
-                [{speakerA}]: (waking up, surprised) अरे बाप रे! इंडिया में 'दो मिनट' का मतलब आधा घंटा होता है, आ रहा हूँ!
+                [{speakerA}]: (waking up, scared, sfx: gasp) अरे बाप रे! इंडिया में 'दो मिनट' का मतलब आधा घंटा होता है, आ रहा हूँ!
                 {memeMid("dimag_hang", "भाई का टाइम ज़ोन ही अलग है!")}[SCENE]: chai stall | sunset | excited
-                [{bystander}]: (walking, sarcastic) तेरे इसी दो मिनट के चक्कर में इसकी चार चाय ठंडी हो गई — आज बिल तेरे नाम!
-                [{speakerB}]: (facepalm, laughing) अबे निकल ले चुपचाप! बड़ा आया घड़ी का मालिक — अब समोसा भी खिला!
-                {(isFull ? $"[{speakerA}]: (running, surprised) अरे ठहर यार, मेरा यूपीआई नेटवर्क सिर्फ़ तब काम करता है जब सामने वाला बिल दे!" : string.Empty)}
+                [{bystander}]: (walking, smug, sfx: slideup) तेरे इसी दो मिनट के चक्कर में इसकी चार चाय ठंडी हो गई — आज बिल तेरे नाम!
+                [{speakerB}]: (facepalm, laughing, sfx: rimshot) अबे निकल ले चुपचाप! बड़ा आया घड़ी का मालिक — अब समोसा भी खिला!
+                {(isFull ? $"""
+                [{speakerA}]: (scared, brakeStop, sfx: brake) अरे ठहर यार, मेरी बाइक का भी ब्रेक अभी यहीं फ़ेल हुआ है — और यूपीआई भी डाउन है!
+                [{speakerB}]: (proud, celebrate, sfx: tada) बहुत बढ़िया, बिल तू दे दे या आज बर्तन धो दे — काम हो गया अपना!
+                """ : string.Empty)}
                 {memeMid("khatam_tata_bye", "ख़त्म... टाटा... बाय-बाय!")}
                 """,
             1 => $"""
                 [CAST]: {speakerA} | scholar | red tracksuit, headband, dramatic pose
                 [CAST]: {speakerB} | child | blue casual tee, coffee mug, deadpan face
                 [SCENE]: modern city | dawn | tense | IMAGE: sunny Indian rooftop terrace apartment morning view with yoga mat, bright 3D cartoon background, no people
-                [{speakerA}]: (proud) अबे सुन {speakerB}, आज से सुबह पाँच बजे जिम और सीधा सिक्स-पैक एब्स — तेरे से ना हो पाएगा!
-                [{speakerB}]: (sarcastic) अच्छा? पर अभी साढ़े ग्यारह बज रहे हैं और हाथ में समोसा क्यों दबा रखा है भाई?
+                [{speakerA}]: (proud, celebrate, sfx: tada) अबे सुन {speakerB}, आज से सुबह पाँच बजे जिम और सीधा सिक्स-पैक एब्स — टारगेट फिक्स!
+                [{speakerB}]: (smug, sfx: slideup) अच्छा? पर अभी साढ़े ग्यारह बज रहे हैं और हाथ में समोसा क्यों दबा रखा है भाई?
                 {memeMid("overconfidence", "सपने सिक्स-पैक के, हाथ में समोसा!")}[SCENE]: comedy stage | day | laughing | IMAGE: vibrant living room sofa with snacks table, comic morning light, 3D cartoon background, no people
-                [{speakerA}]: (mischievous) अबे यह प्री-वर्कआउट कार्ब लोडिंग है! कल से पक्का पसीना बहाऊँगा!
-                [{speakerB}]: (laughing) हाँ पिछले तीन साल से तेरा 'कल' सोमवार को ही अटका है!
+                [{speakerA}]: (smug) अबे यह प्री-वर्कआउट कार्ब लोडिंग है! कल से पक्का पसीना बहाऊँगा!
+                [{speakerB}]: (laughing, sfx: rimshot) हाँ पिछले तीन साल से तेरा 'कल' सोमवार को ही अटका है!
+                {(isFull ? $"""
+                [{speakerA}]: (sad, sfx: trombone) भाई डिमोटिवेट मत कर, दो पुश-अप मार के अभी मेरी कमर का वाई-फ़ाई हिल गया है!
+                [{speakerB}]: (proud, sfx: coin) चल छोड़ जिम, दो प्लेट भटूरे का ऑर्डर मार — आज चीट-डे कंप्लीट!
+                """ : string.Empty)}
                 {memeMid("emotional_damage", "दोस्त ने सरेआम धो दिया!")}
+                """,
+            5 => $"""
+                [CAST]: {speakerA} | scholar | crisp corporate shirt, dark specs, bright red report file
+                [CAST]: {speakerB} | child | crooked tie, tousled hair, terrified expression
+                [CAST]: {bystander} | villager | office peon, chai kettle, deadpan smirk
+                [SCENE]: modern city | day | tense
+                [{speakerA}]: (angry, pointing, sfx: paper) अबे सुन पप्पू! पूरी लाल फ़ाइल खाली कैसे है?! क्लाइंट मीटिंग दो मिनट में शुरू होने वाली है!
+                [{speakerB}]: (scared, sfx: gasp) सर, डेटा तो पूरा तैयार था — बस मैंने सेव बटन की जगह रीस्टार्ट दबा दिया!
+                [{speakerA}]: (smug, sfx: cricket) वाह बेटे... पूरा एक महीने का काम एक क्लिक में धुआँ कर दिया!
+                {memeMid("emotional_damage", "बॉस का बीपी रॉकेट पर!")}[{bystander}]: (smug, pointing, sfx: rimshot) सर, टेंशन ना लो — मीटिंग क्लाइंट भी ट्रैफिक में फँस के कैंसल बोल दिया!
+                [{speakerB}]: (proud, celebrate, sfx: tada) हाहा! किस्मत चमक गई बॉस — बिना काम के भी आज का टास्क पूरा हो गया!
+                {(isFull ? $"""
+                [{speakerA}]: (angry, sfx: slidedown) अबे जश्न बाद में मना — पहले जा के वो गायब हुई एक्सेल शीट दुबारा बना वरना सैलरी भी गायब!
+                [{speakerB}]: (scared) अरे बॉस माफ़ी! अभी पाँच मिनट में पूरा प्रोजेक्ट कंप्लीट करके देता हूँ!
+                """ : string.Empty)}
+                {memeMid("khatam_tata_bye", "मीटिंग टली, पप्पू बच गया!")}
+                """,
+            6 => $"""
+                [CAST]: {speakerA} | scholar | orange hoodie, oversized shades, dramatic hand gestures
+                [CAST]: {speakerB} | child | cyan jacket, helmet crooked on head, sweating bullets
+                [SCENE]: modern city | day | slapstick
+                [{speakerA}]: (proud, sfx: engine) अबे सुन भाई, बैठ जा पीछे — आज तुझे शहर की सबसे फास्ट शॉर्टकट गली से स्टेशन पहुँचाता हूँ!
+                [{speakerB}]: (scared, sfx: horn) अबे पागल! सामने गड्ढा और गाय दोनों आ रही हैं — स्कूटर का ब्रेक दबा!!
+                [{speakerA}]: (scared, brakeStop, sfx: brake) अरे भाई पकड़ के बैठ — ब्रेक वायर टूट गया है, आज दोनों पाँव के जूते ही एबीएस बनेंगे!
+                {memeMid("shocked_face", "देसी जूता एबीएस मोड!")}[{speakerB}]: (angry, sfx: trombone) अरे मेरे पाँच सौ के नए जूते सड़क पे घिस के चप्पल बन गए तेरे शॉर्टकट में!!
+                [{speakerA}]: (proud, celebrate, sfx: tada) पर टाइम देख भाई — ट्रेन छूटने से पूरे दो सेकंड पहले स्टेशन पहुँच गए, काम हो गया!
+                {(isFull ? $"""
+                [{speakerB}]: (smug, sfx: cricket) बहुत बढ़िया — पर ज़रा प्लेटफॉर्म का बोर्ड भी पढ़ ले... ट्रेन दो घंटे लेट है!
+                [{speakerA}]: (facepalm, laughing, sfx: rimshot) ले कर लो बात — चलो तब तक स्टेशन के बाहर दो गरम चाय पीते हैं!
+                """ : string.Empty)}
+                {memeMid("run_comedy", "ब्रेक फ़ेल, ट्रेन लेट!")}
                 """,
             _ => $"""
                 [CAST]: {speakerA} | scholar | purple blazer, shiny watch, overconfident grin
                 [CAST]: {speakerB} | child | teal shirt, phone in hand, suspicious look
                 [SCENE]: chai stall | sunset | mischievous | IMAGE: bustling evening Indian street food corner with glowing stall signboards, bright comic atmosphere, 3D cartoon frame, no people
-                [{speakerA}]: (proud) अबे सुन! तेरा भाई आज करोड़पति बिज़नेस आइडिया लाया है — फ्री वाई-फ़ाई वाली टपरी!
-                [{speakerB}]: (confused) फ्री में वाई-फ़ाई बाँटेगा तो कमाई कहाँ से करेगा, मेरे दिमाग़ के बंद ताले?
+                [{speakerA}]: (proud, sfx: coin) अबे सुन! तेरा भाई आज करोड़पति बिज़नेस आइडिया लाया है — फ्री वाई-फ़ाई वाली टपरी!
+                [{speakerB}]: (confused, sfx: cricket) फ्री में वाई-फ़ाई बाँटेगा तो कमाई कहाँ से करेगा, मेरे दिमाग़ के बंद ताले?
                 {memeMid("wait_what", "अरे भाई ये कौन सा बिज़नेस है!")}[SCENE]: comedy stage | night | excited | IMAGE: neon-lit bustling chai counter at night with funny signboard glow, vibrant 3D cartoon frame, no people
-                [{speakerA}]: (laughing) पासवर्ड बोर्ड पे लिख दूँगा — 'पहले दो स्पेशल चाय पियो, वरना हॉटस्पॉट ऑफ़!'
-                [{speakerB}]: (surprised) तेरा तो दिमाग़ चाचा चौधरी से भी तेज़ भाग गया बे!
+                [{speakerA}]: (smug, sfx: slideup) पासवर्ड बोर्ड पे लिख दूँगा — 'पहले दो स्पेशल चाय पियो, वरना हॉटस्पॉट ऑफ़!'
+                [{speakerB}]: (proud, celebrate, sfx: tada) तेरा तो दिमाग़ चाचा चौधरी से भी तेज़ भाग गया बे — आज का सेल टारगेट पूरा!
+                {(isFull ? $"""
+                [{speakerA}]: (laughing, sfx: rimshot) हाँ बस दिक्कत एक ही है — मोहल्ले के पाँच दोस्त सुबह से मुफ़्त के ट्रायल पर बैठे हैं!
+                [{speakerB}]: (sad, sfx: trombone) तो लॉगिन बंद कर और पहले अपनी खुद की चाय का बिल निकलवा!
+                """ : string.Empty)}
                 {memeMid("mind_blown", "असली जुगाड़ गुरु मिल गया!")}
                 """
         };
@@ -1087,6 +1223,48 @@ public static class AutomationContentComposer
 
         string memeMid(string key, string caption) => includeMemes ? $"[MEME]: {key} | {caption}\n" : string.Empty;
 
+        if (slot == 5 && tone != AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries)
+        {
+            return $"""
+                [CAST]: {speakerA} | scholar | crisp dark blazer, oversized black specs, red office file
+                [CAST]: {speakerB} | child | crooked tie, ruffled hair, wide panicked eyes
+                [CAST]: {bystander} | villager | office coffee tray, deadpan stare
+                [SCENE]: {(tone == AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick ? "doorway set" : "modern city")} | day | slapstick | IMAGE: comic stylized 3D office conference doorway leading to desk with red file folder, no people
+                [{speakerA}]: (angry, pointing, sfx: paper) Where is the red client file?! The board meeting starts in ninety seconds!
+                [{speakerB}]: (scared, sfx: gasp) Sir, I finished every single chart at 3 AM — then the printer ate the final cover sheet!
+                [{speakerA}]: (smug, sfx: slideup) Amazing... did the office Wi-Fi also get stuck in traffic on the way to my inbox?!
+                {memeMid("brain_buffering", "BOSS PATIENCE: ZERO!")}[{bystander}]: (smug, pointing, sfx: cricket) Actually boss, he was still renaming the folder 'Final_Final_Real_2' ten minutes ago!
+                [{speakerB}]: (sad) Why would you snitch during a budget freeze — my bonus just evaporated!
+                [{speakerA}]: (proud, celebrate, sfx: tada) Good news team — the client postponed until Friday, so our stress target is officially completed!
+                {(isFull ? $"""
+                [SCENE]: comedy stage | sunset | laughing
+                [{speakerB}]: (laughing, sfx: rimshot) Does that mean we celebrate with extra coffee now, boss?!
+                [{speakerA}]: (angry, sfx: slidedown) Celebrate AFTER you back up that red file twice before five o'clock!
+                """ : string.Empty)}
+                {memeMid("khatam_tata_bye", "DEADLINE SAVED LAST SECOND!")}
+                """;
+        }
+
+        if (slot == 6 && tone != AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries)
+        {
+            return $"""
+                [CAST]: {speakerA} | bobble | bright windbreaker, oversized helmet, overconfident grin
+                [CAST]: {speakerB} | bobble | teal hoodie, sweating forehead, nervous look
+                [SCENE]: {(tone == AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick ? "doorway set" : "modern city")} | day | slapstick | IMAGE: vibrant 3D cartoon street doorway & traffic crossing with scooter lane, no people
+                [{speakerA}]: (proud, sfx: engine) Hop on bro — my express scooter shortcut reaches the cafe in thirty seconds flat!
+                [{speakerB}]: (scared, sfx: horn) Bro watch out!! There's a speed bump AND a tea cart right ahead — hit the brakes!
+                [{speakerA}]: (scared, brakeStop, sfx: brake) Uh oh... tiny update: the brake cable snapped last week, start dragging both sneakers right now!
+                {memeMid("shocked_face", "SHOE BRAKES ACTIVATED!")}[{speakerB}]: (angry, sfx: trombone) You turned my brand-new sneakers into emergency tire rubber just to save fifty cents?!
+                [{speakerA}]: (proud, celebrate, sfx: tada) Hey look on the bright side — we stopped two inches before the samosa tray! Mission completed!
+                {(isFull ? $"""
+                [SCENE]: chai stall | sunset | playful
+                [{speakerB}]: (smug, sfx: cricket) Incredible driving... except we took the wrong shortcut and ended up three blocks further away!
+                [{speakerA}]: (facepalm, laughing, sfx: rimshot) Perfect! Now we walk back slowly so your sneakers cool down!
+                """ : string.Empty)}
+                {memeMid("run_comedy", "ZERO BRAKES, MAXIMUM DRAMA!")}
+                """;
+        }
+
         if (tone == AnimStudio.Domain.Stories.ComedyToneStyle.TankSeries
             || (tone != AnimStudio.Domain.Stories.ComedyToneStyle.GlobalSlapstick && slot % 3 == 2))
         {
@@ -1094,12 +1272,15 @@ public static class AutomationContentComposer
                 [CAST]: {speakerA} | tank | olive green turret, googly eyes, oversized barrel
                 [CAST]: {speakerB} | tank | crimson armor plating, nervous eyebrows
                 [SCENE]: tank arena | sunset | dramatic | IMAGE: stylized cartoon desert canyon tank arena with bunkers and smoke plumes, no people
-                [{speakerA}]: (proud) Step aside mini tank — one blast from this mega cannon ends the whole episode!
-                [{speakerB}]: (surprised) Bro wait, did you check what ammo you actually loaded in that barrel?!
+                [{speakerA}]: (proud, sfx: engine) Step aside mini tank — one blast from this mega cannon ends the whole episode!
+                [{speakerB}]: (scared, brakeStop, sfx: brake) Bro wait, stop right there — did you check what ammo you loaded in that barrel?!
                 {memeMid("shocked_face", "WRONG AMMO LOADED!")}[SCENE]: tank arena | day | laughing | IMAGE: colorful cartoon tank canyon with tiny confetti puff and shocked birds, no people
-                [{speakerA}]: (confused) Wait... why did my super cannon just shoot one bouncy rubber duck?!
-                [{speakerB}]: (laughing) Victory by rubber ducky — see you in the next episode!
-                {(isFull ? $"[{speakerA}]: (angry) Don't laugh! Wait till Episode Next — I'm switching to water balloons!" : string.Empty)}
+                [{speakerA}]: (confused, sfx: slidedown) Wait... why did my super cannon just shoot one squeaky rubber duck?!
+                [{speakerB}]: (proud, celebrate, sfx: tada) Victory by rubber ducky — mission completed, see you in the next episode!
+                {(isFull ? $"""
+                [{speakerA}]: (angry, sfx: rimshot) Stop laughing! Next episode I'm loading industrial bubble soap and foam rockets!
+                [{speakerB}]: (smug, sfx: cricket) Sure buddy — wake me up when the duck squeaks louder than your turbo engine!
+                """ : string.Empty)}
                 {memeMid("emotional_damage", "TOTAL CONFUSION!")}
                 """;
         }
@@ -1112,12 +1293,16 @@ public static class AutomationContentComposer
                 [SCENE]: bedroom | day | slapstick
                 [{speakerA}]: (sleeping) Zzz... nobody knows my secret trophy heist plan yet...
                 [{speakerB}]: (angry, pointing) Wake up sleepyhead — the alarm went off twenty minutes ago!
-                [{speakerA}]: (waking up, surprised) Whoa!! Zero noise, maximum stealth — time to run for that golden trophy!
+                [{speakerA}]: (waking up, scared, sfx: gasp) Whoa!! Zero noise, maximum stealth — time to run for that golden trophy!
                 [SCENE]: doorway set | day | slapstick
-                [{speakerA}]: (walking) Tip-toe past the door without anyone noticing...
+                [{speakerA}]: (walking, smug, sfx: slideup) Tip-toe past the door without anyone noticing...
                 {memeMid("brain_buffering", "LOOK BEHIND THE DOOR!")}[SCENE]: sky gauntlet | sunset | excited
-                [{speakerB}]: (laughing) Spoiler alert: both doors lead straight onto the bouncy sky bridge!
-                [{speakerA}]: (shocked, dancing) Who put a trampoline right behind the exit door?!
+                [{speakerB}]: (proud, celebrate, sfx: tada) Spoiler alert: both doors lead straight onto the bouncy sky bridge — prank completed!
+                [{speakerA}]: (scared, brakeStop, sfx: brake) Whoa! Who put a trampoline right behind the exit door?!
+                {(isFull ? $"""
+                [{speakerB}]: (laughing, sfx: rimshot) Gravity just voted on your stealth mission — ten out of ten landing!
+                [{speakerA}]: (sad, sfx: trombone) Next time I'm checking behind the curtain before doing dramatic tip-toe moves...
+                """ : string.Empty)}
                 {memeMid("shocked_face", "INSTANT REPLAY LOOP!")}
                 """;
         }
@@ -1127,12 +1312,15 @@ public static class AutomationContentComposer
             [CAST]: {speakerB} | bobble | cyan jacket, suspicious sideways glance
             [CAST]: {bystander} | cup | cafe mug mascot holding tray, unimpressed
             [SCENE]: chai stall | day | playful | IMAGE: bright stylized 3D cartoon corner cafe with floating neon mug sign, no people
-            [{speakerB}]: (angry) Bro, you texted 'two minutes away' forty minutes ago — why are you still wearing slippers?!
-            [{speakerA}]: (proud) Relax, my spirit arrived on time — my slippers just got stuck buffering on the couch!
+            [{speakerB}]: (angry, sfx: horn) Bro, you texted 'two minutes away' forty minutes ago — why are you still wearing slippers?!
+            [{speakerA}]: (smug, sfx: slideup) Relax, my spirit arrived on time — my slippers just got stuck buffering on the couch!
             {memeMid("brain_buffering", "EXCUSE LEVEL 999+")}[SCENE]: comedy stage | sunset | laughing | IMAGE: vibrant 3D cartoon stage with spotlight rings and brick wall, no people
-            [{bystander}]: (sarcastic) Hilarious — anyway your friend ordered four extra snacks on your tab while waiting!
-            [{speakerA}]: (surprised) Wait... my payment app suddenly lost Wi-Fi right outside the door!
-            {(isFull ? $"[{speakerB}]: (laughing) Nice try, I turned on my hotspot — pay up right now!" : string.Empty)}
+            [{bystander}]: (smug, sfx: paper) Hilarious — anyway your friend ordered four extra snacks on your tab while waiting!
+            [{speakerA}]: (scared, sfx: gasp) Wait... my payment app suddenly lost Wi-Fi right outside the door!
+            {(isFull ? $"""
+            [{speakerB}]: (proud, celebrate, sfx: tada) Nice try, I turned on my mobile hotspot — bill settlement completed!
+            [{speakerA}]: (sad, sfx: trombone) Fine... next time I'm claiming my phone battery died in the elevator!
+            """ : string.Empty)}
             {memeMid("emotional_damage", "CAUGHT ZERO SIGNAL!")}
             """;
     }
@@ -1231,14 +1419,14 @@ public static class AutomationContentComposer
     private static IReadOnlyList<string> DefaultKeysForSource(AutomationSourceType sourceType) => sourceType switch
     {
         AutomationSourceType.HinduPanchang or AutomationSourceType.HinduFestival or AutomationSourceType.DailyKatha or AutomationSourceType.DailyRashifal or AutomationSourceType.DevotionalPrarthana
-            => ["panchang", "studio"],
+            => ["panchang", "hub", "studio"],
         AutomationSourceType.AajKaItihaas
             => ["panchang", "blog", "pratiyogita", "studio"],
         AutomationSourceType.Pratiyogita
-            => ["pratiyogita", "social", "studio"],
+            => ["pratiyogita", "social", "hub", "studio"],
         AutomationSourceType.FunnyComedy
             => ["hub", "studio", "pratiyogita", "social"],
-        _ => ["studio", "social", "panchang", "blog"]
+        _ => ["studio", "hub", "social", "panchang"]
     };
 
     private static string BuildDescription(
@@ -1251,10 +1439,12 @@ public static class AutomationContentComposer
         sb.AppendLine(coreBody.Trim());
         sb.AppendLine();
 
-        if (links.Count > 0)
+        var linkLines = YouTubePolicyComplianceSanitizer.FormatRootPortalLines(
+            links.Select(l => (l.Label, (string?)(string.IsNullOrWhiteSpace(l.BaseUrl) ? l.TrackedUrl : l.BaseUrl))));
+        if (linkLines.Count > 0)
         {
-            var primary = links[0];
-            sb.AppendLine($"🌐 {primary.Label}: {primary.TrackedUrl}");
+            foreach (var line in linkLines)
+                sb.AppendLine(line);
             sb.AppendLine();
         }
 
@@ -1287,9 +1477,14 @@ public static class AutomationContentComposer
 
     private static string BuildPinnedComment(string headline, IReadOnlyList<AutomationWebsiteLink> links)
     {
-        if (links.Count <= 1) return headline;
-        var extra = string.Join("\n", links.Skip(1).Take(2).Select(l => $"• {l.Label}: {l.TrackedUrl}"));
-        return $"{headline}\n\n{extra}".Trim();
+        var cleanHeadline = YouTubePolicyComplianceSanitizer.NormalizeUrlsToRootDomain(headline);
+        if (links.Count <= 1) return cleanHeadline;
+        var extraLines = YouTubePolicyComplianceSanitizer.FormatRootPortalLines(
+            links.Skip(1).Select(l => (l.Label, (string?)(string.IsNullOrWhiteSpace(l.BaseUrl) ? l.TrackedUrl : l.BaseUrl))),
+            maxCount: 3,
+            primaryPrefix: "• ",
+            secondaryPrefix: "• ");
+        return extraLines.Count == 0 ? cleanHeadline : $"{cleanHeadline}\n\n{string.Join("\n", extraLines)}".Trim();
     }
 
     private static EcosystemChannelItem? ResolveChannelMeta(AutomationRule rule, StudioEcosystemConfig ecosystem)
@@ -1344,6 +1539,10 @@ public static class AutomationContentComposer
         var combined = $"{title} {deityOrSage}".ToLowerInvariant();
         if (isHindi)
         {
+            if (combined.Contains("vaikunth", StringComparison.Ordinal) || combined.Contains("वैकुंठ", StringComparison.Ordinal) || combined.Contains("harihar", StringComparison.Ordinal) || combined.Contains("हरिहर", StringComparison.Ordinal))
+                return ("भगवान श्रीहरि विष्णु", "भगवान शिव");
+            if (combined.Contains("dev deepawali", StringComparison.Ordinal) || combined.Contains("देव दीपावली", StringComparison.Ordinal) || combined.Contains("त्रिपुरासुर", StringComparison.Ordinal))
+                return ("भगवान शिव", "देवर्षि नारद मुनि");
             if (combined.Contains("markandeya", StringComparison.Ordinal) || combined.Contains("मार्कण्डेय", StringComparison.Ordinal) || combined.Contains("प्रदोष", StringComparison.Ordinal))
                 return ("बालक मार्कण्डेय", "भगवान शिव");
             if (combined.Contains("neelkanth", StringComparison.Ordinal) || combined.Contains("नीलकंठ", StringComparison.Ordinal) || combined.Contains("समुद्र मंथन", StringComparison.Ordinal))
@@ -1391,6 +1590,72 @@ public static class AutomationContentComposer
         var summaryBody = LocalizeBriefSummaryHindi(k.StorySummary, $"{k.Title} का यह अद्भुत प्रसंग हमें भक्ति, संयम और धर्म के मार्ग पर आगे बढ़ने की प्रेरणा देता है।");
         var moralBody = LocalizeBriefSummaryHindi(k.MoralTeaching, "सच्ची श्रद्धा, धैर्य और सद्कर्म से जीवन के हर संकट पर विजय मिलती है।");
 
+        if (combined.Contains("vaikunth", StringComparison.Ordinal)
+            || combined.Contains("वैकुंठ", StringComparison.Ordinal)
+            || combined.Contains("harihar", StringComparison.Ordinal)
+            || combined.Contains("हरिहर", StringComparison.Ordinal)
+            || combined.Contains("कमलनयन", StringComparison.Ordinal))
+        {
+            var title = Truncate("वैकुंठ चतुर्दशी और हरिहर मिलन की अमर कथा | विष्णु जी के १,००० कमल व सुदर्शन चक्र रहस्य", MaxTitleLength);
+            var script = fullStory
+                ? $"""
+                   [SCENE]: palace court | dawn | regal | IMAGE: radiant golden celestial palace of Vaikuntha with lotus pillars, drifting clouds and divine starlight
+                   [CAST]: भगवान श्रीहरि विष्णु | divine | radiant azure silk dhoti, bright pitambara silk robes, glittering tall gold kiritamukut crown, vaijayanti floral garland and spinning sudarshana chakra
+                   [CAST]: भगवान शिव | divine | sacred white vibhuti ash skin, jata topknot with glowing crescent moon and ganga stream, snake necklace, tiger-skin drape and golden trishul
+                   [CAST]: देवर्षि नारद मुनि | sage | saffron dhoti, wooden veena, serene sage smile and glowing tilak
+                   [सूत्रधार]: (waving, wide) आज कार्तिक शुक्ल चतुर्दशी — वैकुंठ चतुर्दशी और पावन हरिहर मिलन का वह दिव्य पर्व है जब काशी में श्रीहरि विष्णु ने शिवलिंग पर अपना कमल नेत्र अर्पित किया! आइए जानें पूरी कथा और हरिहर मिलन की पूजा विधि।
+                   [देवर्षि नारद मुनि]: (praying, closeup) नारायण नारायण! हे जगतपति भगवान श्रीहरि, आज वैकुंठ चतुर्दशी की इस पावन वेला में आप वैकुंठधाम से निकलकर पृथ्वीलोक पर काशी नगरी क्यों पधार रहे हैं?
+                   [भगवान श्रीहरि विष्णु]: (proud, twoShot) हे देवर्षि नारद! शिव पुराण का परम सत्य है — शिवस्य हृदयं विष्णुः विष्णोश्च हृदयं शिवः! आज मैं काशी विश्वनाथ में १,००० स्वर्ण कमलों से महादेव का पूजन कर हरि और हर की एकता स्थापित करूँगा।
+                   [SCENE]: river ghat | dawn | serene | IMAGE: sacred Manikarnika Ganga ghat in Kashi at golden sunrise with carved stone steps, floating brass diyas and serene misty river
+                   [सूत्रधार]: (walking) मणिकर्णिका घाट के निर्मल गंगा जल में अरुणोदय स्नान करके भगवान श्रीहरि विष्णु ने १,००० दिव्य स्वर्ण कमल एकत्रित किए और पार्थिव काशी विश्वनाथ शिवलिंग के समक्ष आसन ग्रहण किया।
+                   [देवर्षि नारद मुनि]: (waving, happy) देखिए काशी का यह अद्भुत दृश्य! आज न आकाश से पुष्पवर्षा थम रही है और न ही घंटा-नाद — स्वयं पालनहार हरि, महादेव की आराधना कर रहे हैं!
+                   [SCENE]: temple | sunset | glowing | IMAGE: sacred carved stone Kashi Vishwanath sanctum glowing with black Shivling, marigolds, hanging brass bells and hundreds of golden lamps
+                   [भगवान श्रीहरि विष्णु]: (praying, lotus, closeUpSpeaker) हे आशुतोष महादेव! प्रत्येक पावन नाम के साथ मैं एक स्वर्ण कमल आपके चरणों में अर्पित करता हूँ — ॐ शिवाय नमः, ॐ विश्वनाथ्याय नमः!
+                   [सूत्रधार]: (reactionZoom) भगवान विष्णु एकाग्र भक्ति से ९९९ कमल अर्पित कर चुके थे — तभी अपने प्रिय हरि की निष्काम भक्ति का आदर्श संसार को दिखाने हेतु, भगवान शिव ने १,०००वाँ अंतिम स्वर्ण कमल अदृश्य कर दिया!
+                   [भगवान श्रीहरि विष्णु]: (surprised, lotus) अरे! मेरे संकल्प के ९९९ कमल पूर्ण हो गए, किंतु थाल में अंतिम १,०००वाँ कमल नहीं है! यदि मैं आसन से उठा तो सहस्रनाम पूजन का व्रत खंडित हो जाएगा... अब क्या करूँ?
+                   [देवर्षि नारद मुनि]: (surprised, praying) हा नाथ! केवल एक कमल कम है और मध्यरात्रि निशीथ वेला बीती जा रही है — अब सहस्र कमल अर्पण कैसे पूर्ण होगा?!
+                   [भगवान श्रीहरि विष्णु]: (proud, praying, closeUpSpeaker) चिंता न करो नारद! वेद मुझे 'कमलनयन' अर्थात् कमल जैसे नेत्रों वाला पुकारते हैं! जब पुष्प कम पड़ गया, तो मैं स्वयं अपना नेत्र कमल बनाकर अपने आराध्य महादेव को अर्पित करता हूँ! {mantra}!
+                   [SCENE]: temple | dawn | radiant | IMAGE: luminous Kashi Vishwanath temple sanctum bathed in golden celestial dawn light with glowing Shivling, 1000 lotuses and floating lamps
+                   [सूत्रधार]: (reactionZoom) जैसे ही श्रीहरि ने अपना दायाँ नेत्र अर्पित करने हेतु हाथ उठाया, काशी विश्वनाथ का शिवलिंग करोड़ों सूर्यों के तेज से दमक उठा और साक्षात् त्रिशूलधारी भगवान शिव प्रकट होकर विष्णु जी का हाथ थाम लिया!
+                   [भगवान शिव]: (proud, trishul, closeUpSpeaker) ठहरो मेरे प्रिय हरि! आपके इस अनन्य प्रेम और समर्पण ने संपूर्ण सृष्टि को धन्य कर दिया! आज से समस्त ब्रह्मांड सदैव आपको 'कमलनयन' कहकर वंदन करेगा!
+                   [भगवान श्रीहरि विष्णु]: (praying, happy) हे करुणासागर भोलेनाथ! आपके दर्शन मात्र से मेरा जीवन और यह काशी तीर्थ सार्थक हो गया!
+                   [भगवान शिव]: (blessing, chakra, twoShot) हे श्रीहरि! जैसे आपने मेरे लिए अपना नेत्र अर्पित करना चाहा, उसी प्रेम के प्रतिफल में आज मैं आपको अपना अजेय, तेजोमय 'सुदर्शन चक्र' प्रदान करता हूँ — जो सदैव धर्म और भक्तों की रक्षा करेगा!
+                   [भगवान श्रीहरि विष्णु]: (proud, chakra, blessing) धन्य हो देवाधिदेव महादेव! आज कार्तिक शुक्ल चतुर्दशी को 'हरिहर मिलन' पर मैं आपको अपनी प्रिय तुलसी अर्पित करता हूँ और आपके प्रिय बेलपत्र को मस्तक पर धारण करता हूँ!
+                   [भगवान शिव]: (happy, lotus) हरिहर मिलन कैसे किया जाता है, सुनिए — आज मध्यरात्रि निशीथ वेला में श्रीहरि और शिव जी की संयुक्त आरती कर, शिव जी को तुलसी व विष्णु जी को बेलपत्र चढ़ाकर १४ घी के दीप जलाने से वैकुंठ के द्वार खुल जाते हैं!
+                   [सूत्रधार]: (praying, diya, wide) आज की पावन वैकुंठ चतुर्दशी एवं हरिहर मिलन कथा की सीख — ईश्वर के रूप अनेक हो सकते हैं, किंतु प्रेम, समर्पण और एकता का तत्व एक ही है। {PanchangInviteHi}
+                   """
+                : $"""
+                   [SCENE]: temple | night | glowing | IMAGE: sacred Kashi Vishwanath temple sanctum glowing with Shivling, lotus flowers and brass diyas
+                   [CAST]: भगवान श्रीहरि विष्णु | divine | azure silk dhoti, pitambara, gold mukut crown, sudarshana chakra
+                   [CAST]: भगवान शिव | divine | sacred ash skin, crescent moon jata crown, vasuki snake, trishul
+                   [सूत्रधार]: (waving) कार्तिक शुक्ल चतुर्दशी — वैकुंठ चतुर्दशी एवं हरिहर मिलन की रात काशी में कैसा अद्भुत चमत्कार हुआ जब भगवान विष्णु ने भगवान शिव को १,००० स्वर्ण कमल अर्पित किए?
+                   [भगवान श्रीहरि विष्णु]: (surprised, lotus) ९९९ कमल अर्पित हो चुके — पर अंतिम १,०००वाँ कमल कहाँ गया? वेद मुझे कमलनयन कहते हैं, तो आज मैं अपना नेत्र ही महादेव को अर्पित करूँगा!
+                   [भगवान शिव]: (proud, trishul, closeUpSpeaker) ठहरो मेरे प्रिय हरि! आपके इस अनन्य समर्पण से प्रसन्न होकर मैं आपको अजेय 'सुदर्शन चक्र' प्रदान करता हूँ — आज से हरि और हर सदैव एक हैं!
+                   [भगवान श्रीहरि विष्णु]: (blessing, chakra, twoShot) आज से शिव को तुलसी और विष्णु को बेलपत्र अर्पित होंगे — हर हर महादेव, जय श्री हरि! {mantra}।
+                   [सूत्रधार]: (praying) जीवन सीख — सच्ची भक्ति सभी भेदभाव मिटाकर वैकुंठ के द्वार खोलती है। {PanchangInviteHi}
+                   """;
+            return (title, script);
+        }
+
+        if (combined.Contains("dev deepawali", StringComparison.Ordinal)
+            || combined.Contains("देव दीपावली", StringComparison.Ordinal)
+            || combined.Contains("त्रिपुरासुर", StringComparison.Ordinal)
+            || combined.Contains("tripurasura", StringComparison.Ordinal))
+        {
+            var title = Truncate("कार्तिक पूर्णिमा और देव दीपावली की अमर कथा | भगवान शिव त्रिपुरारी व काशी दीपदान", MaxTitleLength);
+            var script = $"""
+                [SCENE]: temple | night | glowing | IMAGE: sacred Kashi Ganga ghats illuminated with thousands of glowing earthen diyas at Karthik Purnima night
+                [CAST]: भगवान शिव | divine | sacred ash skin, crescent moon jata, gold trishul, bow
+                [CAST]: देवर्षि नारद मुनि | sage | saffron dhoti, wooden veena
+                [सूत्रधार]: (waving, wide) कार्तिक पूर्णिमा को मनाया जाने वाला देव दीपावली पर्व उस दिव्य रात्रि की स्मृति है जब स्वयं देवतागण स्वर्ग से काशी के गंगा घाटों पर लाखो दीप जलाने उतरे थे।
+                [देवर्षि नारद मुनि]: (surprised, praying) हे देवाधिदेव महादेव! तारकासुर के तीनों पुत्रों तारकाक्ष, कमलाक्ष और विद्युन्माली ने सोने, चांदी और लोहे के तीन अभेद्य नगर — 'त्रिपुर' बसाकर तीनों लोकों में हाहाकार मचा रखा है!
+                [भगवान शिव]: (proud, bow, closeUpSpeaker) शांत हो जाओ देवगण! जब धरती और आकाश स्वयं रथ बनें, सूर्य-चंद्र पहिये बनें और भगवान विष्णु मेरे बाण की शक्ति बनें — तब अहंकार के वे तीनों पुर एक ही बाण से भस्म होंगे: {mantra}।
+                [सूत्रधार]: (aarti, diya, wide) अभिजित क्षण में तीनों पुर एक सीध में आए और भगवान शिव त्रिपुरारी ने एक ही दिव्य पाशुपत बाण से त्रिपुरासुर का संहार कर दिया। हर्षित देवताओं ने कार्तिक पूर्णिमा को काशी के तट पर अनगिनत दीप प्रज्वलित कर देव दीपावली मनाई!
+                [सूत्रधार]: (praying) कथा की सीख — अहंकार चाहे कितना भी सुरक्षित किला बना ले, धर्म और करुणा की एकजुट ज्योति अंधकार को सदा के लिए मिटा देती है। {PanchangInviteHi}
+                """;
+            return (title, script);
+        }
+
         if (combined.Contains("markandeya", StringComparison.Ordinal)
             || combined.Contains("मार्कण्डेय", StringComparison.Ordinal)
             || combined.Contains("प्रदोष", StringComparison.Ordinal))
@@ -1419,7 +1684,7 @@ public static class AutomationContentComposer
                    [{speakerB}]: (proud, trishul, closeUpSpeaker) ठहरो धर्मराज! जो भक्त निष्काम प्रेम और प्रदोष भक्ति से मेरे चरणों में समर्पित होता है, काल उसे स्पर्श भी नहीं कर सकता। आज से मार्कण्डेय कल्प के अंत तक अजर-अमर रहेंगे!
                    [यमराज]: (praying, surprised) धन्य हो भक्तवत्सल महादेव! धन्य है बालक मार्कण्डेय की भक्ति — आज कालपाश स्वयं आपकी करुणा के आगे नतमस्तक है!
                    [{speakerA}]: (praying, twoShot) हे भक्तवत्सल शंभो! आपकी असीम कृपा से संपूर्ण जगत में महामृत्युंजय मंत्र और प्रदोष व्रत की महिमा सदैव अमर रहेगी।
-                   [सूत्रधार]: (praying, wide) आज की पावन कथा की सीख — कठिनतम संकट में भी भय के बजाय ईश्वर पर अडिग विश्वास और सद्कर्म ही मनुष्य को विजयी बनाते हैं। संपूर्ण प्रदोष व्रत विधि और दैनिक पंचांग देखें: {primaryLink}
+                   [सूत्रधार]: (praying, wide) आज की पावन कथा की सीख — कठिनतम संकट में भी भय के बजाय ईश्वर पर अडिग विश्वास और सद्कर्म ही मनुष्य को विजयी बनाते हैं। {PanchangInviteHi}
                    """
                 : $"""
                    [SCENE]: temple | sunset | glowing
@@ -1428,7 +1693,7 @@ public static class AutomationContentComposer
                    [SCENE]: cosmos | night | radiant
                    [यमराज]: (pointing, angry, baton) बालक मार्कण्डेय! तुम्हारे सोलह वर्ष पूर्ण हुए!
                    [{speakerB}]: (proud, trishul, closeUpSpeaker) ठहरो धर्मराज! मेरे अनन्य भक्त मार्कण्डेय पर कालपाश नहीं चल सकता — आज से यह अजर-अमर चिरंजीवी रहेगा!
-                   [सूत्रधार]: (praying) जीवन सीख — अटल श्रद्धा और समर्पण हर महासंकट को विजय में बदल देते हैं। पूरी कथा व पंचांग देखें: {primaryLink}
+                   [सूत्रधार]: (praying) जीवन सीख — अटल श्रद्धा और समर्पण हर महासंकट को विजय में बदल देते हैं। {PanchangInviteHi}
                    """;
             return (title, script);
         }
@@ -1449,7 +1714,7 @@ public static class AutomationContentComposer
                 [{speakerA}]: (proud) चिन्ता न करो नारद! विश्व के मंगल के लिए मैं इस विष को न भीतर जाने दूँगा और न बाहर फैलने दूँगा — मैं इसे अपने कंठ में ही धारण करूँगा।
                 [सूत्रधार]: महादेव ने निर्भय होकर हथेली पर संपूर्ण हलाहल विष लिया और जगत कल्याण की भावना से उसे कंठ में धारण कर लिया। विष के प्रभाव से महादेव का कंठ नीला हो गया और वे संपूर्ण ब्रह्मांड में 'नीलकंठ' कहलाए!
                 [{speakerB}]: (praying) धन्य हो करुणासागर नीलकंठ! आज आपने हमें सिखाया कि सच्चा नेतृत्व सुख बांटने में नहीं, बल्कि समाज के विष को भी प्रेम और धैर्य से थाम लेने में है। {mantra}।
-                [सूत्रधार]: कुछ समय पश्चात् धन्वंतरि भगवान अमृत कलश लेकर प्रकट हुए और देवताओं को नवजीवन प्राप्त हुआ। आज भी जीवन में सफलता से पहले संघर्षों का विष सामने आता है — जो धैर्य और परोपकार से उसे थाम लेता है, वही महान बनता है। पूरी कथा व दैनिक पंचांग देखें: {primaryLink}
+                [सूत्रधार]: कुछ समय पश्चात् धन्वंतरि भगवान अमृत कलश लेकर प्रकट हुए और देवताओं को नवजीवन प्राप्त हुआ। आज भी जीवन में सफलता से पहले संघर्षों का विष सामने आता है — जो धैर्य और परोपकार से उसे थाम लेता है, वही महान बनता है। {PanchangInviteHi}
                 """;
             return (title, script);
         }
@@ -1472,7 +1737,7 @@ public static class AutomationContentComposer
                    [सूत्रधार]: (sitting) नारद मुनि से मंत्र दीक्षा पाकर बालक ध्रुव ने मधुवन में निरंतर छह मास तक अखंड तपस्या की। उसके तेज से तीनों लोक आलोकित हो उठे!
                    [भगवान श्रीहरि विष्णु]: (proud, closeup) उठो प्यारे वत्स ध्रुव! मैं तुम्हारे निश्छल समर्पण से अत्यंत प्रसन्न हूँ। आज मैं तुम्हें आकाश मंडल में सप्तर्षियों से भी ऊपर अटल 'ध्रुव तारा' का अमर स्थान वरदान में देता हूँ, जो युगों-युगों तक दिशा दिखाएगा!
                    [{speakerA}]: (praying) हे प्रभो नारायण! आज मेरा जीवन सफल हुआ। जब भक्त निष्ठा से पुकारता है, तो आप स्वयं दर्शन देते हैं।
-                   [सूत्रधार]: (praying) आज की पावन कथा की सीख — उम्र चाहे छोटी हो या परिस्थिति कितनी भी कठिन, सच्ची श्रद्धा, गुरु का मार्गदर्शन और अडिग संकल्प असंभव को भी संभव बना देता है। पूरी कथा व दैनिक पंचांग पढ़े: {primaryLink}
+                   [सूत्रधार]: (praying) आज की पावन कथा की सीख — उम्र चाहे छोटी हो या परिस्थिति कितनी भी कठिन, सच्ची श्रद्धा, गुरु का मार्गदर्शन और अडिग संकल्प असंभव को भी संभव बना देता है। {PanchangInviteHi}
                    """
                 : $"""
                    [सूत्रधार]: (waving) महाराज उत्तानपाद के पाँच वर्षीय पुत्र ध्रुव जब माता सुरुचि के कठोर वचनों से आहत हुए, तो माता सुनीति ने उन्हें राजमहल के बजाय भगवान श्रीहरि से अटल पद मांगने की प्रेरणा दी।
@@ -1483,7 +1748,7 @@ public static class AutomationContentComposer
                    [{speakerB}]: (proud) तुम्हारा संकल्प हिमालय जैसा अडिग है ध्रुव! यमुना तट पर मधुवन में जाकर एकाग्र मन से पावन मंत्र जपो: {mantra}।
                    [SCENE]: cosmos | night | radiant
                    [सूत्रधार]: (praying) छह मास की अखंड तपस्या के बाद स्वयं भगवान विष्णु ने दर्शन देकर ध्रुव को आकाश में अमर 'ध्रुव तारा' बनने का वरदान दिया!
-                   [सूत्रधार]: कथा की सीख — उम्र या बाधा चाहे जैसी हो, निश्छल भक्ति, गुरु कृपा और अटूट संकल्प हर असंभव लक्ष्य दिलाते हैं। पूरी कथा पढ़ें: {primaryLink}
+                   [सूत्रधार]: कथा की सीख — उम्र या बाधा चाहे जैसी हो, निश्छल भक्ति, गुरु कृपा और अटूट संकल्प हर असंभव लक्ष्य दिलाते हैं। {PanchangInviteHi}
                    """;
             return (title, script);
         }
@@ -1497,20 +1762,44 @@ public static class AutomationContentComposer
                 [{speakerB}]: राजन्! आपकी परीक्षा अभी समाप्त नहीं हुई। जब राजपाट, परिवार और सर्वस्व छिन जाएगा, तब क्या यह सत्य का संकल्प टिक पाएगा?
                 [{speakerA}]: धन, सिंहासन और वैभव तो अस्थायी हैं गुरुदेव, किंतु सत्य और धर्म अनंत हैं। मैं हर कठिन परीक्षा स्वीकार करता हूँ।
                 [{speakerB}]: धन्य हो हरिश्चंद्र! आपके अटल सत्य ने आज स्वर्ग को भी नतमस्तक कर दिया। यही धर्म की वास्तविक विजय है: {mantra}।
-                [सूत्रधार]: कथा की सीख — जो मनुष्य घोर संकट में भी सत्य और धर्म का साथ नहीं छोड़ता, अंततः ईश्वर स्वयं उसकी रक्षा व यश की पुनः स्थापना करते हैं। पूरी कथा व पंचांग देखें: {primaryLink}
+                [सूत्रधार]: कथा की सीख — जो मनुष्य घोर संकट में भी सत्य और धर्म का साथ नहीं छोड़ता, अंततः ईश्वर स्वयं उसकी रक्षा व यश की पुनः स्थापना करते हैं। {PanchangInviteHi}
                 """;
             return (title, script);
         }
 
         if (combined.Contains("prahlad", StringComparison.Ordinal) || combined.Contains("प्रह्लाद", StringComparison.Ordinal))
         {
-            var title = Truncate($"भक्त प्रह्लाद की अटूट भक्ति और श्रीहरि की रक्षा | संपूर्ण पौराणिक कथा", MaxTitleLength);
+            var title = Truncate($"भक्त प्रह्लाद की अटूट भक्ति और नरसिंह अवतार की कथा | संपूर्ण पौराणिक कथा", MaxTitleLength);
             var script = $"""
-                [सूत्रधार]: असुरराज हिरण्यकशिपु के महल में जन्म लेकर भी बालक प्रह्लाद बचपन से ही भगवान श्रीहरि के अनन्य भक्त थे। पिता के घोर विरोध और प्राणदंड के बीच भी उन्होंने हरिनाम नहीं छोड़ा।
-                [{speakerA}]: देवर्षि, चारों ओर भय और अत्याचार का साम्राज्य है, फिर भी मेरे हृदय में केवल भगवान श्रीहरि का नाम गूँजता है: {mantra}।
-                [{speakerB}]: प्यारे प्रह्लाद, जहाँ निश्छल प्रेम और विश्वास होता है, वहाँ अग्नि, विष और पाषाण के खंभे में भी परमात्मा प्रकट हो जाते हैं!
-                [सूत्रधार]: जब क्रोधित हिरण्यकशिपु ने खंभे पर प्रहार किया, तो स्वयं भगवान श्रीहरि ने अद्भुत नरसिंह अवतार लेकर अपने भक्त की रक्षा की!
-                [सूत्रधार]: कथा की सीख — निश्छल भक्ति और धर्म का विश्वास संसार के हर भय और अहंकार पर विजयी होता है। पूरी कथा व पंचांग देखें: {primaryLink}
+                [SCENE]: palace court | dawn | regal | IMAGE: grand golden ancient palace courtyard with tall carved pillars
+                [CAST]: हिरण्यकशिपु | king | crimson and gold asura armor with horned mukut crown and patta
+                [CAST]: भक्त प्रह्लाद | child | bright saffron silk dhoti and angavastram patta
+                [CAST]: होलिका | woman | deep crimson and gold silk saree with heavy ornaments
+                [CAST]: भगवान नरसिंह | divine | fierce half-lion half-human avatar with fiery golden mane, ornate mukut inside mane, pitambara dhoti, flowing patta and sudarshana chakra
+                [सूत्रधार]: असुरराज हिरण्यकशिपु के महल में जन्म लेकर भी बालक प्रह्लाद बचपन से ही भगवान श्रीहरि के अनन्य भक्त थे। पिता के घोर विरोध के बीच भी उन्होंने हरिनाम नहीं छोड़ा।
+                [हिरण्यकशिपु]: मूर्ख बालक प्रह्लाद! मेरी सभा में मेरे अतिरिक्त कोई विष्णु नाम नहीं ले सकता। यदि तू नहीं माना तो कठोर प्राणदंड पाएगा!
+                [भक्त प्रह्लाद]: पूज्य पिताश्री, कण-कण में केवल श्रीहरि विद्यमान हैं: {mantra}।
+                [SCENE]: himalaya | day | perilous | IMAGE: steep rocky mountain cliff edge with swirling clouds and glowing golden lotus light
+                [हिरण्यकशिपु]: सैनिकों, इसे ऊँचे पर्वत शिखर से नीचे गहरी खाई में फेंक दो! देखें इसका विष्णु कैसे बचाता है!
+                [भक्त प्रह्लाद]: श्रीहरि की कृपा से गहरी खाई से गिरने पर भी मुझे तनिक चोट नहीं आई!
+                [SCENE]: palace court | night | dark | IMAGE: shadowy ancient stone chamber with venomous snakes and iron bars
+                [हिरण्यकशिपु]: अब इसे विषैले सर्पों के बीच बंद करके डसवा दो — देखें यह कैसे जीवित बचता है!
+                [भक्त प्रह्लाद]: सर्पों का विष भी प्रभु की कृपा से मेरे लिए अमृत बन गया और मैं सुरक्षित बच गया!
+                [हिरण्यकशिपु]: इसे मतवाले हाथी के पैरों तले कुचलवा दो! आज इसका अंत निश्चित है!
+                [भक्त प्रह्लाद]: गजराज ने भी श्रीहरि की माया से नतमस्तक होकर मेरी रक्षा की!
+                [SCENE]: temple | night | fiery | IMAGE: blazing sacred agnikunda bonfire pit in stone temple courtyard
+                [होलिका]: भैया हिरण्यकशिपु, मुझे वरदान से अग्नि नहीं जला सकती — मैं प्रह्लाद को गोद में लेकर इस धधकती ज्वाला में बैठती हूँ।
+                [सूत्रधार]: प्रचंड अग्निकुंड की ज्वाला में अहंकारी होलिका भस्म हो गई, परंतु प्रभु के रक्षा कवच से भक्त प्रह्लाद पूर्णतः सुरक्षित बाहर निकल आए!
+                [SCENE]: palace court | sunset | dramatic | IMAGE: cracked stone sabha pillar splitting in dusk godhuli twilight at palace threshold
+                [हिरण्यकशिपु]: तेरा हरि इस खंभे में है? गदा के प्रहार से आज मैं इस खंभे को तोड़ता हूँ!
+                [सूत्रधार]: जैसे ही हिरण्यकशिपु ने गदा से खंभे पर प्रहार किया, गोधूलि वेला में खंभा फटा और प्रचंड गर्जना के साथ भगवान नरसिंह प्रकट हो गए!
+                [भगवान नरसिंह]: दुष्ट असुर! न दिन है न रात, न घर है न बाहर — चौखट पर मेरी जंघा पर अब तेरे अधर्म का अंत होगा!
+                [हिरण्यकशिपु]: त्राहिमाम! न नर, न पशु, न अस्त्र, न शस्त्र! मुझे क्षमा कर दो प्रह्लाद के ईश्वर!
+                [भगवान नरसिंह]: अपने तीक्ष्ण नखों से तेरे अत्याचार का अंत कर आज मैं धर्म की पुनर्स्थापना करता हूँ!
+                [SCENE]: palace court | sunset | serene | IMAGE: golden dusk palace courtyard after victory bathed in flower petals and celestial peace
+                [भक्त प्रह्लाद]: हे शरणागतवत्सल भगवान नरसिंह, आपके इस दिव्य अवतार की जय हो!
+                [भगवान नरसिंह]: वत्स प्रह्लाद, तुम्हारी निष्काम भक्ति से मैं अत्यंत प्रसन्न हूँ। युगों-युगों तक तुम्हारा नाम धर्म का प्रतीक रहेगा।
+                [सूत्रधार]: कथा की सीख — निश्छल भक्ति और धर्म का विश्वास हर संकट पर विजयी होता है। {PanchangInviteHi}
                 """;
             return (title, script);
         }
@@ -1524,7 +1813,7 @@ public static class AutomationContentComposer
             [{speakerB}]: आप बिल्कुल सत्य कह रहे हैं {speakerA}। {summaryBody}
             [{speakerA}]: कठिन परिस्थिति और बदले हुए समय में भी जब मनुष्य अपने कर्तव्य और भक्ति से नहीं डिगता, तब ईश्वरीय कृपा स्वयं मार्ग बनाती है।
             [{speakerB}]: आइए स्मरण करें यह पावन मंत्र: {mantra}।
-            [सूत्रधार]: कथा की अमूल्य सीख — {moralBody} इसी प्रकार की प्रेरणादायक कथाएं और दैनिक पंचांग पढ़ने के लिए पिन कमेंट के लिंक पर क्लिक करें: {primaryLink}
+            [सूत्रधार]: कथा की अमूल्य सीख — {moralBody} {PanchangInviteHi}
             """;
 
         return (genericTitle, genericScript);
@@ -1767,6 +2056,21 @@ public static class AutomationContentComposer
             || loc.Contains("India", StringComparison.OrdinalIgnoreCase) && !loc.Contains(',', StringComparison.Ordinal)
             || loc.Contains("IST", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static string PanchangInviteHi => BuildSpokenPortalInvite(
+        isHindi: true,
+        portalDomainSpoken: "पंचांग डॉट केशवसिंह डॉट इन",
+        focusClause: "शहर का सटीक सूर्योदय, चौघड़िया, होरा, और अपने नाम व राशि से आज का संपूर्ण राशिफल");
+
+    private static string PanchangInviteEn => BuildSpokenPortalInvite(
+        isHindi: false,
+        portalDomainSpoken: "panchang dot keshavsingh dot in",
+        focusClause: "city-wise Panchang, Choghadiya, Hora, and your personalized Rashifal by name");
+
+    public static string BuildSpokenPortalInvite(bool isHindi, string portalDomainSpoken, string focusClause) =>
+        isHindi
+            ? $"अपने {focusClause} देखने के लिए हमारी वेबसाइट {portalDomainSpoken} पर जरूर विज़िट करें — पूरा लिंक नीचे डिस्क्रिप्शन में दिया गया है।"
+            : $"Please visit our website {portalDomainSpoken} for {focusClause} — full links are available in the description below.";
 
     private static string Truncate(string input, int maxLen) =>
         input.Length <= maxLen ? input : input[..(maxLen - 1)].TrimEnd() + "…";

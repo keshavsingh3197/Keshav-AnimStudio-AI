@@ -49,6 +49,7 @@ public sealed class AdminController(
     IAiProviderRegistry registry,
     IAiSettingsStore settings,
     IAiCredentialStore credentials,
+    IAiApiKeyPoolStore apiKeys,
     IAiQuotaGuard quota,
     IAiUsageRepository usage,
     IAiSecretResolver secrets,
@@ -112,6 +113,7 @@ public sealed class AdminController(
     {
         var stored = await settings.GetAsync(ct);
         var options = aiOptions.CurrentValue;
+        var vendorPool = await apiKeys.ListVendorsAsync(ct);
         var keys = await credentials.DescribeAllAsync(ct);
 
         var rows = new List<AdminProviderResponse>();
@@ -123,6 +125,16 @@ public sealed class AdminController(
             var key = keys.FirstOrDefault(k =>
                 string.Equals(k.ProviderId, provider.Id.Value, StringComparison.OrdinalIgnoreCase))
                 ?? AiCredentialStatus.NotConfigured(provider.Id.Value);
+
+            var vendorName = AiProviderVendors.VendorFor(provider.Id.Value);
+            var matchingPoolKeys = vendorPool
+                .FirstOrDefault(v => string.Equals(v.Vendor, vendorName, StringComparison.OrdinalIgnoreCase))
+                ?.Keys
+                .Where(k => k.Enabled && (k.ProviderIds.Count == 0 ||
+                    k.ProviderIds.Contains(provider.Id.Value, StringComparer.OrdinalIgnoreCase)))
+                .ToList() ?? [];
+            var poolKeyCount = matchingPoolKeys.Count;
+            var poolReadyCount = matchingPoolKeys.Count(k => k.Status == AiApiKeyHealthStatus.Ready);
 
             var chain = options.ChainFor(provider.Capability);
             var position = chain
@@ -179,7 +191,9 @@ public sealed class AdminController(
                 descriptor?.DefaultBaseUrl,
                 descriptor?.DefaultModel,
                 [.. (descriptor?.Models ?? []).Select(m =>
-                    new AdminModelChoiceResponse(m.Id, m.Label, m.Detail, m.Tier, m.Recommended))]));
+                    new AdminModelChoiceResponse(m.Id, m.Label, m.Detail, m.Tier, m.Recommended))],
+                poolKeyCount,
+                poolReadyCount));
         }
 
         var chains = Enum.GetValues<AiCapability>()
@@ -259,17 +273,8 @@ public sealed class AdminController(
                 new ApiError("key-required", "Paste the provider's API key.")));
         }
 
-        if (string.IsNullOrWhiteSpace(configuration["Encryption:DataKey"]))
-        {
-            const string message =
-                "This server has no encryption key configured, so a provider key cannot be " +
-                "stored safely. Set Encryption:DataKey through user-secrets or the " +
-                "Encryption__DataKey environment variable, or supply the provider key as " +
-                "Ai__Secrets__" + "<provider> instead.";
-
-            return BadRequest(ApiResponse<AdminProvidersResponse>.Fail(
-                message, new ApiError("encryption-not-configured", message)));
-        }
+        if (CheckEncryptionConfigured<AdminProvidersResponse>() is { } encryptionError)
+            return encryptionError;
 
         var status = await credentials.SetAsync(id, request.Key, currentUser.UserId, ct);
 
@@ -349,6 +354,233 @@ public sealed class AdminController(
             string.Join(" -> ", aiOptions.CurrentValue.ChainFor(parsed)), RemoteAddress(), ct);
 
         return await Providers(ct);
+    }
+
+    // --- api keys pool (multi-key failover) ----------------------------------------------
+
+    [HttpGet("api-keys")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeysResponse>>> ApiKeys(CancellationToken ct) =>
+        Ok(ApiResponse<AdminApiKeysResponse>.Ok(await BuildApiKeysResponseAsync(ct)));
+
+    [HttpPost("api-keys")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeysResponse>>> CreateApiKey(
+        [FromBody] CreateAdminApiKeyRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Key))
+        {
+            return BadRequest(ApiResponse<AdminApiKeysResponse>.Fail(
+                "Paste the API key.", new ApiError("key-required", "Paste the API key.")));
+        }
+
+        if (CheckEncryptionConfigured<AdminApiKeysResponse>() is { } encryptionError)
+            return encryptionError;
+
+        var created = await apiKeys.AddKeyAsync(
+            new CreateAiApiKeyCommand(
+                request.Vendor,
+                request.Label,
+                request.Notes,
+                request.ProviderIds,
+                request.Key,
+                request.Enabled,
+                request.Priority),
+            currentUser.UserId,
+            ct);
+
+        await audit.RecordAsync(
+            AdminAuditService.ApiKeyCreated,
+            $"{created.Vendor}:{created.Label}",
+            null,
+            $"fingerprint {created.Fingerprint}",
+            RemoteAddress(),
+            ct);
+
+        return await ApiKeys(ct);
+    }
+
+    [HttpPut("api-keys/{keyId}")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeysResponse>>> UpdateApiKey(
+        string keyId, [FromBody] UpdateAdminApiKeyRequest request, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(request?.Key) &&
+            CheckEncryptionConfigured<AdminApiKeysResponse>() is { } encryptionError)
+        {
+            return encryptionError;
+        }
+
+        var updated = await apiKeys.UpdateKeyAsync(
+            keyId,
+            new UpdateAiApiKeyCommand(
+                request?.Label ?? string.Empty,
+                request?.Notes,
+                request?.ProviderIds,
+                request?.Enabled ?? true,
+                request?.Key,
+                request?.ClearCooldown ?? false),
+            currentUser.UserId,
+            ct);
+
+        await audit.RecordAsync(
+            AdminAuditService.ApiKeyUpdated,
+            $"{updated.Vendor}:{updated.Label}",
+            null,
+            $"enabled={updated.Enabled}, fingerprint {updated.Fingerprint}",
+            RemoteAddress(),
+            ct);
+
+        return await ApiKeys(ct);
+    }
+
+    [HttpPut("api-keys/vendor/{vendor}/reorder")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeysResponse>>> ReorderApiKeys(
+        string vendor, [FromBody] ReorderAdminApiKeysRequest request, CancellationToken ct)
+    {
+        await apiKeys.ReorderVendorAsync(
+            vendor, request?.OrderedKeyIds ?? [], currentUser.UserId, ct);
+
+        await audit.RecordAsync(
+            AdminAuditService.ApiKeyReordered,
+            vendor,
+            null,
+            $"{request?.OrderedKeyIds?.Count ?? 0} keys ordered",
+            RemoteAddress(),
+            ct);
+
+        return await ApiKeys(ct);
+    }
+
+    [HttpPost("api-keys/{keyId}/test")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeyTestResponse>>> TestApiKey(
+        string keyId, CancellationToken ct)
+    {
+        var verdict = await apiKeys.TestKeyAsync(keyId, ct);
+
+        await audit.RecordAsync(
+            AdminAuditService.ApiKeyTested,
+            $"{verdict.Vendor}:{verdict.Label}",
+            null,
+            verdict.Healthy ? $"ok ({verdict.StatusCode})" : $"failed ({verdict.StatusCode})",
+            RemoteAddress(),
+            ct);
+
+        var snapshot = await BuildApiKeysResponseAsync(ct);
+        return Ok(ApiResponse<AdminApiKeyTestResponse>.Ok(new AdminApiKeyTestResponse(
+            verdict.KeyId,
+            verdict.Vendor,
+            verdict.Label,
+            verdict.Healthy,
+            verdict.StatusCode,
+            verdict.Reason,
+            snapshot)));
+    }
+
+    [HttpPost("api-keys/{keyId}/reset-status")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeysResponse>>> ResetApiKeyStatus(
+        string keyId, CancellationToken ct)
+    {
+        var updated = await apiKeys.ResetKeyStatusAsync(keyId, ct)
+            ?? throw new KeyNotFoundException();
+
+        await audit.RecordAsync(
+            AdminAuditService.ApiKeyStatusReset,
+            $"{updated.Vendor}:{updated.Label}",
+            "cooldown",
+            "ready",
+            RemoteAddress(),
+            ct);
+
+        return await ApiKeys(ct);
+    }
+
+    [HttpDelete("api-keys/{keyId}")]
+    public async Task<ActionResult<ApiResponse<AdminApiKeysResponse>>> DeleteApiKey(
+        string keyId, CancellationToken ct)
+    {
+        var deleted = await apiKeys.DeleteKeyAsync(keyId, ct);
+        if (deleted)
+        {
+            await audit.RecordAsync(
+                AdminAuditService.ApiKeyDeleted,
+                keyId,
+                "installed",
+                "removed",
+                RemoteAddress(),
+                ct);
+        }
+
+        return await ApiKeys(ct);
+    }
+
+    private ActionResult<ApiResponse<T>>? CheckEncryptionConfigured<T>()
+    {
+        if (!string.IsNullOrWhiteSpace(configuration["Encryption:DataKey"]))
+            return null;
+
+        const string message =
+            "This server has no encryption key configured, so a provider key cannot be " +
+            "stored safely. Set Encryption:DataKey through user-secrets or the " +
+            "Encryption__DataKey environment variable, or supply the provider key as " +
+            "Ai__Secrets__" + "<provider> instead.";
+
+        return BadRequest(ApiResponse<T>.Fail(
+            message, new ApiError("encryption-not-configured", message)));
+    }
+
+    private async Task<AdminApiKeysResponse> BuildApiKeysResponseAsync(CancellationToken ct)
+    {
+        var options = aiOptions.CurrentValue;
+        var vendorList = await apiKeys.ListVendorsAsync(ct);
+
+        var vendors = vendorList.Select(v =>
+        {
+            var providerDetails = v.ProviderIds.Select(pid =>
+            {
+                var desc = KnownAiProviders.Find(pid);
+                var cfg = AiProviderId.TryParse(pid, out var parsed) ? options.ProviderFor(parsed) : null;
+                return new AdminApiKeyVendorProviderResponse(
+                    pid,
+                    desc?.DisplayName ?? pid,
+                    desc?.Capability.ToString() ?? string.Empty,
+                    cfg?.Enabled ?? false,
+                    cfg?.Model);
+            }).ToList();
+
+            var keyDtos = v.Keys.Select(k => new AdminApiKeyResponse(
+                k.Id,
+                k.Vendor,
+                k.Label,
+                k.Notes,
+                k.ProviderIds,
+                k.Priority,
+                k.Enabled,
+                k.Source.ToString(),
+                k.Masked,
+                k.Fingerprint,
+                k.CreatedAtUtc,
+                k.UpdatedAtUtc,
+                k.RotatedAtUtc,
+                k.LastUsedAtUtc,
+                k.LastSucceededAtUtc,
+                k.CooldownUntilUtc,
+                k.CooldownReason,
+                k.LastErrorCode,
+                k.UsageDayBucket,
+                k.UsageCountToday,
+                k.Status.ToString())).ToList();
+
+            return new AdminApiKeyVendorResponse(
+                v.Vendor,
+                v.DisplayName,
+                v.Description,
+                v.KeyUrl,
+                v.ExpandedByDefault,
+                providerDetails,
+                keyDtos);
+        }).ToList();
+
+        return new AdminApiKeysResponse(
+            vendors,
+            !string.IsNullOrWhiteSpace(configuration["Encryption:DataKey"]));
     }
 
     // --- usage ---------------------------------------------------------------------------

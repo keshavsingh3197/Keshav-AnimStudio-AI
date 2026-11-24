@@ -68,6 +68,19 @@ public sealed class MongoIndexInitializer(
                     .Ascending(r => r.DayBucket))
             ], ct).ConfigureAwait(false);
 
+            // Key pool entries are listed by vendor priority and checked by SHA-256 fingerprint.
+            var aiApiKeys = mongo.GetCollection<AiApiKeyEntry>(MongoCollections.AiApiKeys);
+            await aiApiKeys.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<AiApiKeyEntry>(Builders<AiApiKeyEntry>.IndexKeys
+                    .Ascending(k => k.Vendor)
+                    .Ascending(k => k.Priority)
+                    .Ascending(k => k.CreatedAtUtc)),
+                new CreateIndexModel<AiApiKeyEntry>(Builders<AiApiKeyEntry>.IndexKeys
+                    .Ascending(k => k.Vendor)
+                    .Ascending(k => k.Fingerprint))
+            ], ct).ConfigureAwait(false);
+
             // Templates are append-only, so every read is "the highest version of this key".
             var prompts = mongo.GetCollection<PromptTemplate>(MongoCollections.PromptTemplates);
             await prompts.Indexes.CreateOneAsync(

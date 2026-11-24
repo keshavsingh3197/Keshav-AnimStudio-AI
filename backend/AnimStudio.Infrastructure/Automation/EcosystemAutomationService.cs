@@ -376,6 +376,7 @@ public sealed partial class EcosystemAutomationService(
             : draft.Location.Trim();
         rule.PreferredPublishTime = NormalizeTimeHhMm(draft.PreferredPublishTime);
         rule.TimeZoneId = string.IsNullOrWhiteSpace(draft.TimeZoneId) ? "Asia/Kolkata" : draft.TimeZoneId.Trim();
+        rule.PublishDaysBefore = Math.Clamp(draft.PublishDaysBefore, 0, 3);
         rule.DaysOfWeek = draft.DaysOfWeek.Where(d => d is >= 0 and <= 6).Distinct().OrderBy(d => d).ToList();
         rule.FestivalLeadDays = Math.Clamp(draft.FestivalLeadDays, 0, 7);
         rule.FunnelWebsiteKeys = draft.FunnelWebsiteKeys.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim().ToLowerInvariant()).Distinct().ToList();
@@ -496,11 +497,12 @@ public sealed partial class EcosystemAutomationService(
         panchangRule.ShowWatermark = false;
         panchangRule.PreferFast2DAnimation = true;
 
-        var rashifalRule = BuildStarterRule(userId, 7, "Daily Rashifal (All 12 Rashis Fast 2D)", "Daily zodiac meaning, transit forecast & Vedic Upay grounded in live Panchang Chandra Rashi.",
+        var rashifalRule = BuildStarterRule(userId, 7, "Daily Rashifal Teaser -> Website Redirect", "Optional daily Rashifal teaser directing viewers to panchang.keshavsingh.in/rashifal for personalized name lookup (disabled by default so Panchang handles daily website redirects cleanly).",
             AutomationSourceType.DailyRashifal, devotionalChannel, rashifalTopic, "06:00", settings, ["panchang", "studio"], "22", now);
         rashifalRule.ShowWatermark = false;
         rashifalRule.PreferFast2DAnimation = true;
         rashifalRule.TargetSeconds = 30;
+        rashifalRule.Enabled = false;
 
         var kathaRule = BuildStarterRule(userId, 3, "Evening Daily Vedic Katha & Mantra", "Sacred spiritual full-story video (>3 min 16:9) + mantra from Hindu Panchang cultural feed.",
             AutomationSourceType.DailyKatha, devotionalChannel, kathaTopic, "19:00", settings, ["panchang", "studio"], "22", now);
@@ -642,7 +644,16 @@ public sealed partial class EcosystemAutomationService(
                         && string.Equals(p.DateKey, postDateKey, StringComparison.Ordinal)));
                 }
 
-                if (existing is not null && !forceRegenerate)
+                var isFestivalOverride = existing is not null
+                    && rule.SourceType == AutomationSourceType.DailyKatha
+                    && !string.Equals(existing.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase)
+                    && ChannelContentDeduplicator.HasFestivalMatchingKatha(dedupedSignals.DailyKatha, dedupedSignals.UpcomingFestivals, postDateKey);
+                if (isFestivalOverride && existing is { Status: AutomationPostStatus.Publishing or AutomationPostStatus.Published })
+                {
+                    existing = null;
+                }
+
+                if (existing is not null && !forceRegenerate && !isFestivalOverride)
                 {
                     touchedPosts.Add(existing);
                     continue;
@@ -657,7 +668,7 @@ public sealed partial class EcosystemAutomationService(
                     ? await TryRefineWithAiAsync(userId, rule, composed, ct).ConfigureAwait(false)
                     : (Content: composed, UsedAi: false);
 
-                var scheduledUtc = ComputeScheduledUtc(postDateKey, rule.PreferredPublishTime, rule.TimeZoneId);
+                var scheduledUtc = ComputeScheduledUtc(postDateKey, rule.PreferredPublishTime, rule.TimeZoneId, rule.PublishDaysBefore);
                 var post = existing ?? new AutomationPost
                 {
                     Id = $"ap_{Guid.NewGuid():n}",
@@ -692,7 +703,7 @@ public sealed partial class EcosystemAutomationService(
                 post.Language = rule.Language;
                 post.PrimaryDestinationUrl = refined.Content.PrimaryDestinationUrl;
                 post.TrackedFunnelUrls = [.. refined.Content.TrackedLinks];
-                post.ScheduledAtUtc ??= scheduledUtc;
+                post.ScheduledAtUtc = forceRegenerate ? scheduledUtc : (post.ScheduledAtUtc ?? scheduledUtc);
                 post.GeneratedByAi = refined.UsedAi;
                 post.CommunityPostText = refined.Content.CommunityPostText;
                 post.CommunityPollOptions = [.. (refined.Content.CommunityPollOptions ?? [])];
@@ -729,7 +740,7 @@ public sealed partial class EcosystemAutomationService(
                         || (rule.SourceType is AutomationSourceType.HinduPanchang or AutomationSourceType.DailyRashifal
                             && settings.PanchangUseFast2DAnimation));
 
-                if (existing is not null && forceRegenerate)
+                if (existing is not null && (forceRegenerate || isFestivalOverride))
                 {
                     post.AttachedHandoffId = null;
                     post.AttachedHandoffTitle = null;
@@ -879,11 +890,17 @@ public sealed partial class EcosystemAutomationService(
     internal static bool IsSingleSlotSource(AutomationSourceType sourceType) =>
         sourceType is not (AutomationSourceType.HinduFestival or AutomationSourceType.DailyRashifal);
 
-    /// <summary>The identity of a card's daily slot: rule + day, or the full fingerprint for multi-item festival rules.</summary>
+    /// <summary>The identity of a card's daily slot: rule + day, or the full fingerprint for multi-item festival rules and festival-specific kathas.</summary>
     internal static string SlotKeyOf(AutomationPost post) =>
-        IsSingleSlotSource(post.SourceType)
+        IsSingleSlotSource(post.SourceType) && !IsFestivalSpecificKatha(post)
             ? $"{post.DateKey}:{post.RuleId}"
             : post.Fingerprint.ToLowerInvariant();
+
+    private static bool IsFestivalSpecificKatha(AutomationPost post) =>
+        post.SourceType == AutomationSourceType.DailyKatha
+        && !string.IsNullOrWhiteSpace(post.DateKey)
+        && !string.IsNullOrWhiteSpace(post.SourceItemKey)
+        && post.SourceItemKey.StartsWith($"katha:{post.DateKey}:", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A duplicate that can be dropped without losing anything on YouTube or an in-flight job.</summary>
     private static bool IsDisposableDuplicate(AutomationPost post) =>
@@ -2050,9 +2067,12 @@ public sealed partial class EcosystemAutomationService(
         if (settings.AutoPrepareDaily)
         {
             var enabledRules = await repository.ListAllEnabledRulesAsync(300, ct).ConfigureAwait(false);
+            var maxRuleLeadDays = enabledRules.Count > 0
+                ? enabledRules.Max(r => Math.Clamp(r.PublishDaysBefore, 0, 3))
+                : 0;
             var bufferDays = settings.AutoFillBufferInBackground
                 ? Math.Clamp(settings.AdvanceBufferDays <= 0 ? 14 : settings.AdvanceBufferDays, 7, 14)
-                : 1;
+                : Math.Max(1, maxRuleLeadDays + 1);
             foreach (var group in enabledRules.GroupBy(r => r.UserId, StringComparer.Ordinal))
             {
                 var dateKey = ResolveDateKey(null, settings.DefaultTimeZone);
@@ -3164,7 +3184,7 @@ public sealed partial class EcosystemAutomationService(
                 IncludeCaptions = true,
                 IncludeAmbientAudio = stage.IncludeBackgroundMusic || songLease.Path is not null,
                 CustomBgmPath = songLease.Path,
-                BgmVolumePercent = stage.BgmVolumePercent ?? (isDevotionalReel ? 18 : null),
+                BgmVolumePercent = stage.BgmVolumePercent ?? (isDevotionalReel ? 18 : post.SourceType is AutomationSourceType.DailyKatha or AutomationSourceType.HinduFestival ? 20 : null),
                 IsSeamlessLoop = post.SourceType == AutomationSourceType.FunnyComedy || duration <= 30,
                 IncludeSpeech = true,
                 VoiceProfileId = verifiedVoiceId,
@@ -3204,7 +3224,7 @@ public sealed partial class EcosystemAutomationService(
             post.AttachedVideoSourceLabel = $"{engineBadge} ({rendered.ThemeDisplayName}, {rendered.DurationSeconds:0}s{extras})";
             if (hasVoiceWarning)
             {
-                var voiceAlert = $"Voice unavailable: {rendered.SpeechWarning} Re-enable Google gTTS fallback in AI Settings or wait for quota reset, then regenerate.";
+                var voiceAlert = $"Voice unavailable: {rendered.SpeechWarning} Check your configured Speech provider / API key / quota in Admin -> AI Providers, then regenerate.";
                 if (string.IsNullOrWhiteSpace(post.Notes))
                     post.Notes = voiceAlert;
                 else if (!post.Notes.Contains("Voice unavailable:", StringComparison.OrdinalIgnoreCase))
@@ -3518,7 +3538,7 @@ public sealed partial class EcosystemAutomationService(
         var structureRules = isComedy
             ? $"COMEDY PLAYBOOK ({effectiveComedyStyle}): 1) Instant cold-open conflict hook on line 1 (zero formal intro). 2) Fast back-and-forth {ComedyCraftGuide.DescribeTone(effectiveComedyStyle, post.Language)} 3) Rule-of-three escalation + mid-video meme reaction beat + unexpected twist payoff (NO moral sermon)."
             : (isFullStory
-                ? "STORY (<3 min): 1) [सूत्रधार]/Narrator context hook: who, where, why. 2) Chronological scenes across changing locations (court -> forest -> ashram -> climax). 3) Every speaking character in `cast` with a detailed English `look`. 4) Narrator states the moral, then the CTA."
+                ? "STORY (<3 min): 1) [सूत्रधार]/Narrator context hook: who, where, why. 2) Enact EVERY major obstacle/miracle as its own dedicated visual scene using `[SCENE]: <setting> | <dawn/day/sunset/night> | <mood>` (never summarize major trials in passing — e.g. for Prahlad show mountain cliff rescue, venomous serpents/सर्प, royal elephant/हाथी charge & rescue, Holika Agnikunda pyre/अग्नि परीक्षा where she burns and boy survives, Gada pillar strike, Narasimha bursting at dusk गोधूलि चौखट with जंघा subdue, AND final serene blessing with Narasimha & Prahlad together). 3) Every speaking character in `[CAST]: Name | role | attire with patta/mukut details`. 4) Narrator states the moral + CTA while heroes stand visible."
                 : "STORY (<=60s): 1) Narrator hook: who and why. 2) Chronological dialogue scenes with changing locations and consistent `cast` looks. 3) Moral, then CTA.");
         // Retention on YouTube is decided by the pictures as much as the words: a scene that sits on one image too long,
         // or a character whose face changes between scenes, is where viewers leave.
@@ -3660,11 +3680,12 @@ public sealed partial class EcosystemAutomationService(
             ? $"""
                - Structured Story Dialogue Format (MANDATORY):
                  1) Opening line: Begin with `[सूत्रधार]: ...` (or `[Narrator]: ...`) giving a crisp 1-2 sentence CONTEXT HOOK introducing who, where, and why so new viewers immediately relate.
-                 2) Chronological Multi-Scene & Multi-Character Progression: Enact the story step-by-step using `[Character Name]: spoken line` turns across changing locations (conflict -> journey/question -> turning point/guidance -> climax/resolution), NOT a static lecture on one background.
+                 2) Chronological Multi-Scene & Multi-Character Progression: Enact EVERY key miracle, danger, or turning point step-by-step in its own `[SCENE]: <setting> | <dawn/day/sunset/night> | <mood>` block with dialogue + visible survival/rescue outcomes (e.g., mountain cliff, venomous snakes/सर्प, elephant/हाथी charge, Holika fire/होलिका अग्नि, pillar shatter, climax, AND final serene joint blessing), NOT passive static narration on one background. Always use concrete setting names (`palace court`, `river ghat`, `temple`, `forest ashram`, `himalaya`) and NEVER replace concrete temple/court settings with `cosmos`.
                  3) Closing Moral + CTA: Close with `[सूत्रधार]: ...` narrating the explicit MORAL OF THE STORY (कथा की सीख / Moral) followed cleanly by the website URL.
                - {speakerHint}
+               - Do NOT invent parenthetical acting notes like `(smiling, serene)` inside dialogue sentences (use at most simple `[Speaker]: line` dialogue without parentheticals so captions stay completely clean).
                - Never write raw mechanical labels like "Focus:" or "Moral:" inside spoken dialogue lines; state the moral naturally as `[सूत्रधार]`.
-               - Turn count: {(isFullStory ? $"{storyBudget.MinLines} to {storyBudget.MaxLines} complete story-arc turns (each 18-30 words, about {storyBudget.Words} words in total for ~{storySeconds}s) covering the FULL beginning-to-end story." : "5 to 7 crisp chronological turns (each 12-20 words, ~55s short) covering Context Hook + Core Action + Ending Moral + CTA.")}
+               - Turn count: {(isFullStory ? $"{Math.Min(storyBudget.MinLines, 16)} to {Math.Min(storyBudget.MaxLines, 32)} complete, gripping story-arc turns (each 18-28 words, keeping total runtime around {Math.Min(storySeconds, 210)}s) covering the FULL beginning-to-end story concisely without dragging or getting cut off." : "5 to 7 crisp chronological turns (each 12-20 words, ~55s short) covering Context Hook + Core Action + Ending Moral + CTA.")}
                """
             : "- Keep narration structured with brief opening context hook, chronological progression, clear ending moral, and website CTA without removing facts or times.";
 
@@ -3929,9 +3950,9 @@ public sealed partial class EcosystemAutomationService(
         return TimeZoneInfo.ConvertTimeFromUtc(UtcNow, tz).ToString("yyyy-MM-dd");
     }
 
-    private static DateTime ComputeScheduledUtc(string dateKey, string hhMm, string tzId)
+    private static DateTime ComputeScheduledUtc(string dateKey, string hhMm, string tzId, int publishDaysBefore = 0)
     {
-        var date = DateOnly.Parse(dateKey);
+        var date = DateOnly.Parse(dateKey).AddDays(-Math.Clamp(publishDaysBefore, 0, 3));
         var parts = hhMm.Split(':');
         var hour = parts.Length > 0 && int.TryParse(parts[0], out var h) ? Math.Clamp(h, 0, 23) : 7;
         var min = parts.Length > 1 && int.TryParse(parts[1], out var m) ? Math.Clamp(m, 0, 59) : 0;

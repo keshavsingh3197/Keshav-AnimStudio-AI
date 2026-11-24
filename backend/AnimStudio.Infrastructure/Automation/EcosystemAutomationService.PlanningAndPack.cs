@@ -885,6 +885,8 @@ public sealed partial class EcosystemAutomationService
             existingTitles.AddRange(recentPosts
                 .Where(p => !string.Equals(p.DateKey, effectiveDate, StringComparison.Ordinal)
                     && p.Status != AutomationPostStatus.Skipped
+                    && (rule.SourceType != AutomationSourceType.DailyKatha
+                        || p.SourceType is not (AutomationSourceType.HinduFestival or AutomationSourceType.HinduPanchang))
                     && (string.IsNullOrWhiteSpace(rule.TargetChannelId)
                         || string.Equals(p.TargetChannelId, rule.TargetChannelId, StringComparison.OrdinalIgnoreCase)))
                 .Select(p => $"{p.SourceTitle} {p.Title}"));

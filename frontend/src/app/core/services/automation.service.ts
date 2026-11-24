@@ -255,6 +255,7 @@ export interface AutomationRule {
   location: string;
   preferredPublishTime: string;
   timeZoneId: string;
+  publishDaysBefore?: number;
   daysOfWeek: number[];
   festivalLeadDays: number;
   funnelWebsiteKeys: string[];

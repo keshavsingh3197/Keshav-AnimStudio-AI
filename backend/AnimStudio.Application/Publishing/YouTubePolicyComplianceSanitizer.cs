@@ -20,6 +20,7 @@ public static partial class YouTubePolicyComplianceSanitizer
 {
     private const int RecommendedMinHashtags = 3;
     private const int RecommendedMaxHashtags = 8;
+    private const int MaxDescriptionUrlLines = 4;
 
     private static readonly Regex EngagementBaitRegex = MyBaitRegex();
     private static readonly Regex ShortenerUrlRegex = MyShortenerRegex();
@@ -132,6 +133,7 @@ public static partial class YouTubePolicyComplianceSanitizer
             cleaned = HashtagRegex.Replace(cleaned, string.Empty);
         }
 
+        cleaned = NormalizeUrlsToRootDomain(cleaned);
         cleaned = MultiBlankLinesRegex.Replace(cleaned.Trim(), "\n\n");
         if (cleaned.Length < 25)
         {
@@ -141,16 +143,17 @@ public static partial class YouTubePolicyComplianceSanitizer
             cleaned = string.IsNullOrWhiteSpace(cleaned) ? fallbackSummary : $"{fallbackSummary}\n\n{cleaned}";
         }
 
-        if (!string.IsNullOrWhiteSpace(primaryDestinationUrl)
-            && !cleaned.Contains(primaryDestinationUrl, StringComparison.OrdinalIgnoreCase))
+        var cleanPrimaryUrl = ToRootDomainUrl(primaryDestinationUrl);
+        if (!string.IsNullOrWhiteSpace(cleanPrimaryUrl)
+            && !ContainsRootUrl(cleaned, cleanPrimaryUrl))
         {
             var label = language.Equals("en", StringComparison.OrdinalIgnoreCase)
                 ? "🔗 Official Portal"
                 : "🌐 आधिकारिक पोर्टल";
-            cleaned = $"{cleaned}\n\n{label}: {primaryDestinationUrl.Trim()}";
+            cleaned = $"{cleaned}\n\n{label}: {cleanPrimaryUrl}";
         }
 
-        cleaned = DeduplicateExcessUrlLines(cleaned, primaryDestinationUrl);
+        cleaned = DeduplicateExcessUrlLines(cleaned, cleanPrimaryUrl);
 
         if (extractedHashtags.Count > RecommendedMaxHashtags || extractedHashtags.Count == 0)
         {
@@ -171,17 +174,77 @@ public static partial class YouTubePolicyComplianceSanitizer
     public static string? CleanPinnedComment(string? rawPinnedComment, string? primaryDestinationUrl, string language)
     {
         if (string.IsNullOrWhiteSpace(rawPinnedComment)) return rawPinnedComment;
-        var clean = MultiBlankLinesRegex.Replace(StripPolicyHazards(rawPinnedComment).Trim(), "\n\n");
-        if (!string.IsNullOrWhiteSpace(primaryDestinationUrl)
-            && !clean.Contains(primaryDestinationUrl, StringComparison.OrdinalIgnoreCase))
+        var clean = MultiBlankLinesRegex.Replace(NormalizeUrlsToRootDomain(StripPolicyHazards(rawPinnedComment)).Trim(), "\n\n");
+        var cleanPrimaryUrl = ToRootDomainUrl(primaryDestinationUrl);
+        if (!string.IsNullOrWhiteSpace(cleanPrimaryUrl)
+            && !ContainsRootUrl(clean, cleanPrimaryUrl))
         {
             var cta = language.Equals("en", StringComparison.OrdinalIgnoreCase)
-                ? $"Explore more: {primaryDestinationUrl.Trim()}"
-                : $"पूरी जानकारी यहाँ देखें: {primaryDestinationUrl.Trim()}";
+                ? $"Explore more: {cleanPrimaryUrl}"
+                : $"पूरी जानकारी यहाँ देखें: {cleanPrimaryUrl}";
             clean = string.IsNullOrWhiteSpace(clean) ? cta : $"{clean}\n{cta}";
         }
         return clean.Length > 2000 ? TrimToWordBoundary(clean, 2000) : clean;
     }
+
+    /// <summary>
+    /// Trims query strings, fragments, and sub-paths so YouTube descriptions and pinned comments
+    /// only publish clean root domain/subdomain links (e.g. <c>https://*.keshavsingh.in</c>).
+    /// </summary>
+    public static string ToRootDomainUrl(string? url)
+    {
+        var trimmed = url?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return string.Empty;
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        }
+        var qIdx = trimmed.IndexOf('?');
+        return (qIdx >= 0 ? trimmed[..qIdx] : trimmed).TrimEnd('/');
+    }
+
+    public static string NormalizeUrlsToRootDomain(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        return UrlInLineRegex.Replace(text, match =>
+        {
+            var token = match.Value;
+            var trimmed = token.TrimEnd('.', ',', ';', ')', '!');
+            var suffix = token[trimmed.Length..];
+            var root = ToRootDomainUrl(trimmed);
+            return string.IsNullOrWhiteSpace(root) ? token : root + suffix;
+        });
+    }
+
+    /// <summary>
+    /// Formats up to <paramref name="maxCount"/> unique root-domain portal lines (e.g.
+    /// <c>🌐 Keshav Hub: https://keshavsingh.in</c>) deduplicated by domain/subdomain URL.
+    /// </summary>
+    public static IReadOnlyList<string> FormatRootPortalLines(
+        IEnumerable<(string Label, string? Url)> links,
+        int maxCount = MaxDescriptionUrlLines,
+        string primaryPrefix = "🌐 ",
+        string secondaryPrefix = "• ")
+    {
+        var seenRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = new List<string>(maxCount);
+        foreach (var (label, url) in links)
+        {
+            var rootUrl = ToRootDomainUrl(url);
+            if (string.IsNullOrWhiteSpace(rootUrl) || !seenRoots.Add(rootUrl)) continue;
+            var prefix = lines.Count == 0 ? primaryPrefix : secondaryPrefix;
+            var cleanLabel = string.IsNullOrWhiteSpace(label) ? rootUrl : label.Trim();
+            lines.Add($"{prefix}{cleanLabel}: {rootUrl}");
+            if (lines.Count >= maxCount) break;
+        }
+        return lines;
+    }
+
+    private static bool ContainsRootUrl(string text, string rootUrl) =>
+        UrlInLineRegex.Matches(text).Any(m =>
+            string.Equals(ToRootDomainUrl(m.Value.TrimEnd('.', ',', ';', ')', '!')), rootUrl, StringComparison.OrdinalIgnoreCase));
 
     private static List<string> BuildHashtagsFromTags(IReadOnlyList<string> tags, int min, int max)
     {
@@ -219,10 +282,10 @@ public static partial class YouTubePolicyComplianceSanitizer
 
     private static string DeduplicateExcessUrlLines(string text, string? primaryDestinationUrl)
     {
-        var keptUrls = 0;
+        var seenRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var lines = text.Split('\n');
         var keptLines = new List<string>(lines.Length);
-        var cleanPrimary = primaryDestinationUrl?.Trim();
+        var cleanPrimary = ToRootDomainUrl(primaryDestinationUrl);
         foreach (var rawLine in lines)
         {
             var line = rawLine.TrimEnd('\r');
@@ -233,11 +296,20 @@ public static partial class YouTubePolicyComplianceSanitizer
                 continue;
             }
 
+            var lineRoots = urlMatches
+                .Select(m => ToRootDomainUrl(m.Value.TrimEnd('.', ',', ';', ')', '!')))
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .ToList();
+            if (lineRoots.Count == 0) continue;
+
             var isPrimary = !string.IsNullOrWhiteSpace(cleanPrimary)
-                && line.Contains(cleanPrimary, StringComparison.OrdinalIgnoreCase);
-            if (isPrimary || keptUrls == 0)
+                && lineRoots.Any(u => string.Equals(u, cleanPrimary, StringComparison.OrdinalIgnoreCase));
+            var allAlreadySeen = lineRoots.All(seenRoots.Contains);
+            if (allAlreadySeen) continue;
+
+            if (isPrimary || seenRoots.Count < MaxDescriptionUrlLines)
             {
-                keptUrls++;
+                foreach (var u in lineRoots) seenRoots.Add(u);
                 keptLines.Add(line);
             }
         }

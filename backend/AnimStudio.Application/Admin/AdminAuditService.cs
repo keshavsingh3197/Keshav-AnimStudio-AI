@@ -34,6 +34,12 @@ public sealed class AdminAuditService(
     public const string ProviderReset = "ai.provider.reset";
     public const string KeyInstalled = "ai.key.install";
     public const string KeyRemoved = "ai.key.remove";
+    public const string ApiKeyCreated = "ai.apikey.create";
+    public const string ApiKeyUpdated = "ai.apikey.update";
+    public const string ApiKeyReordered = "ai.apikey.reorder";
+    public const string ApiKeyDeleted = "ai.apikey.delete";
+    public const string ApiKeyTested = "ai.apikey.test";
+    public const string ApiKeyStatusReset = "ai.apikey.reset";
     public const string ChainSaved = "ai.chain.save";
     public const string ProviderTested = "ai.provider.test";
     public const string JobCancelled = "render.job.cancel";

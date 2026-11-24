@@ -2,15 +2,18 @@ import * as THREE from 'three';
 import { CharacterRig, createCharacterRig, updateCharacterRig } from './characters';
 import { createCameraRig, updateCameraRig } from './camera';
 import { buildEnvironment, EnvironmentRig, updateEnvironment } from './environments';
+import { MythicTrialMode } from './mythic-trials';
 import { createVfxRig, updateVfxRig, VfxRig } from './vfx';
-import { DialogueTurnJson, EmotionKind, RenderJobJson, SceneRunJson, SceneSetting, SceneTimeOfDay } from './types';
+import { DialogueTurnJson, EmotionKind, RenderJobJson, SceneRunJson, SceneSetting, SceneTimeOfDay, detectComedyHazard } from './types';
 
 function normalizeEmotion(raw?: string | null): EmotionKind {
   const s = (raw ?? 'calm').trim().toLowerCase();
   if (s === 'laugh' || s === 'laughing' || s === 'excited') return 'laughing';
+  if (s === 'smug' || s === 'sarcastic' || s === 'mischievous' || s === 'deadpan' || s === 'playful') return 'smug';
+  if (s === 'scared' || s === 'panicked' || s === 'panic' || s === 'nervous' || s === 'terrified') return 'scared';
   if (s === 'surprised' || s === 'shocked' || s === 'gasp') return 'surprised';
   if (s === 'angry' || s === 'shouting' || s === 'determined') return 'angry';
-  if (s === 'sad' || s === 'worried' || s === 'scared') return 'sad';
+  if (s === 'sad' || s === 'worried') return 'sad';
   if (s === 'happy' || s === 'loving' || s === 'hopeful' || s === 'relieved') return 'happy';
   if (s === 'proud' || s === 'dramatic') return 'proud';
   if (s === 'confused' || s === 'shy') return 'confused';
@@ -345,6 +348,29 @@ async function run(): Promise<void> {
       ? mirrorRevealTurn.startSeconds + 0.08
       : Math.max(firstHairCutEnd + 2.5, job.durationSeconds * 0.56);
 
+    const firstMythicBurstTurn = job.turns.find(
+      (tr) => !tr.isTitleHook && (
+        tr.action === 'pillarBurst' || tr.action === 'lapSubdue' || tr.action === 'lapSubdued'
+        || tr.listenerAction === 'lapSubdue' || tr.listenerAction === 'lapSubdued'
+      ),
+    );
+    const pillarShatteredAt = firstMythicBurstTurn ? firstMythicBurstTurn.startSeconds : Number.POSITIVE_INFINITY;
+    const lapSubdueTurns = job.turns.filter(
+      (tr) => !tr.isTitleHook && (
+        tr.action === 'lapSubdue' || tr.action === 'lapSubdued'
+        || tr.listenerAction === 'lapSubdue' || tr.listenerAction === 'lapSubdued'
+      ),
+    );
+    const lapSubdueFirstAt = lapSubdueTurns.length > 0 ? lapSubdueTurns[0].startSeconds : Number.POSITIVE_INFINITY;
+    const lapSubdueLastEnd = lapSubdueTurns.length > 0 ? lapSubdueTurns[lapSubdueTurns.length - 1].endSeconds : -1;
+
+    const hasFuneralShroud = job.turns.some((tr) =>
+      tr.action === 'lyingShroud' || tr.listenerAction === 'lyingShroud'
+      || tr.action === 'corpseSnapUp' || tr.listenerAction === 'corpseSnapUp');
+    const corpseSnapTurn = job.turns.find((tr) =>
+      tr.action === 'corpseSnapUp' || tr.listenerAction === 'corpseSnapUp');
+    const corpseSnapAt = corpseSnapTurn ? corpseSnapTurn.startSeconds : Number.POSITIVE_INFINITY;
+
     let prevTurnIdx = -1;
     const totalFrames = Math.max(1, job.totalFrames);
     const startFrame = Math.max(0, Math.min(totalFrames, job.startFrame ?? 0));
@@ -407,6 +433,47 @@ async function run(): Promise<void> {
           if (rightAction === 'none') rightAction = danceLead;
         }
       }
+      const pillarShattered = t >= pillarShatteredAt - 0.04;
+      const isPillarBurstTurn = speakerAction === 'pillarBurst' || listenerAction === 'pillarBurst';
+      const isLapSubdueTurn = speakerAction === 'lapSubdue'
+        || speakerAction === 'lapSubdued'
+        || listenerAction === 'lapSubdue'
+        || listenerAction === 'lapSubdued'
+        || (!isPillarBurstTurn && speakerAction !== 'blessing' && t >= lapSubdueFirstAt - 0.04 && t <= lapSubdueLastEnd + 0.04);
+      const trialMode: MythicTrialMode = (speakerAction === 'serpentAttack' || listenerAction === 'serpentAttack')
+        ? 'serpentAttack'
+        : (speakerAction === 'elephantCharge' || listenerAction === 'elephantCharge')
+          ? 'elephantCharge'
+          : (speakerAction === 'fireTrial' || listenerAction === 'fireTrial')
+            ? 'fireTrial'
+            : (speakerAction === 'cliffRescue' || listenerAction === 'cliffRescue')
+              ? 'cliffRescue'
+              : 'none';
+      const corpseAwake = t >= corpseSnapAt - 0.04;
+      const primaryHazard = detectComedyHazard(speakerAction);
+      const comedyHazardMode = primaryHazard !== 'none' ? primaryHazard : detectComedyHazard(listenerAction);
+      const resolveMythicAction = (rig: CharacterRig | null, fallbackAct: string): string => {
+        if (!rig) return fallbackAct;
+        if (isLapSubdueTurn) {
+          if (rig.isNarasimha) return 'lapSubdue';
+          if (rig.isAsuraKing) return 'lapSubdued';
+          if (rig.role === 'ChildDevotee') return 'praying';
+        } else if (isPillarBurstTurn) {
+          if (rig.isNarasimha) return 'pillarBurst';
+          if (rig.isAsuraKing) return 'shockedFall';
+          if (rig.role === 'ChildDevotee') return 'praying';
+        } else if (pillarShattered && !isLapSubdueTurn && !isPillarBurstTurn) {
+          if (rig.isNarasimha) return 'blessing';
+          if (rig.role === 'ChildDevotee' && (fallbackAct === 'none' || fallbackAct === 'praying')) return 'praying';
+        } else if (trialMode === 'fireTrial' && rig.role === 'ChildDevotee') {
+          return 'fireTrial';
+        } else if (trialMode === 'cliffRescue' && rig.role === 'ChildDevotee') {
+          return 'cliffRescue';
+        }
+        return fallbackAct;
+      };
+      leftAction = resolveMythicAction(currentLeft, leftAction);
+      rightAction = resolveMythicAction(currentRight, rightAction);
       let leftProp = poseSlot === 'Left' ? speakerProp : poseSlot === 'Right' ? listenerProp : null;
       let rightProp = poseSlot === 'Right' ? speakerProp : poseSlot === 'Left' ? listenerProp : null;
 
@@ -531,6 +598,22 @@ async function run(): Promise<void> {
           const moveYaw = Math.abs(dx) > 0.05 ? Math.atan2(dx, endZ - startZ) * 0.65 : baseRotY;
           return { x, y: baseY, z, rotY: moveYaw, seated: false, showCape: false };
         }
+        if (act === 'lapSubdue') {
+          return { x: -0.04, y: 0.04, z: 0.08, rotY: 0.06, seated: false, showCape: false };
+        }
+        if (act === 'lapSubdued') {
+          return { x: -0.04, y: 0.04, z: 0.08, rotY: 0.0, seated: false, showCape: false };
+        }
+        if (act === 'pillarBurst') {
+          return { x: 0, y: 0.04, z: -0.04, rotY: 0.04, seated: false, showCape: false };
+        }
+        if (isLapSubdueTurn) {
+          return { x: isPortrait ? 0.72 : 1.18, y: baseY, z: 0.16, rotY: -0.58, seated: false, showCape: false };
+        }
+        if (sceneMoment.setting === 'LivingRoom' && hasFuneralShroud) {
+          const sideX = slot === 'Left' ? (isPortrait ? -0.78 : -1.16) : (isPortrait ? 0.78 : 1.16);
+          return { x: sideX, y: baseY, z: -0.36, rotY: slot === 'Left' ? 0.44 : -0.44, seated: false, showCape: false };
+        }
         if (tgt === 'center' || (isPoseSpeaker && act === 'pointing')) {
           return { x: baseX * 0.84, y: baseY, z: 0.18, rotY: baseRotY * 0.78, seated: false, showCape: false };
         }
@@ -568,8 +651,20 @@ async function run(): Promise<void> {
       const ly = currentLeft ? currentLeft.root.position.y : stageY;
       const ry = currentRight ? currentRight.root.position.y : stageY;
 
-      const leftEmotion: EmotionKind = leftSpeaking ? emotion : (leftAction === 'lookInMirror' || leftAction === 'shockedFall' ? 'surprised' : 'calm');
-      const rightEmotion: EmotionKind = rightSpeaking ? emotion : (rightAction === 'shockedFall' ? 'surprised' : 'calm');
+      const listenerFallbackEmo: EmotionKind = refTurn?.listenerEmotion
+        ? normalizeEmotion(refTurn.listenerEmotion)
+        : 'calm';
+      const resolveCharacterEmotion = (action: string, isCharSpeaking: boolean, otherSpeaking: boolean): EmotionKind => {
+        if (action === 'lapSubdue' || action === 'pillarBurst') return 'angry';
+        if (action === 'lapSubdued') return 'surprised';
+        if (isCharSpeaking) return emotion;
+        if (action === 'brakeStop') return 'scared';
+        if (action === 'celebrate') return 'proud';
+        if (action === 'lookInMirror' || action === 'shockedFall') return 'surprised';
+        return otherSpeaking && listenerFallbackEmo !== 'calm' ? listenerFallbackEmo : 'calm';
+      };
+      const leftEmotion: EmotionKind = resolveCharacterEmotion(leftAction, leftSpeaking, rightSpeaking);
+      const rightEmotion: EmotionKind = resolveCharacterEmotion(rightAction, rightSpeaking, leftSpeaking);
       const glassesFallback = job.turns.find((tr) => !tr.isTitleHook);
       const glassesTurn = refTurn && !refTurn.isTitleHook ? refTurn : glassesFallback;
       const gSlot = glassesTurn?.slot;
@@ -588,9 +683,13 @@ async function run(): Promise<void> {
       const leftHairCut = barberSlot === 'Left' ? 0 : customerHairCutStage;
       const rightHairCut = barberSlot === 'Right' ? 0 : customerHairCutStage;
 
-      if (env) {
-        updateEnvironment(env, t, u, sceneMoment.sceneIndex, sceneMoment.localProgress, job.stageLayout);
-      }
+      // Multi-scene story choreography for non-comedy narratives (DailyKatha, Festival, Panchang, History):
+      // show ONLY the characters participating in the current scene at their right moment of entrance,
+      // restage them into balanced foreground positions, and aim dynamic camera framing at whoever speaks.
+      const useSceneCasting = !job.isComedyMode
+        && !job.stageLayout?.templateBackdrop
+        && (job.sceneRuns?.length ?? 0) > 1;
+
       if (currentLeft) {
         updateCharacterRig(currentLeft, t, leftSpeaking, speechLevel, leftEmotion, isTitleHook, leftAction, turnLocal, sceneChanged, leftProp, leftSeated, leftShowCape, leftGlasses, leftHairCut);
       }
@@ -599,40 +698,80 @@ async function run(): Promise<void> {
       }
       supportingRigs.forEach((rig, sIdx) => {
         const spk = sIdx === supIdx;
-        if (sceneMoment.setting === 'BarberShop') {
-          rig.root.position.z = -1.52;
-          rig.root.position.y = spk ? 0.34 : 0.30;
-          rig.root.scale.setScalar(spk ? 0.80 : 0.76);
-        } else if (sceneMoment.setting === 'PalaceCourt') {
-          const side = sIdx % 2 === 0 ? -1 : 1;
-          const rank = Math.floor(sIdx / 2);
-          rig.root.position.x = side * (1.82 + rank * 0.72);
-          rig.root.position.z = -0.68 - rank * 0.44;
-          rig.root.position.y = 0;
-          rig.root.scale.setScalar(0.94);
-        } else {
-          rig.root.position.z = spk ? -0.35 : -0.82;
-          rig.root.scale.setScalar(spk ? 0.94 : 0.88);
+        const isShroudCorpse = !useSceneCasting && sceneMoment.setting === 'LivingRoom' && hasFuneralShroud && sIdx === 0;
+        const isSofaMourner = !useSceneCasting && sceneMoment.setting === 'LivingRoom' && hasFuneralShroud && sIdx === 1;
+        if (isShroudCorpse) {
+          if (corpseAwake) {
+            rig.root.position.x += (0 - rig.root.position.x) * Math.max(posBlend, 0.55);
+            rig.root.position.y += (0.02 - rig.root.position.y) * Math.max(posBlend, 0.55);
+            rig.root.position.z = 0.25;
+            rig.root.rotation.y += (0 - rig.root.rotation.y) * Math.max(posBlend, 0.55);
+          } else {
+            rig.root.position.set(0.68, 0.14, 0.25);
+            rig.root.rotation.y = Math.PI * 0.5;
+          }
+          rig.root.scale.setScalar(0.92);
+        } else if (isSofaMourner) {
+          rig.root.position.set(0.02, 0.38, -1.24);
+          rig.root.rotation.y = 0.05;
+          rig.root.scale.setScalar(0.84);
+        } else if (isLapSubdueTurn && rig.isNarasimha) {
+          rig.root.position.set(-0.04, 0.04, 0.08);
+          rig.root.rotation.y = 0.06;
+          rig.root.scale.setScalar(1.0);
+        } else if (isLapSubdueTurn && rig.isAsuraKing) {
+          rig.root.position.set(-0.04, 0.04, 0.08);
+          rig.root.rotation.y = 0.0;
+          rig.root.scale.setScalar(1.0);
+        } else if (isPillarBurstTurn && rig.isNarasimha) {
+          rig.root.position.set(0, 0.04, -0.04);
+          rig.root.rotation.y = 0.04;
+          rig.root.scale.setScalar(1.0);
+        } else if (!useSceneCasting) {
+          if (sceneMoment.setting === 'BarberShop') {
+            rig.root.position.z = -1.52;
+            rig.root.position.y = spk ? 0.34 : 0.30;
+            rig.root.scale.setScalar(spk ? 0.80 : 0.76);
+          } else if (sceneMoment.setting === 'PalaceCourt') {
+            const side = sIdx % 2 === 0 ? -1 : 1;
+            const rank = Math.floor(sIdx / 2);
+            rig.root.position.x = side * (1.82 + rank * 0.72);
+            rig.root.position.z = -0.68 - rank * 0.44;
+            rig.root.position.y = 0;
+            rig.root.scale.setScalar(0.94);
+          } else {
+            rig.root.position.z = spk ? -0.35 : -0.82;
+            rig.root.scale.setScalar(spk ? 0.94 : 0.88);
+          }
         }
-        const reactEmo = spk
-          ? emotion
-          : (emotion === 'angry' || emotion === 'surprised') ? 'surprised' : (emotion === 'laughing' ? 'laughing' : 'calm');
         const mainDancing = leftAction === 'dancing' || rightAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin';
-        const reactAct = spk
-          ? speakerAction
-          : mainDancing && sceneMoment.setting === 'PalaceCourt'
-            ? (leftAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin' ? leftAction : rightAction)
-            : (speakerAction === 'punching' || speakerAction === 'kicking') ? 'shockedFall' : 'none';
+        const baseSupAct = isShroudCorpse
+          ? (corpseAwake ? 'corpseSnapUp' : 'lyingShroud')
+          : isSofaMourner
+            ? (corpseAwake ? 'shockedFall' : 'sitting')
+            : spk
+              ? speakerAction
+              : mainDancing && sceneMoment.setting === 'PalaceCourt'
+                ? (leftAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin' ? leftAction : rightAction)
+                : (speakerAction === 'punching' || speakerAction === 'kicking') ? 'shockedFall' : 'none';
+        const reactAct = resolveMythicAction(rig, baseSupAct);
+        const reactEmo = isShroudCorpse
+          ? (corpseAwake ? 'angry' : (u > 0.54 ? 'angry' : 'happy'))
+          : isSofaMourner
+            ? (corpseAwake ? 'surprised' : (spk ? emotion : 'sad'))
+            : reactAct === 'lapSubdue' || reactAct === 'pillarBurst'
+              ? 'angry'
+              : reactAct === 'lapSubdued'
+                ? 'surprised'
+                : reactAct === 'blessing'
+                  ? 'proud'
+                  : spk
+                    ? emotion
+                    : (emotion === 'angry' || emotion === 'surprised') ? 'surprised' : (emotion === 'laughing' ? 'laughing' : 'calm');
         const supProp = spk && sceneMoment.setting !== 'BarberShop' ? speakerProp : null;
-        updateCharacterRig(rig, t, spk, speechLevel, reactEmo, false, reactAct, turnLocal, sceneChanged, supProp, sceneMoment.setting === 'BarberShop', false, 'none', 0);
+        const supSeated = sceneMoment.setting === 'BarberShop' || (isSofaMourner && !corpseAwake);
+        updateCharacterRig(rig, t, spk, speechLevel, reactEmo, false, reactAct, turnLocal, sceneChanged, supProp, supSeated, false, 'none', 0);
       });
-
-      // Multi-scene story choreography for non-comedy narratives (DailyKatha, Festival, Panchang, History):
-      // show ONLY the characters participating in the current scene at their right moment of entrance,
-      // restage them into balanced foreground positions, and aim dynamic camera framing at whoever speaks.
-      const useSceneCasting = !job.isComedyMode
-        && !job.stageLayout?.templateBackdrop
-        && (job.sceneRuns?.length ?? 0) > 1;
 
       let camLeftX = lx;
       let camRightX = rx;
@@ -650,7 +789,18 @@ async function run(): Promise<void> {
           ? sceneMoment.activeCharacters!
           : fallbackLeadNames;
         const entryMap = sceneMoment.characterEntryAt ?? {};
-        const entryTimeFor = (name: string): number | null => {
+        const entryTimeFor = (rig: CharacterRig): number | null => {
+          const name = rig.name;
+          if ((isPillarBurstTurn || isLapSubdueTurn) && (rig.isNarasimha || rig.isAsuraKing)) {
+            return pillarShatteredAt;
+          }
+          if (trialMode !== 'none' && (rig.role === 'ChildDevotee' || (trialMode === 'fireTrial' && rig.isHolika))) {
+            return sceneMoment.startSeconds;
+          }
+          if (pillarShattered && !isLapSubdueTurn && !isPillarBurstTurn && (rig.isNarasimha || rig.role === 'ChildDevotee')
+            && activeNames.some((a) => /प्रह्लाद|prahlad|नरसिंह|नृसिंह|narasimha|narsimha/i.test(a))) {
+            return sceneMoment.startSeconds;
+          }
           const match = activeNames.find((a) => a.toLowerCase() === name.toLowerCase());
           const isSpeakingNow = !!activeTurn && activeTurn.speakerName.toLowerCase() === name.toLowerCase();
           if (!match && !isSpeakingNow) return null;
@@ -665,7 +815,7 @@ async function run(): Promise<void> {
         ];
         const visibleInMoment: { rig: CharacterRig; entryAt: number }[] = [];
         for (const rig of allRigs) {
-          const entryAt = entryTimeFor(rig.name);
+          const entryAt = entryTimeFor(rig);
           const vis = entryAt !== null && t >= entryAt - 0.04;
           rig.root.visible = vis;
           if (vis && entryAt !== null) {
@@ -677,9 +827,56 @@ async function run(): Promise<void> {
         const spreadX = isPortrait ? 0.56 : 0.88;
         visibleInMoment.forEach(({ rig, entryAt }, vIdx) => {
           let tx = 0;
+          let ty = 0;
           let tz = 0.14;
           let troty = 0;
-          if (nVis === 1) {
+          if (isLapSubdueTurn) {
+            if (rig.isNarasimha) {
+              tx = -0.04;
+              ty = 0.04;
+              tz = 0.08;
+              troty = 0.06;
+            } else if (rig.isAsuraKing) {
+              tx = -0.04;
+              ty = 0.04;
+              tz = 0.08;
+              troty = 0.0;
+            } else {
+              tx = isPortrait ? 0.72 : 1.18;
+              ty = 0;
+              tz = 0.16;
+              troty = -0.58;
+            }
+          } else if (isPillarBurstTurn && rig.isNarasimha) {
+            tx = 0;
+            ty = 0.04;
+            tz = -0.04;
+            troty = 0.04;
+          } else if (trialMode === 'elephantCharge') {
+            if (rig.role === 'ChildDevotee') {
+              tx = isPortrait ? 0.62 : 0.96;
+              tz = 0.16;
+              troty = -0.35;
+            } else {
+              tx = isPortrait ? -0.78 : -1.52;
+              tz = -0.24;
+              troty = 0.45;
+            }
+          } else if (trialMode === 'fireTrial') {
+            if (rig.role === 'ChildDevotee') {
+              tx = 0.42;
+              tz = 0.24;
+              troty = -0.25;
+            } else if (rig.isHolika) {
+              tx = -0.42;
+              tz = 0.20;
+              troty = 0.25;
+            } else {
+              tx = -1.38;
+              tz = 0.05;
+              troty = 0.48;
+            }
+          } else if (nVis === 1) {
             tx = 0;
             tz = 0.16;
             troty = 0.12;
@@ -698,19 +895,24 @@ async function run(): Promise<void> {
           const appearEase = appearAge < 0.72
             ? Math.sin((appearAge / 0.72) * Math.PI * 0.5)
             : 1;
-          const isDivineDescend = rig.role === 'Divine' && entryAt > sceneMoment.startSeconds + 0.25 && appearAge < 0.9;
+          const isDivineDescend = !isLapSubdueTurn && !isPillarBurstTurn && rig.role === 'Divine' && entryAt > sceneMoment.startSeconds + 0.25 && appearAge < 0.9;
           const descLift = isDivineDescend ? (1 - appearEase) * 0.85 : 0;
-          const snapHere = sceneChanged || appearAge < 0.06 ? 1 : posBlend;
+          const snapHere = sceneChanged || appearAge < 0.06 ? 1 : (isLapSubdueTurn ? Math.max(posBlend, 0.55) : posBlend);
 
           rig.root.position.x += (tx - rig.root.position.x) * snapHere;
-          rig.root.position.y += (descLift - rig.root.position.y) * snapHere;
+          rig.root.position.y += ((ty + descLift) - rig.root.position.y) * snapHere;
           rig.root.position.z += (tz - rig.root.position.z) * snapHere;
           rig.root.rotation.y += (troty - rig.root.rotation.y) * snapHere;
           const baseScale = appearAge < 0.55 ? 0.78 + 0.22 * appearEase : 1.0;
           rig.root.scale.setScalar(baseScale);
         });
 
-        if (visibleInMoment.length > 0) {
+        if (isLapSubdueTurn || isPillarBurstTurn) {
+          camLeftX = -0.55;
+          camRightX = 0.55;
+          camSlot = 'Narrator';
+          camHeadY = 1.48;
+        } else if (visibleInMoment.length > 0) {
           camLeftX = Math.min(...visibleInMoment.map((v) => v.rig.root.position.x));
           camRightX = Math.max(...visibleInMoment.map((v) => v.rig.root.position.x));
           const spkRig = refTurn
@@ -726,17 +928,40 @@ async function run(): Promise<void> {
         }
       }
 
+      const centerAngrySnap = hasFuneralShroud && (speakerAction === 'corpseSnapUp' || (corpseAwake && supIdx === 0));
+      if (centerAngrySnap && supportingRigs[0]) {
+        camHeadY = supportingRigs[0].root.position.y + supportingRigs[0].headY;
+      }
+
+      if (env) {
+        const devoteeRig = [currentLeft, currentRight, ...supportingRigs].find((r): r is CharacterRig => !!r && r.role === 'ChildDevotee');
+        const devoteeX = devoteeRig ? devoteeRig.root.position.x : 0;
+        updateEnvironment(
+          env, t, u, sceneMoment.sceneIndex, sceneMoment.localProgress, job.stageLayout,
+          pillarShattered, trialMode, devoteeX, turnLocal,
+          { hasFuneralShroud, shroudOpen: corpseAwake, hazardMode: comedyHazardMode });
+      }
+
       const activeMeme = !!job.memeCues?.some((m) => t >= m.startSeconds - 0.05 && t <= m.startSeconds + Math.min(0.75, m.seconds));
 
       if (vfx) {
         updateVfxRig(
           vfx, t, u, camSlot, camLeftX, camRightX, emotion, turnLocal, job.palette.primaryHex, job.palette.secondaryHex,
-          leftAction, rightAction, ly, ry, activeMeme, leftEmotion, rightEmotion);
+          leftAction, rightAction, ly, ry, activeMeme, leftEmotion, rightEmotion, centerAngrySnap, refTurn?.sfxCue ?? null);
       }
 
+      const effectiveCamAction = isLapSubdueTurn
+        ? 'lapSubdue'
+        : isPillarBurstTurn
+          ? 'pillarBurst'
+          : centerAngrySnap
+            ? 'corpseSnapUp'
+            : trialMode !== 'none'
+              ? trialMode
+              : speakerAction;
       updateCameraRig(
         camRig, job, t, u, camSlot, camLeftX, camRightX, emotion, isTitleHook,
-        activeMeme ? 'crashPunch' : cameraShot, speakerAction, turnChanged || sceneChanged, turnLocal, camHeadY, sceneMoment.setting);
+        activeMeme ? 'crashPunch' : cameraShot, effectiveCamAction, turnChanged || sceneChanged, turnLocal, camHeadY, sceneMoment.setting);
 
       if (hudScene && hudCamera) {
         renderer.clear();

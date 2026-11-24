@@ -1468,6 +1468,8 @@ export interface AdminProvider {
   defaultModel: string | null;
   /** Known models to pick from, best first; empty when only a typed name makes sense. */
   models?: AdminModelChoice[];
+  poolKeyCount?: number;
+  poolReadyCount?: number;
 }
 
 /** A listed model and what it trades against its siblings. */
@@ -1498,6 +1500,82 @@ export interface AdminProviderTest {
   providerId: string;
   healthy: boolean;
   reason: string | null;
+}
+
+export interface AdminApiKey {
+  id: string;
+  vendor: string;
+  label: string;
+  notes: string | null;
+  providerIds: string[];
+  priority: number;
+  enabled: boolean;
+  source: 'Database' | 'Configuration';
+  masked: string;
+  fingerprint: string | null;
+  createdAtUtc: string | null;
+  updatedAtUtc: string | null;
+  rotatedAtUtc: string | null;
+  lastUsedAtUtc: string | null;
+  lastSucceededAtUtc: string | null;
+  cooldownUntilUtc: string | null;
+  cooldownReason: string | null;
+  lastErrorCode: string | null;
+  usageDayBucket: string | null;
+  usageCountToday: number;
+  status: 'Ready' | 'Cooldown' | 'QuotaExhausted' | 'Rejected' | 'Disabled';
+}
+
+export interface AdminApiKeyVendorProvider {
+  id: string;
+  displayName: string;
+  capability: string;
+  enabled: boolean;
+  model: string | null;
+}
+
+export interface AdminApiKeyVendor {
+  vendor: string;
+  displayName: string;
+  description: string;
+  keyUrl: string | null;
+  expandedByDefault: boolean;
+  providers: AdminApiKeyVendorProvider[];
+  keys: AdminApiKey[];
+}
+
+export interface AdminApiKeys {
+  vendors: AdminApiKeyVendor[];
+  encryptionConfigured: boolean;
+}
+
+export interface AdminApiKeyTest {
+  keyId: string;
+  vendor: string;
+  label: string;
+  healthy: boolean;
+  statusCode: number | null;
+  reason: string | null;
+  snapshot: AdminApiKeys;
+}
+
+export interface CreateAdminApiKeyBody {
+  vendor: string;
+  label: string;
+  notes?: string | null;
+  providerIds?: string[];
+  key: string;
+  enabled?: boolean;
+  priority?: number | null;
+}
+
+export interface UpdateAdminApiKeyBody {
+  label: string;
+  notes?: string | null;
+  providerIds?: string[];
+  enabled: boolean;
+  key?: string | null;
+  clearCooldown?: boolean;
 }
 
 export interface AdminProviderBody {

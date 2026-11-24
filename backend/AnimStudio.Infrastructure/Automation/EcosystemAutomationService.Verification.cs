@@ -125,7 +125,7 @@ public sealed partial class EcosystemAutomationService
 
         post.DateKey = resolvedDate;
         if (dateChanged || post.ScheduledAtUtc is null)
-            post.ScheduledAtUtc = ComputeScheduledUtc(resolvedDate, rule.PreferredPublishTime, rule.TimeZoneId);
+            post.ScheduledAtUtc = ComputeScheduledUtc(resolvedDate, rule.PreferredPublishTime, rule.TimeZoneId, rule.PublishDaysBefore);
         post.SourceItemKey = fresh.SourceItemKey;
         post.Fingerprint = $"{resolvedDate}:{post.RuleId}:{fresh.SourceItemKey}".ToLowerInvariant();
         post.SourceTitle = fresh.SourceTitle;

@@ -3,6 +3,8 @@ bin/
 obj/
 [Dd]ebug/
 [Rr]elease/
+TestResults/
+*.dmp
 *.user
 *.suo
 

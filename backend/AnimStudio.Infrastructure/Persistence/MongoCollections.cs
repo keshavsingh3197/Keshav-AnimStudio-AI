@@ -14,6 +14,7 @@ public static class MongoCollections
     public const string RenderJobs = "renderJobs";
     public const string AiUsage = "aiUsage";
     public const string AiCredentials = "aiCredentials";
+    public const string AiApiKeys = "aiApiKeys";
     public const string PromptTemplates = "promptTemplates";
     public const string AiSettings = "aiSettings";
     public const string LiveStreamKeys = "liveStreamKeys";
