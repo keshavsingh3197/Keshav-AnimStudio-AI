@@ -247,6 +247,30 @@
   box-shadow: 0 6px 18px rgba(79, 70, 229, 0.45);
 }
 
+.sys-audio-btn.recording {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  font-variant-numeric: tabular-nums;
+}
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  50% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot { animation: none; }
+}
+.sys-audio-note {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .upload-target-info {
   font-size: 0.8rem;
   display: flex;

@@ -335,6 +335,16 @@ export class ApiService {
       { language, save }));
   }
 
+  /** Saves sound the computer was playing (a WebM/MP4 take from a shared tab or screen) to the library as an MP3. */
+  recordSystemAudio(projectId: string, take: Blob, name: string, folderId?: string | null): Observable<Asset> {
+    const form = new FormData();
+    form.append('file', take, take.type.includes('mp4') ? 'system-audio.mp4' : 'system-audio.webm');
+    if (name.trim()) form.append('name', name.trim());
+    if (folderId) form.append('folderId', folderId);
+    return this.unwrap(this.http.post<ApiResponse<Asset>>(
+      `${this.base}/api/projects/${projectId}/assets/system-audio`, form));
+  }
+
   /** Cleans a narration take the user recorded (WAV) and saves it to the library as a voiceover line. */
   recordNarration(projectId: string, wav: Blob, name: string): Observable<Asset> {
     const form = new FormData();

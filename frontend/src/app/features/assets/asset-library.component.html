@@ -181,7 +181,29 @@
           </svg>
           From other projects
         </button>
+        @if (sysAudio() === 'recording') {
+          <button type="button" class="upload-btn sys-audio-btn recording" (click)="stopSystemAudio()"
+                  title="Stop recording and save it to this library as an MP3">
+            <span class="rec-dot"></span>
+            Stop · {{ formatClock(sysAudioSeconds()) }}
+          </button>
+          <button type="button" class="upload-btn" (click)="stopSystemAudio(true)" title="Stop and throw this recording away">
+            Discard
+          </button>
+        } @else {
+          <button type="button" class="upload-btn sys-audio-btn" (click)="startSystemAudio()"
+                  [disabled]="!store.project() || sysAudio() === 'saving'"
+                  title="Record the sound your computer is playing (a browser tab, a window or the whole screen) and save it as an MP3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+            {{ sysAudio() === 'saving' ? 'Saving recording…' : 'Record system audio' }}
+          </button>
+        }
         <span class="file-drop-hint">or drop / Ctrl+V anywhere</span>
+        @if (sysAudioNote()) {
+          <span class="sys-audio-note" role="status">{{ sysAudioNote() }}</span>
+        }
         <input id="upload" type="file" multiple style="display: none"
                accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
                (change)="upload($event)" />
