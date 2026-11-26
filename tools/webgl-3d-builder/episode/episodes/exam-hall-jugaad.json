@@ -1,0 +1,346 @@
+{
+  "title": "परीक्षा में पप्पू का जुगाड़",
+  "language": "hi",
+  "setting": "Classroom",
+  "channelLabel": "KESHAV STUDIO",
+  "width": 1920,
+  "height": 1080,
+  "fps": 24,
+  "titleSeconds": 2.8,
+  "defaultPause": 0.4,
+  "tailSeconds": 2.2,
+  "seed": 11,
+  "cast": [
+    {
+      "name": "SharmaSir",
+      "displayName": "शर्मा सर",
+      "subtitleColor": "#fbbf24",
+      "spot": "teacher_podium",
+      "robeHex": "#1d4ed8",
+      "shirtPattern": "checked",
+      "hairStyle": "bald",
+      "hairHex": "#8b8f98",
+      "hasGlasses": true,
+      "mustache": "brush",
+      "skinHex": "#e2a679",
+      "scale": 1.06,
+      "voice": {
+        "pitch": 0.8,
+        "tempo": 1.08,
+        "warmth": true
+      }
+    },
+    {
+      "name": "Pappu",
+      "displayName": "पप्पू",
+      "subtitleColor": "#f87171",
+      "spot": "student_2",
+      "robeHex": "#f8fafc",
+      "hairStyle": "spiky",
+      "skinHex": "#d39465",
+      "scale": 0.9,
+      "voice": {
+        "pitch": 1.24,
+        "tempo": 1.12
+      }
+    },
+    {
+      "name": "Golu",
+      "displayName": "गोलू",
+      "subtitleColor": "#4ade80",
+      "spot": "student_1",
+      "robeHex": "#f1f5f9",
+      "hairStyle": "parted",
+      "hasGlasses": true,
+      "skinHex": "#f0c39c",
+      "scale": 0.93,
+      "voice": {
+        "pitch": 1.14,
+        "tempo": 1.06
+      }
+    },
+    {
+      "name": "Chintu",
+      "displayName": "चिंटू",
+      "subtitleColor": "#60a5fa",
+      "spot": "student_3",
+      "robeHex": "#e0f2fe",
+      "hairStyle": "curly",
+      "hairHex": "#3b2a1e",
+      "skinHex": "#b9784a",
+      "scale": 0.88,
+      "voice": {
+        "pitch": 1.32,
+        "tempo": 0.98
+      }
+    },
+    {
+      "name": "DubeyJi",
+      "displayName": "दुबे जी",
+      "subtitleColor": "#c084fc",
+      "spot": "hidden",
+      "robeHex": "#a16207",
+      "hairStyle": "short",
+      "mustache": "handlebar",
+      "skinHex": "#c8875a",
+      "scale": 1.1,
+      "voice": {
+        "pitch": 0.72,
+        "tempo": 1.0,
+        "warmth": true
+      }
+    },
+    {
+      "name": "Pinky",
+      "spot": "student_4",
+      "robeHex": "#fdf2f8",
+      "hairStyle": "ponytail",
+      "skinHex": "#e9b48c",
+      "scale": 0.86
+    },
+    {
+      "name": "Bunty",
+      "spot": "student_5",
+      "robeHex": "#f8fafc",
+      "hairStyle": "short",
+      "skinHex": "#c98b5f",
+      "scale": 0.9
+    },
+    {
+      "name": "Rinki",
+      "spot": "student_6",
+      "robeHex": "#fdf2f8",
+      "hairStyle": "ponytail",
+      "hairHex": "#4a2c1a",
+      "hasGlasses": true,
+      "skinHex": "#dba27a",
+      "scale": 0.86
+    },
+    {
+      "name": "Monu",
+      "spot": "student_7",
+      "robeHex": "#f1f5f9",
+      "hairStyle": "parted",
+      "skinHex": "#b57447",
+      "scale": 0.9
+    },
+    {
+      "name": "Sonu",
+      "spot": "student_8",
+      "robeHex": "#e0f2fe",
+      "hairStyle": "curly",
+      "skinHex": "#e5ad83",
+      "scale": 0.88
+    }
+  ],
+  "lines": [
+    {
+      "speaker": "SharmaSir",
+      "text": "सब लोग ध्यान से सुनो! आज का पेपर बहुत ज़रूरी है, और कोई नकल नहीं करेगा!",
+      "emotion": "angry",
+      "action": "pointing",
+      "shot": "wideEstablishing",
+      "sfx": "teacher_glare"
+    },
+    {
+      "speaker": "Pappu",
+      "to": "Golu",
+      "text": "गोलू... तूने कुछ पढ़ा है क्या?",
+      "emotion": "scared",
+      "listenerEmotion": "calm",
+      "shot": "twoShot"
+    },
+    {
+      "speaker": "Golu",
+      "to": "Pappu",
+      "text": "हाँ, मैंने पूरी किताब पढ़ी है। और तूने?",
+      "emotion": "proud",
+      "shot": "closeUpSpeaker"
+    },
+    {
+      "speaker": "Pappu",
+      "to": "Golu",
+      "text": "मैंने भी पूरी किताब... अपने मोज़े में छुपा ली है!",
+      "emotion": "smug",
+      "shot": "closeUpSpeaker"
+    },
+    {
+      "speaker": "Golu",
+      "to": "Pappu",
+      "text": "क्या?! पकड़ा गया तो सीधा बाहर जाएगा!",
+      "emotion": "surprised",
+      "shot": "reactionZoom",
+      "sfx": "gasp_break"
+    },
+    {
+      "speaker": "SharmaSir",
+      "text": "पेपर शुरू! तीन घंटे, और एक भी आवाज़ नहीं आनी चाहिए।",
+      "emotion": "calm",
+      "shot": "wideEstablishing",
+      "spots": {
+        "SharmaSir": "front_center"
+      },
+      "acts": {
+        "Chintu": "deskSleep"
+      },
+      "pauseAfter": 0.9
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "Chintu",
+      "text": "चिंटू! पेपर के ऊपर सो रहे हो?",
+      "emotion": "angry",
+      "action": "pointing",
+      "shot": "crashPunch",
+      "spots": {
+        "SharmaSir": "aisle_r0_faceRight"
+      },
+      "sfx": "desk_thud"
+    },
+    {
+      "speaker": "Chintu",
+      "to": "SharmaSir",
+      "text": "नहीं सर! मैं तो आँखें बंद करके सोच रहा था।",
+      "emotion": "scared",
+      "shot": "closeUpSpeaker",
+      "acts": {
+        "Chintu": null
+      }
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "Chintu",
+      "text": "अच्छा? सोचते सोचते खर्राटे भी ले रहे थे?",
+      "emotion": "smug",
+      "listenerEmotion": "scared",
+      "shot": "twoShot",
+      "pauseAfter": 0.7
+    },
+    {
+      "speaker": "Pappu",
+      "text": "बस एक पर्ची निकालता हूँ... धीरे से... किसी को पता नहीं चलेगा।",
+      "emotion": "scared",
+      "shot": "closeUpSpeaker",
+      "acts": {
+        "Chintu": "deskSleep"
+      }
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "Pappu",
+      "text": "पप्पू! हाथ में क्या है? दिखाओ!",
+      "emotion": "angry",
+      "action": "pointing",
+      "shot": "crashPunch",
+      "spots": {
+        "SharmaSir": "aisle_r0_faceLeft"
+      },
+      "sfx": "shock_sting"
+    },
+    {
+      "speaker": "Pappu",
+      "to": "SharmaSir",
+      "text": "क... कुछ नहीं सर... ये तो... रुमाल है!",
+      "emotion": "scared",
+      "shot": "closeUpSpeaker"
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "Pappu",
+      "text": "रुमाल पर इतना कुछ लिखा है? चलो, इधर दो!",
+      "emotion": "angry",
+      "listenerEmotion": "scared",
+      "shot": "twoShot",
+      "pauseAfter": 0.6
+    },
+    {
+      "speaker": "DubeyJi",
+      "to": "SharmaSir",
+      "text": "रुको! फ्लाइंग स्क्वॉड! यहाँ क्या चल रहा है?",
+      "emotion": "angry",
+      "shot": "lowDramatic",
+      "spots": {
+        "DubeyJi": "door_inside"
+      },
+      "sfx": "bell_sting"
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "DubeyJi",
+      "text": "दुबे जी, ये लड़का नकल कर रहा था। ये देखिए, इसकी पर्ची!",
+      "emotion": "angry",
+      "action": "pointing",
+      "shot": "closeUpSpeaker",
+      "spots": {
+        "DubeyJi": "front_center",
+        "SharmaSir": "aisle_r0_faceFront"
+      }
+    },
+    {
+      "speaker": "DubeyJi",
+      "to": "SharmaSir",
+      "text": "आलू दो किलो, प्याज़ एक किलो, धनिया मुफ़्त में... ये कौन सा सवाल है?",
+      "emotion": "confused",
+      "shot": "closeUpSpeaker",
+      "pauseAfter": 0.7
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "DubeyJi",
+      "text": "अरे! ये तो मेरी पत्नी की सब्ज़ी वाली लिस्ट है! मेरी जेब से गिरी होगी!",
+      "emotion": "surprised",
+      "action": "slapForehead",
+      "shot": "reactionZoom",
+      "sfx": "gasp_break"
+    },
+    {
+      "speaker": "Pappu",
+      "to": "SharmaSir",
+      "text": "देखा सर! मैंने कहा था ना, पर्ची मेरी नहीं है!",
+      "emotion": "happy",
+      "shot": "closeUpSpeaker",
+      "spots": {
+        "SharmaSir": "aisle_r0_faceLeft"
+      }
+    },
+    {
+      "speaker": "Golu",
+      "to": "Pappu",
+      "text": "लेकिन पप्पू, तूने आंसर शीट में भी आलू प्याज़ ही लिखा है!",
+      "emotion": "laughing",
+      "shot": "twoShot"
+    },
+    {
+      "speaker": "DubeyJi",
+      "to": "SharmaSir",
+      "text": "हा हा हा! शर्मा जी, इसे सब्ज़ी मंडी भेज दो, वहाँ पक्का पास हो जाएगा!",
+      "emotion": "laughing",
+      "action": "laughing",
+      "shot": "closeUpSpeaker",
+      "sfx": "laugh_break",
+      "pauseAfter": 0.8
+    },
+    {
+      "speaker": "Chintu",
+      "to": "SharmaSir",
+      "text": "सर... पेपर कब शुरू होगा?",
+      "emotion": "confused",
+      "shot": "closeUpSpeaker",
+      "acts": {
+        "Chintu": null
+      },
+      "spots": {
+        "SharmaSir": "aisle_r0_faceRight"
+      }
+    },
+    {
+      "speaker": "SharmaSir",
+      "to": "Chintu",
+      "text": "बेटा... पेपर ख़त्म हो गया!",
+      "emotion": "angry",
+      "action": "slapForehead",
+      "shot": "wideEstablishing",
+      "sfx": "break_whoosh"
+    }
+  ]
+}

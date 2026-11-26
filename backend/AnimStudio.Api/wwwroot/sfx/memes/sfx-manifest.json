@@ -1,0 +1,74 @@
+[
+  {
+    "id": "break_whoosh",
+    "name": "Break Whoosh",
+    "category": "Transition",
+    "file": "break_whoosh.wav",
+    "url": "/sfx/memes/break_whoosh.wav",
+    "durationSeconds": 0.73,
+    "sourceOffsetSeconds": 4.87
+  },
+  {
+    "id": "shock_sting",
+    "name": "Shock Sting",
+    "category": "Reaction",
+    "file": "shock_sting.wav",
+    "url": "/sfx/memes/shock_sting.wav",
+    "durationSeconds": 1.58,
+    "sourceOffsetSeconds": 44.82
+  },
+  {
+    "id": "teacher_glare",
+    "name": "Teacher Glare Hit",
+    "category": "Comedy",
+    "file": "teacher_glare.wav",
+    "url": "/sfx/memes/teacher_glare.wav",
+    "durationSeconds": 0.73,
+    "sourceOffsetSeconds": 49.22
+  },
+  {
+    "id": "desk_thud",
+    "name": "Desk Thud",
+    "category": "Impact",
+    "file": "desk_thud.wav",
+    "url": "/sfx/memes/desk_thud.wav",
+    "durationSeconds": 0.68,
+    "sourceOffsetSeconds": 63.47
+  },
+  {
+    "id": "gasp_break",
+    "name": "Comedic Gasp Break",
+    "category": "Reaction",
+    "file": "gasp_break.wav",
+    "url": "/sfx/memes/gasp_break.wav",
+    "durationSeconds": 1.58,
+    "sourceOffsetSeconds": 129.02
+  },
+  {
+    "id": "punch_pop",
+    "name": "Comic Pop Sting",
+    "category": "Comedy",
+    "file": "punch_pop.wav",
+    "url": "/sfx/memes/punch_pop.wav",
+    "durationSeconds": 0.48,
+    "sourceOffsetSeconds": 144.57
+  },
+  {
+    "id": "bell_sting",
+    "name": "Classroom Sting",
+    "category": "Transition",
+    "file": "bell_sting.wav",
+    "url": "/sfx/memes/bell_sting.wav",
+    "durationSeconds": 0.83,
+    "sourceOffsetSeconds": 145.87
+  },
+  {
+    "id": "laugh_break",
+    "name": "Finale Laugh Sting",
+    "category": "Reaction",
+    "file": "laugh_break.wav",
+    "url": "/sfx/memes/laugh_break.wav",
+    "durationSeconds": 0.98,
+    "sourceOffsetSeconds": 154.02
+  }
+]

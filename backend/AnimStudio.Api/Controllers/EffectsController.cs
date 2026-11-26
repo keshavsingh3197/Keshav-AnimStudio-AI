@@ -17,7 +17,8 @@ namespace AnimStudio.Api.Controllers;
 [Route("api/effects")]
 public sealed class EffectsController(
     EffectLibraryService library,
-    ICurrentUser currentUser) : ControllerBase
+    ICurrentUser currentUser,
+    IWebHostEnvironment env) : ControllerBase
 {
     /// <summary>The request ceiling: the video limit plus room for the form fields.</summary>
     private const long MaxRequestBytes = EffectRules.MaxVideoBytes + 64 * 1024;
@@ -129,6 +130,22 @@ public sealed class EffectsController(
         var effect = await library.SaveFromAssetAsync(
             currentUser.UserId, request.ProjectId, request.AssetId, request.Category, ct);
         return Ok(ApiResponse<EffectClipResponse>.Ok(effect.ToResponse()));
+    }
+
+    /// <summary>Built-in comedy break and reaction SFX library (extracted & reusable).</summary>
+    [HttpGet("sfx-library")]
+    public async Task<ActionResult<ApiResponse<object>>> SfxLibrary(CancellationToken ct)
+    {
+        var webRoot = string.IsNullOrWhiteSpace(env.WebRootPath)
+            ? Path.Combine(env.ContentRootPath, "wwwroot")
+            : env.WebRootPath;
+        var manifestPath = Path.Combine(webRoot, "sfx", "memes", "sfx-manifest.json");
+        if (!System.IO.File.Exists(manifestPath))
+            return Ok(ApiResponse<object>.Ok(Array.Empty<object>()));
+
+        var json = await System.IO.File.ReadAllTextAsync(manifestPath, ct);
+        var items = System.Text.Json.JsonSerializer.Deserialize<object>(json) ?? Array.Empty<object>();
+        return Ok(ApiResponse<object>.Ok(items));
     }
 
     private async Task<IActionResult> ServeAsync(string id, bool thumbnail, CancellationToken ct)

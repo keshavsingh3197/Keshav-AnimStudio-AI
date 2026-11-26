@@ -123,6 +123,7 @@ export class ComedyWorkspaceComponent {
   readonly selectedMemeNames = signal<string[]>([]);
   readonly comedyToneOptions = COMEDY_TONE_OPTIONS;
   readonly overview = signal<AutomationOverview | null>(null);
+  readonly recentComedyPosts = signal<AutomationPost[]>([]);
   readonly songs = signal<Song[]>([]);
   readonly loadingWorkspace = signal(false);
 
@@ -184,11 +185,17 @@ export class ComedyWorkspaceComponent {
     (this.overview()?.rules ?? []).filter((r) => r.sourceType === 'FunnyComedy')
   );
 
-  readonly comedyPosts = computed(() =>
-    (this.overview()?.posts ?? [])
-      .filter((p) => p.sourceType === 'FunnyComedy')
-      .sort((a, b) => new Date(b.updatedAtUtc).getTime() - new Date(a.updatedAtUtc).getTime())
-  );
+  readonly comedyPosts = computed(() => {
+    const byId = new Map<string, AutomationPost>();
+    for (const p of this.recentComedyPosts()) {
+      if (p.sourceType === 'FunnyComedy') byId.set(p.id, p);
+    }
+    for (const p of this.overview()?.posts ?? []) {
+      if (p.sourceType === 'FunnyComedy') byId.set(p.id, p);
+    }
+    return [...byId.values()]
+      .sort((a, b) => new Date(b.updatedAtUtc).getTime() - new Date(a.updatedAtUtc).getTime());
+  });
 
   readonly filteredComedyPosts = computed(() => {
     const q = this.queueQuery().trim().toLowerCase();
@@ -329,6 +336,22 @@ export class ComedyWorkspaceComponent {
     try {
       const ov = await firstValueFrom(this.automation.getOverview(undefined, background));
       this.overview.set(ov);
+      if (!background || this.recentComedyPosts().length === 0) {
+        const y1 = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+        const y2 = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+        void Promise.allSettled([
+          firstValueFrom(this.automation.getOverview(y1, true)),
+          firstValueFrom(this.automation.getOverview(y2, true)),
+        ]).then((results) => {
+          const merged: AutomationPost[] = [];
+          for (const r of results) {
+            if (r.status === 'fulfilled') {
+              merged.push(...(r.value.posts ?? []).filter((p) => p.sourceType === 'FunnyComedy'));
+            }
+          }
+          if (merged.length > 0) this.recentComedyPosts.set(merged);
+        });
+      }
       if (!this.selectedChannelId() && ov.connectedChannels.length > 0) {
         this.pickDefaultChannelForTrack(this.audienceTrack(), ov.connectedChannels);
       }

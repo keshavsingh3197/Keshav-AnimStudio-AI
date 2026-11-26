@@ -45,6 +45,8 @@ export function updateCameraRig(
   turnLocal = 0.5,
   speakerHeadY = 1.38,
   setting = 'Auto',
+  speakerPos?: { x: number; y: number; z: number; rotY: number },
+  listenerPos?: { x: number; y: number; z: number; rotY: number },
 ): void {
   const isPortrait = job.height > job.width;
   const isPalaceDance = setting === 'PalaceCourt';
@@ -52,8 +54,8 @@ export function updateCameraRig(
   const defaultY = isPalaceDance ? (isPortrait ? 1.32 : 1.18) : (isPortrait ? 1.24 : 1.05);
   const defaultLookY = isPalaceDance ? (isPortrait ? 1.04 : 0.96) : (isPortrait ? 1.04 : 0.92);
 
-  // When a template background is locked, freeze perspective framing 1:1 with placement coordinates
-  if (job.stageLayout?.templateBackdrop) {
+  // Only freeze camera when a locked 2D template backdrop is used WITHOUT a 3D sceneBlueprint
+  if (job.stageLayout?.templateBackdrop && !job.sceneBlueprint && setting !== 'Classroom') {
     rig.camera.position.set(0, defaultY, defaultZ);
     rig.camera.lookAt(0, defaultLookY, 0);
     return;
@@ -64,6 +66,7 @@ export function updateCameraRig(
   let targetZ = defaultZ;
   let lookX = (leftX + rightX) * 0.48;
   let lookY = defaultLookY;
+  let lookZ = 0;
   const midX = (leftX + rightX) * 0.5;
 
   if (!job.enableDynamicCamera || isTitleHook) {
@@ -91,10 +94,11 @@ export function updateCameraRig(
     lookY = defaultLookY + 0.05;
   }
 
-  // Gentle organic handheld drift + comic punch-in / smash-cut shake
+  // Tripod-steady framing: only a barely perceptible slow drift (no handheld wobble).
+  // Impact shake is reserved for crash-punch / snap moments below and decays within ~0.3 s.
   const comedy = !!job.isComedyMode;
-  let shakeX = Math.sin(t * (comedy ? 1.8 : 0.9)) * (comedy ? 0.045 : 0.03);
-  let shakeY = Math.cos(t * (comedy ? 1.4 : 0.7)) * (comedy ? 0.032 : 0.02);
+  let shakeX = Math.sin(t * 0.35) * 0.006;
+  let shakeY = Math.cos(t * 0.28) * 0.004;
   let rollZ = 0;
 
   if (emotion === 'surprised' || emotion === 'angry') {
@@ -112,14 +116,9 @@ export function updateCameraRig(
         lookY = isPortrait ? 1.08 : 1.18;
       }
       targetY = isPortrait ? 1.24 : 1.25;
-      rollZ = Math.sin(t * 5.2) * (emotion === 'angry' ? 0.045 : -0.035);
     }
-    shakeX += Math.sin(t * 28) * (comedy ? 0.042 : 0.02);
-    shakeY += Math.cos(t * 33) * (comedy ? 0.032 : 0.015);
   } else if (comedy && emotion === 'laughing') {
     targetZ *= 0.82;
-    shakeY += Math.abs(Math.sin(t * 9.5)) * 0.035;
-    rollZ = Math.sin(t * 7.5) * 0.024;
   }
 
   const isMythicClimax = action === 'lapSubdue' || action === 'lapSubdued' || action === 'pillarBurst';
@@ -232,8 +231,62 @@ export function updateCameraRig(
     lookY = 1.04;
   }
 
+  // True 3D spatial camera framing when speakerPos is supplied (e.g. dynamic 360-degree SceneBlueprint)
+  if (speakerPos) {
+    const sp = speakerPos;
+    const lp = listenerPos ?? { x: sp.x, y: sp.y, z: sp.z + 2.2, rotY: sp.rotY + Math.PI };
+    const fwdX = Math.sin(sp.rotY);
+    const fwdZ = Math.cos(sp.rotY);
+    const headY = Math.max(0.85, sp.y + speakerHeadY - 0.08);
+
+    if (cameraShot === 'closeUpSpeaker' || cameraShot === 'crashPunch' || cameraShot === 'reactionZoom') {
+      const dist = cameraShot === 'crashPunch' ? 1.35 : 1.62;
+      targetX = sp.x + fwdX * dist;
+      targetY = headY + 0.02;
+      targetZ = sp.z + fwdZ * dist;
+      lookX = sp.x;
+      lookY = headY - 0.04;
+      lookZ = sp.z;
+    } else if (cameraShot === 'lowDramatic') {
+      targetX = sp.x + fwdX * 1.78 + 0.22;
+      targetY = Math.max(0.62, headY - 0.62);
+      targetZ = sp.z + fwdZ * 1.78;
+      lookX = sp.x;
+      lookY = headY + 0.04;
+      lookZ = sp.z;
+    } else if (cameraShot === 'overShoulder') {
+      const lFwdX = Math.sin(lp.rotY);
+      const lFwdZ = Math.cos(lp.rotY);
+      const lRightX = Math.cos(lp.rotY);
+      const lRightZ = -Math.sin(lp.rotY);
+      targetX = lp.x - lFwdX * 0.92 + lRightX * 0.85;
+      targetY = Math.max(1.42, lp.y + 1.46);
+      targetZ = lp.z - lFwdZ * 0.92 + lRightZ * 0.85;
+      lookX = sp.x * 0.85 + lp.x * 0.15;
+      lookY = headY * 0.88;
+      lookZ = sp.z * 0.88 + lp.z * 0.12;
+    } else if (cameraShot === 'twoShot') {
+      const mx = (sp.x + lp.x) * 0.5;
+      const mz = (sp.z + lp.z) * 0.5;
+      targetX = mx + 2.25;
+      targetY = 1.48;
+      targetZ = mz + 2.35;
+      lookX = mx;
+      lookY = 0.98;
+      lookZ = mz;
+    } else {
+      // wideEstablishing / auto: full classroom view showing teacher + seated students
+      targetX = 0.35;
+      targetY = 1.85;
+      targetZ = 3.55;
+      lookX = -0.15;
+      lookY = 1.05;
+      lookZ = -1.15;
+    }
+  }
+
   let targetPos = new THREE.Vector3(targetX + shakeX, targetY + shakeY, targetZ);
-  let targetLook = new THREE.Vector3(lookX, lookY, 0);
+  let targetLook = new THREE.Vector3(lookX, lookY, lookZ);
 
   // Seamless Shorts loop reset: smoothly converge to exact neutral opening framing at end of clip
   if (job.isSeamlessLoop) {

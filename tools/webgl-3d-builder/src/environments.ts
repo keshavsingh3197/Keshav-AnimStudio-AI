@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
-import { ComedyHazardMode, RenderJobJson, SceneSetting, SceneTimeOfDay, StageLayoutJson } from './types';
+import { ComedyHazardMode, RenderJobJson, SceneSetting, SceneTimeOfDay, SpotPlacementJson, StageLayoutJson } from './types';
+import { buildSceneFromBlueprint, getDefaultClassroomBlueprint } from './blueprint';
 import { createMythicTrialStageProps, MythicTrialMode, MythicTrialPropsRig, updateMythicTrialProps } from './mythic-trials';
 import { ComedyGagRig, createComedyGagProps, updateComedyGagProps } from './comedy-gags';
 
@@ -43,6 +44,7 @@ export interface EnvironmentRig {
   livingRoomTableGroup?: THREE.Group;
   backdropTextures: THREE.DataTexture[];
   spots: StageSpotMap;
+  dynamicSpots: Record<string, SpotPlacementJson>;
 }
 
 function getTimeColors(
@@ -2043,10 +2045,16 @@ export function buildEnvironment(
     animatedProps: [],
     backdropTextures,
     spots: {},
+    dynamicSpots: {},
   };
 
-  if (backdropTextures.length > 0 && job.stageLayout?.templateBackdrop) {
-    // Explicit user static photo template mode: clean floor shadow catcher + locked cinema backdrop plane
+  if (job.sceneBlueprint) {
+    buildSceneFromBlueprint(group, job.sceneBlueprint, rig.dynamicSpots);
+    return rig;
+  }
+
+  if (backdropTextures.length > 0) {
+    // Realistic AI / custom image backdrop mode: clean floor shadow catcher + cinema backdrop plane (no primitive 3D box background)
     const shadowCatcher = new THREE.Mesh(
       new THREE.PlaneGeometry(14, 14),
       new THREE.ShadowMaterial({ opacity: 0.42 }),
@@ -2055,32 +2063,18 @@ export function buildEnvironment(
     shadowCatcher.receiveShadow = true;
     group.add(shadowCatcher);
 
+    const isLocked = !!job.stageLayout?.templateBackdrop;
     const aspect = job.width / job.height;
-    const planeHeight = 6.2;
-    const planeWidth = planeHeight * aspect;
-    const backdropMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(planeWidth, planeHeight),
-      new THREE.MeshBasicMaterial({ map: backdropTextures[0], depthWrite: false }),
-    );
-    backdropMesh.position.set(0, 1.32, -2.1);
-    group.add(backdropMesh);
-    rig.backdropMesh = backdropMesh;
-    return rig;
-  }
-
-  if (backdropTextures.length > 0) {
-    // AI / multi-scene sky plate mode: mount painted vista far at the back horizon so 3D temples,
-    // ashram trees, ghats, Shivling & swinging bells still build richly in foreground 3D space!
-    const aspect = job.width / job.height;
-    const planeHeight = 11.2;
+    const planeHeight = isLocked ? 6.2 : 9.4;
     const planeWidth = planeHeight * aspect;
     const backdropMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(planeWidth, planeHeight),
       new THREE.MeshBasicMaterial({ map: backdropTextures[0], depthWrite: false, fog: false }),
     );
-    backdropMesh.position.set(0, 2.75, -6.5);
+    backdropMesh.position.set(0, isLocked ? 1.32 : 2.15, isLocked ? -2.1 : -4.8);
     group.add(backdropMesh);
     rig.backdropMesh = backdropMesh;
+    return rig;
   }
 
   switch (setting) {
@@ -2147,7 +2141,7 @@ export function buildEnvironment(
       addDoctorClinic(group, rig);
       break;
     case 'Classroom':
-      addClassroom(group, rig);
+      buildSceneFromBlueprint(group, getDefaultClassroomBlueprint(), rig.dynamicSpots);
       break;
     case 'QuizStudio':
       addQuizStudio(group, rig);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CharacterRig, createCharacterRig, updateCharacterRig } from './characters';
 import { createCameraRig, updateCameraRig } from './camera';
+import { createDirectorState, updateDirectorCamera } from './director-camera';
 import { buildEnvironment, EnvironmentRig, updateEnvironment } from './environments';
 import { MythicTrialMode } from './mythic-trials';
 import { createVfxRig, updateVfxRig, VfxRig } from './vfx';
@@ -313,10 +314,13 @@ async function run(): Promise<void> {
             : job.supportingCast.length === 3 ? [0, -0.68, 0.68]
             : [-0.36, 0.36, -0.96, 0.96, 0]);
         const supZ = setting === 'BarberShop' ? (isPortrait ? -1.62 : -1.48) : -0.86;
-        nextSupporting = job.supportingCast.slice(0, 5).map((sup, i) => {
-          const rig = createCharacterRig(sup, job.palette.secondaryHex, setting, supSlots[i] <= 0 ? 1 : -1, 3.1 + i * 1.4);
+        nextSupporting = job.supportingCast.slice(0, 16).map((sup, i) => {
+          // Slot table covers the first few extras; spread any further cast alternately left/right
+          // (an undefined slot used to leave x = NaN forever, hiding the character and breaking the camera).
+          const slotX = supSlots[i] ?? ((i % 2 === 0 ? -1 : 1) * (0.6 + 0.42 * Math.floor(i / 2)));
+          const rig = createCharacterRig(sup, job.palette.secondaryHex, setting, slotX <= 0 ? 1 : -1, 3.1 + i * 1.4);
           const rowBack = i >= 3 ? -0.34 : 0;
-          rig.root.position.set(supSlots[i], stageY + (setting === 'BarberShop' ? 0.36 : 0.05), supZ + rowBack);
+          rig.root.position.set(slotX, stageY + (setting === 'BarberShop' ? 0.36 : 0.05), supZ + rowBack);
           rig.root.scale.setScalar(i >= 3 ? 0.72 : 0.76);
           nextScene.add(rig.root);
           return rig;
@@ -372,6 +376,8 @@ async function run(): Promise<void> {
     const corpseSnapAt = corpseSnapTurn ? corpseSnapTurn.startSeconds : Number.POSITIVE_INFINITY;
 
     let prevTurnIdx = -1;
+    let prevRefTurnIdx = -2;
+    const directorState = createDirectorState(camRig);
     const totalFrames = Math.max(1, job.totalFrames);
     const startFrame = Math.max(0, Math.min(totalFrames, job.startFrame ?? 0));
     const endFrame = Math.max(startFrame, Math.min(totalFrames, job.endFrame ?? totalFrames));
@@ -390,6 +396,11 @@ async function run(): Promise<void> {
       const isTitleHook = !activeTurn && job.turns.some((turn) => turn.isTitleHook && t >= turn.startSeconds && t <= turn.endSeconds) && t < (job.turns.find((x) => !x.isTitleHook)?.startSeconds ?? 99);
       const activeTurnIdx = activeTurn ? activeTurn.index : -1;
       const turnChanged = activeTurnIdx !== prevTurnIdx;
+      // In walkable rooms the director camera cuts on every line, so characters jump to their new marks
+      // on the cut (like an edited cartoon) instead of sliding across the room mid-shot.
+      const inDirectedRoom = Object.keys((env as EnvironmentRig | null)?.dynamicSpots ?? {}).length > 0;
+      const cutTurnIdx = (activeTurn ?? resolvePoseTurn(job, t, activeTurn, sceneMoment.setting))?.index ?? -1;
+      const cutSnap = inDirectedRoom && cutTurnIdx !== prevRefTurnIdx;
       prevTurnIdx = activeTurnIdx;
 
       const speechLevel = getSpeechLevel(job, i);
@@ -474,6 +485,10 @@ async function run(): Promise<void> {
       };
       leftAction = resolveMythicAction(currentLeft, leftAction);
       rightAction = resolveMythicAction(currentRight, rightAction);
+      // Persistent per-character actions (e.g. asleep at the desk) apply while that character is not the speaker.
+      const persistentActs = refTurn?.characterActions ?? {};
+      if (currentLeft && poseSlot !== 'Left' && persistentActs[currentLeft.name]) leftAction = persistentActs[currentLeft.name];
+      if (currentRight && poseSlot !== 'Right' && persistentActs[currentRight.name]) rightAction = persistentActs[currentRight.name];
       let leftProp = poseSlot === 'Left' ? speakerProp : poseSlot === 'Right' ? listenerProp : null;
       let rightProp = poseSlot === 'Right' ? speakerProp : poseSlot === 'Left' ? listenerProp : null;
 
@@ -511,6 +526,28 @@ async function run(): Promise<void> {
         baseX: number,
         baseRotY: number,
       ): { x: number; y: number; z: number; rotY: number; seated: boolean; showCape: boolean } => {
+        const dynSpots = env?.dynamicSpots ?? {};
+        const charProfile = slot === 'Left' ? job.leftCharacter : job.rightCharacter;
+        const charName = charProfile?.name ?? '';
+        const namedSpotKey = (charName && refTurn?.characterSpots?.[charName])
+          || (isPoseSpeaker ? refTurn?.speakerSpot : refTurn?.listenerSpot)
+          || charProfile?.defaultSpot
+          || '';
+        if (namedSpotKey === 'hidden' || namedSpotKey === 'outside') {
+          return { x: 99, y: -99, z: 99, rotY: 0, seated: false, showCape: false };
+        }
+        if (namedSpotKey && dynSpots[namedSpotKey]) {
+          const ds = dynSpots[namedSpotKey];
+          return {
+            x: ds.x,
+            y: ds.y ?? 0,
+            z: ds.z,
+            rotY: ds.rotY ?? baseRotY,
+            seated: ds.pose === 'sitting' || act === 'sitting' || act === 'placingBook',
+            showCape: false,
+          };
+        }
+
         const baseY = stageY;
         if (job.stageLayout?.templateBackdrop) {
           return { x: baseX, y: baseY, z: 0.12, rotY: baseRotY, seated: false, showCape: false };
@@ -627,7 +664,7 @@ async function run(): Promise<void> {
         const target = resolveSlotPose('Left', leftAction, poseSlot === 'Left', defaultLeftX, 0.42);
         leftSeated = target.seated;
         leftShowCape = target.showCape;
-        const snapL = sceneChanged || (turnChanged && (leftAction === 'sleeping' || leftAction === 'sitting' || target.seated)) ? 1 : posBlend;
+        const snapL = sceneChanged || cutSnap || (turnChanged && (leftAction === 'sleeping' || leftAction === 'sitting' || target.seated)) ? 1 : posBlend;
         currentLeft.root.position.x += (target.x - currentLeft.root.position.x) * snapL;
         currentLeft.root.position.y += (target.y - currentLeft.root.position.y) * snapL;
         currentLeft.root.position.z += (target.z - currentLeft.root.position.z) * snapL;
@@ -639,7 +676,7 @@ async function run(): Promise<void> {
         const target = resolveSlotPose('Right', rightAction, poseSlot === 'Right', defaultRightX, -0.42);
         rightSeated = target.seated;
         rightShowCape = target.showCape;
-        const snapR = sceneChanged || (turnChanged && (rightAction === 'sleeping' || rightAction === 'sitting' || target.seated)) ? 1 : posBlend;
+        const snapR = sceneChanged || cutSnap || (turnChanged && (rightAction === 'sleeping' || rightAction === 'sitting' || target.seated)) ? 1 : posBlend;
         currentRight.root.position.x += (target.x - currentRight.root.position.x) * snapR;
         currentRight.root.position.y += (target.y - currentRight.root.position.y) * snapR;
         currentRight.root.position.z += (target.z - currentRight.root.position.z) * snapR;
@@ -691,16 +728,44 @@ async function run(): Promise<void> {
         && (job.sceneRuns?.length ?? 0) > 1;
 
       if (currentLeft) {
+        const leftSpotKey = (currentLeft.name && refTurn?.characterSpots?.[currentLeft.name])
+          || (poseSlot === 'Left' ? refTurn?.speakerSpot : refTurn?.listenerSpot)
+          || job.leftCharacter?.defaultSpot || '';
+        currentLeft.root.visible = leftSpotKey !== 'hidden' && leftSpotKey !== 'outside';
+        currentLeft.root.rotation.z = leftSpotKey === 'door_exit' ? Math.min(1, turnLocal * 1.4) * Math.PI : 0;
         updateCharacterRig(currentLeft, t, leftSpeaking, speechLevel, leftEmotion, isTitleHook, leftAction, turnLocal, sceneChanged, leftProp, leftSeated, leftShowCape, leftGlasses, leftHairCut);
       }
       if (currentRight) {
+        const rightSpotKey = (currentRight.name && refTurn?.characterSpots?.[currentRight.name])
+          || (poseSlot === 'Right' ? refTurn?.speakerSpot : refTurn?.listenerSpot)
+          || job.rightCharacter?.defaultSpot || '';
+        currentRight.root.visible = rightSpotKey !== 'hidden' && rightSpotKey !== 'outside';
+        currentRight.root.rotation.z = rightSpotKey === 'door_exit' ? Math.min(1, turnLocal * 1.4) * Math.PI : 0;
         updateCharacterRig(currentRight, t, rightSpeaking, speechLevel, rightEmotion, isTitleHook, rightAction, turnLocal, sceneChanged, rightProp, rightSeated, rightShowCape, rightGlasses, rightHairCut);
       }
       supportingRigs.forEach((rig, sIdx) => {
         const spk = sIdx === supIdx;
         const isShroudCorpse = !useSceneCasting && sceneMoment.setting === 'LivingRoom' && hasFuneralShroud && sIdx === 0;
         const isSofaMourner = !useSceneCasting && sceneMoment.setting === 'LivingRoom' && hasFuneralShroud && sIdx === 1;
-        if (isShroudCorpse) {
+        const dynSpots = env?.dynamicSpots ?? {};
+        const supProfile = job.supportingCast[sIdx];
+        const supSpotKey = (rig.name && refTurn?.characterSpots?.[rig.name]) || supProfile?.defaultSpot || '';
+        const supDynSpot = supSpotKey ? dynSpots[supSpotKey] : undefined;
+        let supSeated = false;
+
+        if (supSpotKey === 'hidden' || supSpotKey === 'outside') {
+          rig.root.visible = false;
+        } else if (supDynSpot) {
+          rig.root.visible = true;
+          const snapHere = sceneChanged || cutSnap ? 1 : posBlend;
+          rig.root.position.x += (supDynSpot.x - rig.root.position.x) * snapHere;
+          rig.root.position.y += ((supDynSpot.y ?? 0) - rig.root.position.y) * snapHere;
+          rig.root.position.z += (supDynSpot.z - rig.root.position.z) * snapHere;
+          rig.root.rotation.y += ((supDynSpot.rotY ?? Math.PI) - rig.root.rotation.y) * snapHere;
+          rig.root.rotation.z = supSpotKey === 'door_exit' ? Math.min(1, turnLocal * 1.4) * Math.PI : 0;
+          rig.root.scale.setScalar(1.0);
+          supSeated = supDynSpot.pose === 'sitting';
+        } else if (isShroudCorpse) {
           if (corpseAwake) {
             rig.root.position.x += (0 - rig.root.position.x) * Math.max(posBlend, 0.55);
             rig.root.position.y += (0.02 - rig.root.position.y) * Math.max(posBlend, 0.55);
@@ -745,7 +810,8 @@ async function run(): Promise<void> {
           }
         }
         const mainDancing = leftAction === 'dancing' || rightAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin';
-        const baseSupAct = isShroudCorpse
+        const persistentSupAct = !spk ? refTurn?.characterActions?.[rig.name] : undefined;
+        const baseSupAct = persistentSupAct ? persistentSupAct : isShroudCorpse
           ? (corpseAwake ? 'corpseSnapUp' : 'lyingShroud')
           : isSofaMourner
             ? (corpseAwake ? 'shockedFall' : 'sitting')
@@ -753,7 +819,7 @@ async function run(): Promise<void> {
               ? speakerAction
               : mainDancing && sceneMoment.setting === 'PalaceCourt'
                 ? (leftAction === 'dancing' || leftAction === 'adaab' || leftAction === 'sufiSpin' ? leftAction : rightAction)
-                : (speakerAction === 'punching' || speakerAction === 'kicking') ? 'shockedFall' : 'none';
+                : (speakerAction === 'punching' || speakerAction === 'kicking') ? 'shockedFall' : (supSeated ? 'sitting' : 'none');
         const reactAct = resolveMythicAction(rig, baseSupAct);
         const reactEmo = isShroudCorpse
           ? (corpseAwake ? 'angry' : (u > 0.54 ? 'angry' : 'happy'))
@@ -769,8 +835,8 @@ async function run(): Promise<void> {
                     ? emotion
                     : (emotion === 'angry' || emotion === 'surprised') ? 'surprised' : (emotion === 'laughing' ? 'laughing' : 'calm');
         const supProp = spk && sceneMoment.setting !== 'BarberShop' ? speakerProp : null;
-        const supSeated = sceneMoment.setting === 'BarberShop' || (isSofaMourner && !corpseAwake);
-        updateCharacterRig(rig, t, spk, speechLevel, reactEmo, false, reactAct, turnLocal, sceneChanged, supProp, supSeated, false, 'none', 0);
+        supSeated = supSeated || sceneMoment.setting === 'BarberShop' || (isSofaMourner && !corpseAwake);
+        updateCharacterRig(rig, t, spk, speechLevel, reactEmo, false, reactAct, turnLocal, sceneChanged, supProp, supSeated, false, null, 0);
       });
 
       let camLeftX = lx;
@@ -959,9 +1025,55 @@ async function run(): Promise<void> {
             : trialMode !== 'none'
               ? trialMode
               : speakerAction;
-      updateCameraRig(
-        camRig, job, t, u, camSlot, camLeftX, camRightX, emotion, isTitleHook,
-        activeMeme ? 'crashPunch' : cameraShot, effectiveCamAction, turnChanged || sceneChanged, turnLocal, camHeadY, sceneMoment.setting);
+      // Walkable 3D rooms (SceneBlueprint / Classroom) use the locked-off director camera:
+      // hard cut per line, head-accurate framing, occlusion-free angles, no handheld shake.
+      const curEnv = env as EnvironmentRig | null;
+      const curVfx = vfx as VfxRig | null;
+      const isDirectedRoom = !!curEnv && Object.keys(curEnv.dynamicSpots).length > 0;
+      const refTurnIdx = refTurn ? refTurn.index : -1;
+      const refTurnChanged = refTurnIdx !== prevRefTurnIdx;
+      prevRefTurnIdx = refTurnIdx;
+      let directed = false;
+      if (isDirectedRoom) {
+        if (curVfx) curVfx.group.visible = false;
+        const allChars = [
+          ...(currentLeft ? [currentLeft] : []),
+          ...(currentRight ? [currentRight] : []),
+          ...supportingRigs,
+        ].filter((r) => r.root.visible);
+        const byName = (name?: string | null) => (name
+          ? allChars.find((r) => r.name.toLowerCase() === name.trim().toLowerCase())
+          : undefined);
+        const spk = byName(refTurn?.speakerName)
+          ?? (camSlot === 'Left' ? currentLeft : camSlot === 'Right' ? currentRight : null)
+          ?? allChars[0];
+        if (spk) {
+          const lst = byName(refTurn?.listenerName) ?? allChars.find((r) => r !== spk);
+          const roomDims = job.sceneBlueprint?.room;
+          updateDirectorCamera(camRig, directorState, job, {
+            shot: isTitleHook ? 'wideEstablishing' : (activeMeme ? 'crashPunch' : cameraShot),
+            speaker: spk,
+            listener: lst,
+            everyone: allChars,
+            aspect: job.width / job.height,
+            scene,
+            room: {
+              halfWidth: (roomDims?.width ?? 9.6) / 2,
+              halfDepth: (roomDims?.depth ?? 8.4) / 2,
+              height: roomDims?.height ?? 3.6,
+            },
+            turnLocal,
+            cut: refTurnChanged || sceneChanged,
+          });
+          directed = true;
+        }
+      }
+
+      if (!directed) {
+        updateCameraRig(
+          camRig, job, t, u, camSlot, camLeftX, camRightX, emotion, isTitleHook,
+          activeMeme ? 'crashPunch' : cameraShot, effectiveCamAction, turnChanged || sceneChanged, turnLocal, camHeadY, sceneMoment.setting);
+      }
 
       if (hudScene && hudCamera) {
         renderer.clear();
