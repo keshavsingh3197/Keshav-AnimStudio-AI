@@ -322,8 +322,13 @@ function createCrownOrHair(
   headR: number,
   robeHex?: number,
   attire?: 'auto' | 'turban' | 'anarkali' | null,
+  hairStyle?: string | null,
+  hairHex?: string | null,
 ): { hairFullGroup?: THREE.Group; hairShavedGroup?: THREE.Group } | undefined {
-  const hairMat = new THREE.MeshStandardMaterial({ color: 0x1e1924, roughness: 0.72 });
+  const hairMat = new THREE.MeshStandardMaterial({
+    color: hairHex && /^#?[0-9a-fA-F]{6}$/.test(hairHex.trim()) ? new THREE.Color(hairHex.startsWith('#') ? hairHex : `#${hairHex}`) : 0x1e1924,
+    roughness: 0.72,
+  });
   const silverHairMat = new THREE.MeshStandardMaterial({ color: 0xd9dce6, roughness: 0.6 });
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xf5b82e, metalness: 0.85, roughness: 0.22 });
   const lower = name.toLowerCase();
@@ -551,12 +556,68 @@ function createCrownOrHair(
   // Default Scholar / Comedy character hair + swappable "shaved / katora" patch stage for Salon comedy
   if (role === 'ComicBobble' || isDomesticOrComedySetting(setting)) {
     const hairFullGroup = new THREE.Group();
+    const style = (hairStyle ?? '').trim().toLowerCase();
+    if (role === 'ComicBobble' && style === 'bald') {
+      // Shiny dome with a neat horseshoe fringe around the back and ears
+      // Soft hair patches over the ears and a low band across the nape (reads as hair, not a strap)
+      for (const side of [-1, 1]) {
+        const patch = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.26, 12, 10), hairMat);
+        patch.scale.set(0.38, 0.8, 1.2);
+        patch.position.set(side * headR * 0.92, -headR * 0.06, -headR * 0.26);
+        hairFullGroup.add(patch);
+      }
+      const nape = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.6, 14, 10), hairMat);
+      nape.scale.set(1.25, 0.42, 0.55);
+      nape.position.set(0, -headR * 0.2, -headR * 0.66);
+      hairFullGroup.add(nape);
+      headPivot.add(hairFullGroup);
+      return { hairFullGroup };
+    }
     const hair = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.06, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.50), hairMat);
     hair.scale.set(1.04, 1.15, 1.05);
     hair.position.set(0, headR * 0.06, -headR * 0.02);
     hair.rotation.x = -0.15;
     hairFullGroup.add(hair);
-    if (role === 'ComicBobble') {
+    if (role === 'ComicBobble' && style === 'parted') {
+      // Neat oiled side-parting: smooth swoop over the forehead, no spikes
+      const swoop = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.5, 14, 10), hairMat);
+      swoop.scale.set(1.5, 0.5, 1.0);
+      swoop.position.set(headR * 0.22, headR * 0.9, headR * 0.5);
+      swoop.rotation.z = -0.25;
+      hairFullGroup.add(swoop);
+    } else if (role === 'ComicBobble' && style === 'curly') {
+      // Curly mop built from small curls around the crown
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2;
+        const curl = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.22, 10, 8), hairMat);
+        curl.position.set(Math.cos(a) * headR * 0.78, headR * (0.78 + 0.12 * Math.sin(i * 1.7)), Math.sin(a) * headR * 0.78);
+        hairFullGroup.add(curl);
+      }
+      const top = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.42, 12, 10), hairMat);
+      top.position.set(0, headR * 1.08, 0);
+      hairFullGroup.add(top);
+    } else if (role === 'ComicBobble' && style === 'ponytail') {
+      // Girl's centre-part with a high ponytail and two front strands
+      const tail = new THREE.Mesh(new THREE.CapsuleGeometry(headR * 0.16, headR * 0.7, 6, 10), hairMat);
+      tail.position.set(0, headR * 0.55, -headR * 1.05);
+      tail.rotation.x = 0.55;
+      hairFullGroup.add(tail);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(headR * 0.17, headR * 0.05, 6, 12), new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.5 }));
+      band.position.set(0, headR * 0.86, -headR * 0.86);
+      band.rotation.x = 0.9;
+      hairFullGroup.add(band);
+      for (const side of [-1, 1]) {
+        const strand = new THREE.Mesh(new THREE.CapsuleGeometry(headR * 0.09, headR * 0.5, 4, 8), hairMat);
+        strand.position.set(side * headR * 0.78, headR * 0.15, headR * 0.42);
+        hairFullGroup.add(strand);
+      }
+    } else if (role === 'ComicBobble' && style === 'short') {
+      // Close crop: just the cap with a straight fringe
+      const fringe = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.4, 12, 10), hairMat);
+      fringe.scale.set(1.5, 0.4, 1.0);
+      fringe.position.set(0, headR * 0.88, headR * 0.5);
+      hairFullGroup.add(fringe);
+    } else if (role === 'ComicBobble') {
       // MJO-style playful spiky hair tufts on comic lead
       for (const ang of [-0.35, 0, 0.35]) {
         const tuft = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.15, headR * 0.40, 8), hairMat);
@@ -996,6 +1057,10 @@ export function createCharacterRig(
   const role = profile.role;
   const standing = isStandingScene(setting, role);
   const basePalette = getRolePalette(role, profile.robeHex, accentHex);
+  if (profile.skinHex && /^#?[0-9a-fA-F]{6}$/.test(profile.skinHex.trim())) {
+    // Per-character skin tone so a cast never looks cloned
+    basePalette.skin = new THREE.Color(profile.skinHex.startsWith('#') ? profile.skinHex : `#${profile.skinHex}`).getHex();
+  }
   const { isDivine } = basePalette;
   const accentColor = new THREE.Color(accentHex);
 
@@ -1014,10 +1079,50 @@ export function createCharacterRig(
   const robe = mythicPalette.robe;
   const sash = mythicPalette.sash;
   const skin = mythicPalette.skin;
-  const modelScale = archetype ? mythicPalette.scale : (role === 'ChildDevotee' ? 0.82 : 1.0);
+  const modelScale = profile.scale && profile.scale > 0
+    ? profile.scale
+    : (archetype ? mythicPalette.scale : (role === 'ChildDevotee' ? 0.82 : 1.0));
   bodyPivot.scale.setScalar(modelScale);
 
-  const robeMat = new THREE.MeshStandardMaterial({ color: robe, roughness: 0.58, metalness: 0.08 });
+  const makeShirtPatternTexture = (pattern: string, baseHex: number): THREE.CanvasTexture => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    const baseCol = '#' + new THREE.Color(baseHex).getHexString();
+    ctx.fillStyle = baseCol;
+    ctx.fillRect(0, 0, 256, 256);
+    if (pattern === 'colorful') {
+      const palette = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#14b8a6', '#eab308'];
+      for (let i = 0; i < 42; i++) {
+        ctx.fillStyle = palette[i % palette.length];
+        const x = (i * 53) % 240;
+        const y = (i * 79) % 240;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + 36, y + 12);
+        ctx.lineTo(x + 22, y + 42);
+        ctx.lineTo(x - 10, y + 28);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (pattern === 'striped') {
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      for (let x = 0; x < 256; x += 28) ctx.fillRect(x, 0, 10, 256);
+    } else if (pattern === 'checked') {
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      for (let x = 0; x < 256; x += 32) ctx.fillRect(x, 0, 12, 256);
+      for (let y = 0; y < 256; y += 32) ctx.fillRect(0, y, 256, 12);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+
+  const shirtPattern = profile.shirtPattern ?? 'solid';
+  const robeMat = shirtPattern !== 'solid'
+    ? new THREE.MeshStandardMaterial({ map: makeShirtPatternTexture(shirtPattern, robe), roughness: 0.56, metalness: 0.05 })
+    : new THREE.MeshStandardMaterial({ color: robe, roughness: 0.58, metalness: 0.08 });
   const robeDarkMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(robe).multiplyScalar(0.75), roughness: 0.65 });
   const sashMat = new THREE.MeshStandardMaterial({ color: sash, roughness: 0.42, metalness: 0.25 });
   const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.48, metalness: 0.02 });
@@ -1452,8 +1557,9 @@ export function createCharacterRig(
         const lens = new THREE.Mesh(new THREE.CircleGeometry(headR * 0.175, 16), lensMat);
         lens.position.set(s * headR * 0.36, 0, -0.005);
         glassesGroup.add(lens);
-        const temple = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.03, headR * 0.035, headR * 0.92), rimMat);
-        temple.position.set(s * headR * 0.56, headR * 0.11, -headR * 0.44);
+        // Arms run back only to the ear so they never poke out of the back of the head (read as a strap from behind)
+        const temple = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.03, headR * 0.035, headR * 0.5), rimMat);
+        temple.position.set(s * headR * 0.58, headR * 0.06, -headR * 0.22);
         glassesGroup.add(temple);
       }
       const bridge = new THREE.Mesh(new THREE.CylinderGeometry(headR * 0.022, headR * 0.022, headR * 0.36, 6), rimMat);
@@ -1463,7 +1569,24 @@ export function createCharacterRig(
       glassesGroup.visible = profile.hasGlasses !== undefined && profile.hasGlasses !== null
         ? !!profile.hasGlasses
         : facingSign > 0;
+      glassesGroup.userData.wearsByDefault = glassesGroup.visible;
       headPivot.add(glassesGroup);
+    }
+
+    if (profile.mustache && profile.mustache !== 'none') {
+      const stacheMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.65 });
+      if (profile.mustache === 'brush') {
+        const brush = new THREE.Mesh(new THREE.BoxGeometry(headR * 0.42, headR * 0.14, headR * 0.08), stacheMat);
+        brush.position.set(0, -headR * 0.18, headR * 0.96);
+        headPivot.add(brush);
+      } else if (profile.mustache === 'handlebar') {
+        for (const s of [-1, 1]) {
+          const wing = new THREE.Mesh(new THREE.CapsuleGeometry(headR * 0.04, headR * 0.22, 4, 8), stacheMat);
+          wing.rotation.z = s * 1.15;
+          wing.position.set(s * headR * 0.16, -headR * 0.19, headR * 0.95);
+          headPivot.add(wing);
+        }
+      }
     }
 
     // Tilak / Bindi (for devotional / cultural roles; omitted on casual modern comedy hosts)
@@ -1512,7 +1635,7 @@ export function createCharacterRig(
     }
 
     // Hair / Crown
-    hairParts = createCrownOrHair(headPivot, role, profile.name, setting, headR, robe, profile.attire);
+    hairParts = createCrownOrHair(headPivot, role, profile.name, setting, headR, robe, profile.attire, profile.hairStyle, profile.hairHex);
     if (archetype === 'asuraKing') {
       attachAsuraKingDetails(headPivot, torsoGroup, headR, goldMat);
     }
@@ -1659,7 +1782,9 @@ export function updateCharacterRig(
   // Articulated Chasma state ('ulta' = upside-down, 'flipping' = flips ulta -> sidha mid-turn, 'crooked', 'forehead', 'none')
   if (rig.glassesGroup) {
     const gMode = (glassesState ?? 'normal').trim().toLowerCase();
-    if (gMode === 'none') {
+    // No explicit state for this character: respect the profile (hasGlasses) instead of forcing glasses on.
+    const wearsByDefault = rig.glassesGroup.userData.wearsByDefault !== false;
+    if (gMode === 'none' || (!glassesState && !wearsByDefault)) {
       rig.glassesGroup.visible = false;
     } else {
       rig.glassesGroup.visible = true;
@@ -1793,13 +1918,15 @@ export function updateCharacterRig(
       targetBodyRotX = -Math.PI * 0.48 * (1 - eased) - 0.10 * Math.sin(w * Math.PI);
       targetBodyY = (rig.standing ? 0.06 : 0.16) * (1 - eased) + Math.sin(w * Math.PI) * 0.12;
       targetTorsoRotX = -0.14 * Math.sin(w * Math.PI);
-    } else if (act === 'sitting' || isSeatedInChair) {
+    } else if (act === 'sitting' || act === 'placingBook' || act === 'deskSleep' || isSeatedInChair) {
       targetBodyY = rig.standing ? -0.26 : 0;
       targetLeftHipX = -Math.PI * 0.46;
       targetRightHipX = -Math.PI * 0.46;
       targetLeftKneeX = Math.PI * 0.46;
       targetRightKneeX = Math.PI * 0.46;
-      targetTorsoRotX = isSpeaking ? Math.sin(lt * 3.8) * 0.08 : -0.05;
+      targetTorsoRotX = act === 'deskSleep'
+        ? 0.5 + Math.sin(lt * 1.6) * 0.02 // slumped over the desk, slow sleepy breathing
+        : act === 'placingBook' ? 0.18 : (isSpeaking ? Math.sin(lt * 2.4) * 0.05 : -0.05);
     } else if (act === 'walking' || act === 'running') {
       const freq = act === 'running' ? 14.0 : 7.5;
       const stride = Math.sin(t * freq);
@@ -2071,6 +2198,8 @@ export function updateCharacterRig(
   // Head orientation per action & dialogue speech
   if (act === 'sleeping') {
     rig.headPivot.rotation.set(0.18, rig.facingSign * 0.28, 0.24);
+  } else if (act === 'deskSleep') {
+    rig.headPivot.rotation.set(0.32, 0, 0.32 + Math.sin(lt * 1.6) * 0.03);
   } else if (act === 'lyingShroud') {
     // Turn head toward +Z camera while lying sideways (root.rotation.y = +PI/2) so expression stays 100% readable!
     const twitch = emotion === 'angry' ? Math.sin(lt * 8.0) * 0.08 : 0;
@@ -2106,18 +2235,19 @@ export function updateCharacterRig(
     rig.headPivot.rotation.set(-0.18 + Math.abs(Math.sin(lt * 13.5)) * 0.16, rig.facingSign * -0.06, Math.sin(lt * 6.8) * 0.11);
   } else if (emotion === 'angry') {
     // MJO explosive "Angry Bird" lean-forward glare + high-frequency fury tremble
-    rig.headPivot.rotation.set(0.14 + Math.sin(lt * 22) * 0.04, rig.facingSign * -0.14, Math.sin(lt * 28) * 0.05);
+    // Held glare with a slow, readable head jab while talking (no high-frequency tremble)
+    rig.headPivot.rotation.set(0.14 + (isSpeaking ? Math.sin(lt * 3.2) * 0.05 : 0), rig.facingSign * -0.14, Math.sin(lt * 1.3) * 0.02);
   } else if (emotion === 'scared') {
-    // Nervous jittery recoil looking anxiously around
-    rig.headPivot.rotation.set(-0.08 + Math.sin(lt * 20) * 0.04, rig.facingSign * -0.18 + Math.sin(lt * 14) * 0.06, Math.sin(lt * 26) * 0.05);
+    // Nervous glances left/right at a readable pace instead of jitter
+    rig.headPivot.rotation.set(-0.08, rig.facingSign * -0.18 + Math.sin(lt * 1.9) * 0.16, Math.sin(lt * 1.1) * 0.03);
   } else if (emotion === 'smug') {
     // Cocky chin-up side-eye smirk tilt
     rig.headPivot.rotation.set(-0.08 + (isSpeaking ? Math.sin(lt * 4.5) * 0.04 : 0), rig.facingSign * -0.08, rig.facingSign * 0.13);
   } else if (emotion === 'proud') {
     rig.headPivot.rotation.set(-0.07 + (isSpeaking ? Math.sin(lt * 5.0) * 0.06 : 0), rig.facingSign * (isSpeaking ? -0.10 : 0.06), 0);
   } else {
-    const talkNod = isSpeaking ? Math.sin(lt * 5.2) * 0.085 : Math.sin(lt * 1.4) * 0.025;
-    const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 2.6) * 0.065 : 0;
+    const talkNod = isSpeaking ? Math.sin(lt * 3.4) * 0.055 : Math.sin(lt * 0.9) * 0.012;
+    const sideTilt = emotion === 'confused' ? 0.16 : isSpeaking ? Math.sin(lt * 1.7) * 0.045 : 0;
     rig.headPivot.rotation.x = talkNod;
     rig.headPivot.rotation.z = sideTilt;
     rig.headPivot.rotation.y = act === 'walking' || act === 'running'
@@ -2129,7 +2259,7 @@ export function updateCharacterRig(
   const blinkPhase = (lt * 0.28) % 1;
   const blinking = blinkPhase > 0.955;
   let lidClose = -Math.PI * 0.48;
-  if (act === 'sleeping' || act === 'praying') lidClose = 0.26;
+  if (act === 'sleeping' || act === 'praying' || act === 'deskSleep') lidClose = 0.26;
   else if (act === 'lyingShroud') lidClose = emotion === 'angry' ? -0.18 : 0.28;
   else if (act === 'corpseSnapUp') lidClose = -Math.PI * 0.66;
   else if (act === 'wakingUp' && turnLocal < 0.2) lidClose = 0.24;
@@ -2187,8 +2317,8 @@ export function updateCharacterRig(
   } else if (act === 'corpseSnapUp' || (emotion === 'angry' && isSpeaking)) {
     // Keep furious shouting jaw wide open across words and climax pauses for punchy acting & thumbnails
     mouthOpen = Math.max(mouthOpen, act === 'corpseSnapUp' ? 0.88 : 0.52);
-  } else if ((isWideShock && !isSpeaking && turnLocal < 0.78) || (emotion === 'scared' && !isSpeaking) || act === 'brakeStop') {
-    mouthOpen = Math.max(mouthOpen, emotion === 'scared' ? 0.42 + 0.08 * Math.sin(lt * 22) : 0.84);
+  } else if ((isWideShock && !isSpeaking && turnLocal < 0.16) || act === 'brakeStop') {
+    mouthOpen = Math.max(mouthOpen, 0.72);
   } else if (emotion === 'laughing' || act === 'celebrate') {
     mouthOpen = Math.max(mouthOpen, 0.44 + 0.18 * Math.abs(Math.sin(lt * 11)));
   } else if (emotion === 'proud' && !isSpeaking) {
@@ -2216,7 +2346,13 @@ export function updateCharacterRig(
   rig.lowerLip.position.y = rig.mouthBaseY - mouthOpen * 0.056;
 
   // Expressive two-arm skeletal animation per action
-  if (act === 'sleeping') {
+  if (act === 'deskSleep') {
+    // Arms folded forward on the desk as a pillow
+    rig.leftShoulder.rotation.set(-1.25, 0, 0.18);
+    rig.leftElbow.rotation.set(-1.1, 0, -0.5);
+    rig.rightShoulder.rotation.set(-1.25, 0, -0.18);
+    rig.rightElbow.rotation.set(-1.1, 0, 0.5);
+  } else if (act === 'sleeping') {
     rig.leftShoulder.rotation.set(-0.2, 0, 0.25);
     rig.leftElbow.rotation.set(-0.6, 0, -0.35);
     rig.rightShoulder.rotation.set(-0.2, 0, -0.25);

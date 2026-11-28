@@ -71,6 +71,7 @@ export type HeldPropKind =
 export type ActionKind =
   | 'none'
   | 'sleeping'
+  | 'deskSleep'
   | 'wakingUp'
   | 'walking'
   | 'running'
@@ -93,6 +94,7 @@ export type ActionKind =
   | 'sipping'
   | 'bangingGavel'
   | 'examining'
+  | 'placingBook'
   | 'callingPhone'
   | 'holdingMic'
   | 'showingKey'
@@ -218,6 +220,77 @@ export interface CharacterProfileJson {
   robeHex?: string | null;
   hasGlasses?: boolean | null;
   attire?: 'auto' | 'turban' | 'anarkali' | null;
+  shirtPattern?: 'solid' | 'colorful' | 'striped' | 'checked' | null;
+  mustache?: 'none' | 'brush' | 'handlebar' | null;
+  hairStyle?: 'spiky' | 'short' | 'parted' | 'bald' | 'curly' | 'ponytail' | null;
+  hairHex?: string | null;
+  skinHex?: string | null;
+  scale?: number | null;
+  defaultSpot?: string | null;
+}
+
+export interface SpotPlacementJson {
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  pose?: 'standing' | 'sitting';
+  seatHeight?: number;
+}
+
+export interface WallFixtureJson {
+  kind: 'blackboard' | 'clock' | 'portraitFrame' | 'noticeBoard' | 'window' | 'door' | 'poster';
+  x: number;
+  y: number;
+  z: number;
+  rotY?: number;
+  width?: number;
+  height?: number;
+  color?: string;
+  title?: string;
+}
+
+export interface FurnitureItemJson {
+  id?: string;
+  kind: 'desk' | 'bench' | 'chair' | 'podium' | 'table' | 'sofa' | 'bed';
+  x: number;
+  y?: number;
+  z: number;
+  rotY?: number;
+  width?: number;
+  height?: number;
+  depth?: number;
+  color?: string;
+  seatHeight?: number;
+}
+
+export interface ScenePropJson {
+  kind: 'examPaper' | 'pen' | 'book' | 'chalk' | 'duster' | 'globe' | 'bottle';
+  x: number;
+  y: number;
+  z: number;
+  rotY?: number;
+  scale?: number;
+  color?: string;
+}
+
+export interface SceneBlueprintJson {
+  room?: {
+    width?: number;
+    depth?: number;
+    height?: number;
+    floorColor?: string;
+    floorPattern?: 'tiles' | 'wood' | 'stone';
+    wallColor?: string;
+    wallTrimColor?: string;
+    ceilingColor?: string;
+    ambientIntensity?: number;
+    keyLightIntensity?: number;
+  };
+  wallFixtures?: WallFixtureJson[];
+  furniture?: FurnitureItemJson[];
+  props?: ScenePropJson[];
+  spots?: Record<string, SpotPlacementJson>;
 }
 
 export interface MemeCueJson {
@@ -234,6 +307,8 @@ export interface DialogueTurnJson {
   endSeconds: number;
   slot: 'Narrator' | 'Left' | 'Right';
   speakerName: string;
+  /** Who the line is addressed to (used for two-shots and over-the-shoulder framing). */
+  listenerName?: string | null;
   text: string;
   isTitleHook: boolean;
   speakerRole?: CharacterRole | null;
@@ -249,6 +324,13 @@ export interface DialogueTurnJson {
   listenerGlasses?: string | null;
   listenerEmotion?: string | null;
   sfxCue?: string | null;
+  speakerSpot?: string | null;
+  listenerSpot?: string | null;
+  characterSpots?: Record<string, string> | null;
+  /** Persistent per-character actions for characters who are not speaking (e.g. a student asleep at the desk). */
+  characterActions?: Record<string, string> | null;
+  speakerPose?: 'standing' | 'sitting' | null;
+  listenerPose?: 'standing' | 'sitting' | null;
 }
 
 export interface SceneRunJson {
@@ -315,4 +397,5 @@ export interface RenderJobJson {
   speechEnvelope?: number[] | null;
   backdropCount: number;
   stageLayout?: StageLayoutJson | null;
+  sceneBlueprint?: SceneBlueprintJson | null;
 }

@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import { Asset, StorageDetail } from '../../core/models/api.models';
 import { ActivityService, formatBytes } from '../../core/services/activity.service';
@@ -201,6 +201,9 @@ export class AssetLibraryComponent {
   }
 
   constructor() {
+    // Leaving the page mid-take ends the share, so the browser stops showing "sharing".
+    inject(DestroyRef).onDestroy(() => this.stopSystemAudio(true));
+
     // The project's asset list is cached from when the project opened; files made since
     // (voiceover lines, studio uploads) only show once it is fetched again.
     this.store.refreshAssets();
@@ -235,6 +238,139 @@ export class AssetLibraryComponent {
   }
 
   private exportsRequestedFor: string | null = null;
+
+  // --- recording the sound the computer is playing
+
+  /** 'idle' → 'recording' (a shared tab/screen is being captured) → 'saving' (encoding on the server). */
+  readonly sysAudio = signal<'idle' | 'recording' | 'saving'>('idle');
+  readonly sysAudioSeconds = signal(0);
+  readonly sysAudioNote = signal('');
+  private sysRecorder: MediaRecorder | null = null;
+  private sysTimer: ReturnType<typeof setInterval> | null = null;
+  private sysDiscard = false;
+
+  /**
+   * Asks the browser to share a tab, window or screen WITH its audio, records only the audio,
+   * and saves it to the library as an MP3. Chrome and Edge can share a tab's sound (and on
+   * Windows the whole system's); Firefox's screen sharing has no audio at all.
+   */
+  async startSystemAudio(): Promise<void> {
+    if (this.sysAudio() !== 'idle' || !this.store.projectId()) return;
+    this.sysAudioNote.set('');
+    if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === 'undefined') {
+      this.sysAudioNote.set('This browser cannot record shared audio. Use Chrome or Edge.');
+      return;
+    }
+
+    let shared: MediaStream;
+    try {
+      // Video must be asked for: browsers refuse an audio-only share. It is dropped at once.
+      // The browser's voice processing is off: this is music or a finished mix, not a microphone.
+      shared = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        // Chromium hints: offer the system-audio checkbox, and don't suggest this very tab.
+        systemAudio: 'include',
+        selfBrowserSurface: 'exclude',
+      } as DisplayMediaStreamOptions);
+    } catch {
+      this.sysAudioNote.set('Sharing was cancelled, so nothing was recorded.');
+      return;
+    }
+
+    const audioTracks = shared.getAudioTracks();
+    shared.getVideoTracks().forEach((t) => t.stop());
+    if (audioTracks.length === 0) {
+      this.sysAudioNote.set(
+        'No sound was shared. In the share dialog pick a tab and tick "Also share tab audio" '
+        + '(or pick Entire screen and tick "Share system audio"). Firefox cannot share audio: use Chrome or Edge.');
+      return;
+    }
+
+    const audioOnly = new MediaStream(audioTracks);
+    const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      .find((m) => MediaRecorder.isTypeSupported(m));
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(audioOnly, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 192_000 });
+    } catch {
+      audioTracks.forEach((t) => t.stop());
+      this.sysAudioNote.set('This browser cannot record the shared audio. Use Chrome or Edge.');
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      audioTracks.forEach((t) => t.stop());
+      if (this.sysRecorder !== recorder) return;
+      this.sysRecorder = null;
+      if (this.sysDiscard) {
+        this.sysAudio.set('idle');
+        this.sysAudioNote.set('Recording discarded.');
+        return;
+      }
+      void this.saveSystemAudio(new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' }));
+    };
+    // The user pressing the browser's own "Stop sharing" ends the take the same way.
+    audioTracks.forEach((t) => t.addEventListener('ended', () => this.stopSystemAudio()));
+
+    this.sysRecorder = recorder;
+    this.sysDiscard = false;
+    this.sysAudioSeconds.set(0);
+    this.sysAudio.set('recording');
+    recorder.start(1000);
+    this.sysTimer = setInterval(() => {
+      this.sysAudioSeconds.update((s) => s + 1);
+      if (this.sysAudioSeconds() >= AssetLibraryComponent.MaxSystemAudioSeconds) this.stopSystemAudio();
+    }, 1000);
+  }
+
+  /** Stops the capture; <paramref name="discard"/> throws the take away instead of saving it. */
+  stopSystemAudio(discard = false): void {
+    if (this.sysTimer) {
+      clearInterval(this.sysTimer);
+      this.sysTimer = null;
+    }
+    const recorder = this.sysRecorder;
+    if (!recorder) return;
+    this.sysDiscard = discard;
+    if (recorder.state !== 'inactive') recorder.stop();
+  }
+
+  private async saveSystemAudio(take: Blob): Promise<void> {
+    const projectId = this.store.projectId();
+    if (!projectId) {
+      this.sysAudio.set('idle');
+      return;
+    }
+    if (take.size === 0) {
+      this.sysAudio.set('idle');
+      this.sysAudioNote.set('Nothing was recorded.');
+      return;
+    }
+    this.sysAudio.set('saving');
+    const seconds = this.sysAudioSeconds();
+    try {
+      const asset = await firstValueFrom(
+        this.api.recordSystemAudio(projectId, take, '', this.realSelectedFolderId()));
+      this.store.refreshAssets();
+      this.sysAudioNote.set(`Saved "${asset.name}" (${this.formatClock(Math.round(asset.durationSeconds ?? seconds))}).`);
+    } catch (err: unknown) {
+      this.sysAudioNote.set(err instanceof Error ? err.message : 'The recording could not be saved.');
+    } finally {
+      this.sysAudio.set('idle');
+    }
+  }
+
+  /** The server keeps up to thirty minutes per take. */
+  private static readonly MaxSystemAudioSeconds = 30 * 60;
+
+  formatClock(totalSeconds: number): string {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
 
   upload(event: Event): void {
     const input = event.target as HTMLInputElement;

@@ -259,6 +259,7 @@ public static class DependencyInjection
         services.AddSingleton<FfmpegVideoChunker>();
         services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();
         services.AddSingleton<INarrationCleaner, FfmpegNarrationCleaner>();
+        services.AddSingleton<AnimStudio.Application.Recordings.ISystemAudioEncoder, FfmpegSystemAudioEncoder>();
         services.AddSingleton<ISpeechAudioExtractor, FfmpegSpeechAudioExtractor>();
         services.AddScoped<MediaTranscriptionService>();
         services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
