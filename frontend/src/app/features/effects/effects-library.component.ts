@@ -6,7 +6,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  EFFECT_ACCEPT, EFFECT_CATEGORIES, EffectCategory, EffectClip, EffectKind,
+  EFFECT_ACCEPT, EFFECT_CATEGORIES, EffectCategory, EffectClip, EffectKind, SfxLibraryEntry,
   effectCategoryIcon, effectCategoryLabel,
 } from '../../core/models/effects.models';
 import { EffectsService } from '../../core/services/effects.service';
@@ -70,6 +70,17 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   readonly kind = signal<EffectKind | ''>('');
   readonly query = signal('');
   readonly favoritesOnly = signal(false);
+  readonly selectedTag = signal<string>('');
+  readonly quickTags = ['comedy', 'meme', 'bandook', 'reaction', 'devotional', 'temple'] as const;
+
+  readonly sfxLibrary = signal<SfxLibraryEntry[]>([]);
+  readonly sfxGenre = signal<'all' | 'comedy' | 'devotional'>('all');
+  readonly sfxImporting = signal(false);
+  readonly sfxPreview = new Audio();
+  readonly visibleSfx = computed(() => {
+    const g = this.sfxGenre();
+    return g === 'all' ? this.sfxLibrary() : this.sfxLibrary().filter((s) => s.genre === g);
+  });
 
   /** Category for the next upload; empty lets the server file it by type. */
   readonly uploadCategory = signal<EffectCategory | ''>(this.reactionsPage ? 'Reaction' : '');
@@ -127,11 +138,13 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
     const cat = this.category();
     const kind = this.kind();
     const fav = this.favoritesOnly();
+    const tag = this.selectedTag().trim().toLowerCase();
     const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
     return this.effects().filter((e) =>
       (cat === 'all' || e.category === cat)
       && (!kind || e.kind === kind)
       && (!fav || e.favorite)
+      && (!tag || e.tags.some((t) => t.toLowerCase() === tag))
       && words.every((w) =>
         e.name.toLowerCase().includes(w)
         || effectCategoryLabel(e.category).toLowerCase().includes(w)
@@ -139,16 +152,18 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
   });
 
   readonly filtersActive = computed(() =>
-    this.category() !== 'all' || !!this.kind() || this.favoritesOnly() || !!this.query().trim());
+    this.category() !== 'all' || !!this.kind() || this.favoritesOnly() || !!this.selectedTag() || !!this.query().trim());
 
   ngOnInit(): void {
     this.makeStudioGraphicPreview();
     this.makeReaction();
     this.load();
+    this.loadSfxLibrary();
   }
 
   ngOnDestroy(): void {
     this.stopAudio();
+    this.sfxPreview.pause();
   }
 
   load(): void {
@@ -170,7 +185,42 @@ export class EffectsLibraryComponent implements OnInit, OnDestroy {
     this.category.set('all');
     this.kind.set('');
     this.favoritesOnly.set(false);
+    this.selectedTag.set('');
     this.query.set('');
+  }
+
+  loadSfxLibrary(): void {
+    this.api.getSfxLibrary().subscribe({
+      next: (items) => this.sfxLibrary.set(items ?? []),
+      error: () => { /* optional built-in pack */ },
+    });
+  }
+
+  previewPackSfx(item: SfxLibraryEntry): void {
+    this.sfxPreview.pause();
+    this.sfxPreview.src = this.api.sfxAssetUrl(item.url);
+    this.sfxPreview.currentTime = 0;
+    void this.sfxPreview.play();
+  }
+
+  importSfx(req: { id?: string; genre?: string }): void {
+    if (this.sfxImporting()) return;
+    this.sfxImporting.set(true);
+    this.api.importSfxPack(req).subscribe({
+      next: (res) => {
+        this.sfxImporting.set(false);
+        this.status.notify([
+          res.imported > 0
+            ? `Added ${res.imported} tagged SFX to your Effects Library (${res.skipped} already present).`
+            : 'All selected SFX are already in your Effects Library.',
+        ]);
+        this.load();
+      },
+      error: (err) => {
+        this.sfxImporting.set(false);
+        this.status.notify([this.errorText(err, 'Could not import SFX pack.')]);
+      },
+    });
   }
 
   selectCategory(category: EffectCategory | 'all'): void {

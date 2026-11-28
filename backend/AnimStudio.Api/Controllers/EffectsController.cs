@@ -27,9 +27,9 @@ public sealed class EffectsController(
     [HttpGet]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<EffectClipResponse>>>> List(
         [FromQuery] string? category, [FromQuery] string? kind, [FromQuery] string? q, [FromQuery] bool favorites,
-        CancellationToken ct)
+        [FromQuery] string? tag, CancellationToken ct)
     {
-        var query = new EffectQuery(EffectRules.ParseCategory(category), EffectRules.ParseKind(kind), q, favorites);
+        var query = new EffectQuery(EffectRules.ParseCategory(category), EffectRules.ParseKind(kind), q, favorites, tag);
         var list = await library.ListAsync(currentUser.UserId, query, ct);
         return Ok(ApiResponse<IReadOnlyList<EffectClipResponse>>.Ok([.. list.Select(e => e.ToResponse())]));
     }
@@ -146,6 +146,71 @@ public sealed class EffectsController(
         var json = await System.IO.File.ReadAllTextAsync(manifestPath, ct);
         var items = System.Text.Json.JsonSerializer.Deserialize<object>(json) ?? Array.Empty<object>();
         return Ok(ApiResponse<object>.Ok(items));
+    }
+
+    public sealed record ImportSfxRequest(string? Id = null, string? Genre = null);
+
+    private sealed record SfxManifestEntry(
+        string Id,
+        string Name,
+        string Category,
+        string? Genre,
+        List<string>? Tags,
+        string File);
+
+    /// <summary>Imports one built-in SFX or an entire genre pack (comedy / devotional) into the caller's Effects Library.</summary>
+    [HttpPost("sfx-library/import")]
+    public async Task<ActionResult<ApiResponse<object>>> ImportSfxLibrary(
+        [FromBody] ImportSfxRequest? request, CancellationToken ct)
+    {
+        var webRoot = string.IsNullOrWhiteSpace(env.WebRootPath)
+            ? Path.Combine(env.ContentRootPath, "wwwroot")
+            : env.WebRootPath;
+        var sfxDir = Path.Combine(webRoot, "sfx", "memes");
+        var manifestPath = Path.Combine(sfxDir, "sfx-manifest.json");
+        if (!System.IO.File.Exists(manifestPath))
+            return Ok(ApiResponse<object>.Ok(new { imported = 0, skipped = 0 }));
+
+        var json = await System.IO.File.ReadAllTextAsync(manifestPath, ct);
+        var entries = System.Text.Json.JsonSerializer.Deserialize<List<SfxManifestEntry>>(
+            json,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+
+        var selected = entries.Where(e =>
+            (string.IsNullOrWhiteSpace(request?.Id) || e.Id.Equals(request.Id, StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrWhiteSpace(request?.Genre) || string.Equals(e.Genre, request.Genre, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        var existing = await library.ListAsync(currentUser.UserId, new EffectQuery(), ct);
+        var existingNames = existing.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var imported = new List<EffectClipResponse>();
+        var skipped = 0;
+        foreach (var item in selected)
+        {
+            if (existingNames.Contains(item.Name))
+            {
+                skipped++;
+                continue;
+            }
+            var filePath = Path.Combine(sfxDir, item.File);
+            if (!System.IO.File.Exists(filePath)) continue;
+
+            var info = new FileInfo(filePath);
+            var effect = await library.AddAsync(currentUser.UserId, new EffectUploadCommand(
+                item.Name,
+                nameof(AnimStudio.Domain.Effects.EffectCategory.SoundEffect),
+                item.Tags ?? [],
+                false,
+                item.File,
+                "audio/wav",
+                info.Length,
+                () => System.IO.File.OpenRead(filePath)), ct);
+            imported.Add(effect.ToResponse());
+            existingNames.Add(item.Name);
+        }
+
+        return Ok(ApiResponse<object>.Ok(new { imported = imported.Count, skipped, items = imported }));
     }
 
     private async Task<IActionResult> ServeAsync(string id, bool thumbnail, CancellationToken ct)
