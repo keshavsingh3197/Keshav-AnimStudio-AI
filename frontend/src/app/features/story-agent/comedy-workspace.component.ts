@@ -163,6 +163,7 @@ export class ComedyWorkspaceComponent {
   readonly videoPrompt = signal('');
 
   // Global busy / status signals
+  readonly activeTab = signal<'setup' | 'script' | 'queue' | 'advanced'>('setup');
   readonly busy = signal(false);
   readonly busyAction = signal<string | null>(null);
   readonly error = signal<string | null>(null);
@@ -196,6 +197,16 @@ export class ComedyWorkspaceComponent {
     return [...byId.values()]
       .sort((a, b) => new Date(b.updatedAtUtc).getTime() - new Date(a.updatedAtUtc).getTime());
   });
+
+  readonly queueReadyCount = computed(() =>
+    this.comedyPosts().filter((p) => p.status === 'VideoReadyForReview' || p.status === 'Approved').length,
+  );
+  readonly queueRenderingCount = computed(() =>
+    this.comedyPosts().filter((p) => p.status === 'GeneratingVideo').length,
+  );
+  readonly queuePublishedCount = computed(() =>
+    this.comedyPosts().filter((p) => p.status === 'Published').length,
+  );
 
   readonly filteredComedyPosts = computed(() => {
     const q = this.queueQuery().trim().toLowerCase();
