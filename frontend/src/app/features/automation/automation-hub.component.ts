@@ -1866,6 +1866,12 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
                         <span class="bg-make-actions">
                           <button type="button" class="copy-btn" [disabled]="!bgPromptText().trim()"
                                   (click)="copyText(bgPromptText(), 'Picture prompt copied! Paste it into Gemini or ChatGPT.')">Copy prompt</button>
+                          @if (wz.engine === 'DevotionalImageReel') {
+                            <button type="button" class="copy-btn" [disabled]="!bgPromptText().trim()"
+                                    (click)="copyText(bgPromptText() + ' Strictly no human speaking, no talking, no dialogue, no subtitles, no text, no watermark, exact symmetrical locked deity position, Nano Banana 2.1 (0 credits) or Veo 3.1 Fast.', 'Copied 0-Credit Google Flow Bhakti prompt (No Human Speech)!')">
+                              🪷 Copy Flow Prompt (0 Credits · No Speech)
+                            </button>
+                          }
                           <button type="button" class="link-btn" [disabled]="bgPromptLoading()" (click)="loadBackgroundPrompt(true)">↻ Rebuild</button>
                         </span>
                       </div>
