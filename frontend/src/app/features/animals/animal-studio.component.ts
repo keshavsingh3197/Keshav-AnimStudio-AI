@@ -4,12 +4,13 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
-import { Project } from '../../core/models/api.models';
+import { Project, RenderJob, TimelineItem } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { AutomationService } from '../../core/services/automation.service';
 import { EffectsService } from '../../core/services/effects.service';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 export type AnimalPresetId = 'duck-leopard' | 'honey-badger';
 export type AnimalTab = 'scenes' | 'generate' | 'publish' | 'library';
@@ -98,6 +99,7 @@ export interface AnimalSceneSlot {
   errorMessage?: string;
   file?: File;
   previewUrl?: string;
+  isVideo?: boolean;
 }
 
 const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
@@ -230,7 +232,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
 @Component({
   selector: 'app-animal-studio',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, FileDropDirective],
   template: `
     <section class="as-page studio-wide-page">
       <header class="card as-head">
@@ -294,9 +296,71 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
             </div>
           </div>
 
+          <div class="as-batch-box" [appFileDrop]="'image/*,video/*'" [fileDropMultiple]="true" (filesDropped)="onDropAllFiles($event)">
+            <div class="as-batch-left">
+              <strong>📥 Drag &amp; Drop All {{ scenes().length }} Scene Images / Clips Here</strong>
+              <small class="muted">
+                Drop all files at once — we auto-match by filename (<code>Scene 1..{{ scenes().length }}</code>) or order. Configure duration or reorder below, then click <strong>1-Click Auto-Build &amp; Render</strong>.
+              </small>
+            </div>
+            <div class="as-actions">
+              <label class="btn secondary">
+                📂 Select All Files
+                <input type="file" accept="image/*,video/*" multiple hidden (change)="onSelectAllFiles($event)" />
+              </label>
+              <button
+                type="button"
+                class="btn primary"
+                [disabled]="readyCount() === 0 || busy() || rendering()"
+                (click)="autoBuildAndRenderReel()"
+              >
+                {{ rendering() ? '⏳ Rendering MP4…' : '🚀 1-Click Auto-Build & Render ' + aspect + ' MP4 (' + readyCount() + '/' + scenes().length + ')' }}
+              </button>
+            </div>
+          </div>
+
+          @if (renderStatus() || renderJob()) {
+            <div class="as-render-card">
+              <div class="as-bar">
+                <div>
+                  <strong>{{ renderStatus() || 'Render Job' }}</strong>
+                  @if (renderJob(); as job) {
+                    <small class="muted" style="display:block;">
+                      Status: <strong>{{ job.status }}</strong> · Progress: {{ job.progress }}%
+                      @if (job.errorMessage) { · <span class="as-err">{{ job.errorMessage }}</span> }
+                    </small>
+                  }
+                </div>
+                @if (renderProjectId(); as pid) {
+                  <div class="as-actions">
+                    @if (renderJob()?.status === 'Succeeded' && renderJob(); as job) {
+                      <a class="btn small primary" [href]="downloadUrl(job.jobId)" target="_blank" rel="noopener">⬇ Download MP4</a>
+                    }
+                    <a class="btn small secondary" [routerLink]="['/projects', pid, 'clips']">🎬 Open in Video Editor</a>
+                    <a class="btn small secondary" [routerLink]="['/projects', pid, 'videos']">📺 Videos &amp; Shorts</a>
+                  </div>
+                }
+              </div>
+              @if (renderJob(); as job) {
+                <div class="as-progress-track">
+                  <div class="as-progress-fill" [style.width.%]="job.progress"></div>
+                </div>
+                @if (job.status === 'Succeeded') {
+                  <video class="as-rendered-video" controls playsinline [src]="previewUrl(job.jobId)"></video>
+                }
+              }
+            </div>
+          }
+
           <div class="as-field-row">
             <label>Custom Animal Story Idea (optional — creates a fresh 6-scene pack)
               <input type="text" [(ngModel)]="customIdeaInput" placeholder="e.g. 2 Ducks rescue a baby monkey from a tiger in a bamboo river" />
+            </label>
+            <label>Format
+              <select [(ngModel)]="aspect">
+                <option value="9:16">9:16 Reels / Shorts (1080×1920)</option>
+                <option value="16:9">16:9 Widescreen (1920×1080)</option>
+              </select>
             </label>
             <div style="display:flex;align-items:flex-end;">
               <button type="button" class="btn secondary" [disabled]="!customIdeaInput.trim()" (click)="applyCustomIdea()">
@@ -306,7 +370,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
           </div>
 
           <div class="as-grid">
-            @for (sc of scenes(); track sc.index) {
+            @for (sc of scenes(); track sc.index; let idx = $index) {
               <article class="as-scene-card" [class.ready]="sc.status === 'ready'" [class.failed]="sc.status === 'failed'">
                 <div class="as-scene-top">
                   <strong>Scene {{ sc.index }} · {{ sc.title }}</strong>
@@ -314,8 +378,32 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
                 </div>
 
                 @if (sc.previewUrl) {
-                  <img class="as-preview" [src]="sc.previewUrl" [alt]="sc.title" />
+                  @if (sc.isVideo) {
+                    <video class="as-preview" controls muted playsinline [src]="sc.previewUrl"></video>
+                  } @else {
+                    <img class="as-preview" [src]="sc.previewUrl" [alt]="sc.title" />
+                  }
                 }
+
+                <div class="as-scene-config">
+                  <label class="as-dur-label">
+                    Duration (s):
+                    <input
+                      type="number"
+                      min="2"
+                      max="10"
+                      [ngModel]="sc.durationSeconds"
+                      (ngModelChange)="updateDuration(sc.index, $event)"
+                    />
+                  </label>
+                  <div class="as-actions">
+                    <button type="button" class="btn small secondary" [disabled]="idx === 0" title="Move Earlier" (click)="moveScene(idx, -1)">◀</button>
+                    <button type="button" class="btn small secondary" [disabled]="idx === scenes().length - 1" title="Move Later" (click)="moveScene(idx, 1)">▶</button>
+                    @if (sc.file) {
+                      <button type="button" class="btn small secondary" title="Clear Media" (click)="clearSceneMedia(sc.index)">✕</button>
+                    }
+                  </div>
+                </div>
 
                 <p class="as-pos"><strong>Exact Positions:</strong> {{ sc.positionsNote }}</p>
                 <p class="as-meta"><strong>Emotion &amp; SFX:</strong> {{ sc.emotionReaction }} · <code>[SFX: {{ sc.sfxId }}]</code></p>
@@ -378,13 +466,25 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
             1) Import our copyright-safe Comedy &amp; Bandook SFX pack into your Effects Library, then 2) create a Video Editor project with all uploaded scene images/clips in exact order ready to export &amp; post.
           </p>
           <div class="as-actions">
+            <button
+              type="button"
+              class="btn primary"
+              [disabled]="readyCount() === 0 || busy() || rendering()"
+              (click)="autoBuildAndRenderReel()"
+            >
+              {{ rendering() ? '⏳ Rendering MP4…' : '🚀 1-Click Auto-Build & Render ' + aspect + ' MP4' }}
+            </button>
             <button type="button" class="btn secondary" [disabled]="busy()" (click)="importComedySfx()">
               🔊 Import Comedy &amp; Bandook SFX Pack
             </button>
-            <button type="button" class="btn primary" [disabled]="busy()" (click)="createReelProject()">
-              {{ busy() ? 'Building Project…' : '🎬 Create 9:16 Reel Project & Open Video Editor' }}
+            <button type="button" class="btn secondary" [disabled]="busy() || rendering()" (click)="createReelProject()">
+              {{ busy() ? 'Building Project…' : '🎬 Open in Video Editor (Manual Edit)' }}
             </button>
           </div>
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.86rem;">
+            <input type="checkbox" [(ngModel)]="autoImportSfx" />
+            Auto-import Comedy &amp; Bandook SFX Pack during 1-Click Build
+          </label>
           <small class="muted">Uploaded scenes ready: {{ readyCount() }} of {{ scenes().length }}.</small>
         </section>
       }
@@ -442,6 +542,16 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     textarea { width: 100%; font-size: 0.82rem; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
     .as-field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
     .as-err { color: #ef4444; font-size: 0.82rem; margin: 0; }
+    .as-batch-box { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 1rem 1.1rem; border: 2px dashed var(--brand); border-radius: 12px; background: var(--surface-2); transition: background 0.15s, border-color 0.15s; }
+    .as-batch-box.file-drop-active { background: var(--brand-subtle); border-color: #10b981; }
+    .as-batch-left { display: grid; gap: 0.25rem; max-width: 620px; }
+    .as-scene-config { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.35rem 0.5rem; border-radius: 8px; background: var(--surface-1); border: 1px solid var(--border); }
+    .as-dur-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); }
+    .as-dur-label input { width: 58px; padding: 0.2rem 0.4rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.82rem; }
+    .as-render-card { border: 1px solid var(--brand); border-radius: 12px; padding: 0.9rem 1rem; background: var(--surface-2); display: grid; gap: 0.65rem; }
+    .as-progress-track { height: 8px; border-radius: 999px; background: var(--surface-1); overflow: hidden; border: 1px solid var(--border); }
+    .as-progress-fill { height: 100%; background: var(--brand); transition: width 0.25s ease; }
+    .as-rendered-video { width: 100%; max-height: 420px; border-radius: 10px; background: #000; }
   `,
 })
 export class AnimalStudioComponent implements OnInit {
@@ -458,6 +568,10 @@ export class AnimalStudioComponent implements OnInit {
   readonly copiedId = signal<string | null>(null);
   readonly notice = signal<string | null>(null);
   readonly busy = signal(false);
+  readonly rendering = signal(false);
+  readonly renderStatus = signal<string | null>(null);
+  readonly renderJob = signal<RenderJob | null>(null);
+  readonly renderProjectId = signal<string | null>(null);
   readonly currentSetting = signal<string>('sunny jungle clearing with green bushes');
   readonly customTitleOverride = signal<string | null>(null);
   readonly generatedReels = signal<Project[]>([]);
@@ -465,6 +579,7 @@ export class AnimalStudioComponent implements OnInit {
   customIdeaInput = '';
   customTitle = '2 Ducks vs Leopard — Shaktiman Dust Rescue 🦆🌪️🐇 | #Shorts';
   aspect: '9:16' | '16:9' = '9:16';
+  autoImportSfx = true;
 
   readonly reelTitle = computed(() =>
     this.customTitleOverride()
@@ -687,10 +802,107 @@ export class AnimalStudioComponent implements OnInit {
     input.value = '';
     if (!file) return;
     const previewUrl = URL.createObjectURL(file);
+    const isVideo = file.type.startsWith('video/');
     this.scenes.update((list) =>
-      list.map((s) => (s.index === index ? { ...s, file, previewUrl, status: 'ready', errorMessage: undefined } : s)),
+      list.map((s) => (s.index === index ? { ...s, file, previewUrl, isVideo, status: 'ready', errorMessage: undefined } : s)),
     );
     this.notice.set(`Attached "${file.name}" to Scene ${index}.`);
+  }
+
+  onDropAllFiles(files: File[]): void {
+    this.assignBatchFiles(files);
+  }
+
+  onSelectAllFiles(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (files.length > 0) this.assignBatchFiles(files);
+  }
+
+  private assignBatchFiles(rawFiles: File[]): void {
+    const files = rawFiles.filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    if (files.length === 0) {
+      this.notice.set('Please drop image or video files (.png, .jpg, .webp, .mp4, .mov).');
+      return;
+    }
+
+    const current = this.scenes().map((s) => ({ ...s }));
+    const usedSlots = new Set<number>();
+    const leftovers: File[] = [];
+
+    // First pass: match filenames containing "scene 1", "sc_2", "03", etc.
+    for (const file of files) {
+      const m = file.name.match(/(?:scene|sc|shot|clip)?[\s_-]*([1-9][0-9]?)/i);
+      const num = m ? Number(m[1]) : NaN;
+      const slot = Number.isFinite(num) ? current.find((s) => s.index === num && !usedSlots.has(s.index)) : undefined;
+      if (slot) {
+        usedSlots.add(slot.index);
+        slot.file = file;
+        slot.previewUrl = URL.createObjectURL(file);
+        slot.isVideo = file.type.startsWith('video/');
+        slot.status = 'ready';
+        slot.errorMessage = undefined;
+      } else {
+        leftovers.push(file);
+      }
+    }
+
+    // Second pass: sort leftovers naturally and fill remaining slots in order.
+    leftovers.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    for (const file of leftovers) {
+      const slot =
+        current.find((s) => !usedSlots.has(s.index) && !s.file)
+        ?? current.find((s) => !usedSlots.has(s.index));
+      if (!slot) break;
+      usedSlots.add(slot.index);
+      slot.file = file;
+      slot.previewUrl = URL.createObjectURL(file);
+      slot.isVideo = file.type.startsWith('video/');
+      slot.status = 'ready';
+      slot.errorMessage = undefined;
+    }
+
+    this.scenes.set(current);
+    this.notice.set(`Attached ${usedSlots.size} file(s) automatically! Adjust duration/order if needed, then click 🚀 1-Click Auto-Build & Render.`);
+  }
+
+  updateDuration(index: number, rawSeconds: number): void {
+    const secs = Math.max(2, Math.min(10, Math.round(Number(rawSeconds) || 4)));
+    this.scenes.update((list) => this.recalculateTimeRanges(list.map((s) => (s.index === index ? { ...s, durationSeconds: secs } : s))));
+  }
+
+  moveScene(idx: number, delta: -1 | 1): void {
+    const list = [...this.scenes()];
+    const target = idx + delta;
+    if (target < 0 || target >= list.length) return;
+    [list[idx], list[target]] = [list[target], list[idx]];
+    this.scenes.set(this.recalculateTimeRanges(list.map((s, i) => ({ ...s, index: i + 1 }))));
+  }
+
+  clearSceneMedia(index: number): void {
+    this.scenes.update((list) =>
+      list.map((s) => (s.index === index ? { ...s, file: undefined, previewUrl: undefined, isVideo: false, status: 'prompt-ready', errorMessage: undefined } : s)),
+    );
+  }
+
+  private recalculateTimeRanges(list: AnimalSceneSlot[]): AnimalSceneSlot[] {
+    let t = 0;
+    return list.map((s) => {
+      const start = t;
+      const end = t + s.durationSeconds;
+      t = end;
+      const fmt = (v: number) => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`;
+      return { ...s, timeRange: `${fmt(start)}–${fmt(end)}` };
+    });
+  }
+
+  previewUrl(jobId: string): string {
+    return this.api.previewUrl(jobId);
+  }
+
+  downloadUrl(jobId: string): string {
+    return this.api.downloadUrl(jobId);
   }
 
   rebuildScene(index: number): void {
@@ -744,6 +956,129 @@ export class AnimalStudioComponent implements OnInit {
       this.notice.set('In-app AI draft failed (quota/network). No data lost—use the copied Google Flow prompts in Tab 1 and upload images directly.');
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  async autoBuildAndRenderReel(): Promise<void> {
+    if (!this.auth.isAuthenticated()) {
+      this.notice.set('Please sign in first to auto-build and render your MP4 reel.');
+      return;
+    }
+    const withFiles = this.scenes().filter((s) => !!s.file);
+    if (withFiles.length === 0) {
+      this.notice.set('Drag and drop at least 1 scene image or video clip first.');
+      return;
+    }
+
+    this.rendering.set(true);
+    this.renderJob.set(null);
+    this.renderProjectId.set(null);
+    this.renderStatus.set('Creating 9:16 Reel project…');
+
+    try {
+      const outW = this.aspect === '9:16' ? 1080 : 1920;
+      const outH = this.aspect === '9:16' ? 1920 : 1080;
+      const proj = await firstValueFrom(
+        this.api.createProject({
+          name: this.customTitle,
+          width: outW,
+          height: outH,
+          fps: 30,
+          distributionIntent: this.aspect === '9:16' ? 'Short' : 'Video',
+        }),
+      );
+      this.saveCreatedId(proj.id);
+      this.renderProjectId.set(proj.id);
+
+      const uploadedIds: string[] = [];
+      const timelineItems: TimelineItem[] = [];
+      let t = 0;
+
+      for (let i = 0; i < withFiles.length; i++) {
+        const sc = withFiles[i];
+        this.renderStatus.set(`Uploading scene ${i + 1} of ${withFiles.length} (${sc.title})…`);
+        this.scenes.update((list) => list.map((x) => (x.index === sc.index ? { ...x, status: 'uploading' } : x)));
+        try {
+          const asset = await firstValueFrom(this.api.uploadAsset(proj.id, sc.file!));
+          uploadedIds.push(asset.id);
+          timelineItems.push({
+            id: `animal_sc_${sc.index}`,
+            type: sc.isVideo ? 'video' : 'image',
+            trackId: 'V1',
+            startTime: t,
+            duration: sc.durationSeconds,
+            src: asset.id,
+            name: sc.title,
+          });
+          t += sc.durationSeconds;
+          this.scenes.update((list) => list.map((x) => (x.index === sc.index ? { ...x, status: 'ready' } : x)));
+        } catch {
+          this.scenes.update((list) =>
+            list.map((x) => (x.index === sc.index ? { ...x, status: 'failed', errorMessage: 'Upload failed — click Rebuild Scene and retry.' } : x)),
+          );
+        }
+      }
+
+      if (uploadedIds.length === 0) {
+        this.renderStatus.set('All scene uploads failed. Please retry.');
+        return;
+      }
+
+      if (this.autoImportSfx) {
+        this.renderStatus.set('Importing Comedy & Bandook SFX pack…');
+        try {
+          await firstValueFrom(this.effects.importSfxPack({ genre: 'comedy' }));
+        } catch {
+          // Non-blocking: continue rendering even if SFX pack import is skipped.
+        }
+      }
+
+      this.renderStatus.set(`Rendering ${this.aspect} MP4 (${uploadedIds.length} scenes)…`);
+      let job = await firstValueFrom(
+        this.api.mergeClips(proj.id, {
+          exportName: this.customTitle,
+          assetIds: uploadedIds,
+          fit: 'Cover',
+          outputWidth: outW,
+          outputHeight: outH,
+          quality: 'High',
+          transition: 'None',
+          transitionSeconds: 0,
+          muteClipAudio: false,
+          backgroundMusicVolume: 0.6,
+          musicTracks: [],
+          timelineItems,
+          watermark: {
+            kind: 'None',
+            position: 'BottomRight',
+            opacity: 0.85,
+            heightFraction: 0.05,
+            marginFraction: 0.03,
+            backplateOpacity: 0.4,
+          },
+          youTubeLoudness: true,
+        }),
+      );
+      this.renderJob.set(job);
+
+      while (job.status === 'Queued' || job.status === 'Running') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        job = await firstValueFrom(this.api.job(job.jobId, { silent: true }));
+        this.renderJob.set(job);
+      }
+
+      if (job.status === 'Succeeded') {
+        this.renderStatus.set('✅ Reel MP4 Ready! Watch below, download, or open in Video Editor.');
+        this.notice.set(`Rendered "${this.customTitle}" successfully!`);
+        this.status.notify([`Rendered Animal Reel "${this.customTitle}" (${uploadedIds.length} scenes).`]);
+        this.loadGeneratedReels();
+      } else {
+        this.renderStatus.set(`Render ${job.status}: ${job.errorMessage || 'Check job details in Video Editor.'}`);
+      }
+    } catch {
+      this.renderStatus.set('Auto-build failed. Check backend connection or open Video Editor manually.');
+    } finally {
+      this.rendering.set(false);
     }
   }
 
