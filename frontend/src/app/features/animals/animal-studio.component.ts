@@ -4,7 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
-import { Project, RenderJob, TimelineItem } from '../../core/models/api.models';
+import { Project, RenderJob, TimedMusicClipBody, TimelineItem } from '../../core/models/api.models';
+import { EffectClip } from '../../core/models/effects.models';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { AutomationService } from '../../core/services/automation.service';
@@ -94,6 +95,7 @@ export interface AnimalSceneSlot {
   positionsNote: string;
   emotionReaction: string;
   sfxId: string;
+  memeCaption?: string;
   googleFlowPrompt: string;
   status: SceneSlotStatus;
   errorMessage?: string;
@@ -102,71 +104,79 @@ export interface AnimalSceneSlot {
   isVideo?: boolean;
 }
 
+const NO_SPEECH_RULE = 'no human speaking, no human voice, no talking, no dialogue, no subtitles, no text, no watermark';
+
 const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
   {
     index: 1,
     title: 'Bushes Peek (Jhaad)',
-    timeRange: '0:00–0:04',
-    durationSeconds: 4,
+    timeRange: '0:00–0:03',
+    durationSeconds: 3,
     positionsNote: 'Foreground LEFT & CENTER: 2 white cartoon ducks peeking through green bushes. Background CENTER: spotted Leopard holding scared white Rabbit under front paw.',
     emotionReaction: 'Wide-eyed shock + gasp',
     sfxId: 'gasp_break',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, sunny jungle clearing. Foreground left and center: two expressive white cartoon ducks peeking out from behind dense green bushes with wide shocked eyes. Mid-background: a spotted leopard sitting on dirt ground holding a tiny frightened white rabbit under its front paw. Crisp lighting, exact character positions, no text.',
+    memeCaption: 'WAIT... LOOK THERE! 👀',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, sunny jungle clearing. Foreground left and center: two expressive white cartoon ducks peeking out from behind dense green bushes with wide shocked eyes. Mid-background: a spotted leopard sitting on dirt ground holding a tiny frightened white rabbit under its front paw. Crisp lighting, exact character positions, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 2,
     title: '2 Ducks Sprint Charge',
-    timeRange: '0:04–0:08',
-    durationSeconds: 4,
+    timeRange: '0:03–0:06',
+    durationSeconds: 3,
     positionsNote: 'Center-to-Background: the exact 2 white ducks sprinting fast side-by-side out of the bushes straight toward the Leopard.',
     emotionReaction: 'Determined heroic eyebrows + action whoosh',
     sfxId: 'break_whoosh',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, same sunny jungle clearing. The same two white cartoon ducks sprinting fast side-by-side out of the green bushes toward the spotted leopard in the background, determined heroic expressions, small dust puffs behind webbed feet, dynamic motion, no text.',
+    memeCaption: 'RESCUE MODE ON! 🦆💨',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, same sunny jungle clearing. The same two white cartoon ducks sprinting fast side-by-side out of the green bushes toward the spotted leopard in the background, determined heroic expressions, small dust puffs behind webbed feet, dynamic motion, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 3,
     title: 'Shaktiman Dust Tornado',
-    timeRange: '0:08–0:12',
-    durationSeconds: 4,
+    timeRange: '0:06–0:11',
+    durationSeconds: 5,
     positionsNote: 'Center frame: both ducks spinning super fast in a vertical golden-white Shaktiman-style tornado around the Leopard, filling frame with thick dust cloud.',
     emotionReaction: 'Hyper-speed spin + comic chaos',
     sfxId: 'bandook_burst',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, same jungle clearing. Two white cartoon ducks spinning at super high speed like a glowing golden-white Shaktiman tornado vortex right around the spotted leopard, kicking up a massive swirling brown-gold dust cloud filling the frame, dramatic comic energy, no text.',
+    memeCaption: 'SHAKTIMAN TORNADO! 🌪️🔥',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, same jungle clearing. Two white cartoon ducks spinning at super high speed like a glowing golden-white Shaktiman tornado vortex right around the spotted leopard, kicking up a massive swirling brown-gold dust cloud filling the frame, dramatic comic energy, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 4,
     title: 'Rabbit Snatch & Disappear',
-    timeRange: '0:12–0:16',
-    durationSeconds: 4,
+    timeRange: '0:11–0:14',
+    durationSeconds: 3,
     positionsNote: 'Center-to-Left exit: inside the dust cloud, the 2 ducks carry the white Rabbit together and dash out the left edge in speed blur.',
     emotionReaction: 'Fast snatch + comic pop',
     sfxId: 'punch_pop',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, swirling dust cloud in jungle clearing. The two white cartoon ducks swooping together carrying the happy tiny white rabbit safely between them, dashing out toward the left edge in fast motion blur, no text.',
+    memeCaption: 'YOINK!! GONE! 🐇💨',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, swirling dust cloud in jungle clearing. The two white cartoon ducks swooping together carrying the happy tiny white rabbit safely between them, dashing out toward the left edge in fast motion blur, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 5,
     title: 'Leopard Shock Reaction',
-    timeRange: '0:16–0:20',
+    timeRange: '0:14–0:18',
     durationSeconds: 4,
     positionsNote: 'Center close-up: dust clears; Leopard sits alone staring at its empty front paw, jaw dropped, bulging eyes looking left & right.',
     emotionReaction: 'Deadpan disbelief + record scratch shock',
     sfxId: 'shock_sting',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, dust settling in the same sunny jungle clearing. Close-up of the spotted leopard sitting completely alone, staring down at its empty front paw with jaw dropped to the ground and huge bulging eyes in total comic shock ("where did it go?!"), hilarious expression, no text.',
+    memeCaption: 'BRO WHERE DID IT GO?! 😱',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, dust settling in the same sunny jungle clearing. Close-up of the spotted leopard sitting completely alone, staring down at its empty front paw with jaw dropped to the ground and huge bulging eyes in total comic shock, hilarious expression, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 6,
     title: 'Victory Meme Outro',
-    timeRange: '0:20–0:24',
+    timeRange: '0:18–0:22',
     durationSeconds: 4,
     positionsNote: 'Center close-up: the 2 ducks wearing cool sunglasses high-fiving with the safe smiling white Rabbit in a bright sunny meadow.',
     emotionReaction: 'Smug victory + finale laugh',
     sfxId: 'laugh_break',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, bright sunny meadow. The two white cartoon ducks wearing cool black sunglasses high-fiving with the happy smiling white rabbit safely between them, celebratory heroic vibe, vibrant colors, no text.',
+    memeCaption: 'MISSION COMPLETE 😎🎉',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, bright sunny meadow. The two white cartoon ducks wearing cool black sunglasses high-fiving with the happy smiling white rabbit safely between them, celebratory heroic vibe, vibrant colors, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
 ];
@@ -175,56 +185,61 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
   {
     index: 1,
     title: 'Smug Savanna Stroll',
-    timeRange: '0:00–0:04',
-    durationSeconds: 4,
+    timeRange: '0:00–0:03',
+    durationSeconds: 3,
     positionsNote: 'Center: fearless Honey Badger strutting toward camera with a confident smirk.',
     emotionReaction: 'Smug confidence',
     sfxId: 'break_whoosh',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, golden savanna trail. A fearless cartoon honey badger strutting confidently toward the camera with a smug half-smirk, cinematic warm sunlight, no text.',
+    memeCaption: 'ZERO FEAR 😎',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, golden savanna trail. A fearless cartoon honey badger strutting confidently toward the camera with a smug half-smirk, cinematic warm sunlight, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 2,
     title: 'Bandook / Bee Ambush',
-    timeRange: '0:04–0:08',
+    timeRange: '0:03–0:07',
     durationSeconds: 4,
     positionsNote: 'Surrounding Honey Badger: angry bees and dramatic comic gunfire / ambush dust.',
     emotionReaction: 'Explosive chaos + bandook impact',
     sfxId: 'bandook_shot',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, same savanna. A swarm of angry cartoon bees and dramatic comic dust puffs exploding around the fearless honey badger, action comedy energy, no text.',
+    memeCaption: 'WAIT FOR IT... 💥🐝',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, same savanna. A swarm of angry cartoon bees and dramatic comic dust puffs exploding around the fearless honey badger, action comedy energy, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 3,
     title: 'Unbothered Deadpan Stare',
-    timeRange: '0:08–0:12',
+    timeRange: '0:07–0:11',
     durationSeconds: 4,
     positionsNote: 'Extreme close-up: Honey Badger staring straight at camera completely unbothered, slow blink.',
     emotionReaction: 'Deadpan silence + cricket chirp',
     sfxId: 'cricket_chirp',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation. Extreme close-up of the honey badger staring straight at the camera with completely unbothered deadpan half-closed eyes while chaos blurs behind it, hilarious meme face, no text.',
+    memeCaption: 'NOT EVEN BLINKING 😐',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation. Extreme close-up of the honey badger staring straight at the camera with completely unbothered deadpan half-closed eyes while chaos blurs behind it, hilarious meme face, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 4,
     title: 'Dust Flick & Predator Shock',
-    timeRange: '0:12–0:16',
+    timeRange: '0:11–0:15',
     durationSeconds: 4,
     positionsNote: 'Center: Honey Badger casually brushes dust off shoulder; predators freeze in disbelief.',
     emotionReaction: 'Bruh bass drop + jaw drop',
     sfxId: 'bruh_boom',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation. The honey badger casually brushing dust off its shoulder while a startled jackal and cobra freeze in the background with dropped jaws, no text.',
+    memeCaption: 'BRUH MOMENT 💀',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation. The honey badger casually brushing dust off its shoulder while a startled jackal and cobra freeze in the background with dropped jaws, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
   {
     index: 5,
     title: 'Sunglasses Meme Outro',
-    timeRange: '0:16–0:20',
+    timeRange: '0:15–0:19',
     durationSeconds: 4,
     positionsNote: 'Center: Honey Badger putting on dark sunglasses and walking away into sunset.',
     emotionReaction: 'Victory laugh sting',
     sfxId: 'laugh_break',
-    googleFlowPrompt: 'Vertical 9:16 3D Pixar-style cartoon animation, golden sunset. The fearless honey badger wearing cool black sunglasses walking away calmly like an action hero, vibrant cinematic lighting, no text.',
+    memeCaption: 'DEAL WITH IT 😎🔥',
+    googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, golden sunset. The fearless honey badger wearing cool black sunglasses walking away calmly like an action hero, vibrant cinematic lighting, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
 ];
@@ -281,14 +296,18 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
           <div class="as-bar">
             <div>
               <h2>{{ reelTitle() }}</h2>
-              <small class="muted">Target: 9:16 Vertical Reels · Place: <strong>{{ currentSetting() }}</strong> · Recommended Google Flow Model: <strong>Nano Banana 2.1 (Image, 0 credits)</strong>.</small>
+              <small class="muted">
+                Target: {{ aspect }} · Place: <strong>{{ currentSetting() }}</strong> ·
+                Google Flow: <strong>{{ flowModel === 'nano-banana-0cr' ? 'Nano Banana 2.1 (Image · 0 Credits)' : 'Veo 3.1 Fast (Lowest Video Credits)' }}</strong> ·
+                <strong>🔇 No Human Speaking</strong>
+              </small>
             </div>
             <div class="as-actions">
               <button type="button" class="btn secondary" (click)="generateFreshStoryAndSetting()">
                 🎲 Shuffle New Story + Place
               </button>
               <button type="button" class="btn secondary" (click)="copyAllPrompts()">
-                {{ copiedId() === 'all' ? '✓ Copied All Prompts!' : '📋 Copy All Scene Prompts (Batch)' }}
+                {{ copiedId() === 'all' ? '✓ Copied All Prompts!' : '📋 Copy All Low-Credit Prompts (Batch)' }}
               </button>
               <button type="button" class="btn primary" (click)="activeTab.set('publish')">
                 Next: Assemble 9:16 Reel →
@@ -352,9 +371,32 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
             </div>
           }
 
+          <div class="as-analyzer-card">
+            <div class="as-bar">
+              <div>
+                <strong>🧠 Video &amp; Scene Auto-Analyzer + Auto-Optimizer</strong>
+                <small class="muted" style="display:block;">{{ reelAnalysis() }}</small>
+              </div>
+              <button type="button" class="btn small secondary" (click)="analyzeAndOptimizeReel()">
+                ⚡ Auto-Optimize Pacing, Reactions &amp; Memes
+              </button>
+            </div>
+            <div class="as-toggles">
+              <label><input type="checkbox" [(ngModel)]="autoAddSfx" /> 🔊 Auto-Sync Reaction &amp; Comedy SFX on Video</label>
+              <label><input type="checkbox" [(ngModel)]="autoAddMemes" /> 😂 Auto-Add Funny Meme Captions &amp; Confetti Outro</label>
+              <label><input type="checkbox" [(ngModel)]="autoOptimizeOnRender" /> ⚡ Auto-Optimize Pacing Before Render</label>
+            </div>
+          </div>
+
           <div class="as-field-row">
             <label>Custom Animal Story Idea (optional — creates a fresh 6-scene pack)
               <input type="text" [(ngModel)]="customIdeaInput" placeholder="e.g. 2 Ducks rescue a baby monkey from a tiger in a bamboo river" />
+            </label>
+            <label>Google Flow Credit Mode
+              <select [(ngModel)]="flowModel">
+                <option value="nano-banana-0cr">Nano Banana 2.1 · Image (0 Credits · Lowest Cost)</option>
+                <option value="veo-fast">Veo 3.1 Fast · Video Clip (Lowest Video Credits)</option>
+              </select>
             </label>
             <label>Format
               <select [(ngModel)]="aspect">
@@ -407,6 +449,10 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
 
                 <p class="as-pos"><strong>Exact Positions:</strong> {{ sc.positionsNote }}</p>
                 <p class="as-meta"><strong>Emotion &amp; SFX:</strong> {{ sc.emotionReaction }} · <code>[SFX: {{ sc.sfxId }}]</code></p>
+                <label class="as-meme-label">
+                  <span>😂 Funny Meme Overlay:</span>
+                  <input type="text" [ngModel]="sc.memeCaption || ''" (ngModelChange)="updateMemeCaption(sc.index, $event)" placeholder="Optional funny meme text" />
+                </label>
 
                 <textarea rows="4" [ngModel]="sc.googleFlowPrompt" (ngModelChange)="updatePrompt(sc.index, $event)"></textarea>
 
@@ -552,6 +598,11 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     .as-progress-track { height: 8px; border-radius: 999px; background: var(--surface-1); overflow: hidden; border: 1px solid var(--border); }
     .as-progress-fill { height: 100%; background: var(--brand); transition: width 0.25s ease; }
     .as-rendered-video { width: 100%; max-height: 420px; border-radius: 10px; background: #000; }
+    .as-analyzer-card { border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem; background: var(--surface-1); display: grid; gap: 0.55rem; }
+    .as-toggles { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.84rem; }
+    .as-toggles label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+    .as-meme-label { display: grid; gap: 0.25rem; font-size: 0.8rem; color: var(--muted); }
+    .as-meme-label input { padding: 0.35rem 0.55rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.82rem; }
   `,
 })
 export class AnimalStudioComponent implements OnInit {
@@ -579,7 +630,11 @@ export class AnimalStudioComponent implements OnInit {
   customIdeaInput = '';
   customTitle = '2 Ducks vs Leopard — Shaktiman Dust Rescue 🦆🌪️🐇 | #Shorts';
   aspect: '9:16' | '16:9' = '9:16';
+  flowModel: 'nano-banana-0cr' | 'veo-fast' = 'nano-banana-0cr';
   autoImportSfx = true;
+  autoAddSfx = true;
+  autoAddMemes = true;
+  autoOptimizeOnRender = true;
 
   readonly reelTitle = computed(() =>
     this.customTitleOverride()
@@ -589,6 +644,17 @@ export class AnimalStudioComponent implements OnInit {
   );
 
   readonly readyCount = computed(() => this.scenes().filter((s) => s.status === 'ready').length);
+
+  readonly reelAnalysis = computed(() => {
+    const list = this.scenes();
+    const totalSec = list.reduce((sum, s) => sum + s.durationSeconds, 0);
+    const mediaReady = list.filter((s) => s.status === 'ready').length;
+    const memeReady = list.filter((s) => !!s.memeCaption?.trim()).length;
+    const pacingNote = totalSec >= 18 && totalSec <= 28
+      ? `Optimal Shorts length (${totalSec}s)`
+      : `Current ${totalSec}s (click Auto-Optimize for 19–24s viral pacing)`;
+    return `${pacingNote} · Media: ${mediaReady}/${list.length} · Reaction SFX: ${list.length}/${list.length} · Funny Memes: ${memeReady}/${list.length} · No Human Speaking`;
+  });
 
   ngOnInit(): void {
     this.loadGeneratedReels();
@@ -659,67 +725,73 @@ export class AnimalStudioComponent implements OnInit {
       {
         index: 1,
         title: 'Bushes Peek & Tension',
-        timeRange: '0:00–0:04',
-        durationSeconds: 4,
+        timeRange: '0:00–0:03',
+        durationSeconds: 3,
         positionsNote: `Foreground LEFT: ${v.hero} peeking from bushes. Background CENTER: ${v.villain} trapping ${v.victim} in ${place}.`,
         emotionReaction: 'Wide-eyed shock + gasp',
         sfxId: v.sfx[0],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation in a ${place}. Foreground left: ${v.hero} peeking out from foliage in wide-eyed shock. Background center: ${v.villain} trapping ${v.victim}. Exact positions, vibrant lighting, no text.`,
+        memeCaption: 'WAIT... LOOK THERE! 👀',
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation in a ${place}. Foreground left: ${v.hero} peeking out from foliage in wide-eyed shock. Background center: ${v.villain} trapping ${v.victim}. Exact positions, vibrant lighting, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready',
       },
       {
         index: 2,
         title: 'Hero Charge',
-        timeRange: '0:04–0:08',
-        durationSeconds: 4,
+        timeRange: '0:03–0:06',
+        durationSeconds: 3,
         positionsNote: `Center: ${v.hero} charging fast toward ${v.villain} in ${place}.`,
         emotionReaction: 'Determined heroic charge',
         sfxId: v.sfx[1],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, same ${place}. ${v.hero} sprinting straight toward ${v.villain} with fierce comic determination and small dust puffs, no text.`,
+        memeCaption: 'HERO MODE ON! ⚡',
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, same ${place}. ${v.hero} sprinting straight toward ${v.villain} with fierce comic determination and small dust puffs, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready',
       },
       {
         index: 3,
         title: 'Whirlwind / Twist Chaos',
-        timeRange: '0:08–0:12',
-        durationSeconds: 4,
+        timeRange: '0:06–0:11',
+        durationSeconds: 5,
         positionsNote: `Center full frame: ${v.hero} ${v.twist} right around ${v.villain}.`,
         emotionReaction: 'Explosive dust chaos + action SFX',
         sfxId: v.sfx[2],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, same ${place}. ${v.hero} ${v.twist} around ${v.villain}, huge swirling dust cloud filling the frame, dramatic comic energy, no text.`,
+        memeCaption: 'TORNADO CHAOS! 🌪️🔥',
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, same ${place}. ${v.hero} ${v.twist} around ${v.villain}, huge swirling dust cloud filling the frame, dramatic comic energy, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready',
       },
       {
         index: 4,
         title: 'Rescue & Escape',
-        timeRange: '0:12–0:16',
-        durationSeconds: 4,
+        timeRange: '0:11–0:14',
+        durationSeconds: 3,
         positionsNote: `Left exit: ${v.hero} dashing away safely with ${v.victim}.`,
         emotionReaction: 'Fast escape pop',
         sfxId: v.sfx[3],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, dust swirling in ${place}. ${v.hero} carrying ${v.victim} safely out toward the left edge in fast motion blur, no text.`,
+        memeCaption: 'YOINK!! GONE! 💨',
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, dust swirling in ${place}. ${v.hero} carrying ${v.victim} safely out toward the left edge in fast motion blur, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready',
       },
       {
         index: 5,
         title: 'Villain Shock Reaction',
-        timeRange: '0:16–0:20',
+        timeRange: '0:14–0:18',
         durationSeconds: 4,
         positionsNote: `Center close-up: dust settles; ${v.villain} alone staring in total disbelief.`,
         emotionReaction: 'Deadpan disbelief + meme shock',
         sfxId: v.sfx[4],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, dust settling in the same ${place}. Close-up of ${v.villain} sitting completely alone with jaw dropped and bulging eyes in hilarious shock, no text.`,
+        memeCaption: 'BRO WHERE DID IT GO?! 😱',
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, dust settling in the same ${place}. Close-up of ${v.villain} sitting completely alone with jaw dropped and bulging eyes in hilarious shock, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready',
       },
       {
         index: 6,
         title: 'Victory Meme Outro',
-        timeRange: '0:20–0:24',
+        timeRange: '0:18–0:22',
         durationSeconds: 4,
         positionsNote: `Center close-up: ${v.hero} wearing cool sunglasses celebrating with safe ${v.victim}.`,
         emotionReaction: 'Victory laugh sting',
         sfxId: v.sfx[5],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation in a bright ${place}. ${v.hero} wearing cool black sunglasses high-fiving with happy safe ${v.victim}, vibrant colors, no text.`,
+        memeCaption: 'MISSION COMPLETE 😎🎉',
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation in a bright ${place}. ${v.hero} wearing cool black sunglasses high-fiving with happy safe ${v.victim}, vibrant colors, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready',
       },
     ]);
@@ -732,21 +804,24 @@ export class AnimalStudioComponent implements OnInit {
     this.customTitleOverride.set(`✨ ${idea}`);
     this.customTitle = `${idea.slice(0, 80)} | #Shorts`;
     this.currentSetting.set('custom scene setting');
-    this.scenes.set([1, 2, 3, 4, 5, 6].map((idx) => {
+    const durs = [3, 3, 5, 3, 4, 4];
+    const memes = ['WAIT... LOOK! 👀', 'HERE WE GO! 💨', 'TOTAL CHAOS! 🌪️🔥', 'RESCUED!! ⚡', 'WHAT JUST HAPPENED?! 😱', 'MISSION COMPLETE 😎🎉'];
+    this.scenes.set(this.recalculateTimeRanges([1, 2, 3, 4, 5, 6].map((idx) => {
       const beats = ['Setup & Spying', 'Fast Approach', 'Dust / Tornado Twist', 'Rescue & Escape', 'Villain Shock Reaction', 'Victory Meme Outro'];
       const sfx = ['gasp_break', 'break_whoosh', 'bandook_burst', 'punch_pop', 'shock_sting', 'laugh_break'];
       return {
         index: idx,
         title: beats[idx - 1],
-        timeRange: `0:${String((idx - 1) * 4).padStart(2, '0')}–0:${String(idx * 4).padStart(2, '0')}`,
-        durationSeconds: 4,
+        timeRange: '',
+        durationSeconds: durs[idx - 1],
         positionsNote: `Beat ${idx} (${beats[idx - 1]}) for: ${idea}`,
         emotionReaction: beats[idx - 1],
         sfxId: sfx[idx - 1],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation. Scene ${idx} (${beats[idx - 1]}) of story: ${idea}. Expressive animal emotions, consistent characters, dynamic camera, no text.`,
+        memeCaption: memes[idx - 1],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation. Scene ${idx} (${beats[idx - 1]}) of story: ${idea}. Expressive animal emotions, consistent characters, dynamic camera, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready' as SceneSlotStatus,
       };
-    }));
+    })));
     this.notice.set(`Built custom 6-scene prompt pack for "${idea}".`);
   }
 
@@ -776,6 +851,26 @@ export class AnimalStudioComponent implements OnInit {
     this.scenes.update((list) => list.map((s) => (s.index === index ? { ...s, googleFlowPrompt: value } : s)));
   }
 
+  updateMemeCaption(index: number, value: string): void {
+    this.scenes.update((list) => list.map((s) => (s.index === index ? { ...s, memeCaption: value } : s)));
+  }
+
+  analyzeAndOptimizeReel(): void {
+    const list = this.scenes();
+    const ideal6 = [3, 3, 5, 3, 4, 4];
+    const ideal5 = [3, 4, 4, 4, 4];
+    const defaultMemes = ['WAIT... LOOK! 👀', 'HERE WE GO! 💨', 'TORNADO CHAOS! 🌪️🔥', 'YOINK!! GONE! 💨', 'BRO WHAT?! 😱', 'MISSION COMPLETE 😎🎉'];
+    const optimized = list.map((s, i) => ({
+      ...s,
+      durationSeconds: list.length === 6 ? ideal6[i] : (list.length === 5 ? ideal5[i] : s.durationSeconds),
+      memeCaption: s.memeCaption?.trim() || defaultMemes[i % defaultMemes.length],
+    }));
+    this.scenes.set(this.recalculateTimeRanges(optimized));
+    this.autoAddSfx = true;
+    this.autoAddMemes = true;
+    this.notice.set('⚡ Auto-Optimized! Snappy 3–5s viral pacing, reaction SFX sync, funny meme overlays, and celebration confetti outro enabled.');
+  }
+
   copyScenePrompt(sc: AnimalSceneSlot): void {
     void navigator.clipboard?.writeText(sc.googleFlowPrompt);
     this.copiedId.set(`sc_${sc.index}`);
@@ -783,8 +878,11 @@ export class AnimalStudioComponent implements OnInit {
   }
 
   copyAllPrompts(): void {
+    const modelLabel = this.flowModel === 'nano-banana-0cr'
+      ? 'Nano Banana 2.1 · Image · 0 credits per scene (Lowest Credit Mode)'
+      : 'Veo 3.1 Fast · Video Clip (Lowest Video Credit Mode)';
     const text = [
-      `GOOGLE FLOW BATCH (Use Nano Banana 2.1 · Image · ${this.aspect} · 0 credits per image):`,
+      `GOOGLE FLOW BATCH (${modelLabel} · Aspect: ${this.aspect} · STRICTLY NO HUMAN SPEAKING):`,
       '',
       ...this.scenes().map(
         (s) => `Scene ${s.index} (${s.timeRange} - ${s.title}) [SFX: ${s.sfxId}]:\n${s.googleFlowPrompt}`,
@@ -792,7 +890,7 @@ export class AnimalStudioComponent implements OnInit {
     ].join('\n\n');
     void navigator.clipboard?.writeText(text);
     this.copiedId.set('all');
-    this.notice.set('Copied all scene prompts! Paste into Google Flow (Nano Banana 2.1, 9:16, 0 credits) and upload the generated files back to each scene card.');
+    this.notice.set(`Copied all low-credit prompts (${modelLabel}, no human speech)! Generate all in Google Flow and drag-drop all files here.`);
     setTimeout(() => this.copiedId.set(null), 2500);
   }
 
@@ -964,6 +1062,9 @@ export class AnimalStudioComponent implements OnInit {
       this.notice.set('Please sign in first to auto-build and render your MP4 reel.');
       return;
     }
+    if (this.autoOptimizeOnRender) {
+      this.analyzeAndOptimizeReel();
+    }
     const withFiles = this.scenes().filter((s) => !!s.file);
     if (withFiles.length === 0) {
       this.notice.set('Drag and drop at least 1 scene image or video clip first.');
@@ -973,7 +1074,7 @@ export class AnimalStudioComponent implements OnInit {
     this.rendering.set(true);
     this.renderJob.set(null);
     this.renderProjectId.set(null);
-    this.renderStatus.set('Creating 9:16 Reel project…');
+    this.renderStatus.set(`Creating ${this.aspect} Reel project…`);
 
     try {
       const outW = this.aspect === '9:16' ? 1080 : 1920;
@@ -992,6 +1093,7 @@ export class AnimalStudioComponent implements OnInit {
 
       const uploadedIds: string[] = [];
       const timelineItems: TimelineItem[] = [];
+      const sceneStarts: { sc: AnimalSceneSlot; startTime: number }[] = [];
       let t = 0;
 
       for (let i = 0; i < withFiles.length; i++) {
@@ -1001,6 +1103,7 @@ export class AnimalStudioComponent implements OnInit {
         try {
           const asset = await firstValueFrom(this.api.uploadAsset(proj.id, sc.file!));
           uploadedIds.push(asset.id);
+          sceneStarts.push({ sc, startTime: t });
           timelineItems.push({
             id: `animal_sc_${sc.index}`,
             type: sc.isVideo ? 'video' : 'image',
@@ -1010,6 +1113,28 @@ export class AnimalStudioComponent implements OnInit {
             src: asset.id,
             name: sc.title,
           });
+          if (this.autoAddMemes && sc.memeCaption?.trim()) {
+            timelineItems.push({
+              id: `animal_meme_${sc.index}`,
+              type: 'text',
+              trackId: 'T1',
+              startTime: t + 0.15,
+              duration: Math.max(1.5, sc.durationSeconds - 0.3),
+              src: sc.memeCaption.trim(),
+              name: `Meme: ${sc.title}`,
+              overlay: true,
+              textStyle: {
+                fontSize: 22,
+                color: '#FFE600',
+                backgroundColor: '#000000',
+                boxOpacity: 0.72,
+                outlineColor: '#000000',
+                outlineWidth: 2,
+                shadow: true,
+                position: 'top',
+              },
+            });
+          }
           t += sc.durationSeconds;
           this.scenes.update((list) => list.map((x) => (x.index === sc.index ? { ...x, status: 'ready' } : x)));
         } catch {
@@ -1024,16 +1149,59 @@ export class AnimalStudioComponent implements OnInit {
         return;
       }
 
-      if (this.autoImportSfx) {
-        this.renderStatus.set('Importing Comedy & Bandook SFX pack…');
+      if (this.autoAddMemes && sceneStarts.length > 0) {
+        const last = sceneStarts[sceneStarts.length - 1];
+        timelineItems.push({
+          id: 'animal_outro_confetti',
+          type: 'celebration',
+          trackId: 'FX1',
+          startTime: last.startTime,
+          duration: last.sc.durationSeconds,
+          src: 'confetti',
+          name: 'Victory Confetti',
+          celebration: { mode: 'burst', density: 1.2, size: 1, speed: 1.1 },
+        });
+      }
+
+      const musicTracks: TimedMusicClipBody[] = [];
+      if (this.autoImportSfx || this.autoAddSfx) {
+        this.renderStatus.set('Syncing Comedy, Bandook & Reaction SFX to scenes…');
         try {
-          await firstValueFrom(this.effects.importSfxPack({ genre: 'comedy' }));
+          const imported = await firstValueFrom(this.effects.importSfxPack({ genre: 'comedy' }));
+          const library = await firstValueFrom(this.effects.list({ category: 'SoundEffect', kind: 'Audio' }, true));
+          const pool: EffectClip[] = [...(imported?.items ?? []), ...(library ?? [])];
+
+          if (this.autoAddSfx && pool.length > 0) {
+            const effectAssetCache = new Map<string, string>();
+            for (let i = 0; i < sceneStarts.length; i++) {
+              const { sc, startTime } = sceneStarts[i];
+              const needle = sc.sfxId.toLowerCase().replace(/[_-]+/g, ' ');
+              const words = needle.split(' ').filter(Boolean);
+              const matched =
+                pool.find((e) => {
+                  const hay = `${e.name} ${(e.tags ?? []).join(' ')}`.toLowerCase();
+                  return words.some((w) => hay.includes(w));
+                }) ?? pool[i % pool.length];
+
+              let sfxAssetId = effectAssetCache.get(matched.id);
+              if (!sfxAssetId) {
+                const used = await firstValueFrom(this.effects.use(matched.id, proj.id));
+                sfxAssetId = used.asset.id;
+                effectAssetCache.set(matched.id, sfxAssetId);
+              }
+              musicTracks.push({
+                assetId: sfxAssetId,
+                startSeconds: startTime,
+                volume: 0.95,
+              });
+            }
+          }
         } catch {
-          // Non-blocking: continue rendering even if SFX pack import is skipped.
+          // Non-blocking: continue rendering even if SFX sync is skipped.
         }
       }
 
-      this.renderStatus.set(`Rendering ${this.aspect} MP4 (${uploadedIds.length} scenes)…`);
+      this.renderStatus.set(`Rendering ${this.aspect} MP4 (${uploadedIds.length} scenes, ${musicTracks.length} SFX)…`);
       let job = await firstValueFrom(
         this.api.mergeClips(proj.id, {
           exportName: this.customTitle,
@@ -1045,8 +1213,8 @@ export class AnimalStudioComponent implements OnInit {
           transition: 'None',
           transitionSeconds: 0,
           muteClipAudio: false,
-          backgroundMusicVolume: 0.6,
-          musicTracks: [],
+          backgroundMusicVolume: 0.75,
+          musicTracks,
           timelineItems,
           watermark: {
             kind: 'None',
@@ -1068,9 +1236,9 @@ export class AnimalStudioComponent implements OnInit {
       }
 
       if (job.status === 'Succeeded') {
-        this.renderStatus.set('✅ Reel MP4 Ready! Watch below, download, or open in Video Editor.');
+        this.renderStatus.set(`✅ Reel MP4 Ready with ${musicTracks.length} Reaction SFX & Meme Overlays! Watch below or download.`);
         this.notice.set(`Rendered "${this.customTitle}" successfully!`);
-        this.status.notify([`Rendered Animal Reel "${this.customTitle}" (${uploadedIds.length} scenes).`]);
+        this.status.notify([`Rendered Animal Reel "${this.customTitle}" (${uploadedIds.length} scenes, ${musicTracks.length} SFX).`]);
         this.loadGeneratedReels();
       } else {
         this.renderStatus.set(`Render ${job.status}: ${job.errorMessage || 'Check job details in Video Editor.'}`);
