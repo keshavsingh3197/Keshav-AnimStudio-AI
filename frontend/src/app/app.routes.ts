@@ -119,6 +119,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'animals',
+    title: 'Animal Reels Studio - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/animals/animal-studio.component').then((m) => m.AnimalStudioComponent),
+  },
+
+  {
     path: 'story-template',
     title: 'Story Template Studio - AnimStudio AI',
     loadComponent: () =>
