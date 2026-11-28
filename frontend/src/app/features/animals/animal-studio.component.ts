@@ -1,9 +1,10 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
+import { Project } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { AutomationService } from '../../core/services/automation.service';
@@ -11,8 +12,78 @@ import { EffectsService } from '../../core/services/effects.service';
 import { StatusService } from '../../core/services/status.service';
 
 export type AnimalPresetId = 'duck-leopard' | 'honey-badger';
-export type AnimalTab = 'scenes' | 'generate' | 'publish';
+export type AnimalTab = 'scenes' | 'generate' | 'publish' | 'library';
 export type SceneSlotStatus = 'prompt-ready' | 'uploading' | 'ready' | 'failed';
+
+const USED_COMBOS_KEY = 'ks_animal_used_combos_v1';
+const CREATED_IDS_KEY = 'ks_animal_created_ids_v1';
+
+const ANIMAL_SETTINGS = [
+  'bamboo forest riverbank with mossy rocks and sparkling water',
+  'dusty rural village bazaar courtyard with clay pots and wooden carts',
+  'misty Himalayan pine trail with morning sunbeams',
+  'golden savanna waterhole under an acacia tree',
+  'moonlit ancient banyan grove with glowing fireflies',
+  'rocky canyon rope bridge over a rushing stream',
+  'sunlit mango orchard with tall grass and fallen fruit',
+  'golden desert oasis with palm trees and red sandstone',
+] as const;
+
+const ANIMAL_VARIATIONS: ReadonlyArray<{
+  key: string;
+  title: string;
+  hero: string;
+  villain: string;
+  victim: string;
+  twist: string;
+  sfx: [string, string, string, string, string, string];
+}> = [
+  {
+    key: 'duck-leopard-shaktiman',
+    title: '2 Ducks vs Leopard — Shaktiman Dust Rescue',
+    hero: 'two expressive white cartoon ducks',
+    villain: 'spotted leopard',
+    victim: 'tiny frightened white rabbit',
+    twist: 'spin in a golden-white Shaktiman tornado filling the air with thick dust and snatch the rabbit away',
+    sfx: ['gasp_break', 'break_whoosh', 'bandook_burst', 'punch_pop', 'shock_sting', 'laugh_break'],
+  },
+  {
+    key: 'duck-fox-chick',
+    title: '2 Ducks vs Sly Fox — Tornado Feather Escape',
+    hero: 'two clever white cartoon ducks',
+    villain: 'sly red fox',
+    victim: 'fluffy yellow baby chick',
+    twist: 'launch a spinning feather-dust whirlwind that blinds the fox while they rescue the chick',
+    sfx: ['gasp_break', 'break_whoosh', 'record_scratch', 'punch_pop', 'sad_trombone', 'laugh_break'],
+  },
+  {
+    key: 'badger-bandook-ambush',
+    title: 'Honey Badger vs Bandook Hunter & Bees',
+    hero: 'fearless cartoon honey badger',
+    villain: 'panicked hunter with a comic pop-gun and angry bee swarm',
+    victim: 'captured baby tortoise',
+    twist: 'casually walk through the bandook smoke and dust unbothered, free the tortoise, and give a deadpan stare',
+    sfx: ['break_whoosh', 'bandook_shot', 'cricket_chirp', 'bruh_boom', 'shock_sting', 'laugh_break'],
+  },
+  {
+    key: 'ducks-croc-elephant',
+    title: 'Duck Duo & Baby Elephant vs Crocodile',
+    hero: 'two heroic white ducks and a cute baby elephant',
+    villain: 'sneaky green crocodile',
+    victim: 'lost baby deer',
+    twist: 'splash a giant water-and-dust cyclone around the crocodile and whisk the baby deer to safety',
+    sfx: ['gasp_break', 'break_whoosh', 'dramatic_thud', 'boing_spring', 'sad_trombone', 'laugh_break'],
+  },
+  {
+    key: 'badger-cobra-jackal',
+    title: 'Honey Badger vs Cobra & Jackal Gang',
+    hero: 'unbothered cartoon honey badger',
+    villain: 'dramatic king cobra and sneaky jackal',
+    victim: 'stolen mango basket',
+    twist: 'flick the dust cloud aside with one paw, leaving both predators frozen with dropped jaws',
+    sfx: ['break_whoosh', 'bandook_burst', 'cricket_chirp', 'slap_impact', 'bruh_boom', 'laugh_break'],
+  },
+];
 
 export interface AnimalSceneSlot {
   index: number;
@@ -173,10 +244,13 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
         </div>
         <div class="as-preset-pills">
           <button type="button" class="as-pill" [class.active]="preset() === 'duck-leopard'" (click)="selectPreset('duck-leopard')">
-            🦆 Duck Duo vs Leopard (Shaktiman Rescue · 6 Scenes)
+            🦆 Duck Duo vs Leopard (Example)
           </button>
           <button type="button" class="as-pill" [class.active]="preset() === 'honey-badger'" (click)="selectPreset('honey-badger')">
-            🦡 Honey Badger International (5 Scenes)
+            🦡 Honey Badger (Example)
+          </button>
+          <button type="button" class="as-pill" style="border-color:var(--brand);background:var(--brand-subtle);" (click)="generateFreshStoryAndSetting()">
+            🎲 New Story &amp; New Place (No Repeat)
           </button>
         </div>
       </header>
@@ -191,6 +265,9 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
         <button type="button" role="tab" [class.active]="activeTab() === 'publish'" (click)="activeTab.set('publish')">
           📤 3. Reactions, SFX &amp; Assemble 9:16 Reel
         </button>
+        <button type="button" role="tab" [class.active]="activeTab() === 'library'" (click)="activeTab.set('library'); loadGeneratedReels()">
+          📺 4. Generated Reels ({{ generatedReels().length }})
+        </button>
       </nav>
 
       @if (notice()) {
@@ -202,14 +279,28 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
           <div class="as-bar">
             <div>
               <h2>{{ reelTitle() }}</h2>
-              <small class="muted">Target: 9:16 Vertical Reels · Recommended Google Flow Model: <strong>Nano Banana 2.1 (Image, 0 credits)</strong> or Veo Fast for motion.</small>
+              <small class="muted">Target: 9:16 Vertical Reels · Place: <strong>{{ currentSetting() }}</strong> · Recommended Google Flow Model: <strong>Nano Banana 2.1 (Image, 0 credits)</strong>.</small>
             </div>
             <div class="as-actions">
+              <button type="button" class="btn secondary" (click)="generateFreshStoryAndSetting()">
+                🎲 Shuffle New Story + Place
+              </button>
               <button type="button" class="btn secondary" (click)="copyAllPrompts()">
                 {{ copiedId() === 'all' ? '✓ Copied All Prompts!' : '📋 Copy All Scene Prompts (Batch)' }}
               </button>
               <button type="button" class="btn primary" (click)="activeTab.set('publish')">
                 Next: Assemble 9:16 Reel →
+              </button>
+            </div>
+          </div>
+
+          <div class="as-field-row">
+            <label>Custom Animal Story Idea (optional — creates a fresh 6-scene pack)
+              <input type="text" [(ngModel)]="customIdeaInput" placeholder="e.g. 2 Ducks rescue a baby monkey from a tiger in a bamboo river" />
+            </label>
+            <div style="display:flex;align-items:flex-end;">
+              <button type="button" class="btn secondary" [disabled]="!customIdeaInput.trim()" (click)="applyCustomIdea()">
+                ✨ Build Custom 6-Scene Prompts
               </button>
             </div>
           </div>
@@ -297,6 +388,34 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
           <small class="muted">Uploaded scenes ready: {{ readyCount() }} of {{ scenes().length }}.</small>
         </section>
       }
+
+      @if (activeTab() === 'library') {
+        <section class="card as-panel">
+          <div class="as-bar">
+            <div>
+              <h2>📺 All Generated Animal Reels</h2>
+              <small class="muted">Every reel project created from Animal Studio appears here so you can open, render, or watch it anytime.</small>
+            </div>
+            <button type="button" class="btn secondary" (click)="loadGeneratedReels()">🔄 Refresh List</button>
+          </div>
+          @if (generatedReels().length === 0) {
+            <p class="muted">No Animal Reels created yet. Generate or upload scenes in Tab 1, then click <strong>Create 9:16 Reel Project</strong> in Tab 3.</p>
+          } @else {
+            <div class="as-grid">
+              @for (proj of generatedReels(); track proj.id) {
+                <article class="as-scene-card">
+                  <strong>{{ proj.name }}</strong>
+                  <small class="muted">{{ proj.width }}×{{ proj.height }} · {{ proj.updatedAt | date:'medium' }}</small>
+                  <div class="as-actions">
+                    <a class="btn small primary" [routerLink]="['/projects', proj.id, 'clips']">🎬 Open Video Editor</a>
+                    <a class="btn small secondary" [routerLink]="['/projects', proj.id, 'videos']">▶ Watch / Exported Videos</a>
+                  </div>
+                </article>
+              }
+            </div>
+          }
+        </section>
+      }
     </section>
   `,
   styles: `
@@ -325,7 +444,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     .as-err { color: #ef4444; font-size: 0.82rem; margin: 0; }
   `,
 })
-export class AnimalStudioComponent {
+export class AnimalStudioComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly automation = inject(AutomationService);
   private readonly effects = inject(EffectsService);
@@ -339,24 +458,192 @@ export class AnimalStudioComponent {
   readonly copiedId = signal<string | null>(null);
   readonly notice = signal<string | null>(null);
   readonly busy = signal(false);
+  readonly currentSetting = signal<string>('sunny jungle clearing with green bushes');
+  readonly customTitleOverride = signal<string | null>(null);
+  readonly generatedReels = signal<Project[]>([]);
 
+  customIdeaInput = '';
   customTitle = '2 Ducks vs Leopard — Shaktiman Dust Rescue 🦆🌪️🐇 | #Shorts';
   aspect: '9:16' | '16:9' = '9:16';
 
   readonly reelTitle = computed(() =>
-    this.preset() === 'duck-leopard'
-      ? '🦆 Duck Duo vs Leopard — Shaktiman Dust Tornado Rescue (6 Scenes)'
-      : '🦡 Honey Badger International — Fearless Reaction Reel (5 Scenes)',
+    this.customTitleOverride()
+      ?? (this.preset() === 'duck-leopard'
+        ? '🦆 Duck Duo vs Leopard — Shaktiman Dust Tornado Rescue (6 Scenes)'
+        : '🦡 Honey Badger International — Fearless Reaction Reel (5 Scenes)'),
   );
 
   readonly readyCount = computed(() => this.scenes().filter((s) => s.status === 'ready').length);
 
+  ngOnInit(): void {
+    this.loadGeneratedReels();
+  }
+
+  loadGeneratedReels(): void {
+    if (!this.auth.isAuthenticated()) return;
+    const savedIds = this.readSavedIds();
+    this.api.listProjects().subscribe({
+      next: (all) => {
+        const filtered = (all ?? []).filter(
+          (p) => savedIds.has(p.id) || /duck|leopard|badger|animal|shaktiman/i.test(p.name),
+        );
+        this.generatedReels.set(filtered);
+      },
+      error: () => { /* optional */ },
+    });
+  }
+
+  private readSavedIds(): Set<string> {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem(CREATED_IDS_KEY) || '[]'));
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  private saveCreatedId(id: string): void {
+    const ids = this.readSavedIds();
+    ids.add(id);
+    try {
+      localStorage.setItem(CREATED_IDS_KEY, JSON.stringify([...ids]));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+
+  generateFreshStoryAndSetting(): void {
+    let used: string[] = [];
+    try {
+      used = JSON.parse(localStorage.getItem(USED_COMBOS_KEY) || '[]');
+    } catch {
+      used = [];
+    }
+
+    const candidates: Array<{ v: typeof ANIMAL_VARIATIONS[number]; place: string; comboKey: string }> = [];
+    for (const v of ANIMAL_VARIATIONS) {
+      for (const place of ANIMAL_SETTINGS) {
+        candidates.push({ v, place, comboKey: `${v.key}::${place}` });
+      }
+    }
+    const fresh = candidates.filter((c) => !used.includes(c.comboKey));
+    const pool = fresh.length > 0 ? fresh : candidates;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+
+    const nextUsed = (fresh.length > 0 ? [...used, pick.comboKey] : [pick.comboKey]).slice(-30);
+    try {
+      localStorage.setItem(USED_COMBOS_KEY, JSON.stringify(nextUsed));
+    } catch {
+      // ignore
+    }
+
+    const { v, place } = pick;
+    this.currentSetting.set(place);
+    this.customTitleOverride.set(`🎲 ${v.title} (${place.split(' with ')[0]})`);
+    this.customTitle = `${v.title} | #Shorts`;
+    this.scenes.set([
+      {
+        index: 1,
+        title: 'Bushes Peek & Tension',
+        timeRange: '0:00–0:04',
+        durationSeconds: 4,
+        positionsNote: `Foreground LEFT: ${v.hero} peeking from bushes. Background CENTER: ${v.villain} trapping ${v.victim} in ${place}.`,
+        emotionReaction: 'Wide-eyed shock + gasp',
+        sfxId: v.sfx[0],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation in a ${place}. Foreground left: ${v.hero} peeking out from foliage in wide-eyed shock. Background center: ${v.villain} trapping ${v.victim}. Exact positions, vibrant lighting, no text.`,
+        status: 'prompt-ready',
+      },
+      {
+        index: 2,
+        title: 'Hero Charge',
+        timeRange: '0:04–0:08',
+        durationSeconds: 4,
+        positionsNote: `Center: ${v.hero} charging fast toward ${v.villain} in ${place}.`,
+        emotionReaction: 'Determined heroic charge',
+        sfxId: v.sfx[1],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, same ${place}. ${v.hero} sprinting straight toward ${v.villain} with fierce comic determination and small dust puffs, no text.`,
+        status: 'prompt-ready',
+      },
+      {
+        index: 3,
+        title: 'Whirlwind / Twist Chaos',
+        timeRange: '0:08–0:12',
+        durationSeconds: 4,
+        positionsNote: `Center full frame: ${v.hero} ${v.twist} right around ${v.villain}.`,
+        emotionReaction: 'Explosive dust chaos + action SFX',
+        sfxId: v.sfx[2],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, same ${place}. ${v.hero} ${v.twist} around ${v.villain}, huge swirling dust cloud filling the frame, dramatic comic energy, no text.`,
+        status: 'prompt-ready',
+      },
+      {
+        index: 4,
+        title: 'Rescue & Escape',
+        timeRange: '0:12–0:16',
+        durationSeconds: 4,
+        positionsNote: `Left exit: ${v.hero} dashing away safely with ${v.victim}.`,
+        emotionReaction: 'Fast escape pop',
+        sfxId: v.sfx[3],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, dust swirling in ${place}. ${v.hero} carrying ${v.victim} safely out toward the left edge in fast motion blur, no text.`,
+        status: 'prompt-ready',
+      },
+      {
+        index: 5,
+        title: 'Villain Shock Reaction',
+        timeRange: '0:16–0:20',
+        durationSeconds: 4,
+        positionsNote: `Center close-up: dust settles; ${v.villain} alone staring in total disbelief.`,
+        emotionReaction: 'Deadpan disbelief + meme shock',
+        sfxId: v.sfx[4],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation, dust settling in the same ${place}. Close-up of ${v.villain} sitting completely alone with jaw dropped and bulging eyes in hilarious shock, no text.`,
+        status: 'prompt-ready',
+      },
+      {
+        index: 6,
+        title: 'Victory Meme Outro',
+        timeRange: '0:20–0:24',
+        durationSeconds: 4,
+        positionsNote: `Center close-up: ${v.hero} wearing cool sunglasses celebrating with safe ${v.victim}.`,
+        emotionReaction: 'Victory laugh sting',
+        sfxId: v.sfx[5],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation in a bright ${place}. ${v.hero} wearing cool black sunglasses high-fiving with happy safe ${v.victim}, vibrant colors, no text.`,
+        status: 'prompt-ready',
+      },
+    ]);
+    this.notice.set(`Generated a fresh non-repeating story in a new setting: "${place}"!`);
+  }
+
+  applyCustomIdea(): void {
+    const idea = this.customIdeaInput.trim();
+    if (!idea) return;
+    this.customTitleOverride.set(`✨ ${idea}`);
+    this.customTitle = `${idea.slice(0, 80)} | #Shorts`;
+    this.currentSetting.set('custom scene setting');
+    this.scenes.set([1, 2, 3, 4, 5, 6].map((idx) => {
+      const beats = ['Setup & Spying', 'Fast Approach', 'Dust / Tornado Twist', 'Rescue & Escape', 'Villain Shock Reaction', 'Victory Meme Outro'];
+      const sfx = ['gasp_break', 'break_whoosh', 'bandook_burst', 'punch_pop', 'shock_sting', 'laugh_break'];
+      return {
+        index: idx,
+        title: beats[idx - 1],
+        timeRange: `0:${String((idx - 1) * 4).padStart(2, '0')}–0:${String(idx * 4).padStart(2, '0')}`,
+        durationSeconds: 4,
+        positionsNote: `Beat ${idx} (${beats[idx - 1]}) for: ${idea}`,
+        emotionReaction: beats[idx - 1],
+        sfxId: sfx[idx - 1],
+        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation. Scene ${idx} (${beats[idx - 1]}) of story: ${idea}. Expressive animal emotions, consistent characters, dynamic camera, no text.`,
+        status: 'prompt-ready' as SceneSlotStatus,
+      };
+    }));
+    this.notice.set(`Built custom 6-scene prompt pack for "${idea}".`);
+  }
+
   selectPreset(id: AnimalPresetId): void {
     this.preset.set(id);
+    this.customTitleOverride.set(null);
     if (id === 'duck-leopard') {
+      this.currentSetting.set('sunny jungle clearing with green bushes');
       this.scenes.set(DUCK_LEOPARD_SCENES.map((s) => ({ ...s })));
       this.customTitle = '2 Ducks vs Leopard — Shaktiman Dust Rescue 🦆🌪️🐇 | #Shorts';
     } else {
+      this.currentSetting.set('golden savanna trail');
       this.scenes.set(HONEY_BADGER_SCENES.map((s) => ({ ...s })));
       this.customTitle = 'Honey Badger Does Not Care 🦡😎 | International Reaction #Shorts';
     }
@@ -476,6 +763,7 @@ export class AnimalStudioComponent {
           distributionIntent: this.aspect === '9:16' ? 'Short' : 'Video',
         }),
       );
+      this.saveCreatedId(proj.id);
       const withFiles = this.scenes().filter((s) => !!s.file);
       for (const sc of withFiles) {
         this.scenes.update((list) => list.map((x) => (x.index === sc.index ? { ...x, status: 'uploading' } : x)));
