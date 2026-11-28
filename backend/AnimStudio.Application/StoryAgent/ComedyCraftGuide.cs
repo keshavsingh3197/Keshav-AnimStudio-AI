@@ -115,6 +115,8 @@ public static class ComedyCraftGuide
                 "कार्टून टैंक कॉमेडी सीरीज़ (| EP XX): गोल-मटोल आँखों वाले 3D टैंक कैरेक्टर, रणभूमि में बड़ा दावा और अचानक फुस्स तोप का ज़बरदस्त ट्विस्ट।",
             ComedyToneStyle.DesiKhadiSitcom =>
                 "MJO (@MakeJokeOf) स्टाइल देसी खड़ी/कानपुरिया कॉमेडी सिटकॉम (| EP XX): पहले 2 सेकंड में तेज़ नोकझोंक से शुरुआत, 'अरे बावले / टोपा हो का / अबे सुन' जैसी बोलचाल की भाषा, हर 60-90 सेकंड में नया पड़ोसी/किरदार या बखेड़ा (Snowball Escalation), रिवर्स क्लोज़-अप पंच और अंत में उल्टा ट्विस्ट + मुस्कुराने वाला आउट्रो ('Share this to make someone smile').",
+            ComedyToneStyle.HoneyBadgerInternational =>
+                "International Honey Badger Character Comedy (Global English): Fearless, unbothered Honey Badger hero facing exaggerated danger (bees, cobras, bandook/firecrackers, angry bosses) with emotional micro-reactions (smug smirk -> wide-eyed shock -> deadpan 'Still don't care'), sharp reaction meme cutaways (`funnyEnding`), and punchy copyright-safe SFX beats.",
             _ =>
                 "यूट्यूब हाई-रिटेंशन देसी कॉमेडी (खड़ी भाषा + तू-तड़ाक याराना मिक्स): 'अबे सुन', 'इब के करैगो', 'अरे बावले', 'तू रहने दे भाई' जैसी आम बोलचाल की मज़ेदार भाषा बोलें। कोई किताबी उपदेश या 'आइए जानें / मित्र' वाली औपचारिकता बिल्कुल न रखें।"
         };

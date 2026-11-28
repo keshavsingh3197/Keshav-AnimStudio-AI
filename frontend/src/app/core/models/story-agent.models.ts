@@ -375,7 +375,8 @@ export interface StoryBrief {
     | 'FamilyClean'
     | 'GlobalSlapstick'
     | 'TankSeries'
-    | 'DesiKhadiSitcom';
+    | 'DesiKhadiSitcom'
+    | 'HoneyBadgerInternational';
   autoInsertMemes?: boolean;
 }
 
@@ -676,7 +677,8 @@ export interface CreateStoryRunBody {
     | 'FamilyClean'
     | 'GlobalSlapstick'
     | 'TankSeries'
-    | 'DesiKhadiSitcom';
+    | 'DesiKhadiSitcom'
+    | 'HoneyBadgerInternational';
   autoInsertMemes?: boolean;
   options?: StoryBuildOptionsBody;
 }

@@ -59,7 +59,8 @@ export type PackComedyStyle =
   | 'FamilyClean'
   | 'GlobalSlapstick'
   | 'TankSeries'
-  | 'DesiKhadiSitcom';
+  | 'DesiKhadiSitcom'
+  | 'HoneyBadgerInternational';
 
 export interface PackSettings {
   title: string;

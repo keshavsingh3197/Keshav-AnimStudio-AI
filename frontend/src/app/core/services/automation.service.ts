@@ -59,7 +59,8 @@ export type ComedyToneStyle =
   | 'FamilyClean'
   | 'GlobalSlapstick'
   | 'TankSeries'
-  | 'DesiKhadiSitcom';
+  | 'DesiKhadiSitcom'
+  | 'HoneyBadgerInternational';
 
 export type SubtitleMotionPreset = 'event-glow' | 'karaoke-pulse' | 'classic-clean';
 

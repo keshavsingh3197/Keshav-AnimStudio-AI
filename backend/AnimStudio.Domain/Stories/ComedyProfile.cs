@@ -31,7 +31,10 @@ public enum ComedyToneStyle
     TankSeries = 6,
 
     /// <summary>MJO / HardToonz style Hindi Khadi-Bhasha dialogue sitcom (| EP XX) with close-up smash cuts &amp; bulging-eye shock hooks.</summary>
-    DesiKhadiSitcom = 7
+    DesiKhadiSitcom = 7,
+
+    /// <summary>International Honey Badger character comedy: fearless, unbothered attitude, emotional reaction beats &amp; viral meme cutaways.</summary>
+    HoneyBadgerInternational = 8
 }
 
 /// <summary>
