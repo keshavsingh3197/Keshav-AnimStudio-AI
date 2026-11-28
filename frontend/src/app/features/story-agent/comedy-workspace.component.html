@@ -92,9 +92,27 @@
     <div class="notice notice-info" role="status">{{ message }}</div>
   }
 
-  <!-- MAIN DESKTOP 2-COLUMN STUDIO WORKSPACE (COLLAPSIBLE) -->
-  @if (showStudioSection()) {
-    <div class="cw-studio-grid">
+  <!-- WORKSPACE STEP TABS -->
+  <nav class="cw-tabs" role="tablist" aria-label="Comedy Studio Workflow">
+    <button type="button" role="tab" class="cw-tab" [class.active]="activeTab() === 'setup'" (click)="activeTab.set('setup')">
+      <span>🎭 1. Track, Engine &amp; Cast</span>
+      <span class="cw-tab-badge">{{ castRoster().length }}/{{ maxCastMembers }}</span>
+    </button>
+    <button type="button" role="tab" class="cw-tab" [class.active]="activeTab() === 'script'" (click)="activeTab.set('script')">
+      <span>✍️ 2. Script, SFX &amp; Generate</span>
+      <span class="cw-tab-badge" [class.ok]="ready()">{{ ready() ? 'Ready' : 'Draft' }}</span>
+    </button>
+    <button type="button" role="tab" class="cw-tab" [class.active]="activeTab() === 'queue'" (click)="activeTab.set('queue')">
+      <span>🎬 3. Queue &amp; Publish</span>
+      <span class="cw-tab-badge">{{ comedyPosts().length }}</span>
+    </button>
+    <button type="button" role="tab" class="cw-tab" [class.active]="activeTab() === 'advanced'" (click)="activeTab.set('advanced')">
+      <span>🧩 4. External AI &amp; JSON</span>
+    </button>
+  </nav>
+
+  <!-- TAB 1: TRACK, 3D ENGINE & VOICE SETUP -->
+  @if (activeTab() === 'setup') {
     <!-- LEFT COLUMN: TRACK, ENGINE & FORMAT CONTROLS -->
     <section class="card cw-section">
       <div class="section-head">
@@ -330,8 +348,14 @@
       </div>
 
       <div class="cw-voice-badge" role="note">{{ voiceDeliverySummary() }}</div>
+      <div class="cw-step-footer">
+        <span class="muted">Track: <strong>{{ audienceTrack() === 'international' ? 'Global English' : 'Local Desi' }}</strong> · Cast: <strong>{{ castRoster().length }}</strong></span>
+        <button type="button" class="primary" (click)="activeTab.set('script')">Next: Script, SFX &amp; Generate →</button>
+      </div>
     </section>
+  }
 
+  @if (activeTab() === 'script') {
     <!-- RIGHT COLUMN: SCRIPT, MEMES, MUSIC, AUTO BACKGROUNDS & GENERATE CTA -->
     <section class="card cw-section">
       <h2>2. Script, Auto Background Tools &amp; Generate MP4</h2>
@@ -542,15 +566,29 @@
         </button>
       </div>
       @if (title().trim().length < 3) {
-        <small class="muted cta-hint">Tip: Click a Starter Preset on the left or enter an Episode Title (3+ chars) above to unlock 3D MP4 rendering.</small>
+        <small class="muted cta-hint">Tip: Click a Starter Preset in Tab 1 or enter an Episode Title (3+ chars) above to unlock 3D MP4 rendering.</small>
       }
+      <div class="cw-step-footer">
+        <button type="button" class="secondary" (click)="activeTab.set('setup')">← Back to Track &amp; Cast</button>
+        <button type="button" class="primary" (click)="activeTab.set('queue')">Next: Queue &amp; Publish ({{ comedyPosts().length }}) →</button>
+      </div>
     </section>
-    </div>
   }
 
-  <!-- SECTION 3: COMEDY QUEUE, MP4 PREVIEW, POLICY CHECK & PUBLISHING -->
-  @if (auth.isAuthenticated()) {
+  <!-- TAB 3: COMEDY QUEUE, MP4 PREVIEW, POLICY CHECK & PUBLISHING -->
+  @if (activeTab() === 'queue') {
+    @if (!auth.isAuthenticated()) {
+      <section class="card cw-section">
+        <p class="muted">Sign in to view your Comedy Queue, rendered MP4s, and YouTube publishing controls.</p>
+      </section>
+    } @else {
     <section class="card cw-section">
+      <div class="cw-status-strip">
+        <div class="cw-stat-pill"><span>Total Episodes</span><strong>{{ comedyPosts().length }}</strong></div>
+        <div class="cw-stat-pill ok"><span>Processed / Ready</span><strong>{{ queueReadyCount() }}</strong></div>
+        <div class="cw-stat-pill warn"><span>Rendering</span><strong>{{ queueRenderingCount() }}</strong></div>
+        <div class="cw-stat-pill"><span>Published Live</span><strong>{{ queuePublishedCount() }}</strong></div>
+      </div>
       <div class="section-head">
         <div>
           <h2>3. Comedy Queue, Policy Compliance &amp; YouTube Publishing ({{ (loadingWorkspace() || (auth.isAuthenticated() && overview() === null && !error())) ? '…' : filteredComedyPosts().length + '/' + comedyPosts().length }})</h2>
@@ -886,11 +924,18 @@
         }
       }
     </section>
+    }
   }
 
-  <!-- COLLAPSIBLE ADVANCED STORY JSON TOOLS -->
-  <details class="card cw-section cw-advanced">
-    <summary><strong>🛠️ Advanced: External AI Story JSON Converter, Template Exporter &amp; Story Agent Import</strong></summary>
+  <!-- TAB 4: ADVANCED STORY JSON TOOLS -->
+  @if (activeTab() === 'advanced') {
+  <section class="card cw-section cw-advanced">
+    <div class="section-head">
+      <div>
+        <h2>🛠️ External AI Story JSON Converter, Template Exporter &amp; Story Agent Import</h2>
+        <p class="muted">Export a template, send to an external AI model, and import reviewed Story JSON back into your queue.</p>
+      </div>
+    </div>
     <div class="cw-advanced-body">
       <div class="cw-subblock">
         <h3>Story Template (.json)</h3>
@@ -973,5 +1018,6 @@
         </div>
       }
     </div>
-  </details>
+  </section>
+  }
 </section>
