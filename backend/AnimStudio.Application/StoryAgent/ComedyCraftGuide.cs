@@ -123,11 +123,17 @@ public static class ComedyCraftGuide
     public static IReadOnlyList<EffectClip> RankReactionMemes(IEnumerable<EffectClip>? clips) =>
         (clips ?? [])
             .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.Name))
+            .Where(c => !IsDevotionalOnly(c))
             .OrderByDescending(c => c.Category == EffectCategory.Reaction)
+            .ThenByDescending(c => c.Tags.Any(t => t.Equals("comedy", StringComparison.OrdinalIgnoreCase) || t.Equals("meme", StringComparison.OrdinalIgnoreCase)))
             .ThenByDescending(c => c.Kind is AssetKind.Video or AssetKind.Image)
             .ThenByDescending(c => c.Tags.Count)
             .ThenByDescending(c => c.CreatedAt)
             .ToList();
+
+    private static bool IsDevotionalOnly(EffectClip clip) =>
+        clip.Tags.Any(t => t.Equals("devotional", StringComparison.OrdinalIgnoreCase) || t.Equals("bhakti", StringComparison.OrdinalIgnoreCase))
+        && !clip.Tags.Any(t => t.Equals("comedy", StringComparison.OrdinalIgnoreCase) || t.Equals("meme", StringComparison.OrdinalIgnoreCase));
 
     public static string MemeCatalogPromptBlock(IEnumerable<EffectClip>? clips)
     {

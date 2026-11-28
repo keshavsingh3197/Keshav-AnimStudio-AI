@@ -5,7 +5,7 @@ import { Observable, filter, map, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { silentHttpContext } from '../interceptors/loading.interceptor';
 import { ApiResponse } from '../models/api.models';
-import { EffectClip, EffectQuery, EffectUpdate, EffectUpload, EffectUseResult } from '../models/effects.models';
+import { EffectClip, EffectQuery, EffectUpdate, EffectUpload, EffectUseResult, SfxLibraryEntry } from '../models/effects.models';
 import { MediaTicketService } from './media-ticket.service';
 
 /** The user's effects library (api/effects). Every call is scoped to the signed-in user on the server. */
@@ -21,6 +21,7 @@ export class EffectsService {
     if (query.kind) params = params.set('kind', query.kind);
     if (query.q?.trim()) params = params.set('q', query.q.trim());
     if (query.favorites) params = params.set('favorites', 'true');
+    if (query.tag?.trim()) params = params.set('tag', query.tag.trim());
     return this.unwrap(
       this.http.get<ApiResponse<EffectClip[]>>(`${this.base}/api/effects`, {
         params,
@@ -65,6 +66,19 @@ export class EffectsService {
   /** Saves a file already in the project to the library. */
   saveFromAsset(projectId: string, assetId: string): Observable<EffectClip> {
     return this.unwrap(this.http.post<ApiResponse<EffectClip>>(`${this.base}/api/effects/from-asset`, { projectId, assetId }));
+  }
+
+  getSfxLibrary(): Observable<SfxLibraryEntry[]> {
+    return this.unwrap(this.http.get<ApiResponse<SfxLibraryEntry[]>>(`${this.base}/api/effects/sfx-library`));
+  }
+
+  importSfxPack(body: { id?: string; genre?: string }): Observable<{ imported: number; skipped: number; items: EffectClip[] }> {
+    return this.unwrap(this.http.post<ApiResponse<{ imported: number; skipped: number; items: EffectClip[] }>>(
+      `${this.base}/api/effects/sfx-library/import`, body));
+  }
+
+  sfxAssetUrl(relativePath: string): string {
+    return `${this.base}${relativePath.startsWith('/') ? relativePath : '/' + relativePath}`;
   }
 
   contentUrl(id: string): string {

@@ -194,6 +194,34 @@
     }
   </div>
 
+  <!-- Built-in Comedy (Bandook/Memes) & Devotional SFX Pack -->
+  @if (sfxLibrary().length > 0) {
+    <section class="card fx-create">
+      <div class="fx-gen-head">
+        <div>
+          <h3>🎧 Built-in Comedy (Bandook &amp; Memes) + Devotional SFX Pack</h3>
+          <p class="muted" style="margin:0;">Preview and import tagged sound effects directly into your Effects Library for 3D comedy dialogues, action beats, and devotional videos.</p>
+        </div>
+        <div class="fx-chips">
+          <button type="button" [class.active]="sfxGenre() === 'all'" (click)="sfxGenre.set('all')">All ({{ sfxLibrary().length }})</button>
+          <button type="button" [class.active]="sfxGenre() === 'comedy'" (click)="sfxGenre.set('comedy')">😂 Comedy &amp; Memes</button>
+          <button type="button" [class.active]="sfxGenre() === 'devotional'" (click)="sfxGenre.set('devotional')">🕉 Devotional</button>
+          <button type="button" class="fx-btn primary" [disabled]="sfxImporting()" (click)="importSfx({ genre: 'comedy' })">⚡ Import Comedy Pack</button>
+          <button type="button" class="fx-btn" [disabled]="sfxImporting()" (click)="importSfx({ genre: 'devotional' })">🕉 Import Devotional Pack</button>
+        </div>
+      </div>
+      <div class="fx-chips" style="margin-top:0.5rem;">
+        @for (item of visibleSfx(); track item.id) {
+          <div style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:8px;">
+            <span>{{ item.genre === 'devotional' ? '🕉' : '😂' }} <strong>{{ item.name }}</strong> <small class="muted">({{ item.durationSeconds }}s)</small></span>
+            <button type="button" class="fx-btn" (click)="previewPackSfx(item)">▶</button>
+            <button type="button" class="fx-btn" [disabled]="sfxImporting()" (click)="importSfx({ id: item.id })">＋ Add</button>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
   <!-- Filters -->
   <nav class="fx-chips" aria-label="Categories">
     <button type="button" [class.active]="category() === 'all'" (click)="selectCategory('all')">All ({{ effects().length }})</button>
@@ -201,6 +229,13 @@
       @if (counts().get(c.id) || c.id === 'Reaction') {
         <button type="button" [class.active]="category() === c.id" [title]="c.hint" (click)="selectCategory(c.id)">{{ c.icon }} {{ c.label }} ({{ counts().get(c.id) || 0 }})</button>
       }
+    }
+  </nav>
+
+  <nav class="fx-chips" aria-label="Genre &amp; Meme Tags">
+    <button type="button" [class.active]="selectedTag() === ''" (click)="selectedTag.set('')">All tags</button>
+    @for (t of quickTags; track t) {
+      <button type="button" [class.active]="selectedTag() === t" (click)="selectedTag.set(selectedTag() === t ? '' : t)">#{{ t }}</button>
     }
   </nav>
 

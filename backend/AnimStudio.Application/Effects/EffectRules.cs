@@ -8,7 +8,7 @@ using AnimStudio.Domain.Effects;
 namespace AnimStudio.Application.Effects;
 
 /// <summary>Filters for listing the library. Null means "any".</summary>
-public sealed record EffectQuery(EffectCategory? Category = null, AssetKind? Kind = null, string? Search = null, bool FavoritesOnly = false);
+public sealed record EffectQuery(EffectCategory? Category = null, AssetKind? Kind = null, string? Search = null, bool FavoritesOnly = false, string? Tag = null);
 
 /// <summary>
 /// The effects library's pure rules: what may be uploaded, how names and tags are cleaned,
@@ -156,12 +156,14 @@ public static partial class EffectRules
             ? []
             : search.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
+        var tag = string.IsNullOrWhiteSpace(query.Tag) ? null : query.Tag.Trim().ToLowerInvariant();
         return
         [
             .. effects
                 .Where(e => query.Category is null || e.Category == query.Category)
                 .Where(e => query.Kind is null || e.Kind == query.Kind)
                 .Where(e => !query.FavoritesOnly || e.Favorite)
+                .Where(e => tag is null || e.Tags.Any(t => t.Equals(tag, StringComparison.OrdinalIgnoreCase)))
                 .Where(e => words.Length == 0 || words.All(w =>
                     e.Name.Contains(w, StringComparison.OrdinalIgnoreCase)
                     || e.Category.ToString().Contains(w, StringComparison.OrdinalIgnoreCase)

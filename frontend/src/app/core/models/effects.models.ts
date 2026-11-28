@@ -34,6 +34,18 @@ export interface EffectQuery {
   kind?: EffectKind | null;
   q?: string;
   favorites?: boolean;
+  tag?: string;
+}
+
+export interface SfxLibraryEntry {
+  id: string;
+  name: string;
+  category: string;
+  genre: 'comedy' | 'devotional' | string;
+  tags: string[];
+  file: string;
+  url: string;
+  durationSeconds: number;
 }
 
 export interface EffectUpload {
