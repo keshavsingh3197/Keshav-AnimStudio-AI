@@ -15,9 +15,11 @@ export type ComedyToneStyle =
   | 'FamilyClean'
   | 'GlobalSlapstick'
   | 'TankSeries'
-  | 'DesiKhadiSitcom';
+  | 'DesiKhadiSitcom'
+  | 'HoneyBadgerInternational';
 
 export const COMEDY_TONE_OPTIONS: readonly { id: ComedyToneStyle; label: string; hint: string }[] = [
+  { id: 'HoneyBadgerInternational', label: '🦡 Honey Badger International (Emotions + Memes)', hint: 'Fearless, unbothered Honey Badger hero for global audiences with emotional reactions, meme cutaways & punchy SFX' },
   { id: 'DesiKhadiSitcom', label: '🔥 MJO Angry Sitcom & Khadi Banter (Recommended)', hint: 'Explosive @MakeJokeOf angry shouting, 0.05s interruption cut-offs, distinct character pitch & clean closeup punchlines' },
   { id: 'Auto', label: 'YouTube Auto (Angry Banter + Tu Tadak)', hint: 'High-retention comedy blend: rapid-fire buddy roasting, angry bursts & contrast character voices' },
   { id: 'GlobalSlapstick', label: '🌍 Global Slapstick Loop (International)', hint: 'Expressive 3D physical comedy, doorway peek-a-boos & Sky Gauntlet gags for worldwide viewers' },

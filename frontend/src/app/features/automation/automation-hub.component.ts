@@ -47,7 +47,7 @@ import {
   summarizeSceneUploadPlan,
 } from '../../shared/scene-batch-media';
 
-type HubTab = 'queue' | 'rashifal' | 'rules' | 'settings';
+type HubTab = 'queue' | 'dailyBatch' | 'rashifal' | 'rules' | 'settings';
 type QueueStatusFilter = 'all' | 'pending' | 'ready' | 'generating' | 'published' | 'failed';
 
 const SOURCE_LABELS: Record<AutomationSourceType, { label: string; icon: string; badge: string; color: string; banner: string }> = {
@@ -508,6 +508,9 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
         <div class="hub-tabs" role="tablist">
           <button type="button" role="tab" [class.active]="activeTab() === 'queue'" (click)="activeTab.set('queue')">
             Prepared Post List ({{ postsForSelectedDate().length }})
+          </button>
+          <button type="button" role="tab" [class.active]="activeTab() === 'dailyBatch'" (click)="activeTab.set('dailyBatch'); initDailyBatchChannels()">
+            📅 Daily Studio (3-4 Videos/Day)
           </button>
           <button type="button" role="tab" [class.active]="activeTab() === 'rashifal'" (click)="activeTab.set('rashifal'); loadRashifal()">
             ♈ Daily Rashifal &amp; 2D Panchang (12 Rashis)
@@ -981,6 +984,101 @@ const FULL_VIDEO_MAX_SECONDS = 3600;
               </div>
             }
           </div>
+        }
+
+        <!-- TAB: DAILY STUDIO (3-4 VIDEOS/DAY MULTI-CHANNEL PLANNER + GOOGLE LOW-COST BATCH PROMPT) -->
+        @if (activeTab() === 'dailyBatch') {
+          <section class="settings-panel" style="display:grid;gap:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;">
+              <div>
+                <h2 style="margin:0;">📅 Daily Multi-Channel Studio ({{ totalDailyBatchVideos() }} Videos/Day)</h2>
+                <p class="muted-note" style="margin:0.25rem 0 0;">
+                  Plan 3–4+ daily videos across Katha, Honey Badger International (emotions + reactions), and Desi Comedy.
+                  Save to Google Drive, post to YouTube, use copyright-safe SFX/BGM, and copy a single lowest-cost Gemini Flash / Google Flow batch prompt.
+                </p>
+              </div>
+              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <button type="button" class="btn ghost" (click)="addDailyBatchSlot()">＋ Add Channel Slot</button>
+                <button type="button" class="btn primary" [disabled]="busy() || dailyBatchBusy()" (click)="applyDailyBatchPipelines()">
+                  {{ dailyBatchBusy() ? 'Syncing Pipelines…' : '⚡ Create / Sync Daily Pipelines' }}
+                </button>
+              </div>
+            </div>
+
+            <div style="display:grid;gap:0.75rem;">
+              @for (slot of dailyBatchSlots(); track slot.id) {
+                <div style="border:1px solid var(--border);border-radius:10px;padding:0.85rem;display:grid;gap:0.65rem;background:var(--surface);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                    <strong>{{ slot.label }}</strong>
+                    <button type="button" class="btn tiny danger-ghost" (click)="removeDailyBatchSlot(slot.id)">Remove</button>
+                  </div>
+                  <div class="settings-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0.6rem;">
+                    <label>Target Channel
+                      <select [(ngModel)]="slot.channelId" [name]="'db_ch_' + slot.id">
+                        <option value="">Auto-match channel</option>
+                        @for (ch of ov.connectedChannels; track ch.channelId) {
+                          <option [value]="ch.channelId">{{ ch.channelTitle }} {{ ch.channelHandle ? '(' + ch.channelHandle + ')' : '' }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label>Content / Character
+                      <select [(ngModel)]="slot.sourceType" [name]="'db_src_' + slot.id">
+                        <option value="DailyKatha">📿 Daily Vedic Katha</option>
+                        <option value="FunnyComedy">😂 Comedy / Honey Badger</option>
+                        <option value="DevotionalPrarthana">🪷 Devotional Prarthana</option>
+                        <option value="HinduPanchang">ॐ Hindu Panchang</option>
+                      </select>
+                    </label>
+                    @if (slot.sourceType === 'FunnyComedy') {
+                      <label>Comedy Character / Tone
+                        <select [(ngModel)]="slot.comedyStyle" [name]="'db_tone_' + slot.id">
+                          @for (t of comedyToneOptions; track t.value) {
+                            <option [value]="t.value">{{ t.label }}</option>
+                          }
+                        </select>
+                      </label>
+                    }
+                    <label>Videos / Day
+                      <input type="number" min="1" max="5" [(ngModel)]="slot.countPerDay" [name]="'db_cnt_' + slot.id" />
+                    </label>
+                    <label>Delivery (Drive / YouTube)
+                      <select [(ngModel)]="slot.delivery" [name]="'db_del_' + slot.id">
+                        <option value="both">☁ Save to Drive + 📺 Post to YouTube</option>
+                        <option value="drive">☁ Save to Google Drive Only</option>
+                        <option value="youtube">📺 Post to YouTube Only</option>
+                      </select>
+                    </label>
+                    <label>Copyright-Safe Sound / BGM
+                      <select [(ngModel)]="slot.soundPreset" [name]="'db_snd_' + slot.id">
+                        <option value="built-in-safe">🔊 Built-in Copyright-Safe SFX + BGM</option>
+                        <option value="youtube-audio-lib">🎵 Existing YouTube Audio Library Sound</option>
+                        <option value="devotional-temple">🕉 Devotional (Bell, Damaru, Shankh, Om)</option>
+                        <option value="comedy-bandook">😂 Comedy (Bandook, Bruh, Scratch, Shock)</option>
+                      </select>
+                    </label>
+                    <label>Drive Folder / Topic
+                      <input type="text" [(ngModel)]="slot.driveFolder" [name]="'db_drv_' + slot.id" placeholder="e.g. Honey Badger International" />
+                    </label>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <div style="border:1px solid var(--border);border-radius:10px;padding:0.9rem;display:grid;gap:0.6rem;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                <div>
+                  <strong>🤖 Lowest-Cost Google AI (Gemini Flash / Google Flow) Batch Prompt</strong>
+                  <p class="muted-note" style="margin:0.15rem 0 0;">
+                    Copy this compact prompt to generate all {{ totalDailyBatchVideos() }} daily scripts, emotional reactions, picture prompts, and copyright-safe sound cues in one cheap pass.
+                  </p>
+                </div>
+                <button type="button" class="btn primary" (click)="copyDailyBatchPrompt()">
+                  {{ copiedKey() === 'daily-batch-prompt' ? '✓ Copied Batch Prompt!' : '📋 Copy Google Batch Prompt' }}
+                </button>
+              </div>
+              <textarea readonly rows="10" style="width:100%;font-family:monospace;font-size:0.82rem;padding:0.6rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);">{{ dailyBatchPromptPreview() }}</textarea>
+            </div>
+          </section>
         }
 
         <!-- TAB 3: GLOBAL AUTOPILOT & API SETTINGS -->
@@ -3549,6 +3647,7 @@ export class AutomationHubComponent implements OnInit {
     { value: 'GlobalSlapstick', label: '🌍 International Slapstick Loop (Zero-Dialogue 3D)' },
     { value: 'TankSeries', label: '🛡️ Cartoon Tank Series (| EP XX)' },
     { value: 'DesiKhadiSitcom', label: '🇮🇳 Desi Khadi Sitcom (MJO / HardToonz Style)' },
+    { value: 'HoneyBadgerInternational', label: '🦡 Honey Badger International (Emotions + Memes)' },
     { value: 'KhadiBhasha', label: 'Khadi Bhasha / Desi Tapri Dialect' },
     { value: 'TuTadak', label: 'Tu Tadak Buddy Roast Banter' },
     { value: 'RoastAndTwist', label: 'Deadpan Roast + Twist Ending' },
@@ -5642,6 +5741,150 @@ export class AutomationHubComponent implements OnInit {
 
   comedyToneLabel(style?: ComedyToneStyle | null): string {
     return this.comedyToneOptions.find((x) => x.value === (style ?? 'Auto'))?.label ?? 'YouTube Auto';
+  }
+
+  readonly dailyBatchBusy = signal(false);
+  readonly dailyBatchSlots = signal<Array<{
+    id: string;
+    label: string;
+    channelId: string;
+    sourceType: AutomationSourceType;
+    comedyStyle: ComedyToneStyle;
+    countPerDay: number;
+    delivery: 'both' | 'drive' | 'youtube';
+    soundPreset: 'built-in-safe' | 'youtube-audio-lib' | 'devotional-temple' | 'comedy-bandook';
+    driveFolder: string;
+  }>>([
+    {
+      id: 'katha',
+      label: 'Slot 1 · Daily Vedic Katha (2 Videos/Day)',
+      channelId: '',
+      sourceType: 'DailyKatha',
+      comedyStyle: 'Auto',
+      countPerDay: 2,
+      delivery: 'both',
+      soundPreset: 'devotional-temple',
+      driveFolder: 'Daily Vedic Katha',
+    },
+    {
+      id: 'honey-badger',
+      label: 'Slot 2 · Honey Badger International (Emotions + Reactions)',
+      channelId: '',
+      sourceType: 'FunnyComedy',
+      comedyStyle: 'HoneyBadgerInternational',
+      countPerDay: 1,
+      delivery: 'both',
+      soundPreset: 'comedy-bandook',
+      driveFolder: 'Honey Badger International',
+    },
+    {
+      id: 'desi-comedy',
+      label: 'Slot 3 · Desi Comedy / Sitcom',
+      channelId: '',
+      sourceType: 'FunnyComedy',
+      comedyStyle: 'DesiKhadiSitcom',
+      countPerDay: 1,
+      delivery: 'both',
+      soundPreset: 'built-in-safe',
+      driveFolder: 'Desi Comedy Shorts',
+    },
+  ]);
+
+  readonly totalDailyBatchVideos = computed(() =>
+    this.dailyBatchSlots().reduce((sum, s) => sum + Math.max(0, Number(s.countPerDay) || 0), 0),
+  );
+
+  initDailyBatchChannels(): void {
+    const channels = this.overview()?.connectedChannels ?? [];
+    if (channels.length === 0) return;
+    const devCh = channels.find((c) => /bhakti|omkar|shiv|katha/i.test(`${c.channelTitle} ${c.channelHandle ?? ''}`));
+    const intlCh = channels.find((c) => /world|keshavsinghworld|intl|english/i.test(`${c.channelTitle} ${c.channelHandle ?? ''}`));
+    const ffCh = channels.find((c) => /anim|ff|comedy/i.test(`${c.channelTitle} ${c.channelHandle ?? ''}`));
+    this.dailyBatchSlots.update((slots) =>
+      slots.map((s) => {
+        if (s.channelId) return s;
+        if (s.id === 'katha' && devCh) return { ...s, channelId: devCh.channelId };
+        if (s.id === 'honey-badger' && (intlCh || channels[0])) return { ...s, channelId: (intlCh || channels[0]).channelId };
+        if (s.id === 'desi-comedy' && (ffCh || channels[0])) return { ...s, channelId: (ffCh || channels[0]).channelId };
+        return s;
+      }),
+    );
+  }
+
+  addDailyBatchSlot(): void {
+    const id = `slot_${Date.now()}`;
+    this.dailyBatchSlots.update((list) => [
+      ...list,
+      {
+        id,
+        label: `Slot ${list.length + 1} · Custom Channel`,
+        channelId: this.overview()?.connectedChannels[0]?.channelId ?? '',
+        sourceType: 'FunnyComedy',
+        comedyStyle: 'HoneyBadgerInternational',
+        countPerDay: 1,
+        delivery: 'both',
+        soundPreset: 'built-in-safe',
+        driveFolder: 'AnimStudio Daily',
+      },
+    ]);
+  }
+
+  removeDailyBatchSlot(id: string): void {
+    this.dailyBatchSlots.update((list) => list.filter((s) => s.id !== id));
+  }
+
+  dailyBatchPromptPreview(): string {
+    const channels = this.overview()?.connectedChannels ?? [];
+    const lines = this.dailyBatchSlots().map((s, idx) => {
+      const ch = channels.find((c) => c.channelId === s.channelId);
+      const chName = ch ? `${ch.channelTitle}${ch.channelHandle ? ' (' + ch.channelHandle + ')' : ''}` : 'Auto-routed channel';
+      const styleNote = s.sourceType === 'FunnyComedy'
+        ? `Style=${s.comedyStyle} (include emotional beats, [REACTION: shocked_face/deadpan_stare], and SFX like [SFX: bandook_shot] / [SFX: bruh_boom])`
+        : 'Style=Reverent storytelling + [SFX: temple_bell] / [SFX: damaru_roll]';
+      return `${idx + 1}. Generate ${s.countPerDay} video(s) for ${chName} | Source=${s.sourceType} | ${styleNote} | Drive="${s.driveFolder}" | Sound=${s.soundPreset} (strictly copyright-safe, no commercial songs).`;
+    });
+    return [
+      'Use a fast, low-cost model (Gemini Flash / Google Flow). Generate concise, high-retention scripts for today:',
+      ...lines,
+      '',
+      'For EACH video output:',
+      '- Title (SEO), 5 Tags, Thumbnail/Picture Prompt (for Google Flow 16:9 & 9:16)',
+      '- Short Script with [CAST], [SCENE], emotional tags (smug)/(shocked)/(deadpan), [REACTION: ...], and [SFX: ...] cues.',
+    ].join('\n');
+  }
+
+  copyDailyBatchPrompt(): void {
+    const text = this.dailyBatchPromptPreview();
+    void navigator.clipboard?.writeText(text);
+    this.copiedKey.set('daily-batch-prompt');
+    if (this.copiedTimer) clearTimeout(this.copiedTimer);
+    this.copiedTimer = setTimeout(() => this.copiedKey.set(null), 2500);
+  }
+
+  async applyDailyBatchPipelines(): Promise<void> {
+    if (this.dailyBatchBusy()) return;
+    this.dailyBatchBusy.set(true);
+    try {
+      for (const slot of this.dailyBatchSlots()) {
+        const rule: Partial<AutomationRule> = {
+          name: `${slot.label} (${slot.countPerDay}/day)`,
+          enabled: true,
+          sourceType: slot.sourceType,
+          comedyStyle: slot.sourceType === 'FunnyComedy' ? slot.comedyStyle : 'Auto',
+          targetChannelId: slot.channelId || undefined,
+          mode: slot.delivery === 'drive' ? 'AutoVideoAndPreview' : 'FullAutopilot',
+          videoFormat: slot.sourceType === 'DailyKatha' ? 'Wide' : 'Vertical',
+          daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+        };
+        await firstValueFrom(this.api.createRule(rule));
+      }
+      this.status.notify([`Synced ${this.dailyBatchSlots().length} daily channel pipeline(s) (${this.totalDailyBatchVideos()} videos/day).`]);
+      await this.loadOverview();
+    } catch {
+      this.status.notify(['Could not sync all daily pipelines. Check channel selection and try again.']);
+    } finally {
+      this.dailyBatchBusy.set(false);
+    }
   }
 
   onRuleSourceTypeChange(rule: AutomationRule, nextType: AutomationSourceType): void {
