@@ -70,9 +70,9 @@ public sealed class EcosystemSignalsClient(
         var ecosystem = await ecosystemProvider.GetAsync(forceRefresh: false, ct).ConfigureAwait(false);
         var opts = serviceOptions.CurrentValue;
 
-        var panchangBase = ResolveSafeBaseUrl(panchangOverrideUrl, opts.PanchangApiBaseUrl, ecosystem, "panchang", "https://keshav-hindu-panchang.onrender.com");
-        var socialBase = ResolveSafeBaseUrl(socialOverrideUrl, opts.SocialApiBaseUrl, ecosystem, "social", "https://keshav-social-analytics.onrender.com");
-        var pratiyogitaBase = ResolveSafeBaseUrl(pratiyogitaOverrideUrl, opts.PratiyogitaApiBaseUrl, ecosystem, "pratiyogita", "https://pratiyogita.onrender.com");
+        var panchangBase = ResolveSafeBaseUrl(panchangOverrideUrl, opts.PanchangApiBaseUrl, ecosystem, "panchang", "https://panchang-api.keshavsingh.in");
+        var socialBase = ResolveSafeBaseUrl(socialOverrideUrl, opts.SocialApiBaseUrl, ecosystem, "social", "https://social-api.keshavsingh.in");
+        var pratiyogitaBase = ResolveSafeBaseUrl(pratiyogitaOverrideUrl, opts.PratiyogitaApiBaseUrl, ecosystem, "pratiyogita", "https://pratiyogita-api.keshavsingh.in");
 
         var cacheKey = $"{effectiveDate}|{apiQueryLoc}|{panchangBase}|{socialBase}|{pratiyogitaBase}";
         var nowUtc = DateTimeOffset.UtcNow;
