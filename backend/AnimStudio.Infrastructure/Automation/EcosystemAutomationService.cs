@@ -1774,7 +1774,8 @@ public sealed partial class EcosystemAutomationService(
                 - Write {turns} snappy dialogue lines (about 6-15 words each, ~{budget.Words} words altogether) with inline emotion tags like `(sarcastic)` or `(surprised)` at the start of lines when helpful.
                 - Do NOT start with "नमस्कार" and do NOT end with a moral lecture!
 
-                OUTPUT FORMAT - return ONLY lines like these (no markdown fences, no commentary):
+                OUTPUT FORMAT - plain text lines ONLY. Do NOT answer in JSON, do NOT use a code block, and ignore any JSON shape from earlier in this chat.
+                Every line starts with a [TAG]: exactly like these (no markdown fences, no commentary):
                 [CAST]: {(string.IsNullOrWhiteSpace(post.SpeakerAName) ? "पप्पू भैया" : post.SpeakerAName)} | scholar | orange jacket, messy hair, oversized shades
                 [CAST]: {(string.IsNullOrWhiteSpace(post.SpeakerBName) ? "बबलू यार" : post.SpeakerBName)} | child | yellow kurta, muffler, mischievous grin
                 [SCENE]: chai stall | day | playful | IMAGE: lively Indian roadside chai tapri with steaming brass kettle, plastic stools, bright morning light, photorealistic 3D cartoon background, no people
@@ -1812,7 +1813,8 @@ public sealed partial class EcosystemAutomationService(
             - Last line: [{narrator}] states the moral or takeaway in one sentence.
             - Character names stay identical on every line and match the CAST block exactly.
 
-            OUTPUT FORMAT - return ONLY lines like these, nothing else (no headings, no markdown, no notes):
+            OUTPUT FORMAT - plain text lines ONLY. Do NOT answer in JSON, do NOT use a code block, and ignore any JSON shape from earlier in this chat.
+            Every line starts with a [TAG]: exactly like these, nothing else (no headings, no markdown, no notes):
             [CAST]: Character Name | role | look
             [CAST]: Character Name | role | look
             [CAST]: Supporting Name | role | look
@@ -1832,6 +1834,14 @@ public sealed partial class EcosystemAutomationService(
     /// safe single line. Null when fewer than three dialogue lines are found.
     /// </summary>
     internal static string? CleanPastedDialogue(string reply)
+    {
+        // Outside AIs sometimes answer the dialogue template in the Story Agent's JSON shape (a chat that saw a story
+        // template earlier). Turn that JSON into the same [Speaker]: line form so it is checked by the one line parser.
+        return CleanPastedDialogueLines(reply)
+            ?? (StoryJsonToDialogueLines(reply) is { } converted ? CleanPastedDialogueLines(converted) : null);
+    }
+
+    private static string? CleanPastedDialogueLines(string reply)
     {
         var kept = new List<string>();
         var spoken = 0;
@@ -1877,6 +1887,113 @@ public sealed partial class EcosystemAutomationService(
             kept.Add($"[{speaker}]: {text}");
         }
         return spoken >= 3 ? string.Join('\n', kept) : null;
+    }
+
+    /// <summary>
+    /// Reads a Story-Agent-style JSON reply (<c>cast[]</c>, <c>scenes[].lines[]</c>) and writes it as
+    /// <c>[CAST]</c> / <c>[SCENE]</c> / <c>[Speaker]: text</c> lines. Null when the reply is not such JSON.
+    /// Every value is untrusted: it is flattened to one line here and sanitised again by the line parser.
+    /// </summary>
+    private static string? StoryJsonToDialogueLines(string reply)
+    {
+        var start = reply.IndexOf('{');
+        var end = reply.LastIndexOf('}');
+        if (start < 0 || end <= start) return null;
+
+        System.Text.Json.JsonDocument doc;
+        try
+        {
+            doc = System.Text.Json.JsonDocument.Parse(reply.AsMemory(start, end - start + 1), new System.Text.Json.JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+                MaxDepth = 16
+            });
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null; // Not JSON: the caller reports "no dialogue lines found".
+        }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+            if (JsonProp(root, "script") is { ValueKind: System.Text.Json.JsonValueKind.Object } wrapped) root = wrapped;
+            if (JsonProp(root, "scenes") is not { ValueKind: System.Text.Json.JsonValueKind.Array } scenes) return null;
+
+            var isHindi = reply.Any(c => c is >= 'ऀ' and <= 'ॿ');
+            var narrator = isHindi ? "सूत्रधार" : "Narrator";
+            var output = new List<string>();
+
+            if (JsonProp(root, "cast") is { ValueKind: System.Text.Json.JsonValueKind.Array } cast)
+            {
+                foreach (var member in cast.EnumerateArray().Take(8))
+                {
+                    var name = SpeakerName(JsonText(member, "name"));
+                    if (name is null) continue;
+                    var role = Flat(JsonText(member, "role")) ?? string.Join(' ',
+                        new[] { Flat(JsonText(member, "age")), Flat(JsonText(member, "gender")) }.Where(v => v is not null));
+                    var look = Flat(JsonText(member, "look")) ?? Flat(JsonText(member, "outfit")) ?? Flat(JsonText(member, "description"));
+                    output.Add($"[CAST]: {name} | {role} | {look}".TrimEnd(' ', '|'));
+                }
+            }
+
+            foreach (var scene in scenes.EnumerateArray().Take(DialogueScriptParser.MaxScenes))
+            {
+                if (scene.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var setting = Flat(JsonText(scene, "setting")) ?? Flat(JsonText(scene, "headline")) ?? "scene";
+                var time = Flat(JsonText(scene, "time")) ?? Flat(JsonText(scene, "timeOfDay"));
+                var mood = Flat(JsonText(scene, "mood"));
+                var image = Flat(JsonText(scene, "imagePrompt"));
+                var head = string.Join(" | ", new[] { setting, time, mood }.Where(v => v is not null));
+                output.Add(image is null ? $"[SCENE]: {head}" : $"[SCENE]: {head} | IMAGE: {image}");
+
+                var wroteLine = false;
+                if (JsonProp(scene, "lines") is { ValueKind: System.Text.Json.JsonValueKind.Array } lines)
+                {
+                    foreach (var line in lines.EnumerateArray())
+                    {
+                        var text = Flat(JsonText(line, "text"));
+                        if (text is null) continue;
+                        var speaker = SpeakerName(JsonText(line, "speaker")) ?? narrator;
+                        if (speaker.Equals("narrator", StringComparison.OrdinalIgnoreCase)) speaker = narrator;
+                        var emotion = Flat(JsonText(line, "emotion"));
+                        output.Add(emotion is null ? $"[{speaker}]: {text}" : $"[{speaker}]: ({emotion}) {text}");
+                        wroteLine = true;
+                    }
+                }
+                if (!wroteLine && Flat(JsonText(scene, "narration")) is { } narration)
+                    output.Add($"[{narrator}]: {narration}");
+            }
+
+            return output.Count > 0 ? string.Join('\n', output) : null;
+        }
+
+        static System.Text.Json.JsonElement? JsonProp(System.Text.Json.JsonElement element, string name)
+        {
+            if (element.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+            foreach (var p in element.EnumerateObject())
+                if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)) return p.Value;
+            return null;
+        }
+
+        static string? JsonText(System.Text.Json.JsonElement element, string name) =>
+            JsonProp(element, name) is { ValueKind: System.Text.Json.JsonValueKind.String } v ? v.GetString() : null;
+
+        // One line, no characters that would break the [Tag]: a | b | c structure of the generated line.
+        static string? Flat(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            var flat = string.Join(' ', value.Split(['\r', '\n', '\t', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            return flat.Length == 0 ? null : flat;
+        }
+
+        static string? SpeakerName(string? value)
+        {
+            var flat = Flat(value?.Replace('[', ' ').Replace(']', ' ').Replace(':', ' '));
+            return flat is { Length: >= 2 and <= 34 } ? flat : null;
+        }
     }
 
     /// <summary>Cast lines (up to 8) plus one [SCENE] line per scene (up to 12).</summary>

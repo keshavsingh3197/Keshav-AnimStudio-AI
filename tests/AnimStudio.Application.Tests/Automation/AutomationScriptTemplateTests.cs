@@ -32,6 +32,46 @@ public sealed class AutomationScriptTemplateTests
     }
 
     [Fact]
+    public void CleanPastedDialogue_converts_a_story_json_reply_into_dialogue_lines()
+    {
+        const string reply = """
+            {
+              "title": "माता सावित्री की अमर कथा",
+              "titleEnglish": "The Story of Savitri",
+              "reviewNotes": ["Check names"],
+              "cast": [ { "name": "सावित्री", "gender": "female", "age": "adult" }, { "name": "यमराज", "role": "god" } ],
+              "scenes": [
+                {
+                  "headline": "forest ashram", "mood": "serene",
+                  "imagePrompt": "misty forest hermitage at dawn,\nno people",
+                  "lines": [
+                    { "speaker": "narrator", "text": "मद्र देश की राजकुमारी सावित्री की कथा।" },
+                    { "speaker": "सावित्री", "text": "मैं सत्यवान से ही विवाह करूँगी।" },
+                    { "speaker": "[यमराज]", "text": "पुत्री, लौट जाओ।", "emotion": "calm" }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        var cleaned = EcosystemAutomationService.CleanPastedDialogue(reply);
+
+        Assert.NotNull(cleaned);
+        var lines = cleaned!.Split('\n');
+        Assert.StartsWith("[CAST]: सावित्री", lines[0]);
+        Assert.StartsWith("[CAST]: यमराज | god", lines[1]);
+        Assert.StartsWith("[SCENE]: forest ashram | serene | IMAGE: misty forest hermitage at dawn, no people", lines[2]);
+        Assert.Equal("[सूत्रधार]: मद्र देश की राजकुमारी सावित्री की कथा।", lines[3]);
+        Assert.Equal("[यमराज]: (calm) पुत्री, लौट जाओ।", lines[5]);
+    }
+
+    [Fact]
+    public void CleanPastedDialogue_rejects_broken_json()
+    {
+        Assert.Null(EcosystemAutomationService.CleanPastedDialogue("{ \"scenes\": [ { \"lines\": [ "));
+    }
+
+    [Fact]
     public void CleanPastedDialogue_rejects_replies_without_enough_dialogue()
     {
         Assert.Null(EcosystemAutomationService.CleanPastedDialogue("Just a paragraph of prose.\n[Narrator]: one line only."));
