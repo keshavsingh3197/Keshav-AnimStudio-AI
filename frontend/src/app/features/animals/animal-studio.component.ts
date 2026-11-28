@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
-import { Project, RenderJob, TimedMusicClipBody, TimelineItem } from '../../core/models/api.models';
+import { Project, RenderJob, TimedMusicClipBody, TimelineItem, VoiceoverVoice } from '../../core/models/api.models';
 import { EffectClip } from '../../core/models/effects.models';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -13,7 +13,7 @@ import { EffectsService } from '../../core/services/effects.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 
-export type AnimalPresetId = 'duck-leopard' | 'honey-badger';
+export type AnimalPresetId = 'duck-leopard' | 'honey-badger' | 'devotional';
 export type AnimalTab = 'scenes' | 'generate' | 'publish' | 'library';
 export type SceneSlotStatus = 'prompt-ready' | 'uploading' | 'ready' | 'failed';
 
@@ -96,6 +96,7 @@ export interface AnimalSceneSlot {
   emotionReaction: string;
   sfxId: string;
   memeCaption?: string;
+  voiceLine?: string;
   googleFlowPrompt: string;
   status: SceneSlotStatus;
   errorMessage?: string;
@@ -104,7 +105,88 @@ export interface AnimalSceneSlot {
   isVideo?: boolean;
 }
 
-const NO_SPEECH_RULE = 'no human speaking, no human voice, no talking, no dialogue, no subtitles, no text, no watermark';
+const NO_SPEECH_RULE = 'no human speaking, no human voice, no talking, no dialogue, no subtitles, no text, no watermark, exact locked character positions, nothing extra';
+
+const AGGRESSIVE_COMEDY_SHAYARIS = [
+  'Sher banna aasan hai jab shikar chhota ho, par jab baari aaye asli hero ki, toh hawa bhi Shaktiman ho jaati hai!',
+  'Dhamki dene walon ka yahi anjaam hota hai, haath khali reh jaata hai aur hero ka kaam tamaam hota hai!',
+  'Jo dusron ko darate hain unka bharosa toot jaata hai, jab asli dost aate hain toh dushman muh chhupata hai!',
+  'Taqat par ghamand karne walon sun lo — jab dimag aur himmat ek saath ghoome, toh toofan bhi rasta deta hai!',
+];
+
+const DEVOTIONAL_SHAYARIS = [
+  'Mann mein vishwas ho toh har andhera chhat jaata hai, Prabhu ka naam lete hi har sankat mit jaata hai.',
+  'Subah ki pehli kiran aur mandir ki ghanti ke saath, jo Prabhu ko yaad kare uske sar par rehta hai unka haath.',
+  'Na chahiye daulat na shohrat ka shor, bas Prabhu charnon mein lage rahe mere mann ki dor.',
+];
+
+const DEVOTIONAL_SCENES: AnimalSceneSlot[] = [
+  {
+    index: 1,
+    title: 'Sunrise Temple Gates',
+    timeRange: '0:00–0:04',
+    durationSeconds: 4,
+    positionsNote: 'Center symmetrical frame: golden sunrise over ancient carved stone temple gates, glowing diya lamps on left and right steps.',
+    emotionReaction: 'Peaceful devotion + morning bell',
+    sfxId: 'temple_bell',
+    memeCaption: 'JAI SHRI RAM 🙏✨',
+    voiceLine: 'Subah ki pehli kiran ke saath jab mandir ke dwaar khulte hain, toh har dil mein ek nayi shakti jagti hai.',
+    googleFlowPrompt: `Vertical 9:16 3D cinematic devotional animation, golden sunrise over ancient Indian stone temple entrance, glowing brass diya lamps lined symmetrically on left and right steps, marigold garlands, volumetric morning sunbeams, ${NO_SPEECH_RULE}.`,
+    status: 'prompt-ready',
+  },
+  {
+    index: 2,
+    title: 'Sacred Shankh & Incense',
+    timeRange: '0:04–0:08',
+    durationSeconds: 4,
+    positionsNote: 'Foreground center: brass kalash and glowing incense smoke rising gracefully toward sanctum.',
+    emotionReaction: 'Sacred awe + shankh resonance',
+    sfxId: 'shankh',
+    memeCaption: 'HAR HAR MAHADEV 🔱',
+    voiceLine: 'Shankh ki goonj aur dhoop ki khushboo bata deti hai ki aaj bhi satya aur bhakti sabse badi taqat hai.',
+    googleFlowPrompt: `Vertical 9:16 3D cinematic devotional animation, temple sanctum interior, glowing brass oil lamps and swirling golden incense smoke rising in center frame, warm divine rays, ${NO_SPEECH_RULE}.`,
+    status: 'prompt-ready',
+  },
+  {
+    index: 3,
+    title: 'Divine Darshan Glow',
+    timeRange: '0:08–0:13',
+    durationSeconds: 5,
+    positionsNote: 'Center frame: radiant lotus flowers and golden aura illuminating the sacred altar with floating petals.',
+    emotionReaction: 'Deep reverence + flute melody',
+    sfxId: 'flute',
+    memeCaption: 'OM NAMAH SHIVAYA 🙏🌸',
+    voiceLine: 'Mann mein vishwas ho toh har andhera chhat jaata hai, Prabhu ka naam lete hi har sankat mit jaata hai.',
+    googleFlowPrompt: `Vertical 9:16 3D cinematic devotional animation, radiant sacred altar surrounded by fresh pink lotus flowers and floating marigold petals, soft golden divine halo light in center, serene atmosphere, ${NO_SPEECH_RULE}.`,
+    status: 'prompt-ready',
+  },
+  {
+    index: 4,
+    title: 'Evening Aarti Flames',
+    timeRange: '0:13–0:17',
+    durationSeconds: 4,
+    positionsNote: 'Foreground center: ornate multi-tier brass aarti thali glowing with warm camphor flames.',
+    emotionReaction: 'Spiritual uplift + aarti bell',
+    sfxId: 'aarti',
+    memeCaption: 'SHUBH SANDHYA AARTI 🪔',
+    voiceLine: 'Jab aarti ki jyoti jalti hai, toh saari chintaayein ussi aag mein bhasm ho jaati hain.',
+    googleFlowPrompt: `Vertical 9:16 3D cinematic devotional animation, close-up of a glowing ornate brass aarti lamp with multiple warm flames and rose petals in foreground center, river ghat bokeh lights in background, ${NO_SPEECH_RULE}.`,
+    status: 'prompt-ready',
+  },
+  {
+    index: 5,
+    title: 'Blessing Sunrise Outro',
+    timeRange: '0:17–0:21',
+    durationSeconds: 4,
+    positionsNote: 'Wide center: calm sacred river reflecting golden temple silhouette and gentle falling flower petals.',
+    emotionReaction: 'Peaceful blessing finale',
+    sfxId: 'temple_bell',
+    memeCaption: 'COMMENT 🙏 IF YOU BELIEVE',
+    voiceLine: 'Prabhu ki kripa sada aap par bani rahe, dil se likhiye Jai Shri Ram.',
+    googleFlowPrompt: `Vertical 9:16 3D cinematic devotional animation, calm sacred river reflecting golden temple silhouette at dawn, gentle flower petals drifting down across the frame, peaceful divine glow, ${NO_SPEECH_RULE}.`,
+    status: 'prompt-ready',
+  },
+];
 
 const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
   {
@@ -116,6 +198,7 @@ const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Wide-eyed shock + gasp',
     sfxId: 'gasp_break',
     memeCaption: 'WAIT... LOOK THERE! 👀',
+    voiceLine: 'Arre dekh bhai! Yeh junglee tendua akela samajh ke masoom khargosh par ghamand dikha raha hai!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, sunny jungle clearing. Foreground left and center: two expressive white cartoon ducks peeking out from behind dense green bushes with wide shocked eyes. Mid-background: a spotted leopard sitting on dirt ground holding a tiny frightened white rabbit under its front paw. Crisp lighting, exact character positions, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -128,6 +211,7 @@ const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Determined heroic eyebrows + action whoosh',
     sfxId: 'break_whoosh',
     memeCaption: 'RESCUE MODE ON! 🦆💨',
+    voiceLine: 'Ab iska ghamand todne ka waqt aa gaya hai — chalo dikhate hain asli hero kaun hai!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, same sunny jungle clearing. The same two white cartoon ducks sprinting fast side-by-side out of the green bushes toward the spotted leopard in the background, determined heroic expressions, small dust puffs behind webbed feet, dynamic motion, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -140,6 +224,7 @@ const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Hyper-speed spin + comic chaos',
     sfxId: 'bandook_burst',
     memeCaption: 'SHAKTIMAN TORNADO! 🌪️🔥',
+    voiceLine: 'Sher banna aasan hai jab shikar chhota ho, par jab baari aaye asli hero ki, toh hawa bhi Shaktiman ho jaati hai!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, same jungle clearing. Two white cartoon ducks spinning at super high speed like a glowing golden-white Shaktiman tornado vortex right around the spotted leopard, kicking up a massive swirling brown-gold dust cloud filling the frame, dramatic comic energy, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -152,6 +237,7 @@ const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Fast snatch + comic pop',
     sfxId: 'punch_pop',
     memeCaption: 'YOINK!! GONE! 🐇💨',
+    voiceLine: 'Naak ke neeche se khargosh gayab! Ab dhoondhta reh dhool mein!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, swirling dust cloud in jungle clearing. The two white cartoon ducks swooping together carrying the happy tiny white rabbit safely between them, dashing out toward the left edge in fast motion blur, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -164,6 +250,7 @@ const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Deadpan disbelief + record scratch shock',
     sfxId: 'shock_sting',
     memeCaption: 'BRO WHERE DID IT GO?! 😱',
+    voiceLine: 'Kya hua tendue? Haath khali aur muh khula ka khula reh gaya na!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, dust settling in the same sunny jungle clearing. Close-up of the spotted leopard sitting completely alone, staring down at its empty front paw with jaw dropped to the ground and huge bulging eyes in total comic shock, hilarious expression, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -176,6 +263,7 @@ const DUCK_LEOPARD_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Smug victory + finale laugh',
     sfxId: 'laugh_break',
     memeCaption: 'MISSION COMPLETE 😎🎉',
+    voiceLine: 'Asli boss wahi jo bina shor kiye kaam tamaam kar de! Like thoko!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, bright sunny meadow. The two white cartoon ducks wearing cool black sunglasses high-fiving with the happy smiling white rabbit safely between them, celebratory heroic vibe, vibrant colors, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -191,6 +279,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Smug confidence',
     sfxId: 'break_whoosh',
     memeCaption: 'ZERO FEAR 😎',
+    voiceLine: 'Yeh jungle ka woh boss hai jisko kisi ke baap ka dar nahi!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, golden savanna trail. A fearless cartoon honey badger strutting confidently toward the camera with a smug half-smirk, cinematic warm sunlight, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -203,6 +292,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Explosive chaos + bandook impact',
     sfxId: 'bandook_shot',
     memeCaption: 'WAIT FOR IT... 💥🐝',
+    voiceLine: 'Goli chale ya madhumakkhiyan — iska attitude hilaane ki kisi mein aukaat nahi!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, same savanna. A swarm of angry cartoon bees and dramatic comic dust puffs exploding around the fearless honey badger, action comedy energy, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -215,6 +305,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Deadpan silence + cricket chirp',
     sfxId: 'cricket_chirp',
     memeCaption: 'NOT EVEN BLINKING 😐',
+    voiceLine: 'Dekh raha hai na? Palkein bhi nahi jhapkayi — pura system hang kar diya!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation. Extreme close-up of the honey badger staring straight at the camera with completely unbothered deadpan half-closed eyes while chaos blurs behind it, hilarious meme face, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -227,6 +318,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Bruh bass drop + jaw drop',
     sfxId: 'bruh_boom',
     memeCaption: 'BRUH MOMENT 💀',
+    voiceLine: 'Dhamki dene walon ka yahi anjaam hota hai, haath khali reh jaata hai aur hero ka kaam tamaam hota hai!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation. The honey badger casually brushing dust off its shoulder while a startled jackal and cobra freeze in the background with dropped jaws, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -239,6 +331,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
     emotionReaction: 'Victory laugh sting',
     sfxId: 'laugh_break',
     memeCaption: 'DEAL WITH IT 😎🔥',
+    voiceLine: 'Chasma laga ke nikal liya sher — ab comments mein aag laga do!',
     googleFlowPrompt: `Vertical 9:16 3D Pixar-style cartoon animation, golden sunset. The fearless honey badger wearing cool black sunglasses walking away calmly like an action hero, vibrant cinematic lighting, ${NO_SPEECH_RULE}.`,
     status: 'prompt-ready',
   },
@@ -261,13 +354,16 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
         </div>
         <div class="as-preset-pills">
           <button type="button" class="as-pill" [class.active]="preset() === 'duck-leopard'" (click)="selectPreset('duck-leopard')">
-            🦆 Duck Duo vs Leopard (Example)
+            🦆 Duck Duo vs Leopard
           </button>
           <button type="button" class="as-pill" [class.active]="preset() === 'honey-badger'" (click)="selectPreset('honey-badger')">
-            🦡 Honey Badger (Example)
+            🦡 Honey Badger
+          </button>
+          <button type="button" class="as-pill" [class.active]="preset() === 'devotional'" (click)="selectPreset('devotional')">
+            🙏 Devotional (Bhakti / Katha)
           </button>
           <button type="button" class="as-pill" style="border-color:var(--brand);background:var(--brand-subtle);" (click)="generateFreshStoryAndSetting()">
-            🎲 New Story &amp; New Place (No Repeat)
+            🎲 New Story &amp; Place
           </button>
         </div>
       </header>
@@ -303,14 +399,17 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
               </small>
             </div>
             <div class="as-actions">
+              <button type="button" class="btn secondary" (click)="addEmptyScene()">
+                ➕ Add Scene (1–10s)
+              </button>
+              <button type="button" class="btn secondary" (click)="injectShayari()">
+                🎤 + Shuffle Shayari
+              </button>
               <button type="button" class="btn secondary" (click)="generateFreshStoryAndSetting()">
-                🎲 Shuffle New Story + Place
+                🎲 Shuffle Story + Place
               </button>
               <button type="button" class="btn secondary" (click)="copyAllPrompts()">
                 {{ copiedId() === 'all' ? '✓ Copied All Prompts!' : '📋 Copy All Low-Credit Prompts (Batch)' }}
-              </button>
-              <button type="button" class="btn primary" (click)="activeTab.set('publish')">
-                Next: Assemble 9:16 Reel →
               </button>
             </div>
           </div>
@@ -382,20 +481,39 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
               </button>
             </div>
             <div class="as-toggles">
-              <label><input type="checkbox" [(ngModel)]="autoAddSfx" /> 🔊 Auto-Sync Reaction &amp; Comedy SFX on Video</label>
-              <label><input type="checkbox" [(ngModel)]="autoAddMemes" /> 😂 Auto-Add Funny Meme Captions &amp; Confetti Outro</label>
-              <label><input type="checkbox" [(ngModel)]="autoOptimizeOnRender" /> ⚡ Auto-Optimize Pacing Before Render</label>
+              <label><input type="checkbox" [(ngModel)]="useOurVoiceover" /> 🗣️ Use Our Realistic Voiceover (Sentence + Shayari)</label>
+              <label><input type="checkbox" [(ngModel)]="muteGoogleFlowAudio" /> 🔇 Mute Google Flow Clip Audio</label>
+              <label><input type="checkbox" [(ngModel)]="autoAddSfx" /> 🔊 Sentence-End Reaction &amp; Comedy/Bhakti SFX</label>
+              <label><input type="checkbox" [(ngModel)]="autoAddMemes" /> 😂 Funny Meme Captions &amp; Confetti Outro</label>
+              <label><input type="checkbox" [(ngModel)]="autoOptimizeOnRender" /> ⚡ Auto-Optimize Pacing</label>
             </div>
+            @if (useOurVoiceover && voices().length > 0) {
+              <div class="as-field-row">
+                <label>Our Realistic Voice Model
+                  <select [(ngModel)]="selectedVoiceId">
+                    @for (v of voices(); track v.id) {
+                      <option [value]="v.id">{{ v.name }} ({{ v.languageCode || v.gender || 'multi' }})</option>
+                    }
+                  </select>
+                </label>
+                <label>Voice Delivery Tone
+                  <select [(ngModel)]="voiceTone">
+                    <option value="aggressive-comedy">🔥 Aggressive Desi Comedy + Shayari</option>
+                    <option value="devotional">🙏 Serene Devotional / Katha</option>
+                  </select>
+                </label>
+              </div>
+            }
           </div>
 
           <div class="as-field-row">
-            <label>Custom Animal Story Idea (optional — creates a fresh 6-scene pack)
-              <input type="text" [(ngModel)]="customIdeaInput" placeholder="e.g. 2 Ducks rescue a baby monkey from a tiger in a bamboo river" />
+            <label>Custom Idea OR Clone Channel Action Sequence (1 line per scene — auto-locks positions &amp; adds Shayari)
+              <input type="text" [(ngModel)]="customIdeaInput" placeholder="e.g. 2 Ducks peek bushes -> Sprint -> Shaktiman tornado -> Snatch rabbit -> Leopard shock" />
             </label>
             <label>Google Flow Credit Mode
               <select [(ngModel)]="flowModel">
                 <option value="nano-banana-0cr">Nano Banana 2.1 · Image (0 Credits · Lowest Cost)</option>
-                <option value="veo-fast">Veo 3.1 Fast · Video Clip (Lowest Video Credits)</option>
+                <option value="veo-fast">Veo 3.1 Fast · 1–8s Video Clip (Lowest Video Credits)</option>
               </select>
             </label>
             <label>Format
@@ -406,7 +524,7 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
             </label>
             <div style="display:flex;align-items:flex-end;">
               <button type="button" class="btn secondary" [disabled]="!customIdeaInput.trim()" (click)="applyCustomIdea()">
-                ✨ Build Custom 6-Scene Prompts
+                🎬 Clone Actions → Position-Locked Prompts + Shayari
               </button>
             </div>
           </div>
@@ -429,10 +547,10 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
 
                 <div class="as-scene-config">
                   <label class="as-dur-label">
-                    Duration (s):
+                    Duration (1–10s):
                     <input
                       type="number"
-                      min="2"
+                      min="1"
                       max="10"
                       [ngModel]="sc.durationSeconds"
                       (ngModelChange)="updateDuration(sc.index, $event)"
@@ -444,13 +562,20 @@ const HONEY_BADGER_SCENES: AnimalSceneSlot[] = [
                     @if (sc.file) {
                       <button type="button" class="btn small secondary" title="Clear Media" (click)="clearSceneMedia(sc.index)">✕</button>
                     }
+                    @if (scenes().length > 1) {
+                      <button type="button" class="btn small secondary" title="Remove Scene" (click)="removeScene(sc.index)">🗑</button>
+                    }
                   </div>
                 </div>
 
                 <p class="as-pos"><strong>Exact Positions:</strong> {{ sc.positionsNote }}</p>
                 <p class="as-meta"><strong>Emotion &amp; SFX:</strong> {{ sc.emotionReaction }} · <code>[SFX: {{ sc.sfxId }}]</code></p>
                 <label class="as-meme-label">
-                  <span>😂 Funny Meme Overlay:</span>
+                  <span>🗣️ Our Voiceover / Aggressive Punchline / Shayari (SFX plays after sentence):</span>
+                  <input type="text" [ngModel]="sc.voiceLine || ''" (ngModelChange)="updateVoiceLine(sc.index, $event)" placeholder="Realistic voiceover line or Shayari..." />
+                </label>
+                <label class="as-meme-label">
+                  <span>😂 Funny Meme / Caption Overlay:</span>
                   <input type="text" [ngModel]="sc.memeCaption || ''" (ngModelChange)="updateMemeCaption(sc.index, $event)" placeholder="Optional funny meme text" />
                 </label>
 
@@ -626,11 +751,16 @@ export class AnimalStudioComponent implements OnInit {
   readonly currentSetting = signal<string>('sunny jungle clearing with green bushes');
   readonly customTitleOverride = signal<string | null>(null);
   readonly generatedReels = signal<Project[]>([]);
+  readonly voices = signal<VoiceoverVoice[]>([]);
 
   customIdeaInput = '';
   customTitle = '2 Ducks vs Leopard — Shaktiman Dust Rescue 🦆🌪️🐇 | #Shorts';
   aspect: '9:16' | '16:9' = '9:16';
   flowModel: 'nano-banana-0cr' | 'veo-fast' = 'nano-banana-0cr';
+  selectedVoiceId = '';
+  useOurVoiceover = true;
+  muteGoogleFlowAudio = true;
+  voiceTone: 'aggressive-comedy' | 'devotional' = 'aggressive-comedy';
   autoImportSfx = true;
   autoAddSfx = true;
   autoAddMemes = true;
@@ -640,7 +770,9 @@ export class AnimalStudioComponent implements OnInit {
     this.customTitleOverride()
       ?? (this.preset() === 'duck-leopard'
         ? '🦆 Duck Duo vs Leopard — Shaktiman Dust Tornado Rescue (6 Scenes)'
-        : '🦡 Honey Badger International — Fearless Reaction Reel (5 Scenes)'),
+        : this.preset() === 'devotional'
+          ? '🙏 Sacred Temple Darshan & Bhakti Aarti (5 Scenes)'
+          : '🦡 Honey Badger International — Fearless Reaction Reel (5 Scenes)'),
   );
 
   readonly readyCount = computed(() => this.scenes().filter((s) => s.status === 'ready').length);
@@ -649,15 +781,32 @@ export class AnimalStudioComponent implements OnInit {
     const list = this.scenes();
     const totalSec = list.reduce((sum, s) => sum + s.durationSeconds, 0);
     const mediaReady = list.filter((s) => s.status === 'ready').length;
+    const voiceReady = list.filter((s) => !!s.voiceLine?.trim()).length;
     const memeReady = list.filter((s) => !!s.memeCaption?.trim()).length;
-    const pacingNote = totalSec >= 18 && totalSec <= 28
+    const pacingNote = totalSec >= 15 && totalSec <= 40
       ? `Optimal Shorts length (${totalSec}s)`
-      : `Current ${totalSec}s (click Auto-Optimize for 19–24s viral pacing)`;
-    return `${pacingNote} · Media: ${mediaReady}/${list.length} · Reaction SFX: ${list.length}/${list.length} · Funny Memes: ${memeReady}/${list.length} · No Human Speaking`;
+      : `Current ${totalSec}s (click Auto-Optimize for snappy viral pacing)`;
+    return `${pacingNote} · Media: ${mediaReady}/${list.length} · Our Voiceover: ${voiceReady}/${list.length} · Sentence SFX: ${list.length}/${list.length} · Memes: ${memeReady}/${list.length}`;
   });
 
   ngOnInit(): void {
     this.loadGeneratedReels();
+    this.loadVoices();
+  }
+
+  private loadVoices(): void {
+    if (!this.auth.isAuthenticated()) return;
+    this.api.voiceoverVoices().subscribe({
+      next: (res) => {
+        const list = res?.voices ?? [];
+        this.voices.set(list);
+        if (!this.selectedVoiceId && list.length > 0) {
+          const preferred = list.find((v) => /hi|in|hindi|en-in/i.test(v.languageCode || v.name)) ?? list[0];
+          this.selectedVoiceId = preferred.id;
+        }
+      },
+      error: () => { /* optional */ },
+    });
   }
 
   loadGeneratedReels(): void {
@@ -801,28 +950,41 @@ export class AnimalStudioComponent implements OnInit {
   applyCustomIdea(): void {
     const idea = this.customIdeaInput.trim();
     if (!idea) return;
-    this.customTitleOverride.set(`✨ ${idea}`);
-    this.customTitle = `${idea.slice(0, 80)} | #Shorts`;
-    this.currentSetting.set('custom scene setting');
-    const durs = [3, 3, 5, 3, 4, 4];
-    const memes = ['WAIT... LOOK! 👀', 'HERE WE GO! 💨', 'TOTAL CHAOS! 🌪️🔥', 'RESCUED!! ⚡', 'WHAT JUST HAPPENED?! 😱', 'MISSION COMPLETE 😎🎉'];
-    this.scenes.set(this.recalculateTimeRanges([1, 2, 3, 4, 5, 6].map((idx) => {
-      const beats = ['Setup & Spying', 'Fast Approach', 'Dust / Tornado Twist', 'Rescue & Escape', 'Villain Shock Reaction', 'Victory Meme Outro'];
-      const sfx = ['gasp_break', 'break_whoosh', 'bandook_burst', 'punch_pop', 'shock_sting', 'laugh_break'];
+    this.customTitleOverride.set(`🎬 ${idea.slice(0, 60)}`);
+    this.customTitle = `${idea.slice(0, 75)} | #Shorts`;
+    this.currentSetting.set('locked custom scene setting');
+    const isDevotional = this.voiceTone === 'devotional' || /temple|bhakti|ram|shiva|krishna|hanuman|aarti|devotional|mandir/i.test(idea);
+    const parts = idea.split(/\s*->\s*|\n+/).map((x) => x.trim()).filter(Boolean);
+    const steps = parts.length >= 2
+      ? parts.slice(0, 10)
+      : ['Setup & Locked Positions', 'Fast Escalation', 'Shaktiman / Climax Twist', 'Action Rescue / Payoff', 'Shock Reaction', 'Victory Meme Outro'];
+    const comedySfx = ['gasp_break', 'break_whoosh', 'bandook_burst', 'punch_pop', 'shock_sting', 'laugh_break'];
+    const bhaktiSfx = ['temple_bell', 'shankh', 'flute', 'aarti', 'temple_bell'];
+    const shayari = isDevotional
+      ? DEVOTIONAL_SHAYARIS[Math.floor(Math.random() * DEVOTIONAL_SHAYARIS.length)]
+      : AGGRESSIVE_COMEDY_SHAYARIS[Math.floor(Math.random() * AGGRESSIVE_COMEDY_SHAYARIS.length)];
+
+    this.scenes.set(this.recalculateTimeRanges(steps.map((step, idx0) => {
+      const idx = idx0 + 1;
+      const isShayariBeat = idx === Math.max(1, steps.length - 1) || idx === 3;
+      const defaultVoice = isDevotional
+        ? (isShayariBeat ? shayari : `${step} — Prabhu ki kripa sada bani rahe.`)
+        : (isShayariBeat ? shayari : `Dekh bhai ab kya hota hai — ${step}!`);
       return {
         index: idx,
-        title: beats[idx - 1],
+        title: parts.length >= 2 ? step.slice(0, 32) : step,
         timeRange: '',
-        durationSeconds: durs[idx - 1],
-        positionsNote: `Beat ${idx} (${beats[idx - 1]}) for: ${idea}`,
-        emotionReaction: beats[idx - 1],
-        sfxId: sfx[idx - 1],
-        memeCaption: memes[idx - 1],
-        googleFlowPrompt: `Vertical ${this.aspect} 3D Pixar-style cartoon animation. Scene ${idx} (${beats[idx - 1]}) of story: ${idea}. Expressive animal emotions, consistent characters, dynamic camera, ${NO_SPEECH_RULE}.`,
+        durationSeconds: parts.length >= 2 ? 4 : ([3, 3, 5, 3, 4, 4][idx0] ?? 4),
+        positionsNote: `Exact locked action (${idx}/${steps.length}): ${parts.length >= 2 ? step : `${step} for ${idea}`}`,
+        emotionReaction: isDevotional ? 'Serene devotion' : 'Aggressive comic punch',
+        sfxId: isDevotional ? bhaktiSfx[idx0 % bhaktiSfx.length] : comedySfx[idx0 % comedySfx.length],
+        memeCaption: isDevotional ? 'JAI SHRI RAM 🙏✨' : ['WAIT... LOOK! 👀', 'HERO MODE ON! ⚡', 'TOTAL CHAOS! 🌪️🔥', 'YOINK!! 💨', 'BRO WHAT?! 😱', 'MISSION COMPLETE 😎🎉'][idx0 % 6],
+        voiceLine: defaultVoice,
+        googleFlowPrompt: `Vertical ${this.aspect} 3D ${isDevotional ? 'cinematic devotional' : 'Pixar-style cartoon'} animation. Scene ${idx} of ${steps.length}: ${parts.length >= 2 ? step : `${step} — ${idea}`}. Consistent characters, exact foreground/background positions, ${NO_SPEECH_RULE}.`,
         status: 'prompt-ready' as SceneSlotStatus,
       };
     })));
-    this.notice.set(`Built custom 6-scene prompt pack for "${idea}".`);
+    this.notice.set(`Built ${steps.length} position-locked prompts (no human speech) + realistic voice lines & Shayari!`);
   }
 
   selectPreset(id: AnimalPresetId): void {
@@ -832,12 +994,60 @@ export class AnimalStudioComponent implements OnInit {
       this.currentSetting.set('sunny jungle clearing with green bushes');
       this.scenes.set(DUCK_LEOPARD_SCENES.map((s) => ({ ...s })));
       this.customTitle = '2 Ducks vs Leopard — Shaktiman Dust Rescue 🦆🌪️🐇 | #Shorts';
+      this.voiceTone = 'aggressive-comedy';
+    } else if (id === 'devotional') {
+      this.currentSetting.set('ancient stone temple & sacred river');
+      this.scenes.set(DEVOTIONAL_SCENES.map((s) => ({ ...s })));
+      this.customTitle = 'Sacred Temple Darshan & Morning Aarti 🙏🪔 | Bhakti #Shorts';
+      this.voiceTone = 'devotional';
     } else {
       this.currentSetting.set('golden savanna trail');
       this.scenes.set(HONEY_BADGER_SCENES.map((s) => ({ ...s })));
       this.customTitle = 'Honey Badger Does Not Care 🦡😎 | International Reaction #Shorts';
+      this.voiceTone = 'aggressive-comedy';
     }
     this.notice.set(null);
+  }
+
+  addEmptyScene(): void {
+    const nextIdx = this.scenes().length + 1;
+    const isDevotional = this.preset() === 'devotional' || this.voiceTone === 'devotional';
+    const newSlot: AnimalSceneSlot = {
+      index: nextIdx,
+      title: `Extra Scene ${nextIdx}`,
+      timeRange: '',
+      durationSeconds: 4,
+      positionsNote: 'Center frame: locked continuation shot matching previous scene.',
+      emotionReaction: isDevotional ? 'Serene devotion' : 'Comic reaction punch',
+      sfxId: isDevotional ? 'temple_bell' : 'punch_pop',
+      memeCaption: isDevotional ? 'OM NAMAH SHIVAYA 🙏' : 'WAIT FOR IT! 😂🔥',
+      voiceLine: isDevotional ? 'Prabhu ke charnon mein hi sacchi shanti hai.' : 'Abhi picture baaki hai mere dost!',
+      googleFlowPrompt: `Vertical ${this.aspect} 3D ${isDevotional ? 'cinematic devotional' : 'Pixar-style cartoon'} animation, continuation scene ${nextIdx}. Consistent characters and lighting, ${NO_SPEECH_RULE}.`,
+      status: 'prompt-ready',
+    };
+    this.scenes.update((list) => this.recalculateTimeRanges([...list, newSlot]));
+    this.notice.set(`Added Scene ${nextIdx} (1–10s). Drop or upload a clip/image for it.`);
+  }
+
+  removeScene(index: number): void {
+    if (this.scenes().length <= 1) return;
+    this.scenes.update((list) =>
+      this.recalculateTimeRanges(list.filter((s) => s.index !== index).map((s, i) => ({ ...s, index: i + 1 }))),
+    );
+  }
+
+  updateVoiceLine(index: number, value: string): void {
+    this.scenes.update((list) => list.map((s) => (s.index === index ? { ...s, voiceLine: value } : s)));
+  }
+
+  injectShayari(): void {
+    const isDevotional = this.preset() === 'devotional' || this.voiceTone === 'devotional';
+    const bank = isDevotional ? DEVOTIONAL_SHAYARIS : AGGRESSIVE_COMEDY_SHAYARIS;
+    const shayari = bank[Math.floor(Math.random() * bank.length)];
+    const list = this.scenes();
+    const targetIdx = list.length >= 3 ? list[Math.min(2, list.length - 1)].index : list[0].index;
+    this.scenes.update((items) => items.map((s) => (s.index === targetIdx ? { ...s, voiceLine: shayari } : s)));
+    this.notice.set(`Added fresh ${isDevotional ? 'Bhakti Shayari' : 'Aggressive Comedy Shayari'} to Scene ${targetIdx}: "${shayari}"`);
   }
 
   statusLabel(s: SceneSlotStatus): string {
@@ -966,7 +1176,7 @@ export class AnimalStudioComponent implements OnInit {
   }
 
   updateDuration(index: number, rawSeconds: number): void {
-    const secs = Math.max(2, Math.min(10, Math.round(Number(rawSeconds) || 4)));
+    const secs = Math.max(1, Math.min(10, Math.round(Number(rawSeconds) || 4)));
     this.scenes.update((list) => this.recalculateTimeRanges(list.map((s) => (s.index === index ? { ...s, durationSeconds: secs } : s))));
   }
 
@@ -1164,10 +1374,43 @@ export class AnimalStudioComponent implements OnInit {
       }
 
       const musicTracks: TimedMusicClipBody[] = [];
+
+      if (this.useOurVoiceover && this.selectedVoiceId) {
+        this.renderStatus.set('Generating our realistic voiceover & Shayari per scene…');
+        const isDevotional = this.voiceTone === 'devotional' || this.preset() === 'devotional';
+        for (let i = 0; i < sceneStarts.length; i++) {
+          const { sc, startTime } = sceneStarts[i];
+          const text = sc.voiceLine?.trim();
+          if (!text) continue;
+          try {
+            const voiceAsset = await firstValueFrom(
+              this.api.generateVoiceover(proj.id, {
+                text,
+                voiceId: this.selectedVoiceId,
+                rate: isDevotional ? 0.94 : 1.08,
+                name: `VO Scene ${sc.index}`,
+                style: isDevotional
+                  ? 'warm serene devotional katha narration'
+                  : 'aggressive high-energy desi comedy punchline',
+              }),
+            );
+            musicTracks.push({
+              assetId: voiceAsset.id,
+              startSeconds: startTime,
+              volume: 1.0,
+              isVoiceover: true,
+            });
+          } catch {
+            // Non-blocking: continue even if a TTS line fails
+          }
+        }
+      }
+
       if (this.autoImportSfx || this.autoAddSfx) {
-        this.renderStatus.set('Syncing Comedy, Bandook & Reaction SFX to scenes…');
+        const sfxGenre = this.preset() === 'devotional' || this.voiceTone === 'devotional' ? 'devotional' : 'comedy';
+        this.renderStatus.set(`Syncing ${sfxGenre} & sentence-end reaction SFX…`);
         try {
-          const imported = await firstValueFrom(this.effects.importSfxPack({ genre: 'comedy' }));
+          const imported = await firstValueFrom(this.effects.importSfxPack({ genre: sfxGenre }));
           const library = await firstValueFrom(this.effects.list({ category: 'SoundEffect', kind: 'Audio' }, true));
           const pool: EffectClip[] = [...(imported?.items ?? []), ...(library ?? [])];
 
@@ -1189,9 +1432,15 @@ export class AnimalStudioComponent implements OnInit {
                 sfxAssetId = used.asset.id;
                 effectAssetCache.set(matched.id, sfxAssetId);
               }
+
+              // Place reaction SFX right after the sentence completes when voiceover is enabled.
+              const sentenceEndOffset = this.useOurVoiceover && sc.voiceLine?.trim()
+                ? Math.min(Math.max(0.5, sc.durationSeconds - 0.8), Math.max(0.9, sc.voiceLine.trim().length / 18))
+                : 0;
+
               musicTracks.push({
                 assetId: sfxAssetId,
-                startSeconds: startTime,
+                startSeconds: Number((startTime + sentenceEndOffset).toFixed(2)),
                 volume: 0.95,
               });
             }
@@ -1201,7 +1450,7 @@ export class AnimalStudioComponent implements OnInit {
         }
       }
 
-      this.renderStatus.set(`Rendering ${this.aspect} MP4 (${uploadedIds.length} scenes, ${musicTracks.length} SFX)…`);
+      this.renderStatus.set(`Rendering ${this.aspect} MP4 (${uploadedIds.length} scenes, ${musicTracks.length} audio tracks)…`);
       let job = await firstValueFrom(
         this.api.mergeClips(proj.id, {
           exportName: this.customTitle,
@@ -1212,7 +1461,7 @@ export class AnimalStudioComponent implements OnInit {
           quality: 'High',
           transition: 'None',
           transitionSeconds: 0,
-          muteClipAudio: false,
+          muteClipAudio: this.muteGoogleFlowAudio,
           backgroundMusicVolume: 0.75,
           musicTracks,
           timelineItems,
