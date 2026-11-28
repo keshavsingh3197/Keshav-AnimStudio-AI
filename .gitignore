@@ -40,3 +40,4 @@ appsettings.Local.json
 
 # Camera Studio face models, fetched by scripts/fetch-vision-models.mjs
 /frontend/vision-models/
+/renders/
